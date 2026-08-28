@@ -59,7 +59,13 @@ export class DrizzleRewardedAdRepository implements RewardedAdRepository {
             ${input.acceptedAt}
           )
           ON CONFLICT (group_id, reward_event_id) DO NOTHING
-          RETURNING id
+          RETURNING
+            id,
+            group_id,
+            actor_line_user_id,
+            reward_event_id,
+            policy_day,
+            amount_cost_twd
         ),
         policy_state AS (
           INSERT INTO rewarded_ad_policy_state (
@@ -97,16 +103,18 @@ export class DrizzleRewardedAdRepository implements RewardedAdRepository {
           RETURNING grant_row.id
         )
         SELECT
-          grant_row.id::text AS id,
-          grant_row.group_id::text AS group_id,
-          grant_row.actor_line_user_id,
-          grant_row.reward_event_id,
-          grant_row.policy_day,
-          grant_row.amount_cost_twd::text AS amount_cost_twd,
-          grant_row.status,
-          grant_row.grant_operation_id::text AS grant_operation_id
-        FROM rewarded_ad_grants AS grant_row
-        INNER JOIN candidate ON candidate.id = grant_row.id
+          candidate.id::text AS id,
+          candidate.group_id::text AS group_id,
+          candidate.actor_line_user_id,
+          candidate.reward_event_id,
+          candidate.policy_day,
+          candidate.amount_cost_twd::text AS amount_cost_twd,
+          CASE
+            WHEN EXISTS (SELECT 1 FROM policy_state) THEN 'PENDING'
+            ELSE 'REJECTED_POLICY'
+          END AS status,
+          NULL::text AS grant_operation_id
+        FROM candidate
         UNION ALL
         SELECT
           grant_row.id::text AS id,
@@ -126,6 +134,9 @@ export class DrizzleRewardedAdRepository implements RewardedAdRepository {
       return result.rows[0] as RewardRow | undefined;
     };
 
+    // PostgreSQL ON CONFLICT can observe a concurrent conflicting row that is not visible to
+    // the statement snapshot. A second statement obtains a fresh snapshot without changing
+    // policy counters because the event key is already present.
     const row = (await run()) ?? (await run());
     if (!row) throw new Error('failed to claim rewarded ad event');
     return mapReward(row);
