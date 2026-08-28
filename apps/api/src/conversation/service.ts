@@ -26,6 +26,7 @@ export type ConversationIngestionResult =
   | { status: 'IGNORED_INACTIVE' }
   | {
       status: 'STORED' | 'DUPLICATE';
+      groupId: number;
       counters: PendingCounters;
       threshold: ExtractionThresholdDecision;
     };
@@ -53,6 +54,7 @@ export class ConversationIngestionService {
 
     return {
       status: inserted ? 'STORED' : 'DUPLICATE',
+      groupId: group.id,
       counters,
       threshold: evaluateExtractionThreshold(counters, message.charCount, this.config),
     };

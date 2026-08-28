@@ -22,6 +22,11 @@ export const creditTransactionTypeEnum = pgEnum('credit_transaction_type', [
   'RESERVE',
   'RELEASE',
 ]);
+export const creditReservationStatusEnum = pgEnum('credit_reservation_status', [
+  'RESERVED',
+  'CONSUMED',
+  'RELEASED',
+]);
 export const memoryStatusEnum = pgEnum('memory_status', ['ACTIVE', 'SUPERSEDED']);
 export const extractionBatchStatusEnum = pgEnum('extraction_batch_status', ['CLAIMED', 'SUCCEEDED']);
 
@@ -152,6 +157,83 @@ export const auditLogs = pgTable(
   (table) => [index('audit_group_created_idx').on(table.groupId, table.createdAt)],
 );
 
+export const creditAccounts = pgTable(
+  'credit_accounts',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    groupId: bigint('group_id', { mode: 'number' }).notNull(),
+    bucket: creditBucketEnum('bucket').notNull(),
+    availableCostTwd: numeric('available_cost_twd', { precision: 18, scale: 8 }).default('0').notNull(),
+    reservedCostTwd: numeric('reserved_cost_twd', { precision: 18, scale: 8 }).default('0').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex('credit_account_group_bucket_uq').on(table.groupId, table.bucket)],
+);
+
+export const creditOperations = pgTable(
+  'credit_operations',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    groupId: bigint('group_id', { mode: 'number' }).notNull(),
+    type: creditTransactionTypeEnum('type').notNull(),
+    scopeBucket: creditBucketEnum('scope_bucket'),
+    requestedAmountCostTwd: numeric('requested_amount_cost_twd', { precision: 18, scale: 8 }).notNull(),
+    referenceType: varchar('reference_type', { length: 64 }).notNull(),
+    referenceId: varchar('reference_id', { length: 128 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('credit_operation_reference_uq').on(
+      table.groupId,
+      table.type,
+      table.referenceType,
+      table.referenceId,
+    ),
+    index('credit_operation_group_created_idx').on(table.groupId, table.createdAt),
+  ],
+);
+
+export const creditReservations = pgTable(
+  'credit_reservations',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    groupId: bigint('group_id', { mode: 'number' }).notNull(),
+    reserveOperationId: bigint('reserve_operation_id', { mode: 'number' }).notNull().unique(),
+    referenceType: varchar('reference_type', { length: 64 }).notNull(),
+    referenceId: varchar('reference_id', { length: 128 }).notNull(),
+    amountCostTwd: numeric('amount_cost_twd', { precision: 18, scale: 8 }).notNull(),
+    status: creditReservationStatusEnum('status').default('RESERVED').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('credit_reservation_reference_uq').on(
+      table.groupId,
+      table.referenceType,
+      table.referenceId,
+    ),
+    index('credit_reservation_group_status_idx').on(table.groupId, table.status),
+  ],
+);
+
+export const creditTransactions = pgTable(
+  'credit_transactions',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    operationId: bigint('operation_id', { mode: 'number' }).notNull(),
+    groupId: bigint('group_id', { mode: 'number' }).notNull(),
+    bucket: creditBucketEnum('bucket').notNull(),
+    type: creditTransactionTypeEnum('type').notNull(),
+    amountCostTwd: numeric('amount_cost_twd', { precision: 18, scale: 8 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('credit_transaction_operation_bucket_uq').on(table.operationId, table.bucket),
+    index('credit_transaction_group_created_idx').on(table.groupId, table.createdAt),
+  ],
+);
+
 export const aiUsageEvents = pgTable(
   'ai_usage_events',
   {
@@ -170,45 +252,11 @@ export const aiUsageEvents = pgTable(
     costTwd: numeric('cost_twd', { precision: 18, scale: 8 }).notNull(),
     chargedCostTwd: numeric('charged_cost_twd', { precision: 18, scale: 8 }).notNull(),
     latencyMs: integer('latency_ms'),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [index('ai_usage_group_created_idx').on(table.groupId, table.createdAt)],
-);
-
-export const creditAccounts = pgTable(
-  'credit_accounts',
-  {
-    id: bigserial('id', { mode: 'number' }).primaryKey(),
-    groupId: bigint('group_id', { mode: 'number' }).notNull(),
-    bucket: creditBucketEnum('bucket').notNull(),
-    availableCostTwd: numeric('available_cost_twd', { precision: 18, scale: 8 }).default('0').notNull(),
-    reservedCostTwd: numeric('reserved_cost_twd', { precision: 18, scale: 8 }).default('0').notNull(),
-    expiresAt: timestamp('expires_at', { withTimezone: true }),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [uniqueIndex('credit_account_group_bucket_uq').on(table.groupId, table.bucket)],
-);
-
-export const creditTransactions = pgTable(
-  'credit_transactions',
-  {
-    id: bigserial('id', { mode: 'number' }).primaryKey(),
-    groupId: bigint('group_id', { mode: 'number' }).notNull(),
-    bucket: creditBucketEnum('bucket').notNull(),
-    type: creditTransactionTypeEnum('type').notNull(),
-    amountCostTwd: numeric('amount_cost_twd', { precision: 18, scale: 8 }).notNull(),
-    referenceType: varchar('reference_type', { length: 64 }),
-    referenceId: varchar('reference_id', { length: 128 }),
+    chargeOperationId: bigint('charge_operation_id', { mode: 'number' }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    index('credit_transaction_group_created_idx').on(table.groupId, table.createdAt),
-    uniqueIndex('credit_transaction_reference_uq').on(
-      table.groupId,
-      table.bucket,
-      table.type,
-      table.referenceType,
-      table.referenceId,
-    ),
+    uniqueIndex('ai_usage_charge_operation_uq').on(table.chargeOperationId),
+    index('ai_usage_group_created_idx').on(table.groupId, table.createdAt),
   ],
 );

@@ -2,9 +2,9 @@
 
 ## Current status
 
-Round 3 adds the safety foundation required before any Gemini memory extraction is enabled: database-owned extraction batches with leases, sender/group-member persistence, exact credit-allocation primitives, AI pricing/FX snapshots, and explicit reply/@AI `記住` detection.
+Round 4 connects event-driven webhook ingestion to database extraction claims and replaces the provisional per-bucket credit-idempotency idea with a logical-operation ledger that is safe for multi-bucket consumption. It also adds PAID reservation settlement and retry-safe AI usage billing/persistence. Gemini memory extraction is still intentionally disabled.
 
-GitHub Actions is still an environment blocker: the latest checked run for `0611c2e` completed with a failed `verify` job before any workflow step executed (`steps` absent / no logs). Therefore repository-wide install/typecheck/lint/test/build is still not proven by Actions.
+GitHub Actions remains an environment blocker: the Round 3 run for `9555d0f` completed with a failed `verify` job before any workflow step executed (`steps` absent / no logs). Full workspace install/typecheck/lint/test/build is therefore still not proven by Actions.
 
 ## Confirmed V1 baseline
 
@@ -35,82 +35,83 @@ LINE signature verification and ordered event parsing, supported group-message n
 
 ## Round 3 — completed
 
-### Extraction ownership / retry safety
+Database-owned extraction batches/leases, group-member persistence, exact bigint credit allocation primitives, AI pricing/FX snapshot calculator, explicit `@AI 記住` / reply command detection, and the first credit/reference schema foundation.
 
-- Added configurable `CONVERSATION_EXTRACTION_LEASE_SECONDS` with a 120-second default.
-- Added `conversation_extraction_batches` and `conversation_messages.extraction_batch_id`.
-- Only one open extraction claim is allowed per group through `(group_id, active_claim_key)` where completed rows set the nullable key back to `NULL`.
-- Added a database-backed claim adapter using one PostgreSQL CTE to: select all currently unassigned conversation rows, verify thresholds, create a batch, assign the exact candidate rows, and decrement pending counters by the exact assigned totals.
-- Concurrent duplicate claims are suppressed with `ON CONFLICT DO NOTHING`.
-- Claims use a lease. An expired claim is reclaimed with `FOR UPDATE SKIP LOCKED`, increments `attempt_count`, and keeps the same immutable message batch.
-- Failure is deferred by moving the lease/retry time and recording a normalized error code; success marks the batch `SUCCEEDED` and releases the open claim key.
-- Added a repository-agnostic `ConversationExtractionCoordinator` and unit tests for threshold forwarding, lease calculation, and failure-code normalization.
+## Round 4 — completed
 
-### Group-member persistence
+### Extraction wiring
 
-- Added `group_members` plus `line_users.updated_at`.
-- Active message senders are now upserted into `line_users` and a per-group member snapshot before message persistence.
-- `last_seen_at` only moves forward, making redelivery harmless.
-- Inactive group messages remain ignored before sender/member mutation.
-- Updated conversation service tests to verify sender capture and inactive protection.
+- Conversation ingestion results now include the internal numeric group id for downstream domain work without exposing raw LINE group ids.
+- The webhook creates one shared Neon/Drizzle database handle and wires both conversation ingestion and extraction claiming to it.
+- After every active stored or duplicate message, the webhook calls `claimDueBatch`.
+- The extraction repository still decides atomically whether a new batch is due, so calling on every message does not bypass thresholds.
+- Calling on duplicate/later messages allows an expired claim lease to be reclaimed after a worker failure; this fixes the failure mode where counters had already been decremented and a redelivery would otherwise never retry the stranded batch.
+- Webhook metrics now distinguish threshold observations (`extractionCandidates`) from actual database-owned claims (`extractionClaims`).
+- Gemini is still not called by the webhook.
 
-### Credit primitives
+### Logical credit operations
 
-- Added exact 8-decimal TWD cost-unit helpers using bigint, avoiding floating-point ledger allocation.
-- Added deterministic consumption allocation in the required order: `WELCOME -> AD -> PAID`.
-- Added paid-only reservation allocation for Reminder.
-- Allocation reports shortfall instead of silently overdrawing.
-- Added reference-level uniqueness foundation to `credit_transactions` so later atomic ledger retries can be idempotent.
-- Added unit tests for order, shortfall, paid-only reservation, and decimal round-trip behavior.
+- Added `credit_operations` as the logical idempotency boundary.
+- One logical operation has a unique `(group_id, type, reference_type, reference_id)` key and stores the requested amount plus optional bucket scope.
+- `credit_transactions` now belong to an operation and are unique by `(operation_id, bucket)`, allowing one CONSUME to debit WELCOME, then AD, then PAID while the whole logical request remains idempotent.
+- Reusing a reference with a different amount or bucket scope returns `REFERENCE_CONFLICT` instead of silently applying a different mutation.
+- Added `CreditLedgerService` validation for positive amounts/group ids and normalized reconciliation references.
+- Added the Neon/Drizzle raw-SQL ledger adapter using single-statement data-modifying CTEs for GRANT and general CONSUME.
+- General consumption locks current non-expired balances and allocates in the required order `WELCOME -> AD -> PAID`; insufficient balance creates no logical operation and performs no debit.
+- Successful PAID grants mark `line_groups.has_paid = true` for later one-year retention behavior.
 
-### AI cost metering foundation
+### Paid reminder reservation safety
 
-- Added a pure token-cost calculator that requires an explicit input/output token price snapshot and USD/TWD rate.
-- Expanded `ai_usage_events` to retain input/output USD-per-million-token rates, USD/TWD rate, actual USD/TWD cost, and charged TWD cost alongside model/tokens/latency.
-- No Gemini token price or FX rate was invented or silently hard-coded into the memory domain.
-- Added calculator tests including invalid negative usage rejection.
+- Added `credit_reservations` with states `RESERVED`, `CONSUMED`, and `RELEASED`.
+- PAID reservation creates a logical RESERVE operation, moves value from PAID available to reserved, and is idempotent by reminder/reference key.
+- Cancellation settles `RESERVED -> RELEASED` and returns the exact reserved amount to PAID available.
+- Successful reminder delivery can settle `RESERVED -> CONSUMED`, reducing only PAID reserved value.
+- Settlement locks the reservation row so release and consume cannot both win.
+- Added service tests for reference normalization, positive-amount enforcement, and reserve/release reference reuse.
 
-### Explicit memory command boundary
+### AI usage billing coupling
 
-- Added detection for tagged commands such as `@AI 記住 Amy 不吃香菜`.
-- Added reply-mode `記住` detection that carries `quotedLineMessageId` as the intended source.
-- Ordinary untagged group text such as `記住明天要下雨` is deliberately not treated as a command.
-- Detection does not persist memory directly; it is ready to route into the same future candidate/dedup pipeline.
-- Added unit tests for tagged, quoted, and ordinary-chat cases.
+- Added `ai_usage_events.charge_operation_id` as a unique link to the credit operation that paid for a billable AI response.
+- Added `AiUsageRepository`/`AiUsageService` and a Drizzle persistence adapter with idempotent insert on `charge_operation_id`.
+- Added `AiBillingService`: it performs reference-idempotent credit consumption first, requires a resolved operation id, then persists usage against that operation id.
+- If a worker fails after the debit but before the usage insert, retrying the same AI reference returns the same credit operation and cannot double-charge; usage insertion is also idempotent.
+- Insufficient credit prevents usage persistence and is surfaced explicitly.
+- Gemini pricing, FX rate, API key, and any real model call are still not guessed or enabled.
 
-### Architecture / configuration
+### Schema stabilization
 
-- Updated architecture documentation for claim leases, sender snapshots, exact credit accounting, AI pricing snapshots, and explicit-memory boundaries.
-- Updated `.env.example` with the extraction lease override.
-- No migrations have been generated or executed yet because dependency-aware build validation is still unavailable and the near-term ledger/memory schema is not fully stabilized.
+- Replaced the provisional per-bucket transaction-reference uniqueness with operation-level idempotency, because per-bucket uniqueness could double-charge on retry if the first attempt exhausted WELCOME and a later retry reallocated into AD/PAID.
+- Added operation/reservation schema before generating migrations, which is why migration generation remains intentionally deferred.
+- No production credential or external account configuration was added.
 
-## Round 3 validation
+## Round 4 validation
 
-### Static/design verification completed
+### Available validation completed
 
-- Reviewed all Round 3 changes against `PRODUCT_V1.md`, `ARCHITECTURE.md`, Round 2 handoff, and current source interfaces before writing.
-- Extraction claim SQL is a single-statement CTE for batch creation/assignment/counter decrement; this avoids a non-transactional multi-query claim on Neon HTTP.
-- Credit allocation core is dependency-free and uses bigint fixed-point units.
-- No external credentials, production identifiers, AI prices, FX values, or payment assumptions were guessed.
+- Re-checked the latest Round 3 GitHub Actions run: job `verify` still completed with `steps = null` and no logs, confirming the runner/environment blocker persists rather than exposing a repository compile failure.
+- Used the automation runtime's TypeScript compiler to typecheck the new dependency-free credit ledger service, AI usage service, and AI billing service.
+- Typechecked the new Drizzle ledger/usage adapters and schema against lightweight local declarations to catch TypeScript/syntax/interface errors without pretending those stubs are a substitute for the real dependencies.
+- Typechecked the webhook/conversation/extraction wiring against lightweight local interface stubs.
+- Reviewed all SQL mutations for single-statement operation ownership, ledger-driven account mutation, reservation locking, and retry behavior.
 
 ### Full workspace blocker remains
 
-- Latest inspected GitHub Actions run for the prior head `0611c2e` still failed before a workflow step was assigned/executed and has no job logs.
-- The automation runtime still cannot prove `pnpm install`, dependency-aware TypeScript, ESLint, Vitest, Wrangler dry-run, or Vite build until a runner actually executes CI or an install-capable checkout runtime becomes available.
-- Treat any Drizzle driver typing/runtime issue discovered by a real CI runner as highest-priority Round 4 work before adding Gemini.
+- GitHub Actions still fails before a runner executes any workflow step, so real `pnpm install`, dependency-aware TypeScript, ESLint, Vitest, Wrangler dry-run, Vite build, and Drizzle runtime typing remain unproven.
+- No database migration has been generated or run; the current schema is still pre-migration V1 design state.
+- Treat any real CI/Drizzle issue as the first priority as soon as a runner begins executing steps.
 
-## Round 4 — highest priority
+## Round 5 — highest priority
 
-1. Re-check GitHub Actions for the Round 3 commit. If steps execute, fix every real install/typecheck/lint/test/build problem first.
-2. Connect extraction claiming to the webhook threshold result so `extractionDue` schedules/executes only after `claimDueBatch` returns a real batch; do not call Gemini yet if credit/metering mutation is not atomic.
-3. Implement the atomic Drizzle/PostgreSQL credit-ledger repository: idempotent GRANT/CONSUME/RESERVE/RELEASE, bucket balance checks, `WELCOME -> AD -> PAID` debit, PAID-only reservation, and reconciliation-safe references.
-4. Implement AI usage persistence coupled to a credit charge reference so a retry cannot double-charge a Gemini response.
-5. Add Rewarded Ad grant policy state (daily count + cooldown) and Welcome-credit attribution using observed LINE users without inventing an Owner role.
-6. Route detected explicit-memory commands to a pending memory-candidate request that resolves the quoted source row and enters the same future dedup pipeline.
-7. After credit/metering atomicity is tested, add Gemini structured extraction and candidate persistence for `NEW / DUPLICATE / UPDATE / CONTRADICT`.
-8. Add Reminder schema/service only after the paid-credit reservation repository exists; reservation must happen at creation and release on cancellation.
-9. Generate the initial Drizzle migration only after dependency-aware type/build validation is available and the schema for ingestion + extraction + credits has stabilized.
+1. Re-check GitHub Actions for the Round 4 commit. If workflow steps finally execute, fix every real install/typecheck/lint/test/build issue before adding more product behavior.
+2. Add Welcome-credit attribution using the first observed group member as the attribution actor, without creating an Owner role. Enforce one welcome grant per group and determine first-vs-later group for that LINE user idempotently.
+3. Add Rewarded Ad grant policy state and atomic grant behavior: group/day limit, cooldown, deterministic reward reference, actor auditability, and no grant if policy fails.
+4. Route detected explicit-memory commands into a persistent pending candidate request that resolves the quoted/source conversation row and shares the future automatic-memory pipeline.
+5. Add extraction-batch message loading plus the previous-successful-batch context accessor. Do not delete old context until the next batch has succeeded.
+6. Add Gemini structured extraction only after runtime pricing/FX inputs are explicitly configured and the memory candidate persistence/dedup transaction exists.
+7. Implement memory candidate classification/persistence for `NEW / DUPLICATE / UPDATE / CONTRADICT`, including source metadata and audit history.
+8. Add Reminder schema/service on top of the now-available PAID reservation API; creation must reserve, cancellation must release, successful delivery must consume reserved value.
+9. Generate the initial Drizzle migration only after a real dependency-aware build is available and ingestion + extraction + credit + candidate schema has stabilized.
 
 ## Process note
 
-Prefer one logical batched commit per round when possible. Round 3 uses the Git data blob/tree/commit path so all source changes land together and avoid the CI-run churn seen during Round 2.
+Prefer one logical batched commit per round when possible. Keep Gemini disabled until claim ownership, credit charging, usage metering, candidate persistence, and dedup/update/contradiction behavior are all testable as one safe path.

@@ -57,6 +57,8 @@ Do not poll PostgreSQL every few minutes for conversation thresholds. Incoming L
 
 A threshold decision must never call Gemini directly. The database claim layer owns a concrete immutable set of currently-unassigned conversation rows by assigning them to a `conversation_extraction_batches` record. Only one open claim per group is permitted through a nullable unique claim key. Claiming and decrementing pending counters happen in one PostgreSQL CTE statement so concurrent webhook writes are not lost.
 
+The webhook attempts `claimDueBatch` after every active message, including a duplicate/redelivered message. The repository remains the authority on whether a new batch is actually due. This is intentional: a later LINE delivery can reclaim an expired batch lease after a worker failure even if no threshold was crossed by that specific delivery.
+
 Claims use a bounded lease. If a worker dies or Gemini fails, the batch remains the same batch; after the lease/retry time expires another worker can reclaim it with `FOR UPDATE SKIP LOCKED` and increment the attempt counter. Success releases the open claim key and marks the batch `SUCCEEDED`. This avoids duplicate Gemini jobs while also avoiding permanently stranded messages.
 
 The previous successful extraction batch should remain available as context for the next extraction. Conversation cleanup must therefore happen only after the next extraction has succeeded and memory persistence is complete.
@@ -65,9 +67,17 @@ The previous successful extraction batch should remain available as context for 
 
 Credit accounting is stored in TWD internal-cost units with 8 decimal places. Consumption order is strictly `WELCOME -> AD -> PAID`; paid reminder reservations use `PAID` only. Business services must never silently overdraw a bucket.
 
+Logical credit idempotency lives at the operation level, not at the per-bucket transaction level. `credit_operations` has one unique reconciliation key for `(group, operation type, reference type, reference id)`. One CONSUME operation may then fan out into multiple `credit_transactions` rows for WELCOME/AD/PAID without allowing a retry to consume a different bucket a second time.
+
+Grant, consume, reserve, release, and reserved-consume mutations are implemented as single PostgreSQL statements. The mutation first owns a logical operation and only then changes balances from ledger rows created by that operation. A reused reference with a different amount or bucket scope is reported as a reference conflict rather than silently being treated as a retry.
+
+Reminder reservations have their own `credit_reservations` state machine: `RESERVED -> CONSUMED` on successful delivery or `RESERVED -> RELEASED` on cancellation. The reservation row is locked during settlement so release and consume cannot both win. Reserving moves value from PAID available to PAID reserved; release returns it to available; successful reserved consumption removes it from reserved without touching unrelated free credit.
+
+A successful PAID grant marks the group as having paid, which is the retention-policy signal used later by cleanup logic.
+
 Every billable AI usage event records the exact token counts together with the pricing snapshot used for that request: input/output USD-per-million-token rates, USD/TWD conversion rate, USD cost, TWD cost, and the TWD amount actually charged. Pricing and FX are runtime inputs/snapshots rather than hidden constants in the memory domain.
 
-Credit ledger writes must be reference-idempotent so retries cannot consume or grant the same logical operation twice. The current schema has the reference uniqueness foundation; atomic Drizzle/SQL ledger mutation is the next implementation step before Gemini is enabled.
+AI billing is retry-safe by coupling usage persistence to the logical credit operation id. The billing flow first performs a reference-idempotent CONSUME; the returned operation id is then the unique `ai_usage_events.charge_operation_id`. If a worker fails after charging but before usage persistence, the same reference returns the same logical credit operation on retry and the usage row can be inserted without another charge. Gemini itself is still not enabled until pricing/runtime inputs and the memory persistence pipeline are ready.
 
 ## Explicit memory command boundary
 
@@ -77,7 +87,7 @@ Reply-based or tagged commands such as `@AI 記住 ...` are detected separately 
 
 Business rules live in services/domain modules rather than Cloudflare-specific route handlers. Cloudflare bindings/adapters stay at infrastructure boundaries so heavy workloads can later move to Cloud Run without rewriting the domain.
 
-The conversation ingestion service and extraction coordinator depend on repository interfaces; current persistence adapters target Drizzle/Neon.
+The conversation ingestion service, extraction coordinator, credit ledger service, and AI billing service depend on repository/port interfaces; current persistence adapters target Drizzle/Neon.
 
 ## Scale path
 

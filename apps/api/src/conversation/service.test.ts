@@ -77,6 +77,7 @@ describe('ConversationIngestionService', () => {
 
     expect(result.status).toBe('STORED');
     if (result.status !== 'STORED') throw new Error('Expected stored result');
+    expect(result.groupId).toBe(1);
     expect(result.counters).toEqual({ messageCount: 30, charCount: 105 });
     expect(result.threshold).toMatchObject({ extractionDue: true, reason: 'MESSAGE_COUNT' });
     expect(repository.seenMembers).toEqual([
@@ -93,6 +94,7 @@ describe('ConversationIngestionService', () => {
 
     expect(duplicate.status).toBe('DUPLICATE');
     if (duplicate.status !== 'DUPLICATE') throw new Error('Expected duplicate result');
+    expect(duplicate.groupId).toBe(1);
     expect(duplicate.counters).toEqual({ messageCount: 30, charCount: 105 });
   });
 
