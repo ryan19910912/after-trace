@@ -44,6 +44,7 @@ export class DrizzleConversationRepository implements ConversationRepository {
         groupId,
         webhookEventId: message.webhookEventId,
         lineMessageId: message.lineMessageId,
+        quotedLineMessageId: message.quotedLineMessageId,
         lineUserId: message.lineUserId,
         messageType: message.messageType,
         textContent: message.textContent,
