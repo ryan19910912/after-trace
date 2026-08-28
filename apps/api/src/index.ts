@@ -2,11 +2,18 @@ import { Hono } from 'hono';
 import { resolveProductConfig, type ProductConfigEnv } from './config/product';
 import { DrizzleConversationRepository } from './conversation/drizzle-repository';
 import { ConversationIngestionService } from './conversation/service';
+import { DrizzleCreditLedgerRepository } from './credits/drizzle-ledger';
+import { DrizzleWelcomeCreditRepository } from './credits/drizzle-welcome';
+import { CreditLedgerService } from './credits/ledger';
+import { WelcomeCreditService } from './credits/welcome';
 import { createDatabase } from './db/client';
 import { DrizzleExtractionClaimRepository } from './extraction/drizzle-repository';
 import { ConversationExtractionCoordinator } from './extraction/service';
+import { detectExplicitMemoryCommand } from './line/commands';
 import { parseLineWebhook } from './line/events';
 import { verifyLineSignature } from './line/signature';
+import { DrizzleMemoryRequestRepository } from './memory/drizzle-request-repository';
+import { ExplicitMemoryRequestService } from './memory/requests';
 
 export type Bindings = ProductConfigEnv & {
   DATABASE_URL: string;
@@ -46,6 +53,9 @@ app.post('/webhooks/line', async (c) => {
       storedMessages: 0,
       duplicateMessages: 0,
       ignoredInactiveMessages: 0,
+      welcomeCreditGrants: 0,
+      explicitMemoryRequests: 0,
+      blockedMemoryRequests: 0,
       extractionCandidates: 0,
       extractionClaims: 0,
     });
@@ -57,11 +67,23 @@ app.post('/webhooks/line', async (c) => {
   const conversationService = new ConversationIngestionService(conversationRepository, config);
   const extractionRepository = new DrizzleExtractionClaimRepository(database);
   const extractionCoordinator = new ConversationExtractionCoordinator(extractionRepository, config);
+  const creditLedger = new CreditLedgerService(new DrizzleCreditLedgerRepository(database));
+  const welcomeCreditService = new WelcomeCreditService(
+    new DrizzleWelcomeCreditRepository(database),
+    creditLedger,
+    config,
+  );
+  const memoryRequestService = new ExplicitMemoryRequestService(
+    new DrizzleMemoryRequestRepository(database),
+  );
 
   let lifecycleEvents = 0;
   let storedMessages = 0;
   let duplicateMessages = 0;
   let ignoredInactiveMessages = 0;
+  let welcomeCreditGrants = 0;
+  let explicitMemoryRequests = 0;
+  let blockedMemoryRequests = 0;
   let extractionCandidates = 0;
   let extractionClaims = 0;
 
@@ -82,6 +104,33 @@ app.post('/webhooks/line', async (c) => {
 
     if (result.status === 'DUPLICATE') duplicateMessages += 1;
     else storedMessages += 1;
+
+    if (message.lineUserId) {
+      const welcome = await welcomeCreditService.ensureForObservedMember(
+        result.groupId,
+        message.lineUserId,
+        message.lineTimestamp,
+      );
+      if (welcome.status === 'GRANTED') {
+        welcomeCreditGrants += 1;
+      } else if (
+        welcome.status === 'REFERENCE_CONFLICT' ||
+        welcome.status === 'PERSISTENCE_CONFLICT'
+      ) {
+        throw new Error(`welcome credit consistency failure: ${welcome.status}`);
+      }
+    }
+
+    const explicitMemoryCommand = detectExplicitMemoryCommand(message);
+    if (explicitMemoryCommand) {
+      const request = await memoryRequestService.enqueue(
+        result.groupId,
+        message,
+        explicitMemoryCommand,
+      );
+      if (request.status === 'PENDING') explicitMemoryRequests += 1;
+      else blockedMemoryRequests += 1;
+    }
 
     if (result.threshold.extractionDue) {
       extractionCandidates += 1;
@@ -111,6 +160,9 @@ app.post('/webhooks/line', async (c) => {
     storedMessages,
     duplicateMessages,
     ignoredInactiveMessages,
+    welcomeCreditGrants,
+    explicitMemoryRequests,
+    blockedMemoryRequests,
     extractionCandidates,
     extractionClaims,
   });
