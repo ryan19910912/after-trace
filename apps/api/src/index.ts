@@ -59,7 +59,6 @@ app.post('/webhooks/line', async (c) => {
       console.log(
         JSON.stringify({
           event: 'conversation_extraction_due',
-          lineGroupId: message.lineGroupId,
           reason: result.threshold.reason,
           pendingMessageCount: result.counters.messageCount,
           pendingCharCount: result.counters.charCount,
