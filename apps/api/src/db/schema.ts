@@ -49,6 +49,7 @@ export const conversationMessages = pgTable(
     groupId: bigint('group_id', { mode: 'number' }).notNull(),
     webhookEventId: varchar('webhook_event_id', { length: 128 }),
     lineMessageId: varchar('line_message_id', { length: 64 }).notNull(),
+    quotedLineMessageId: varchar('quoted_line_message_id', { length: 64 }),
     lineUserId: varchar('line_user_id', { length: 64 }),
     messageType: varchar('message_type', { length: 32 }).notNull(),
     textContent: text('text_content'),
@@ -63,6 +64,7 @@ export const conversationMessages = pgTable(
     uniqueIndex('conversation_message_line_id_uq').on(table.lineMessageId),
     index('conversation_message_group_created_idx').on(table.groupId, table.createdAt),
     index('conversation_message_group_line_time_idx').on(table.groupId, table.lineTimestamp),
+    index('conversation_message_quoted_line_id_idx').on(table.quotedLineMessageId),
   ],
 );
 
@@ -78,6 +80,7 @@ export const memories = pgTable(
     sourceMessageId: varchar('source_message_id', { length: 64 }),
     sourceQuoteToken: text('source_quote_token'),
     sourceLineUserId: varchar('source_line_user_id', { length: 64 }),
+    sourceLineTimestamp: timestamp('source_line_timestamp', { withTimezone: true }),
     metadata: jsonb('metadata'),
     supersededById: bigint('superseded_by_id', { mode: 'number' }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
