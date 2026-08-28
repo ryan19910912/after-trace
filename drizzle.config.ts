@@ -5,7 +5,10 @@ if (!process.env.DATABASE_URL) {
 }
 
 export default defineConfig({
-  schema: './apps/api/src/db/schema.ts',
+  schema: [
+    './apps/api/src/db/schema.ts',
+    './apps/api/src/db/schema-round5.ts',
+  ],
   out: './drizzle',
   dialect: 'postgresql',
   dbCredentials: {
