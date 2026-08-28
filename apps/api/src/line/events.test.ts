@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseLineWebhook } from './events';
 
 describe('parseLineWebhook', () => {
-  it('keeps supported group messages with source metadata', () => {
+  it('keeps supported group messages with source and reply metadata', () => {
     const parsed = parseLineWebhook({
       events: [
         {
@@ -15,6 +15,7 @@ describe('parseLineWebhook', () => {
             type: 'text',
             text: 'Amy 不吃香菜',
             quoteToken: 'quote-1',
+            quotedMessageId: 'msg-original',
           },
         },
         {
@@ -31,6 +32,7 @@ describe('parseLineWebhook', () => {
       webhookEventId: 'evt-1',
       lineGroupId: 'group-1',
       lineMessageId: 'msg-1',
+      quotedLineMessageId: 'msg-original',
       lineUserId: 'user-1',
       messageType: 'text',
       textContent: 'Amy 不吃香菜',
