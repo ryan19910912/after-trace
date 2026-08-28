@@ -19,9 +19,12 @@ export type GroupLifecycleEvent = {
   lineTimestamp: Date;
 };
 
+export type ParsedLineEvent =
+  | { kind: 'MESSAGE'; message: BufferedGroupMessage }
+  | { kind: 'LIFECYCLE'; event: GroupLifecycleEvent };
+
 export type ParsedLineWebhook = {
-  messages: BufferedGroupMessage[];
-  lifecycleEvents: GroupLifecycleEvent[];
+  events: ParsedLineEvent[];
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -111,7 +114,7 @@ const supportedMessageTypes = new Set([
 ]);
 
 export function parseLineWebhook(payload: unknown): ParsedLineWebhook {
-  const result: ParsedLineWebhook = { messages: [], lifecycleEvents: [] };
+  const result: ParsedLineWebhook = { events: [] };
   if (!isRecord(payload) || !Array.isArray(payload.events)) return result;
 
   for (const rawEvent of payload.events) {
@@ -129,11 +132,14 @@ export function parseLineWebhook(payload: unknown): ParsedLineWebhook {
     const eventType = asString(rawEvent.type);
 
     if (eventType === 'join' || eventType === 'leave') {
-      result.lifecycleEvents.push({
-        webhookEventId,
-        lineGroupId,
-        type: eventType === 'join' ? 'JOIN' : 'LEAVE',
-        lineTimestamp,
+      result.events.push({
+        kind: 'LIFECYCLE',
+        event: {
+          webhookEventId,
+          lineGroupId,
+          type: eventType === 'join' ? 'JOIN' : 'LEAVE',
+          lineTimestamp,
+        },
       });
       continue;
     }
@@ -146,18 +152,21 @@ export function parseLineWebhook(payload: unknown): ParsedLineWebhook {
     if (!messageType || !supportedMessageTypes.has(messageType) || !lineMessageId) continue;
 
     const { textContent, metadata } = messageTextAndMetadata(message);
-    result.messages.push({
-      webhookEventId,
-      lineGroupId,
-      lineMessageId,
-      quotedLineMessageId: asString(message.quotedMessageId),
-      lineUserId: asString(source.userId),
-      messageType,
-      textContent,
-      charCount: textContent?.length ?? 0,
-      quoteToken: asString(message.quoteToken),
-      lineTimestamp,
-      metadata,
+    result.events.push({
+      kind: 'MESSAGE',
+      message: {
+        webhookEventId,
+        lineGroupId,
+        lineMessageId,
+        quotedLineMessageId: asString(message.quotedMessageId),
+        lineUserId: asString(source.userId),
+        messageType,
+        textContent,
+        charCount: textContent?.length ?? 0,
+        quoteToken: asString(message.quoteToken),
+        lineTimestamp,
+        metadata,
+      },
     });
   }
 
