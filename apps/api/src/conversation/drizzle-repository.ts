@@ -8,10 +8,28 @@ import type { PendingCounters } from './threshold';
 export class DrizzleConversationRepository implements ConversationRepository {
   constructor(private readonly db: Database) {}
 
-  async upsertActiveGroup(lineGroupId: string): Promise<GroupRecord> {
+  async ensureGroup(lineGroupId: string): Promise<GroupRecord> {
     const [group] = await this.db
       .insert(lineGroups)
       .values({ lineGroupId })
+      .onConflictDoUpdate({
+        target: lineGroups.lineGroupId,
+        set: { updatedAt: new Date() },
+      })
+      .returning({
+        id: lineGroups.id,
+        lineGroupId: lineGroups.lineGroupId,
+        status: lineGroups.status,
+      });
+
+    if (!group) throw new Error('Failed to ensure LINE group');
+    return group;
+  }
+
+  async activateGroup(lineGroupId: string): Promise<GroupRecord> {
+    const [group] = await this.db
+      .insert(lineGroups)
+      .values({ lineGroupId, status: 'ACTIVE', inactiveAt: null })
       .onConflictDoUpdate({
         target: lineGroups.lineGroupId,
         set: {
@@ -20,21 +38,28 @@ export class DrizzleConversationRepository implements ConversationRepository {
           updatedAt: new Date(),
         },
       })
-      .returning({ id: lineGroups.id, lineGroupId: lineGroups.lineGroupId });
+      .returning({
+        id: lineGroups.id,
+        lineGroupId: lineGroups.lineGroupId,
+        status: lineGroups.status,
+      });
 
-    if (!group) throw new Error('Failed to upsert LINE group');
+    if (!group) throw new Error('Failed to activate LINE group');
     return group;
   }
 
   async markGroupInactive(lineGroupId: string, inactiveAt: Date): Promise<void> {
     await this.db
-      .update(lineGroups)
-      .set({
-        status: 'INACTIVE',
-        inactiveAt,
-        updatedAt: new Date(),
-      })
-      .where(eq(lineGroups.lineGroupId, lineGroupId));
+      .insert(lineGroups)
+      .values({ lineGroupId, status: 'INACTIVE', inactiveAt })
+      .onConflictDoUpdate({
+        target: lineGroups.lineGroupId,
+        set: {
+          status: 'INACTIVE',
+          inactiveAt,
+          updatedAt: new Date(),
+        },
+      });
   }
 
   async insertMessage(groupId: number, message: BufferedGroupMessage): Promise<boolean> {
