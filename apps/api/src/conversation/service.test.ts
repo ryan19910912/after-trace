@@ -48,6 +48,7 @@ function message(id = 'msg-1'): BufferedGroupMessage {
     webhookEventId: 'evt-1',
     lineGroupId: 'group-1',
     lineMessageId: id,
+    quotedLineMessageId: null,
     lineUserId: 'user-1',
     messageType: 'text',
     textContent: 'hello',
