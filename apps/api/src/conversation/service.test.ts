@@ -9,19 +9,23 @@ import {
 import type { PendingCounters } from './threshold';
 
 class FakeConversationRepository implements ConversationRepository {
-  readonly group: GroupRecord = { id: 1, lineGroupId: 'group-1' };
+  readonly group: GroupRecord = { id: 1, lineGroupId: 'group-1', status: 'ACTIVE' };
   counters: PendingCounters = { messageCount: 29, charCount: 100 };
   insertedMessageIds = new Set<string>();
-  inactive = false;
 
-  async upsertActiveGroup(lineGroupId: string): Promise<GroupRecord> {
+  async ensureGroup(lineGroupId: string): Promise<GroupRecord> {
     this.group.lineGroupId = lineGroupId;
-    this.inactive = false;
+    return this.group;
+  }
+
+  async activateGroup(lineGroupId: string): Promise<GroupRecord> {
+    this.group.lineGroupId = lineGroupId;
+    this.group.status = 'ACTIVE';
     return this.group;
   }
 
   async markGroupInactive(): Promise<void> {
-    this.inactive = true;
+    this.group.status = 'INACTIVE';
   }
 
   async insertMessage(_groupId: number, message: BufferedGroupMessage): Promise<boolean> {
@@ -66,7 +70,8 @@ describe('ConversationIngestionService', () => {
 
     const result = await service.ingest(message());
 
-    expect(result.duplicate).toBe(false);
+    expect(result.status).toBe('STORED');
+    if (result.status !== 'STORED') throw new Error('Expected stored result');
     expect(result.counters).toEqual({ messageCount: 30, charCount: 105 });
     expect(result.threshold).toMatchObject({ extractionDue: true, reason: 'MESSAGE_COUNT' });
   });
@@ -78,18 +83,31 @@ describe('ConversationIngestionService', () => {
     await service.ingest(message('same-id'));
     const duplicate = await service.ingest(message('same-id'));
 
-    expect(duplicate.duplicate).toBe(true);
+    expect(duplicate.status).toBe('DUPLICATE');
+    if (duplicate.status !== 'DUPLICATE') throw new Error('Expected duplicate result');
     expect(duplicate.counters).toEqual({ messageCount: 30, charCount: 105 });
   });
 
-  it('marks a group inactive on leave and active again on join', async () => {
+  it('ignores delayed/redelivered messages while the group is inactive', async () => {
     const repository = new FakeConversationRepository();
     const service = new ConversationIngestionService(repository, defaultProductConfig);
 
     await service.handleLifecycle('group-1', 'LEAVE', new Date());
-    expect(repository.inactive).toBe(true);
+    const result = await service.ingest(message('late-message'));
+
+    expect(result).toEqual({ status: 'IGNORED_INACTIVE' });
+    expect(repository.counters).toEqual({ messageCount: 29, charCount: 100 });
+    expect(repository.insertedMessageIds.size).toBe(0);
+  });
+
+  it('reactivates a group only on join', async () => {
+    const repository = new FakeConversationRepository();
+    const service = new ConversationIngestionService(repository, defaultProductConfig);
+
+    await service.handleLifecycle('group-1', 'LEAVE', new Date());
+    expect(repository.group.status).toBe('INACTIVE');
 
     await service.handleLifecycle('group-1', 'JOIN', new Date());
-    expect(repository.inactive).toBe(false);
+    expect(repository.group.status).toBe('ACTIVE');
   });
 });
