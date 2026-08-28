@@ -87,7 +87,7 @@ export class DrizzleMemoryWorkRepository implements MemoryWorkRepository {
   ): Promise<boolean> {
     const result = await this.db.execute(sql`
       WITH owned AS MATERIALIZED (
-        SELECT request.id
+        SELECT request.id, request.origin, request.extraction_batch_id
         FROM memory_candidate_requests request
         JOIN memory_request_work_states work ON work.request_id = request.id
         WHERE request.id = ${requestId}
@@ -104,14 +104,33 @@ export class DrizzleMemoryWorkRepository implements MemoryWorkRepository {
         FROM owned
         WHERE work.request_id = owned.id
         RETURNING work.request_id
+      ),
+      completed_request AS (
+        UPDATE memory_candidate_requests request
+        SET status = 'SUCCEEDED',
+            last_error_code = NULL,
+            updated_at = ${completedAt}
+        FROM completed_work, owned
+        WHERE request.id = completed_work.request_id
+          AND request.id = owned.id
+        RETURNING request.id, request.origin, request.extraction_batch_id
+      ),
+      completed_batch AS (
+        UPDATE conversation_extraction_batches batch
+        SET status = 'SUCCEEDED',
+            active_claim_key = NULL,
+            completed_at = ${completedAt},
+            lease_expires_at = ${completedAt},
+            last_error_code = NULL,
+            updated_at = ${completedAt}
+        FROM completed_request request
+        WHERE request.origin = 'AUTOMATIC'
+          AND request.extraction_batch_id IS NOT NULL
+          AND batch.id = request.extraction_batch_id
+          AND batch.status = 'CLAIMED'
+        RETURNING batch.id
       )
-      UPDATE memory_candidate_requests request
-      SET status = 'SUCCEEDED',
-          last_error_code = NULL,
-          updated_at = ${completedAt}
-      FROM completed_work
-      WHERE request.id = completed_work.request_id
-      RETURNING request.id
+      SELECT id FROM completed_request
     `);
     return result.rows.length === 1;
   }

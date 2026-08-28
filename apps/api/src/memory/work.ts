@@ -66,8 +66,8 @@ export class MemoryWorkCoordinator {
     private readonly repository: MemoryWorkRepository,
     private readonly leaseSeconds: number,
   ) {
-    if (!Number.isSafeInteger(leaseSeconds) || leaseSeconds < 5 || leaseSeconds > 3_600) {
-      throw new Error('memory request leaseSeconds must be an integer between 5 and 3600');
+    if (!Number.isSafeInteger(leaseSeconds) || leaseSeconds <= 0) {
+      throw new Error('memory request leaseSeconds must be a positive safe integer');
     }
   }
 
