@@ -2,9 +2,9 @@
 
 ## Current status
 
-Round 5 is complete on the development branch and is ready to fast-forward into `main`. The V1 backend now has retry-safe Welcome Credit attribution, Rewarded Ad policy/grant primitives, persistent explicit-memory requests, and an extraction input/context accessor. Gemini memory extraction remains intentionally disabled until candidate classification/persistence is safe and testable.
+Round 5 is complete and has been fast-forwarded into `main`. The V1 backend now has retry-safe Welcome Credit attribution, Rewarded Ad policy/grant primitives, persistent explicit-memory requests, and an extraction input/context accessor. Gemini memory extraction remains intentionally disabled until candidate classification/persistence is safe and testable.
 
-GitHub Actions is still an environment blocker: the latest completed `main` run for Round 4 failed before any workflow step executed (`steps=[]`, `runner_id=0`). Full dependency-aware workspace verification is therefore still not proven by Actions.
+GitHub Actions is still an environment blocker: the latest completed `main` run for Round 4 failed before any workflow step executed (`steps=[]`, `runner_id=0`). The direct Round 5 ref fast-forward did not create a workflow run, so this final progress commit is also the Round 5 push/checkpoint used to request a fresh CI run. Full dependency-aware workspace verification is therefore still not proven until a runner actually executes steps.
 
 ## Confirmed V1 baseline
 
@@ -95,7 +95,7 @@ Webhook-to-extraction claim wiring, logical-operation credit idempotency, WELCOM
 
 ### Full workspace blocker remains
 
-- Real `pnpm install`, dependency-aware `tsc`, ESLint, Vitest, Wrangler dry-run, Vite build and Drizzle Kit generation still cannot be claimed green because GitHub Actions never acquires a runner.
+- Real `pnpm install`, dependency-aware `tsc`, ESLint, Vitest, Wrangler dry-run, Vite build and Drizzle Kit generation still cannot be claimed green because GitHub Actions has not yet acquired a runner for any completed run.
 - No Neon/LINE/Cloudflare/Gemini production credential was guessed or committed.
 - No database migration has been generated or executed.
 
