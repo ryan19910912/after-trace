@@ -1,0 +1,7 @@
+name = "after-trace-api"
+main = "src/index.ts"
+compatibility_date = "2026-08-29"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
