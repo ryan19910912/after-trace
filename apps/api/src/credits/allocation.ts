@@ -38,6 +38,13 @@ export function formatTwdCostUnits(units: bigint): string {
   return `${whole}.${fraction}`;
 }
 
+export function numberToTwdCostUnits(value: number): bigint {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error('TWD cost number must be finite and non-negative');
+  }
+  return parseTwdCostUnits(value.toFixed(8));
+}
+
 export function allocateConsumption(
   balances: CreditBalances,
   requiredUnits: bigint,
