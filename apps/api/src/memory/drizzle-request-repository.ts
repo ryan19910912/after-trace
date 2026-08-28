@@ -1,6 +1,10 @@
 import { sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
 import type { MemoryRequestRepository, MemoryRequestResult } from './requests';
+import type {
+  AutomaticMemoryRequest,
+  AutomaticMemoryRequestRepository,
+} from './work';
 
 type RequestRow = {
   id: string;
@@ -8,7 +12,17 @@ type RequestRow = {
   source_line_message_id: string;
 };
 
-export class DrizzleMemoryRequestRepository implements MemoryRequestRepository {
+type AutomaticRequestRow = {
+  id: string;
+  group_id: string;
+  extraction_batch_id: string;
+  status: AutomaticMemoryRequest['status'];
+  created: boolean;
+};
+
+export class DrizzleMemoryRequestRepository
+  implements MemoryRequestRepository, AutomaticMemoryRequestRepository
+{
   constructor(private readonly db: Database) {}
 
   async createExplicit(
@@ -71,6 +85,90 @@ export class DrizzleMemoryRequestRepository implements MemoryRequestRepository {
       id: Number(row.id),
       status: row.status,
       sourceLineMessageId: row.source_line_message_id,
+    };
+  }
+
+  async createAutomatic(
+    input: Parameters<AutomaticMemoryRequestRepository['createAutomatic']>[0],
+  ): Promise<AutomaticMemoryRequest> {
+    const result = await this.db.execute(sql`
+      WITH extraction_batch AS MATERIALIZED (
+        SELECT id, group_id
+        FROM conversation_extraction_batches
+        WHERE id = ${input.extractionBatchId}
+          AND group_id = ${input.groupId}
+        FOR UPDATE
+      ),
+      existing_key AS (
+        SELECT key.request_id
+        FROM automatic_memory_request_keys key
+        JOIN extraction_batch batch ON batch.id = key.extraction_batch_id
+        WHERE key.group_id = ${input.groupId}
+      ),
+      inserted_request AS (
+        INSERT INTO memory_candidate_requests (
+          group_id,
+          origin,
+          status,
+          extraction_batch_id,
+          created_at,
+          updated_at
+        )
+        SELECT
+          batch.group_id,
+          'AUTOMATIC',
+          'PENDING',
+          batch.id,
+          ${input.createdAt},
+          ${input.createdAt}
+        FROM extraction_batch batch
+        WHERE NOT EXISTS (SELECT 1 FROM existing_key)
+        RETURNING id, group_id, extraction_batch_id, status
+      ),
+      inserted_key AS (
+        INSERT INTO automatic_memory_request_keys (
+          extraction_batch_id,
+          request_id,
+          group_id,
+          created_at
+        )
+        SELECT
+          request.extraction_batch_id,
+          request.id,
+          request.group_id,
+          ${input.createdAt}
+        FROM inserted_request request
+        RETURNING request_id
+      ),
+      selected_request AS (
+        SELECT request.id, request.group_id, request.extraction_batch_id, request.status, FALSE AS created
+        FROM memory_candidate_requests request
+        JOIN existing_key existing ON existing.request_id = request.id
+        UNION ALL
+        SELECT request.id, request.group_id, request.extraction_batch_id, request.status, TRUE AS created
+        FROM inserted_request request
+        JOIN inserted_key key ON key.request_id = request.id
+      )
+      SELECT
+        id::text AS id,
+        group_id::text AS group_id,
+        extraction_batch_id::text AS extraction_batch_id,
+        status,
+        created
+      FROM selected_request
+      LIMIT 1
+    `);
+
+    const row = result.rows[0] as AutomaticRequestRow | undefined;
+    if (!row) {
+      throw new Error('automatic memory request could not be persisted for the extraction batch');
+    }
+    return {
+      id: Number(row.id),
+      groupId: Number(row.group_id),
+      extractionBatchId: Number(row.extraction_batch_id),
+      status: row.status,
+      created: row.created,
     };
   }
 }

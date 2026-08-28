@@ -3,6 +3,7 @@ export type ProductConfigEnv = {
   CONVERSATION_EXTRACTION_CHAR_THRESHOLD?: string;
   CONVERSATION_LARGE_MESSAGE_CHARS?: string;
   CONVERSATION_EXTRACTION_LEASE_SECONDS?: string;
+  MEMORY_REQUEST_LEASE_SECONDS?: string;
   WELCOME_FIRST_GROUP_COST_TWD?: string;
   WELCOME_LATER_GROUP_COST_TWD?: string;
   REWARDED_AD_COST_TWD?: string;
@@ -18,6 +19,9 @@ export type ProductConfig = {
     extractionCharThreshold: number;
     largeMessageChars: number;
     extractionLeaseSeconds: number;
+  };
+  memory: {
+    requestLeaseSeconds: number;
   };
   credits: {
     welcomeFirstGroupCostTwd: number;
@@ -38,6 +42,9 @@ export const defaultProductConfig: ProductConfig = {
     extractionCharThreshold: 5_000,
     largeMessageChars: 2_000,
     extractionLeaseSeconds: 120,
+  },
+  memory: {
+    requestLeaseSeconds: 120,
   },
   credits: {
     welcomeFirstGroupCostTwd: 1,
@@ -92,6 +99,13 @@ export function resolveProductConfig(env: ProductConfigEnv): ProductConfig {
         'CONVERSATION_EXTRACTION_LEASE_SECONDS',
         env.CONVERSATION_EXTRACTION_LEASE_SECONDS,
         defaultProductConfig.conversation.extractionLeaseSeconds,
+      ),
+    },
+    memory: {
+      requestLeaseSeconds: positiveInteger(
+        'MEMORY_REQUEST_LEASE_SECONDS',
+        env.MEMORY_REQUEST_LEASE_SECONDS,
+        defaultProductConfig.memory.requestLeaseSeconds,
       ),
     },
     credits: {

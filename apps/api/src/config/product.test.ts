@@ -9,11 +9,13 @@ describe('resolveProductConfig', () => {
   it('allows deployment configuration to override defaults', () => {
     const config = resolveProductConfig({
       CONVERSATION_EXTRACTION_MESSAGE_THRESHOLD: '40',
+      MEMORY_REQUEST_LEASE_SECONDS: '180',
       WELCOME_LATER_GROUP_COST_TWD: '0.75',
       PAID_RETENTION_DAYS: '400',
     });
 
     expect(config.conversation.extractionMessageThreshold).toBe(40);
+    expect(config.memory.requestLeaseSeconds).toBe(180);
     expect(config.credits.welcomeLaterGroupCostTwd).toBe(0.75);
     expect(config.retention.paidDays).toBe(400);
   });

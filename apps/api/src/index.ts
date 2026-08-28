@@ -14,6 +14,7 @@ import { parseLineWebhook } from './line/events';
 import { verifyLineSignature } from './line/signature';
 import { DrizzleMemoryRequestRepository } from './memory/drizzle-request-repository';
 import { ExplicitMemoryRequestService } from './memory/requests';
+import { AutomaticMemoryRequestService } from './memory/work';
 
 export type Bindings = ProductConfigEnv & {
   DATABASE_URL: string;
@@ -56,6 +57,7 @@ app.post('/webhooks/line', async (c) => {
       welcomeCreditGrants: 0,
       explicitMemoryRequests: 0,
       blockedMemoryRequests: 0,
+      automaticMemoryRequests: 0,
       extractionCandidates: 0,
       extractionClaims: 0,
     });
@@ -73,9 +75,9 @@ app.post('/webhooks/line', async (c) => {
     creditLedger,
     config,
   );
-  const memoryRequestService = new ExplicitMemoryRequestService(
-    new DrizzleMemoryRequestRepository(database),
-  );
+  const memoryRequestRepository = new DrizzleMemoryRequestRepository(database);
+  const explicitMemoryRequestService = new ExplicitMemoryRequestService(memoryRequestRepository);
+  const automaticMemoryRequestService = new AutomaticMemoryRequestService(memoryRequestRepository);
 
   let lifecycleEvents = 0;
   let storedMessages = 0;
@@ -84,6 +86,7 @@ app.post('/webhooks/line', async (c) => {
   let welcomeCreditGrants = 0;
   let explicitMemoryRequests = 0;
   let blockedMemoryRequests = 0;
+  let automaticMemoryRequests = 0;
   let extractionCandidates = 0;
   let extractionClaims = 0;
 
@@ -123,7 +126,7 @@ app.post('/webhooks/line', async (c) => {
 
     const explicitMemoryCommand = detectExplicitMemoryCommand(message);
     if (explicitMemoryCommand) {
-      const request = await memoryRequestService.enqueue(
+      const request = await explicitMemoryRequestService.enqueue(
         result.groupId,
         message,
         explicitMemoryCommand,
@@ -142,10 +145,19 @@ app.post('/webhooks/line', async (c) => {
     const claim = await extractionCoordinator.claimDueBatch(result.groupId);
     if (claim) {
       extractionClaims += 1;
+      const automaticRequest = await automaticMemoryRequestService.ensureForExtractionBatch(
+        result.groupId,
+        claim.id,
+        message.lineTimestamp,
+      );
+      if (automaticRequest.created) automaticMemoryRequests += 1;
+
       console.log(
         JSON.stringify({
           event: 'conversation_extraction_claimed',
           extractionBatchId: claim.id,
+          memoryRequestId: automaticRequest.id,
+          memoryRequestCreated: automaticRequest.created,
           messageCount: claim.messageCount,
           charCount: claim.charCount,
           attemptCount: claim.attemptCount,
@@ -163,6 +175,7 @@ app.post('/webhooks/line', async (c) => {
     welcomeCreditGrants,
     explicitMemoryRequests,
     blockedMemoryRequests,
+    automaticMemoryRequests,
     extractionCandidates,
     extractionClaims,
   });
