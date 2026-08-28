@@ -47,18 +47,22 @@ export const conversationMessages = pgTable(
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
     groupId: bigint('group_id', { mode: 'number' }).notNull(),
+    webhookEventId: varchar('webhook_event_id', { length: 128 }),
     lineMessageId: varchar('line_message_id', { length: 64 }).notNull(),
     lineUserId: varchar('line_user_id', { length: 64 }),
     messageType: varchar('message_type', { length: 32 }).notNull(),
     textContent: text('text_content'),
     charCount: integer('char_count').default(0).notNull(),
     quoteToken: text('quote_token'),
+    lineTimestamp: timestamp('line_timestamp', { withTimezone: true }).notNull(),
+    metadata: jsonb('metadata'),
     batchSequence: integer('batch_sequence'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
     uniqueIndex('conversation_message_line_id_uq').on(table.lineMessageId),
     index('conversation_message_group_created_idx').on(table.groupId, table.createdAt),
+    index('conversation_message_group_line_time_idx').on(table.groupId, table.lineTimestamp),
   ],
 );
 
