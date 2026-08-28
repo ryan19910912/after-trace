@@ -2,6 +2,7 @@ export type BufferedGroupMessage = {
   webhookEventId: string | null;
   lineGroupId: string;
   lineMessageId: string;
+  quotedLineMessageId: string | null;
   lineUserId: string | null;
   messageType: string;
   textContent: string | null;
@@ -149,6 +150,7 @@ export function parseLineWebhook(payload: unknown): ParsedLineWebhook {
       webhookEventId,
       lineGroupId,
       lineMessageId,
+      quotedLineMessageId: asString(message.quotedMessageId),
       lineUserId: asString(source.userId),
       messageType,
       textContent,
