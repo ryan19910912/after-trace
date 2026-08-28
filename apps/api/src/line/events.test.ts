@@ -27,8 +27,11 @@ describe('parseLineWebhook', () => {
       ],
     });
 
-    expect(parsed.messages).toHaveLength(1);
-    expect(parsed.messages[0]).toMatchObject({
+    expect(parsed.events).toHaveLength(1);
+    const parsedEvent = parsed.events[0];
+    expect(parsedEvent.kind).toBe('MESSAGE');
+    if (parsedEvent.kind !== 'MESSAGE') throw new Error('Expected message event');
+    expect(parsedEvent.message).toMatchObject({
       webhookEventId: 'evt-1',
       lineGroupId: 'group-1',
       lineMessageId: 'msg-1',
@@ -66,24 +69,30 @@ describe('parseLineWebhook', () => {
       ],
     });
 
-    expect(parsed.messages[0]).toMatchObject({
+    const locationEvent = parsed.events[0];
+    const fileEvent = parsed.events[1];
+    if (locationEvent.kind !== 'MESSAGE' || fileEvent.kind !== 'MESSAGE') {
+      throw new Error('Expected message events');
+    }
+
+    expect(locationEvent.message).toMatchObject({
       textContent: '咖啡店 - 台北市信義區',
       metadata: { title: '咖啡店', address: '台北市信義區', latitude: 25.03, longitude: 121.56 },
     });
-    expect(parsed.messages[1]).toMatchObject({
+    expect(fileEvent.message).toMatchObject({
       textContent: null,
       metadata: { fileName: 'plan.pdf', fileSize: 1024 },
     });
   });
 
-  it('parses group join and leave lifecycle events', () => {
+  it('parses lifecycle events and preserves original webhook event order', () => {
     const parsed = parseLineWebhook({
       events: [
         {
-          type: 'join',
-          webhookEventId: 'join-1',
+          type: 'message',
           timestamp: 1_700_000_000_000,
           source: { type: 'group', groupId: 'group-1' },
+          message: { id: 'msg-before-leave', type: 'text', text: 'before' },
         },
         {
           type: 'leave',
@@ -91,9 +100,18 @@ describe('parseLineWebhook', () => {
           timestamp: 1_700_000_001_000,
           source: { type: 'group', groupId: 'group-1' },
         },
+        {
+          type: 'message',
+          timestamp: 1_700_000_002_000,
+          source: { type: 'group', groupId: 'group-1' },
+          message: { id: 'msg-after-leave', type: 'text', text: 'after' },
+        },
       ],
     });
 
-    expect(parsed.lifecycleEvents.map((event) => event.type)).toEqual(['JOIN', 'LEAVE']);
+    expect(parsed.events.map((event) => event.kind)).toEqual(['MESSAGE', 'LIFECYCLE', 'MESSAGE']);
+    const lifecycle = parsed.events[1];
+    if (lifecycle.kind !== 'LIFECYCLE') throw new Error('Expected lifecycle event');
+    expect(lifecycle.event.type).toBe('LEAVE');
   });
 });
