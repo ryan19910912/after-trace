@@ -37,24 +37,46 @@ app.post('/webhooks/line', async (c) => {
   }
 
   const parsed = parseLineWebhook(payload);
+  if (parsed.events.length === 0) {
+    return c.json({
+      ok: true,
+      lifecycleEvents: 0,
+      storedMessages: 0,
+      duplicateMessages: 0,
+      ignoredInactiveMessages: 0,
+      extractionCandidates: 0,
+    });
+  }
+
   const config = resolveProductConfig(c.env);
   const repository = new DrizzleConversationRepository(createDatabase(c.env.DATABASE_URL));
   const service = new ConversationIngestionService(repository, config);
 
-  for (const event of parsed.lifecycleEvents) {
-    await service.handleLifecycle(event.lineGroupId, event.type, event.lineTimestamp);
-  }
-
+  let lifecycleEvents = 0;
   let storedMessages = 0;
   let duplicateMessages = 0;
+  let ignoredInactiveMessages = 0;
   let extractionCandidates = 0;
 
-  for (const message of parsed.messages) {
+  for (const parsedEvent of parsed.events) {
+    if (parsedEvent.kind === 'LIFECYCLE') {
+      const event = parsedEvent.event;
+      await service.handleLifecycle(event.lineGroupId, event.type, event.lineTimestamp);
+      lifecycleEvents += 1;
+      continue;
+    }
+
+    const message = parsedEvent.message;
     const result = await service.ingest(message);
-    if (result.duplicate) duplicateMessages += 1;
+    if (result.status === 'IGNORED_INACTIVE') {
+      ignoredInactiveMessages += 1;
+      continue;
+    }
+
+    if (result.status === 'DUPLICATE') duplicateMessages += 1;
     else storedMessages += 1;
 
-    if (!result.duplicate && result.threshold.extractionDue) {
+    if (result.status === 'STORED' && result.threshold.extractionDue) {
       extractionCandidates += 1;
       console.log(
         JSON.stringify({
@@ -69,9 +91,10 @@ app.post('/webhooks/line', async (c) => {
 
   return c.json({
     ok: true,
-    lifecycleEvents: parsed.lifecycleEvents.length,
+    lifecycleEvents,
     storedMessages,
     duplicateMessages,
+    ignoredInactiveMessages,
     extractionCandidates,
   });
 });
