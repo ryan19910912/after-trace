@@ -44,7 +44,9 @@ Supported message metadata is normalized before persistence. Text and location t
 
 `conversation_messages.line_message_id` is unique. A redelivered LINE message therefore does not increment the group's pending counters twice. New messages increment pending message/character counters with database-side arithmetic so concurrent webhook deliveries do not overwrite one another.
 
-LINE `join` reactivates/upserts the group. LINE `leave` marks it inactive; retention cleanup is a separate low-frequency process governed by paid/unpaid retention policy.
+LINE webhook events are processed in their original payload order. LINE `join` activates/upserts the group. LINE `leave` marks it inactive. While a group is inactive, later or redelivered message events are ignored; only a new `join` reactivates ingestion. Retention cleanup is a separate low-frequency process governed by paid/unpaid retention policy.
+
+The conversation buffer keeps `quotedMessageId`, `quoteToken`, source user, LINE timestamp, and safe message metadata needed for reply-based `@AI` flows and later memory source attribution. Long-term memories persist their own source timestamp because conversation-buffer rows are not permanent.
 
 ## Event-driven ingestion
 
