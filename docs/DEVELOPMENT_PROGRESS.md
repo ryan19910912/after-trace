@@ -4,7 +4,7 @@
 
 Round 5 is complete and has been fast-forwarded into `main`. The V1 backend now has retry-safe Welcome Credit attribution, Rewarded Ad policy/grant primitives, persistent explicit-memory requests, and an extraction input/context accessor. Gemini memory extraction remains intentionally disabled until candidate classification/persistence is safe and testable.
 
-GitHub Actions is still an environment blocker: the latest completed `main` run for Round 4 failed before any workflow step executed (`steps=[]`, `runner_id=0`). The direct Round 5 ref fast-forward did not create a workflow run, so this final progress commit is also the Round 5 push/checkpoint used to request a fresh CI run. Full dependency-aware workspace verification is therefore still not proven until a runner actually executes steps.
+GitHub Actions remains an environment blocker. Both Round 5 `main` runs checked in this round (`55ec31a` and `5312e40`) failed in about two seconds before any workflow step executed: `verify.steps=[]`, `runner_id=0`, and no runner name. This confirms the failure is still before checkout rather than a repository typecheck/test/build failure. Full dependency-aware workspace verification remains unproven until a runner actually executes steps.
 
 ## Confirmed V1 baseline
 
@@ -87,7 +87,7 @@ Webhook-to-extraction claim wiring, logical-operation credit idempotency, WELCOM
 
 ### Completed validation
 
-- Re-checked Round 4 GitHub Actions: the `verify` job still fails before checkout with no executed steps, confirming the external runner blocker remains.
+- Re-checked two Round 5 GitHub Actions runs on `main`: both `verify` jobs completed with `steps=[]`, `runner_id=0`, no runner name, and no checkout/logged workflow step. The runner/environment blocker therefore persists.
 - Used the automation runtime TypeScript 5.8 compiler with lightweight module declarations to typecheck the new dependency-free Welcome Credit, Rewarded Ad, explicit-memory and extraction-input services.
 - Typechecked the new raw-SQL Welcome/Rewarded Ad/Memory adapters against lightweight database/Drizzle declarations to catch syntax/interface errors.
 - Added Vitest unit coverage for Welcome Credit idempotency, Taiwan Rewarded Ad policy day, policy rejection before ledger access, explicit-memory source selection and extraction input service validation.
@@ -101,7 +101,7 @@ Webhook-to-extraction claim wiring, logical-operation credit idempotency, WELCOM
 
 ## Round 6 — highest priority
 
-1. Re-check the Round 5 `main` CI run. If steps execute, fix every real install/typecheck/lint/test/build issue before adding product behavior.
+1. Re-check the latest `main` CI run. If steps execute, fix every real install/typecheck/lint/test/build issue before adding product behavior.
 2. Implement memory candidate classification/persistence transaction for `NEW / DUPLICATE / UPDATE / CONTRADICT`, including active-memory lookup, source copying, supersession and audit history.
 3. Let successful automatic extraction batches create `AUTOMATIC` memory candidate requests and let explicit requests enter the exact same candidate pipeline.
 4. Add a claim/lease for pending memory candidate requests so retries cannot run Gemini twice for the same request.
