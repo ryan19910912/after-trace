@@ -2,9 +2,9 @@
 
 ## Current status
 
-Round 2 completed the first real vertical slice: verified LINE group webhook events can be normalized into an idempotent, group-scoped conversation-ingestion domain flow with pending counters and extraction-threshold decisions. Gemini is intentionally not connected yet; extraction claiming and cost/credit safety must exist first.
+Round 3 adds the safety foundation required before any Gemini memory extraction is enabled: database-owned extraction batches with leases, sender/group-member persistence, exact credit-allocation primitives, AI pricing/FX snapshots, and explicit reply/@AI `記住` detection.
 
-The main remaining verification blocker is the GitHub Actions runner environment: recent CI jobs have been created but several completed before any step ran, with no runner assigned. This is recorded as an environment blocker rather than a code-test failure.
+GitHub Actions is still an environment blocker: the latest checked run for `0611c2e` completed with a failed `verify` job before any workflow step executed (`steps` absent / no logs). Therefore repository-wide install/typecheck/lint/test/build is still not proven by Actions.
 
 ## Confirmed V1 baseline
 
@@ -15,87 +15,102 @@ The main remaining verification blocker is the GitHub Actions runner environment
 - AI: Gemini 2.5 Flash-Lite Standard.
 - V1 has no Redis and no object storage.
 - LINE messages are buffered short-term; memories are group-scoped long-term data.
-- Memory extraction is event-driven based on message/character thresholds, not periodic DB polling.
+- Memory extraction is event-driven, but Gemini may only run after a database claim owns a concrete batch.
 - Automatic and explicit @AI memories share dedup/update/contradiction handling.
-- All group members may manage memories; mutations/deletions must be auditable.
+- All group members may manage memories; no Owner/Admin role is introduced.
 - Memory source metadata is retained when LINE provides it.
 - Credit model is prepaid, not subscription-based. Welcome/ad value is consumed before paid value; paid credit does not expire.
 - First activated group per LINE user defaults to NT$1 internal welcome allowance; later groups default to NT$0.5.
-- Reward defaults: NT$0.01 internal allowance, max 5/group/day, 15-minute cooldown; values are configuration, not business-code constants.
+- Reward defaults: NT$0.01 internal allowance, max 5/group/day, 15-minute cooldown.
 - Reminder is paid-only and reserves paid value when created.
 - Inactive never-paid groups retain recoverable product data for 30 days; paid groups for 1 year.
 
 ## Round 1 — completed
 
-- Product/architecture/progress docs established.
-- pnpm workspace with API, LIFF Web, and shared package bootstrapped.
-- Hono Worker, React/Vite LIFF shell, Neon/Drizzle client, initial schema, CI, env template, and README added.
+Repository/product/architecture bootstrap, Hono Worker, LIFF shell, Neon/Drizzle foundation, initial schema, CI, env template and README.
 
 ## Round 2 — completed
 
-### Product configuration
+LINE signature verification and ordered event parsing, supported group-message normalization, attachment metadata-only handling, idempotent conversation ingestion, group lifecycle protection, pending counters, configurable thresholds, source traceability, unit tests, ESLint configuration, and CI wiring.
 
-- Added a single `ProductConfig` source for conversation thresholds, welcome/ad defaults, and retention defaults.
-- Confirmed defaults remain 30 messages / 5,000 chars / 2,000-char large-message marker; NT$1 first welcome / NT$0.5 later welcome; NT$0.01 ad reward / 5 per day / 15-minute cooldown; 30/365-day inactive retention.
-- All values can be overridden by deployment environment variables and invalid values fail fast.
+## Round 3 — completed
 
-### LINE webhook boundary
+### Extraction ownership / retry safety
 
-- Added Web Crypto HMAC-SHA256 verification of the raw LINE webhook body before JSON parsing.
-- Added safe parsing for supported LINE group message types: text, image, video, audio, file, location, sticker.
-- Direct-user events are excluded from group memory ingestion.
-- Preserved `webhookEventId`, LINE message id, sender id, LINE timestamp, `quoteToken`, and `quotedMessageId`; attachments keep metadata only, never binary content.
-- Parser preserves original webhook event order so message/leave/join sequencing remains meaningful.
-- `join` activates a group; `leave` marks it inactive. Messages received while inactive are ignored until another `join`, preventing delayed webhook redelivery from accidentally reactivating a retained group.
+- Added configurable `CONVERSATION_EXTRACTION_LEASE_SECONDS` with a 120-second default.
+- Added `conversation_extraction_batches` and `conversation_messages.extraction_batch_id`.
+- Only one open extraction claim is allowed per group through `(group_id, active_claim_key)` where completed rows set the nullable key back to `NULL`.
+- Added a database-backed claim adapter using one PostgreSQL CTE to: select all currently unassigned conversation rows, verify thresholds, create a batch, assign the exact candidate rows, and decrement pending counters by the exact assigned totals.
+- Concurrent duplicate claims are suppressed with `ON CONFLICT DO NOTHING`.
+- Claims use a lease. An expired claim is reclaimed with `FOR UPDATE SKIP LOCKED`, increments `attempt_count`, and keeps the same immutable message batch.
+- Failure is deferred by moving the lease/retry time and recording a normalized error code; success marks the batch `SUCCEEDED` and releases the open claim key.
+- Added a repository-agnostic `ConversationExtractionCoordinator` and unit tests for threshold forwarding, lease calculation, and failure-code normalization.
 
-### Conversation ingestion
+### Group-member persistence
 
-- Added a repository-agnostic `ConversationIngestionService` and Drizzle/Neon adapter.
-- New group messages are idempotent via unique LINE message id.
-- Only successfully inserted messages increment pending message/character counters.
-- Counter increments use database-side arithmetic to avoid lost updates from concurrent webhook requests.
-- Ingestion returns an extraction-threshold decision but does not call Gemini.
-- API exposes `POST /webhooks/line` and reports stored/duplicate/inactive-ignored counts without logging private conversation text or raw LINE group ids.
+- Added `group_members` plus `line_users.updated_at`.
+- Active message senders are now upserted into `line_users` and a per-group member snapshot before message persistence.
+- `last_seen_at` only moves forward, making redelivery harmless.
+- Inactive group messages remain ignored before sender/member mutation.
+- Updated conversation service tests to verify sender capture and inactive protection.
 
-### Schema and source traceability
+### Credit primitives
 
-- Conversation rows now keep webhook id, quoted LINE message id, LINE timestamp, quote token, and normalized metadata.
-- Memory schema now has its own source LINE timestamp in addition to source message id, quote token, and source user id so source attribution survives short-lived conversation-buffer cleanup.
+- Added exact 8-decimal TWD cost-unit helpers using bigint, avoiding floating-point ledger allocation.
+- Added deterministic consumption allocation in the required order: `WELCOME -> AD -> PAID`.
+- Added paid-only reservation allocation for Reminder.
+- Allocation reports shortfall instead of silently overdrawing.
+- Added reference-level uniqueness foundation to `credit_transactions` so later atomic ledger retries can be idempotent.
+- Added unit tests for order, shortfall, paid-only reservation, and decimal round-trip behavior.
 
-### Tests and quality tooling
+### AI cost metering foundation
 
-- Added tests for product-config defaults/overrides/invalid values.
-- Added a fixed known-vector test for LINE HMAC signature verification.
-- Added parser tests for group isolation, reply metadata, attachment/location metadata, and event ordering.
-- Added threshold tests for message/character triggers and large-message marker.
-- Added ingestion tests for threshold crossing, duplicate delivery, inactive-group rejection, and join reactivation.
-- Added TypeScript ESLint flat config and included lint in CI.
+- Added a pure token-cost calculator that requires an explicit input/output token price snapshot and USD/TWD rate.
+- Expanded `ai_usage_events` to retain input/output USD-per-million-token rates, USD/TWD rate, actual USD/TWD cost, and charged TWD cost alongside model/tokens/latency.
+- No Gemini token price or FX rate was invented or silently hard-coded into the memory domain.
+- Added calculator tests including invalid negative usage rejection.
 
-## Round 2 validation
+### Explicit memory command boundary
 
-### Passed locally in the automation runtime
+- Added detection for tagged commands such as `@AI 記住 Amy 不吃香菜`.
+- Added reply-mode `記住` detection that carries `quotedLineMessageId` as the intended source.
+- Ordinary untagged group text such as `記住明天要下雨` is deliberately not treated as a command.
+- Detection does not persist memory directly; it is ready to route into the same future candidate/dedup pipeline.
+- Added unit tests for tagged, quoted, and ordinary-chat cases.
 
-- Global TypeScript 5.8.3 strict typecheck passed for the dependency-free product config, LINE parser/signature, threshold, and ingestion service modules.
-- Node 22 runtime checks passed for the known HMAC vector, LINE event normalization/order, config validation, threshold behavior, idempotent ingestion behavior, and inactive-group protection.
+### Architecture / configuration
 
-### CI / full workspace blocker
+- Updated architecture documentation for claim leases, sender snapshots, exact credit accounting, AI pricing snapshots, and explicit-memory boundaries.
+- Updated `.env.example` with the extraction lease override.
+- No migrations have been generated or executed yet because dependency-aware build validation is still unavailable and the near-term ledger/memory schema is not fully stabilized.
 
-- GitHub Actions workflow dispatches on pushes, but multiple recent `verify` jobs completed before any workflow step ran; observed failed jobs had `steps: []`, `runner_id: 0`, and no downloadable job log. A later run was still queued with no runner assigned when checked.
-- Therefore `pnpm install`, repository-wide TypeScript, ESLint, Vitest, Worker dry-run build, and Vite build have **not yet been proven by GitHub Actions**. Do not describe CI as green until a runner actually executes the steps.
-- The local runtime could not reach the npm registry to install pnpm/dependencies, so full dependency-aware verification was not possible there either.
-- No Neon, LINE, Cloudflare, LIFF, or Gemini production credentials were guessed or committed.
+## Round 3 validation
 
-## Round 3 — highest priority
+### Static/design verification completed
 
-1. Re-check the latest GitHub Actions run first. If a runner executes steps, fix every real install/typecheck/lint/test/build failure before adding more features. If it still fails before step 1 with no runner, keep it documented as an environment blocker and continue static/unit-safe work.
-2. Add database-backed conversation extraction batch/claim state so crossing a threshold can be claimed exactly once; do not call Gemini merely because counters remain above threshold.
-3. Add group-member/sender persistence needed for LIFF membership checks, audit actors, and later welcome-credit attribution. Do not invent an Owner/Admin role; all group members remain managers.
-4. Build credit-ledger service primitives for WELCOME -> AD -> PAID consumption and reservation/release semantics. Do not make billable Gemini calls until usage metering and credit charging can be coupled safely.
-5. Define AI usage cost conversion/storage needed to reconcile USD provider cost with TWD internal credit. Keep pricing/configuration explicit rather than hard-coded in business services.
-6. Add reply/@AI command detection using `quotedLineMessageId` and route explicit `記住` requests toward the same future memory pipeline as automatic extraction, without bypassing dedup logic.
-7. Only after claim + credit/metering foundations are safe, add Gemini structured memory-candidate extraction and NEW/DUPLICATE/UPDATE/CONTRADICT persistence.
-8. Generate the initial Drizzle migration only after dependency-aware type/build validation is available and the near-term ingestion/credit schema has stabilized; no migrations have been executed yet.
+- Reviewed all Round 3 changes against `PRODUCT_V1.md`, `ARCHITECTURE.md`, Round 2 handoff, and current source interfaces before writing.
+- Extraction claim SQL is a single-statement CTE for batch creation/assignment/counter decrement; this avoids a non-transactional multi-query claim on Neon HTTP.
+- Credit allocation core is dependency-free and uses bigint fixed-point units.
+- No external credentials, production identifiers, AI prices, FX values, or payment assumptions were guessed.
 
-## Process note for later rounds
+### Full workspace blocker remains
 
-Prefer one logical batched commit per verified work package when the GitHub tree/commit API is available. The Round 2 connector wrote many small main-branch commits, which caused unnecessary CI run churn.
+- Latest inspected GitHub Actions run for the prior head `0611c2e` still failed before a workflow step was assigned/executed and has no job logs.
+- The automation runtime still cannot prove `pnpm install`, dependency-aware TypeScript, ESLint, Vitest, Wrangler dry-run, or Vite build until a runner actually executes CI or an install-capable checkout runtime becomes available.
+- Treat any Drizzle driver typing/runtime issue discovered by a real CI runner as highest-priority Round 4 work before adding Gemini.
+
+## Round 4 — highest priority
+
+1. Re-check GitHub Actions for the Round 3 commit. If steps execute, fix every real install/typecheck/lint/test/build problem first.
+2. Connect extraction claiming to the webhook threshold result so `extractionDue` schedules/executes only after `claimDueBatch` returns a real batch; do not call Gemini yet if credit/metering mutation is not atomic.
+3. Implement the atomic Drizzle/PostgreSQL credit-ledger repository: idempotent GRANT/CONSUME/RESERVE/RELEASE, bucket balance checks, `WELCOME -> AD -> PAID` debit, PAID-only reservation, and reconciliation-safe references.
+4. Implement AI usage persistence coupled to a credit charge reference so a retry cannot double-charge a Gemini response.
+5. Add Rewarded Ad grant policy state (daily count + cooldown) and Welcome-credit attribution using observed LINE users without inventing an Owner role.
+6. Route detected explicit-memory commands to a pending memory-candidate request that resolves the quoted source row and enters the same future dedup pipeline.
+7. After credit/metering atomicity is tested, add Gemini structured extraction and candidate persistence for `NEW / DUPLICATE / UPDATE / CONTRADICT`.
+8. Add Reminder schema/service only after the paid-credit reservation repository exists; reservation must happen at creation and release on cancellation.
+9. Generate the initial Drizzle migration only after dependency-aware type/build validation is available and the schema for ingestion + extraction + credits has stabilized.
+
+## Process note
+
+Prefer one logical batched commit per round when possible. Round 3 uses the Git data blob/tree/commit path so all source changes land together and avoid the CI-run churn seen during Round 2.

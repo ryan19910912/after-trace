@@ -1,6 +1,6 @@
 import { eq, sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
-import { conversationMessages, lineGroups } from '../db/schema';
+import { conversationMessages, groupMembers, lineGroups, lineUsers } from '../db/schema';
 import type { BufferedGroupMessage } from '../line/events';
 import type { ConversationRepository, GroupRecord } from './service';
 import type { PendingCounters } from './threshold';
@@ -57,6 +57,34 @@ export class DrizzleConversationRepository implements ConversationRepository {
         set: {
           status: 'INACTIVE',
           inactiveAt,
+          updatedAt: new Date(),
+        },
+      });
+  }
+
+  async touchGroupMember(groupId: number, lineUserId: string, seenAt: Date): Promise<void> {
+    await this.db
+      .insert(lineUsers)
+      .values({ lineUserId, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: lineUsers.lineUserId,
+        set: { updatedAt: new Date() },
+      });
+
+    await this.db
+      .insert(groupMembers)
+      .values({
+        groupId,
+        lineUserId,
+        isActive: true,
+        firstSeenAt: seenAt,
+        lastSeenAt: seenAt,
+      })
+      .onConflictDoUpdate({
+        target: [groupMembers.groupId, groupMembers.lineUserId],
+        set: {
+          isActive: true,
+          lastSeenAt: sql`GREATEST(${groupMembers.lastSeenAt}, ${seenAt})`,
           updatedAt: new Date(),
         },
       });

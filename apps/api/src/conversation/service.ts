@@ -16,6 +16,7 @@ export interface ConversationRepository {
   ensureGroup(lineGroupId: string): Promise<GroupRecord>;
   activateGroup(lineGroupId: string): Promise<GroupRecord>;
   markGroupInactive(lineGroupId: string, inactiveAt: Date): Promise<void>;
+  touchGroupMember(groupId: number, lineUserId: string, seenAt: Date): Promise<void>;
   insertMessage(groupId: number, message: BufferedGroupMessage): Promise<boolean>;
   incrementPending(groupId: number, charCount: number): Promise<PendingCounters>;
   getPending(groupId: number): Promise<PendingCounters>;
@@ -39,6 +40,10 @@ export class ConversationIngestionService {
     const group = await this.repository.ensureGroup(message.lineGroupId);
     if (group.status === 'INACTIVE') {
       return { status: 'IGNORED_INACTIVE' };
+    }
+
+    if (message.lineUserId) {
+      await this.repository.touchGroupMember(group.id, message.lineUserId, message.lineTimestamp);
     }
 
     const inserted = await this.repository.insertMessage(group.id, message);

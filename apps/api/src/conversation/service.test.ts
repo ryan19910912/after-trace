@@ -12,6 +12,7 @@ class FakeConversationRepository implements ConversationRepository {
   readonly group: GroupRecord = { id: 1, lineGroupId: 'group-1', status: 'ACTIVE' };
   counters: PendingCounters = { messageCount: 29, charCount: 100 };
   insertedMessageIds = new Set<string>();
+  seenMembers: Array<{ lineUserId: string; seenAt: Date }> = [];
 
   async ensureGroup(lineGroupId: string): Promise<GroupRecord> {
     this.group.lineGroupId = lineGroupId;
@@ -26,6 +27,10 @@ class FakeConversationRepository implements ConversationRepository {
 
   async markGroupInactive(): Promise<void> {
     this.group.status = 'INACTIVE';
+  }
+
+  async touchGroupMember(_groupId: number, lineUserId: string, seenAt: Date): Promise<void> {
+    this.seenMembers.push({ lineUserId, seenAt });
   }
 
   async insertMessage(_groupId: number, message: BufferedGroupMessage): Promise<boolean> {
@@ -64,7 +69,7 @@ function message(id = 'msg-1'): BufferedGroupMessage {
 }
 
 describe('ConversationIngestionService', () => {
-  it('stores a new message, increments counters, and returns threshold decision', async () => {
+  it('stores a new message, records the sender, increments counters, and returns threshold decision', async () => {
     const repository = new FakeConversationRepository();
     const service = new ConversationIngestionService(repository, defaultProductConfig);
 
@@ -74,6 +79,9 @@ describe('ConversationIngestionService', () => {
     if (result.status !== 'STORED') throw new Error('Expected stored result');
     expect(result.counters).toEqual({ messageCount: 30, charCount: 105 });
     expect(result.threshold).toMatchObject({ extractionDue: true, reason: 'MESSAGE_COUNT' });
+    expect(repository.seenMembers).toEqual([
+      { lineUserId: 'user-1', seenAt: new Date('2026-08-29T00:00:00Z') },
+    ]);
   });
 
   it('does not increment counters for a redelivered LINE message id', async () => {
@@ -98,6 +106,7 @@ describe('ConversationIngestionService', () => {
     expect(result).toEqual({ status: 'IGNORED_INACTIVE' });
     expect(repository.counters).toEqual({ messageCount: 29, charCount: 100 });
     expect(repository.insertedMessageIds.size).toBe(0);
+    expect(repository.seenMembers).toHaveLength(0);
   });
 
   it('reactivates a group only on join', async () => {

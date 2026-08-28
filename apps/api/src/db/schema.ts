@@ -23,11 +23,13 @@ export const creditTransactionTypeEnum = pgEnum('credit_transaction_type', [
   'RELEASE',
 ]);
 export const memoryStatusEnum = pgEnum('memory_status', ['ACTIVE', 'SUPERSEDED']);
+export const extractionBatchStatusEnum = pgEnum('extraction_batch_status', ['CLAIMED', 'SUCCEEDED']);
 
 export const lineUsers = pgTable('line_users', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
   lineUserId: varchar('line_user_id', { length: 64 }).notNull().unique(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
 export const lineGroups = pgTable('line_groups', {
@@ -41,6 +43,50 @@ export const lineGroups = pgTable('line_groups', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
+
+export const groupMembers = pgTable(
+  'group_members',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    groupId: bigint('group_id', { mode: 'number' }).notNull(),
+    lineUserId: varchar('line_user_id', { length: 64 }).notNull(),
+    isActive: boolean('is_active').default(true).notNull(),
+    firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('group_member_group_user_uq').on(table.groupId, table.lineUserId),
+    index('group_member_user_idx').on(table.lineUserId),
+  ],
+);
+
+export const conversationExtractionBatches = pgTable(
+  'conversation_extraction_batches',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    groupId: bigint('group_id', { mode: 'number' }).notNull(),
+    status: extractionBatchStatusEnum('status').default('CLAIMED').notNull(),
+    activeClaimKey: varchar('active_claim_key', { length: 16 }),
+    messageCount: integer('message_count').notNull(),
+    charCount: integer('char_count').notNull(),
+    firstMessageId: bigint('first_message_id', { mode: 'number' }).notNull(),
+    lastMessageId: bigint('last_message_id', { mode: 'number' }).notNull(),
+    attemptCount: integer('attempt_count').default(1).notNull(),
+    claimedAt: timestamp('claimed_at', { withTimezone: true }).defaultNow().notNull(),
+    leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }).notNull(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    lastErrorCode: varchar('last_error_code', { length: 128 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('extraction_batch_active_claim_uq').on(table.groupId, table.activeClaimKey),
+    index('extraction_batch_group_status_idx').on(table.groupId, table.status),
+    index('extraction_batch_lease_idx').on(table.leaseExpiresAt),
+  ],
+);
 
 export const conversationMessages = pgTable(
   'conversation_messages',
@@ -57,7 +103,7 @@ export const conversationMessages = pgTable(
     quoteToken: text('quote_token'),
     lineTimestamp: timestamp('line_timestamp', { withTimezone: true }).notNull(),
     metadata: jsonb('metadata'),
-    batchSequence: integer('batch_sequence'),
+    extractionBatchId: bigint('extraction_batch_id', { mode: 'number' }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
@@ -65,6 +111,7 @@ export const conversationMessages = pgTable(
     index('conversation_message_group_created_idx').on(table.groupId, table.createdAt),
     index('conversation_message_group_line_time_idx').on(table.groupId, table.lineTimestamp),
     index('conversation_message_quoted_line_id_idx').on(table.quotedLineMessageId),
+    index('conversation_message_extraction_batch_idx').on(table.extractionBatchId),
   ],
 );
 
@@ -105,19 +152,28 @@ export const auditLogs = pgTable(
   (table) => [index('audit_group_created_idx').on(table.groupId, table.createdAt)],
 );
 
-export const aiUsageEvents = pgTable('ai_usage_events', {
-  id: bigserial('id', { mode: 'number' }).primaryKey(),
-  groupId: bigint('group_id', { mode: 'number' }).notNull(),
-  lineUserId: varchar('line_user_id', { length: 64 }),
-  usageType: varchar('usage_type', { length: 64 }).notNull(),
-  provider: varchar('provider', { length: 32 }).default('GOOGLE').notNull(),
-  model: varchar('model', { length: 128 }).notNull(),
-  inputTokens: integer('input_tokens').default(0).notNull(),
-  outputTokens: integer('output_tokens').default(0).notNull(),
-  costUsd: numeric('cost_usd', { precision: 18, scale: 10 }).notNull(),
-  latencyMs: integer('latency_ms'),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-});
+export const aiUsageEvents = pgTable(
+  'ai_usage_events',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    groupId: bigint('group_id', { mode: 'number' }).notNull(),
+    lineUserId: varchar('line_user_id', { length: 64 }),
+    usageType: varchar('usage_type', { length: 64 }).notNull(),
+    provider: varchar('provider', { length: 32 }).default('GOOGLE').notNull(),
+    model: varchar('model', { length: 128 }).notNull(),
+    inputTokens: integer('input_tokens').default(0).notNull(),
+    outputTokens: integer('output_tokens').default(0).notNull(),
+    inputUsdPerMillionTokens: numeric('input_usd_per_million_tokens', { precision: 18, scale: 10 }).notNull(),
+    outputUsdPerMillionTokens: numeric('output_usd_per_million_tokens', { precision: 18, scale: 10 }).notNull(),
+    costUsd: numeric('cost_usd', { precision: 18, scale: 10 }).notNull(),
+    usdTwdRate: numeric('usd_twd_rate', { precision: 12, scale: 6 }).notNull(),
+    costTwd: numeric('cost_twd', { precision: 18, scale: 8 }).notNull(),
+    chargedCostTwd: numeric('charged_cost_twd', { precision: 18, scale: 8 }).notNull(),
+    latencyMs: integer('latency_ms'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('ai_usage_group_created_idx').on(table.groupId, table.createdAt)],
+);
 
 export const creditAccounts = pgTable(
   'credit_accounts',
@@ -145,5 +201,14 @@ export const creditTransactions = pgTable(
     referenceId: varchar('reference_id', { length: 128 }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (table) => [index('credit_transaction_group_created_idx').on(table.groupId, table.createdAt)],
+  (table) => [
+    index('credit_transaction_group_created_idx').on(table.groupId, table.createdAt),
+    uniqueIndex('credit_transaction_reference_uq').on(
+      table.groupId,
+      table.bucket,
+      table.type,
+      table.referenceType,
+      table.referenceId,
+    ),
+  ],
 );

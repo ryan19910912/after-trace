@@ -2,6 +2,7 @@ export type ProductConfigEnv = {
   CONVERSATION_EXTRACTION_MESSAGE_THRESHOLD?: string;
   CONVERSATION_EXTRACTION_CHAR_THRESHOLD?: string;
   CONVERSATION_LARGE_MESSAGE_CHARS?: string;
+  CONVERSATION_EXTRACTION_LEASE_SECONDS?: string;
   WELCOME_FIRST_GROUP_COST_TWD?: string;
   WELCOME_LATER_GROUP_COST_TWD?: string;
   REWARDED_AD_COST_TWD?: string;
@@ -16,6 +17,7 @@ export type ProductConfig = {
     extractionMessageThreshold: number;
     extractionCharThreshold: number;
     largeMessageChars: number;
+    extractionLeaseSeconds: number;
   };
   credits: {
     welcomeFirstGroupCostTwd: number;
@@ -35,6 +37,7 @@ export const defaultProductConfig: ProductConfig = {
     extractionMessageThreshold: 30,
     extractionCharThreshold: 5_000,
     largeMessageChars: 2_000,
+    extractionLeaseSeconds: 120,
   },
   credits: {
     welcomeFirstGroupCostTwd: 1,
@@ -84,6 +87,11 @@ export function resolveProductConfig(env: ProductConfigEnv): ProductConfig {
         'CONVERSATION_LARGE_MESSAGE_CHARS',
         env.CONVERSATION_LARGE_MESSAGE_CHARS,
         defaultProductConfig.conversation.largeMessageChars,
+      ),
+      extractionLeaseSeconds: positiveInteger(
+        'CONVERSATION_EXTRACTION_LEASE_SECONDS',
+        env.CONVERSATION_EXTRACTION_LEASE_SECONDS,
+        defaultProductConfig.conversation.extractionLeaseSeconds,
       ),
     },
     credits: {

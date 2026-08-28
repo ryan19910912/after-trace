@@ -24,6 +24,7 @@ Cloudflare Worker / Hono
    |-- group event parsing
    |-- idempotent conversation ingestion
    |-- threshold evaluation
+   |-- extraction batch claim / lease
    |-- @AI commands
    |
    +--> Neon PostgreSQL
@@ -48,19 +49,35 @@ LINE webhook events are processed in their original payload order. LINE `join` a
 
 The conversation buffer keeps `quotedMessageId`, `quoteToken`, source user, LINE timestamp, and safe message metadata needed for reply-based `@AI` flows and later memory source attribution. Long-term memories persist their own source timestamp because conversation-buffer rows are not permanent.
 
-## Event-driven ingestion
+Every active sender observed in a group is persisted as a group-member snapshot. This supports later LIFF membership checks, audit actors, and welcome-credit attribution without introducing Owner/Admin roles; all group members remain managers.
 
-Do not poll PostgreSQL every few minutes for conversation thresholds. Incoming LINE events already wake the Worker, so the ingestion flow stores the message, updates pending counters, and determines whether extraction is due.
+## Event-driven extraction claim
 
-The threshold decision itself must not directly create duplicate Gemini jobs. Before Gemini extraction is enabled, the next implementation stage must add a database-backed batch claim/state transition so only one extraction owns a pending batch.
+Do not poll PostgreSQL every few minutes for conversation thresholds. Incoming LINE events already wake the Worker, so the ingestion flow stores the message, updates pending counters, and determines whether extraction may be due.
 
-Scheduled infrastructure is reserved for genuinely time-based behavior such as paid reminders and low-frequency retention cleanup.
+A threshold decision must never call Gemini directly. The database claim layer owns a concrete immutable set of currently-unassigned conversation rows by assigning them to a `conversation_extraction_batches` record. Only one open claim per group is permitted through a nullable unique claim key. Claiming and decrementing pending counters happen in one PostgreSQL CTE statement so concurrent webhook writes are not lost.
+
+Claims use a bounded lease. If a worker dies or Gemini fails, the batch remains the same batch; after the lease/retry time expires another worker can reclaim it with `FOR UPDATE SKIP LOCKED` and increment the attempt counter. Success releases the open claim key and marks the batch `SUCCEEDED`. This avoids duplicate Gemini jobs while also avoiding permanently stranded messages.
+
+The previous successful extraction batch should remain available as context for the next extraction. Conversation cleanup must therefore happen only after the next extraction has succeeded and memory persistence is complete.
+
+## Credit and AI-cost safety
+
+Credit accounting is stored in TWD internal-cost units with 8 decimal places. Consumption order is strictly `WELCOME -> AD -> PAID`; paid reminder reservations use `PAID` only. Business services must never silently overdraw a bucket.
+
+Every billable AI usage event records the exact token counts together with the pricing snapshot used for that request: input/output USD-per-million-token rates, USD/TWD conversion rate, USD cost, TWD cost, and the TWD amount actually charged. Pricing and FX are runtime inputs/snapshots rather than hidden constants in the memory domain.
+
+Credit ledger writes must be reference-idempotent so retries cannot consume or grant the same logical operation twice. The current schema has the reference uniqueness foundation; atomic Drizzle/SQL ledger mutation is the next implementation step before Gemini is enabled.
+
+## Explicit memory command boundary
+
+Reply-based or tagged commands such as `@AI 記住 ...` are detected separately from ordinary group chat. A bare phrase in normal group conversation must not become an explicit command accidentally. Reply commands preserve the quoted LINE message id as the intended source. Explicit commands still enter the same future memory candidate/dedup/update/contradiction pipeline as automatic extraction.
 
 ## Portability
 
 Business rules live in services/domain modules rather than Cloudflare-specific route handlers. Cloudflare bindings/adapters stay at infrastructure boundaries so heavy workloads can later move to Cloud Run without rewriting the domain.
 
-The conversation ingestion service depends on a repository interface; the current adapter is Drizzle/Neon.
+The conversation ingestion service and extraction coordinator depend on repository interfaces; current persistence adapters target Drizzle/Neon.
 
 ## Scale path
 
