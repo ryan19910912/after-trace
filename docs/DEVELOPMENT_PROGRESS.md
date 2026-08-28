@@ -2,114 +2,111 @@
 
 ## Current status
 
-Round 5 is complete and has been fast-forwarded into `main`. The V1 backend now has retry-safe Welcome Credit attribution, Rewarded Ad policy/grant primitives, persistent explicit-memory requests, and an extraction input/context accessor. Gemini memory extraction remains intentionally disabled until candidate classification/persistence is safe and testable.
+Round 6 is complete on `main`. The backend now has database-owned memory-request work leases and an idempotent transaction boundary for `NEW / DUPLICATE / UPDATE / CONTRADICT`. Automatic extraction claims now create/reuse the same persistent request envelope used by explicit `@AI 記住` flows. Gemini remains intentionally disabled until the classifier adapter and AI billing orchestration are connected to this safe persistence layer.
 
-GitHub Actions remains an environment blocker. Both Round 5 `main` runs checked in this round (`55ec31a` and `5312e40`) failed in about two seconds before any workflow step executed: `verify.steps=[]`, `runner_id=0`, and no runner name. This confirms the failure is still before checkout rather than a repository typecheck/test/build failure. Full dependency-aware workspace verification remains unproven until a runner actually executes steps.
+GitHub Actions remains an external environment blocker: Round 6 runs for `9fd626a` and `f9b6e47` both completed before any workflow step was available; the latest `verify` job again returned no steps/log URL. Full dependency-aware workspace verification is therefore still unproven.
 
 ## Confirmed V1 baseline
 
-- TypeScript + pnpm monorepo.
-- Hono on Cloudflare Workers.
-- React + Vite LIFF on Cloudflare Pages.
-- PostgreSQL on Neon + Drizzle.
-- Gemini 2.5 Flash-Lite Standard.
+- TypeScript + pnpm monorepo; Hono on Cloudflare Workers; React/Vite LIFF on Cloudflare Pages.
+- PostgreSQL on Neon + Drizzle; Gemini 2.5 Flash-Lite Standard.
 - V1 has no Redis/Object Storage.
-- LINE messages are a bounded conversation buffer; memories are group-scoped long-term data.
-- Every group member can manage memories; no Owner/Admin role exists.
-- Memory mutations/deletions are auditable and source metadata is retained when LINE provides it.
-- Credit order is Welcome -> Ad -> Paid. Paid credit does not expire.
-- First observed group attributed to a LINE user gets the configurable first-group Welcome amount; later groups get the configurable later-group amount.
-- Rewarded Ad defaults remain NT$0.01 internal allowance, max 5/group/day, 15-minute cooldown.
-- Reminder remains paid-only and must reserve PAID value before delivery.
-- Never-paid inactive groups retain recoverable product data for 30 days; paid groups for 1 year.
+- LINE Group is the isolation boundary for context, memories, reminders, usage and credits.
+- Every Group member can manage memories; mutations/deletions require audit history and source metadata where available.
+- Conversation extraction is event-driven and retry-safe; previous successful batch remains available as context.
+- Explicit and automatic memory work share one candidate pipeline.
+- Credit order is Welcome -> Ad -> Paid; paid value does not expire.
+- Reminder is paid-only and must reserve PAID value before delivery.
+- Never-paid inactive Groups retain recoverable product data for 30 days; paid Groups for 1 year.
 
-## Round 1 — completed
+## Completed rounds
 
-Repository/product/architecture bootstrap, Worker/LIFF skeletons, Neon/Drizzle foundation, CI, env template, initial schema and docs.
+### Round 1
 
-## Round 2 — completed
+Repository/product/architecture bootstrap, pnpm workspace, Worker/LIFF skeletons, Neon/Drizzle foundation, CI, env template and initial schema.
 
-LINE signature verification, ordered webhook parsing, conversation ingestion/idempotency, lifecycle protection, source metadata, configurable extraction thresholds and tests.
+### Round 2
 
-## Round 3 — completed
+LINE signature verification, ordered event parsing, conversation ingestion/idempotency, group lifecycle protection, source metadata, extraction thresholds and tests.
 
-Database-owned extraction batches/leases, group-member persistence, fixed-point credit primitives, AI cost snapshot calculator, explicit `@AI 記住` detection and initial credit schema.
+### Round 3
 
-## Round 4 — completed
+Database-owned extraction batches/leases, group-member persistence, fixed-point credit primitives, AI cost snapshot calculator and explicit memory-command detection.
 
-Webhook-to-extraction claim wiring, logical-operation credit idempotency, WELCOME -> AD -> PAID consumption, PAID reservation settlement, AI usage/credit coupling and retry-safe billing persistence.
+### Round 4
 
-## Round 5 — completed
+Webhook-to-extraction claim wiring, logical credit-operation idempotency, WELCOME -> AD -> PAID consumption, PAID reservation settlement and AI usage/credit coupling.
 
-### Welcome Credit attribution
+### Round 5
 
-- Added a dedicated `welcome_credit_user_state` counter so first-vs-later group attribution is decided atomically per LINE user without creating an Owner role.
-- Added `welcome_credit_attributions` with one attribution per Group, attributed LINE user, first/later flag, configured amount, grant operation id, and grant timestamp.
-- `WelcomeCreditService` converts configured TWD amounts into exact 8-decimal fixed-point units and grants through the existing logical credit ledger.
-- Welcome grant reference is deterministic: `WELCOME_GROUP / <internal-group-id>`.
-- A crash after ledger grant but before attribution completion is safe: retry reuses the same credit operation and completes the attribution without double-granting.
-- Successful completion writes `WELCOME_CREDIT_GRANTED` to `audit_logs`.
-- Webhook ingestion now ensures Welcome Credit for the first observed member after an active group message is persisted. Duplicate LINE delivery remains idempotent.
+Welcome Credit attribution, Rewarded Ad policy/grant primitives, persistent explicit-memory requests, source resolution and extraction current/previous-context accessor.
 
-### Rewarded Ad policy and grant safety
+## Round 6 — completed
 
-- Added `rewarded_ad_policy_state` keyed by Group + policy day and `rewarded_ad_grants` keyed by Group + provider reward-event id.
-- V1 policy day is resolved in `Asia/Taipei` so the confirmed daily limit follows Taiwan calendar days.
-- Policy acceptance uses PostgreSQL `INSERT ... ON CONFLICT DO UPDATE ... WHERE` to atomically enforce both daily count and cooldown under concurrent reward proofs.
-- Rejected proofs are persisted as `REJECTED_POLICY`; accepted proofs remain `PENDING` until the credit ledger grant completes.
-- Credit grant reference is deterministic: `REWARDED_AD / <reward-event-id>`.
-- Crash/retry between policy acceptance, ledger grant, and grant completion cannot double-credit the Group.
-- Successful completion writes `REWARDED_AD_GRANTED` to `audit_logs` with the actor and reward event id.
-- No public HTTP reward endpoint was added yet. This is intentional: V1 must not expose a credit-grant route until a real ad provider/server-verifiable reward proof is chosen.
+### Shared automatic/explicit request envelope
 
-### Persistent explicit-memory requests
+- Extraction claims now create or reuse one `AUTOMATIC` `memory_candidate_requests` row instead of stopping at a log line.
+- `automatic_memory_request_keys` makes extraction batch identity the durable automatic-request idempotency boundary.
+- Automatic request creation locks the extraction batch before checking/inserting the key, closing the concurrent double-create race.
+- Explicit requests continue to use the same `memory_candidate_requests` table and will enter the same classifier/persistence path.
 
-- Added `memory_candidate_requests` as the shared request envelope for future explicit and automatic memory candidate processing.
-- Explicit `@AI 記住...` and reply-based `記住` commands are persisted immediately after conversation ingestion rather than waiting for the extraction threshold.
-- Reply commands resolve the quoted LINE message inside the same Group and keep the conversation-row link for future source metadata copying.
-- If a reply-only request points to a source that is no longer in the buffer, it is persisted as `BLOCKED_SOURCE_MISSING` instead of inventing content.
-- Duplicate webhook delivery is idempotent by `(group_id, request_line_message_id)`.
-- The webhook now reports pending vs blocked explicit-memory request counts; Gemini is still not called.
+### Retry-safe memory work ownership
 
-### Extraction input/context accessor
+- Added `memory_request_work_states` with `attempt_count`, claim timestamp, lease expiry, completion timestamp and last error code.
+- `MemoryWorkCoordinator` calculates a configurable request lease (`MEMORY_REQUEST_LEASE_SECONDS`, default 120 seconds).
+- `DrizzleMemoryWorkRepository` claims oldest due work with `FOR UPDATE SKIP LOCKED` and increments the attempt count on reclaim.
+- `attempt_count` is a fencing token: candidate persistence, success and failure settlement require the current claim attempt so a stale Worker cannot win after another Worker reclaimed the request.
+- Failure returns the request to PENDING but keeps a retry-not-before timestamp in the work state.
+- Successful AUTOMATIC request completion atomically marks both the memory request and its extraction batch SUCCEEDED and releases the extraction active-claim key.
 
-- Added `ExtractionBatchInputService` and a Neon/Drizzle adapter that loads the currently claimed batch messages plus the most recent previous successful batch for the same Group.
-- Current and previous messages preserve LINE message id, sender, type, text, quote metadata, timestamp and attachment/location metadata.
-- Previous context is read-only and is not deleted in Round 5. This preserves the product rule: previous processed context remains available until the next extraction succeeds.
+### Candidate classification/persistence transaction
 
-### Schema organization
+- Added the domain boundary for `NEW / DUPLICATE / UPDATE / CONTRADICT` plus validation that NEW has no target and every other decision targets an existing memory.
+- Added `memory_candidate_results` with unique `(request_id, candidate_index)` as candidate-level idempotency.
+- Exact retries return the previous result; conflicting retries with changed decision/target/source/category/subject/content are rejected.
+- Persistence checks the request claim fence, validates the source conversation row belongs to the Group, and locks any target ACTIVE memory.
+- NEW creates a new ACTIVE memory.
+- DUPLICATE creates no extra memory and records the existing memory as the persisted result.
+- UPDATE/CONTRADICT create a replacement ACTIVE memory and mark the previous row SUPERSEDED with `superseded_by_id`.
+- New memory rows copy LINE source message id, quote token, sender, timestamp and safe metadata from the bounded conversation row.
+- Candidate outcomes write distinct audit actions: `MEMORY_CREATED`, `MEMORY_DUPLICATE_SKIPPED`, `MEMORY_UPDATED`, `MEMORY_CONTRADICTED`.
+- Active-memory lookup for the future classifier is implemented and Group-scoped.
 
-- Added `apps/api/src/db/schema-round5.ts` for Welcome Credit state, Rewarded Ad policy/grants and memory candidate requests.
-- Drizzle Kit now loads both the existing schema and the Round 5 schema file.
-- Initial migration generation is still intentionally deferred until a real dependency-aware build is available and candidate/memory schema stabilizes.
+### Tests/config/schema
 
-## Round 5 validation
+- Added unit coverage for automatic request identity, request lease ownership/fencing behavior and candidate decision validation/normalization.
+- Added `schema-round6.ts` and included it in Drizzle Kit configuration.
+- Added `MEMORY_REQUEST_LEASE_SECONDS=120` to `.env.example` and product configuration.
+- Tightened the new test callback types so strict local TypeScript checks do not depend on Vitest contextual typing.
+
+## Round 6 validation
 
 ### Completed validation
 
-- Re-checked two Round 5 GitHub Actions runs on `main`: both `verify` jobs completed with `steps=[]`, `runner_id=0`, no runner name, and no checkout/logged workflow step. The runner/environment blocker therefore persists.
-- Used the automation runtime TypeScript 5.8 compiler with lightweight module declarations to typecheck the new dependency-free Welcome Credit, Rewarded Ad, explicit-memory and extraction-input services.
-- Typechecked the new raw-SQL Welcome/Rewarded Ad/Memory adapters against lightweight database/Drizzle declarations to catch syntax/interface errors.
-- Added Vitest unit coverage for Welcome Credit idempotency, Taiwan Rewarded Ad policy day, policy rejection before ledger access, explicit-memory source selection and extraction input service validation.
-- Reviewed the Rewarded Ad SQL to avoid relying on sibling data-modifying CTE visibility: the new-claim response is derived from CTE `RETURNING` values and the atomic policy-state result.
+- Re-checked GitHub Actions after both Round 6 code commits. Run `33219580100` (`9fd626a`) and run `33219673297` (`f9b6e47`) both ended in failure before usable workflow steps; the latest `verify` job had `steps=null` and no log URL. This remains a runner/environment failure rather than evidence of a repository test/build failure.
+- Runtime has Node 22.16.0 and TypeScript 5.8.3, but no pnpm; outbound npm registry access timed out, so dependency installation could not be performed locally.
+- Using lightweight declarations for Drizzle/Vitest, strict TypeScript compilation succeeded for the new production memory work/pipeline modules and SQL adapters. After explicitly typing two test callback parameters, the new pipeline test also passes the lightweight strict TypeScript check.
+- Reviewed the SQL ownership model for stale-worker fencing, Group/source validation, target locking, idempotent candidate retries and atomic automatic-request/extraction completion.
 
-### Full workspace blocker remains
+### Still unproven
 
-- Real `pnpm install`, dependency-aware `tsc`, ESLint, Vitest, Wrangler dry-run, Vite build and Drizzle Kit generation still cannot be claimed green because GitHub Actions has not yet acquired a runner for any completed run.
+- Real `pnpm install`, workspace `typecheck`, ESLint, Vitest execution, Wrangler dry-run, Vite build and Drizzle Kit generation cannot be claimed green until GitHub Actions actually obtains a runner or another dependency-capable runtime is available.
 - No Neon/LINE/Cloudflare/Gemini production credential was guessed or committed.
-- No database migration has been generated or executed.
+- No database migration has been generated or executed yet.
 
-## Round 6 — highest priority
+## Round 7 — highest priority
 
-1. Re-check the latest `main` CI run. If steps execute, fix every real install/typecheck/lint/test/build issue before adding product behavior.
-2. Implement memory candidate classification/persistence transaction for `NEW / DUPLICATE / UPDATE / CONTRADICT`, including active-memory lookup, source copying, supersession and audit history.
-3. Let successful automatic extraction batches create `AUTOMATIC` memory candidate requests and let explicit requests enter the exact same candidate pipeline.
-4. Add a claim/lease for pending memory candidate requests so retries cannot run Gemini twice for the same request.
-5. Add runtime AI pricing/FX configuration and a Gemini structured-output adapter only after steps 2–4 are testable; couple every billable response to `AiBillingService`.
-6. Add Reminder schema/service on top of PAID reservations: create -> reserve, cancel -> release, delivered -> consume reserved value.
-7. Add inactive-group retention cleanup planning and audit-safe financial-record exclusions.
-8. Generate the initial Drizzle migration only after real dependency-aware CI/build is available and the V1 schema above is stable.
+1. Re-check the latest `main` CI run. If steps finally execute, fix every real install/typecheck/lint/test/build issue before adding more product behavior.
+2. Build one unified classification-input service for a claimed request:
+   - EXPLICIT: instruction + resolved source conversation message.
+   - AUTOMATIC: extraction batch current messages + previous successful context.
+   - both: Group-scoped active memories and source ids available to structured output.
+3. Add a strict Zod schema/port for classifier output and validate every candidate before persistence. Do not call a network model until this contract is testable.
+4. Add runtime Gemini pricing + USD/TWD inputs and wire Gemini 2.5 Flash-Lite Standard through the existing AI cost/billing primitives. Every billable response must have one retry-safe credit operation + one AI usage event.
+5. Add the orchestrator: claim request -> load input -> call structured classifier -> persist candidates -> mark request/batch succeeded; retryable failure -> defer without duplicate mutation or charge.
+6. Then implement Paid-only Reminder create/reserve, cancel/release, delivered/consume and retention cleanup.
+7. Generate the initial Drizzle migration only after real dependency-aware CI/build is available and the V1 schema above is stable.
 
 ## Process note
 
-Keep Gemini disabled until extraction ownership, candidate ownership, memory mutation semantics, credit charging and AI usage metering form one retry-safe path. Prefer a small number of logical commits and always update this file before handing work to the next round.
+Keep Gemini disabled until the request claim, structured response validation, candidate persistence, credit charging and AI usage metering form one retry-safe path. Always update this file before handing work to the next round.

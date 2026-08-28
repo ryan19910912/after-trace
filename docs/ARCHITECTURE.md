@@ -4,10 +4,8 @@
 
 - Language: TypeScript
 - Monorepo: pnpm workspaces
-- API framework: Hono
-- API runtime: Cloudflare Workers
-- LIFF: React + Vite + TypeScript
-- Web hosting: Cloudflare Pages
+- API framework/runtime: Hono on Cloudflare Workers
+- LIFF: React + Vite + TypeScript on Cloudflare Pages
 - Database: PostgreSQL on Neon
 - Data access/migrations: Drizzle ORM / Drizzle Kit
 - AI: Gemini 2.5 Flash-Lite Standard
@@ -20,15 +18,17 @@ LINE group
    |
    v
 Cloudflare Worker / Hono
-   |-- LINE signature verification on the raw request body
-   |-- group event parsing
+   |-- LINE signature verification on raw body
+   |-- ordered group event parsing
    |-- idempotent conversation ingestion
-   |-- threshold evaluation
    |-- extraction batch claim / lease
-   |-- @AI commands
+   |-- explicit @AI memory requests
+   |-- automatic memory requests
+   |-- memory request claim / lease
+   |-- memory candidate classification + persistence
    |
    +--> Neon PostgreSQL
-   +--> Gemini API
+   +--> Gemini API (kept disabled until billing/orchestration is complete)
    +--> LINE Messaging API
 
 LIFF React Web
@@ -39,62 +39,73 @@ Cloudflare Pages --> Worker API --> Neon
 
 ## LINE webhook ingestion
 
-`POST /webhooks/line` verifies `x-line-signature` before parsing JSON. V1 only treats LINE group context as an AFTERTRACE memory boundary; direct-user context is ignored by the group ingestion pipeline.
+`POST /webhooks/line` verifies `x-line-signature` before JSON parsing. Only LINE group context is a V1 memory boundary; direct-user context is ignored by the group ingestion pipeline.
 
-Supported message metadata is normalized before persistence. Text and location text are stored in the short-lived conversation buffer. Image/video/audio/file/sticker events retain reference metadata only; AFTERTRACE does not copy their binary content in V1.
+Supported message metadata is normalized before persistence. Text/location text is stored in the bounded conversation buffer. Image/video/audio/file/sticker events retain reference metadata only; AFTERTRACE does not copy binaries in V1.
 
-`conversation_messages.line_message_id` is unique. A redelivered LINE message therefore does not increment the group's pending counters twice. New messages increment pending message/character counters with database-side arithmetic so concurrent webhook deliveries do not overwrite one another.
+`conversation_messages.line_message_id` is unique, so redelivery cannot increment pending counters twice. New messages update pending message/character counters with database-side arithmetic. Events are processed in payload order. `join` activates/upserts a group; `leave` marks it inactive. Messages received while inactive are ignored until a later `join` reactivates the group.
 
-LINE webhook events are processed in their original payload order. LINE `join` activates/upserts the group. LINE `leave` marks it inactive. While a group is inactive, later or redelivered message events are ignored; only a new `join` reactivates ingestion. Retention cleanup is a separate low-frequency process governed by paid/unpaid retention policy.
+The conversation buffer keeps quoted message id, quote token, source user, LINE timestamp and safe metadata needed for reply-based flows and later source attribution. Long-term memories copy their own source metadata because conversation-buffer rows are temporary.
 
-The conversation buffer keeps `quotedMessageId`, `quoteToken`, source user, LINE timestamp, and safe message metadata needed for reply-based `@AI` flows and later memory source attribution. Long-term memories persist their own source timestamp because conversation-buffer rows are not permanent.
+Every observed sender is persisted as a group-member snapshot for LIFF membership checks, audit actors and Welcome Credit attribution. This does not create Owner/Admin roles; every group member remains a memory manager.
 
-Every active sender observed in a group is persisted as a group-member snapshot. This supports later LIFF membership checks, audit actors, and welcome-credit attribution without introducing Owner/Admin roles; all group members remain managers.
+## Event-driven extraction ownership
 
-## Event-driven extraction claim
+Do not poll PostgreSQL for extraction thresholds. Incoming LINE events already wake the Worker, so ingestion updates counters and asks the database whether work is due.
 
-Do not poll PostgreSQL every few minutes for conversation thresholds. Incoming LINE events already wake the Worker, so the ingestion flow stores the message, updates pending counters, and determines whether extraction may be due.
+A threshold decision never calls Gemini directly. PostgreSQL atomically claims an immutable set of currently-unassigned conversation rows into `conversation_extraction_batches`. Only one open extraction claim per Group is allowed. Claiming the rows and decrementing pending counters happen in one database statement so concurrent webhook writes are not lost.
 
-A threshold decision must never call Gemini directly. The database claim layer owns a concrete immutable set of currently-unassigned conversation rows by assigning them to a `conversation_extraction_batches` record. Only one open claim per group is permitted through a nullable unique claim key. Claiming and decrementing pending counters happen in one PostgreSQL CTE statement so concurrent webhook writes are not lost.
+The webhook attempts a claim after every active message, including duplicate/redelivered events. This lets a later event reclaim an expired lease after a Worker failure even when that event itself did not cross a threshold.
 
-The webhook attempts `claimDueBatch` after every active message, including a duplicate/redelivered message. The repository remains the authority on whether a new batch is actually due. This is intentional: a later LINE delivery can reclaim an expired batch lease after a worker failure even if no threshold was crossed by that specific delivery.
+The previous successful extraction batch remains available as context for the next batch. Conversation cleanup therefore happens only after the later extraction and memory persistence succeed.
 
-Claims use a bounded lease. If a worker dies or Gemini fails, the batch remains the same batch; after the lease/retry time expires another worker can reclaim it with `FOR UPDATE SKIP LOCKED` and increment the attempt counter. Success releases the open claim key and marks the batch `SUCCEEDED`. This avoids duplicate Gemini jobs while also avoiding permanently stranded messages.
+## Memory request ownership
 
-The previous successful extraction batch should remain available as context for the next extraction. Conversation cleanup must therefore happen only after the next extraction has succeeded and memory persistence is complete.
+Explicit `@AI 記住...` / reply commands and automatic extraction work share `memory_candidate_requests`. Explicit commands are persisted immediately. A reply whose source has already left the conversation buffer becomes `BLOCKED_SOURCE_MISSING` rather than inventing content.
+
+Every extraction batch maps to exactly one AUTOMATIC memory request. `automatic_memory_request_keys` uses extraction batch identity as the idempotency boundary; creation is serialized by locking the extraction batch row so concurrent retries cannot create two requests.
+
+Processing ownership is separate from request identity. `memory_request_work_states` stores a monotonic attempt count and a bounded lease. Claiming uses `FOR UPDATE SKIP LOCKED`; an expired claim can be reclaimed, but every downstream memory mutation must present the current attempt count as a fencing token. A stale Worker therefore cannot mutate memories or mark a newer attempt complete.
+
+When an AUTOMATIC request is successfully completed, its request state and the owning `conversation_extraction_batches` row are completed in the same PostgreSQL statement. This prevents a crash gap where memory persistence succeeds but the extraction batch remains claimable.
+
+## Memory candidate persistence
+
+The classifier is allowed to emit only `NEW`, `DUPLICATE`, `UPDATE`, or `CONTRADICT`.
+
+- `NEW`: must not target an existing memory; creates a new ACTIVE memory.
+- `DUPLICATE`: must target an ACTIVE memory; creates no second memory row.
+- `UPDATE`: must target an ACTIVE memory; creates a replacement ACTIVE memory and marks the prior row SUPERSEDED.
+- `CONTRADICT`: same persistence shape as UPDATE, but is audited distinctly so product/debug tooling can distinguish enrichment from contradiction.
+
+`memory_candidate_results` is uniquely keyed by `(request_id, candidate_index)`. An exact retry returns the existing result; a retry that changes decision, target, source or content is rejected as a conflict rather than silently mutating a second time.
+
+Candidate persistence validates that both the source conversation row and any target memory belong to the request's Group. UPDATE/CONTRADICT lock the active target before superseding it. New long-term memory rows copy LINE source message id, quote token, source user, source timestamp and safe metadata from the source conversation row.
+
+Every candidate outcome writes an audit event: `MEMORY_CREATED`, `MEMORY_DUPLICATE_SKIPPED`, `MEMORY_UPDATED`, or `MEMORY_CONTRADICTED`.
+
+Gemini remains downstream of this ownership/persistence boundary. It must not be enabled until the structured classifier adapter, runtime pricing/FX inputs, credit charge and AI usage persistence are wired into one retry-safe orchestration path.
 
 ## Credit and AI-cost safety
 
-Credit accounting is stored in TWD internal-cost units with 8 decimal places. Consumption order is strictly `WELCOME -> AD -> PAID`; paid reminder reservations use `PAID` only. Business services must never silently overdraw a bucket.
+Credit accounting uses exact TWD internal-cost units with 8 decimal places. Consumption order is `WELCOME -> AD -> PAID`; paid reminder reservations use `PAID` only. Business services must never silently overdraw a bucket.
 
-Logical credit idempotency lives at the operation level, not at the per-bucket transaction level. `credit_operations` has one unique reconciliation key for `(group, operation type, reference type, reference id)`. One CONSUME operation may then fan out into multiple `credit_transactions` rows for WELCOME/AD/PAID without allowing a retry to consume a different bucket a second time.
+Logical credit idempotency lives at the operation level. `credit_operations` owns one reconciliation key for `(group, operation type, reference type, reference id)`. One CONSUME operation may fan out into WELCOME/AD/PAID ledger rows without allowing a retry to consume a different bucket again.
 
-Grant, consume, reserve, release, and reserved-consume mutations are implemented as single PostgreSQL statements. The mutation first owns a logical operation and only then changes balances from ledger rows created by that operation. A reused reference with a different amount or bucket scope is reported as a reference conflict rather than silently being treated as a retry.
+Grant, consume, reserve, release and reserved-consume are atomic PostgreSQL mutations. Reusing a reference with different amount/scope is a reference conflict.
 
-Reminder reservations have their own `credit_reservations` state machine: `RESERVED -> CONSUMED` on successful delivery or `RESERVED -> RELEASED` on cancellation. The reservation row is locked during settlement so release and consume cannot both win. Reserving moves value from PAID available to PAID reserved; release returns it to available; successful reserved consumption removes it from reserved without touching unrelated free credit.
+Reminder reservations use `RESERVED -> CONSUMED` on successful delivery or `RESERVED -> RELEASED` on cancellation. Reserving moves PAID available value to PAID reserved; release returns it; successful delivery removes reserved value without touching free credit.
 
-A successful PAID grant marks the group as having paid, which is the retention-policy signal used later by cleanup logic.
+A successful PAID grant marks the Group `hasPaid=true`, which later drives retention policy.
 
-Every billable AI usage event records the exact token counts together with the pricing snapshot used for that request: input/output USD-per-million-token rates, USD/TWD conversion rate, USD cost, TWD cost, and the TWD amount actually charged. Pricing and FX are runtime inputs/snapshots rather than hidden constants in the memory domain.
+Every billable AI usage event records provider/model, token counts, input/output USD-per-million-token pricing snapshot, USD/TWD conversion snapshot, USD cost, TWD cost and actual charged TWD. AI billing is retry-safe by tying usage persistence to the logical credit operation id.
 
-AI billing is retry-safe by coupling usage persistence to the logical credit operation id. The billing flow first performs a reference-idempotent CONSUME; the returned operation id is then the unique `ai_usage_events.charge_operation_id`. If a worker fails after charging but before usage persistence, the same reference returns the same logical credit operation on retry and the usage row can be inserted without another charge. Gemini itself is still not enabled until pricing/runtime inputs and the memory persistence pipeline are ready.
+## Portability and scale
 
-## Explicit memory command boundary
+Business rules live in services/domain modules rather than Cloudflare route handlers. Cloudflare bindings and Neon/Drizzle implementations stay at adapter boundaries, so heavy workloads can later move to Cloud Run without rewriting domain behavior.
 
-Reply-based or tagged commands such as `@AI 記住 ...` are detected separately from ordinary group chat. A bare phrase in normal group conversation must not become an explicit command accidentally. Reply commands preserve the quoted LINE message id as the intended source. Explicit commands still enter the same future memory candidate/dedup/update/contradiction pipeline as automatic extraction.
-
-## Portability
-
-Business rules live in services/domain modules rather than Cloudflare-specific route handlers. Cloudflare bindings/adapters stay at infrastructure boundaries so heavy workloads can later move to Cloud Run without rewriting the domain.
-
-The conversation ingestion service, extraction coordinator, credit ledger service, and AI billing service depend on repository/port interfaces; current persistence adapters target Drizzle/Neon.
-
-## Scale path
-
-V1: LINE -> Workers -> Neon.
-
-When ingestion grows, introduce a queue between the webhook and processing rather than replacing the edge entry point. Heavy/native/CPU-bound workloads may be delegated to Cloud Run later.
+V1 is LINE -> Workers -> Neon. If ingestion grows, introduce a queue between webhook acceptance and processing rather than replacing the edge entry point.
 
 ## Observability
 
-Use structured logs with request/event ids, event type, non-sensitive correlation identifiers, latency, AI model/token/cost metadata, and error codes. Never log secrets, raw LINE group/user identifiers, or full private conversation text by default.
+Use structured logs with request/event ids, non-sensitive correlation identifiers, event type, latency and AI model/token/cost metadata. Never log secrets, raw LINE group/user identifiers, or full private conversation text by default.

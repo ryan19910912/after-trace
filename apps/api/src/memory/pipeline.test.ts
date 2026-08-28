@@ -3,15 +3,17 @@ import { MemoryCandidatePipeline, type MemoryCandidateRepository } from './pipel
 
 describe('MemoryCandidatePipeline', () => {
   it('normalizes a NEW candidate before persistence', async () => {
-    const persistClassifiedCandidate = vi.fn(async (input) => ({
-      resultId: 1,
-      requestId: input.requestId,
-      candidateIndex: input.candidate.candidateIndex,
-      decision: input.candidate.decision,
-      memoryId: 99,
-      targetMemoryId: null,
-      idempotent: false,
-    }));
+    const persistClassifiedCandidate = vi.fn(
+      async (input: Parameters<MemoryCandidateRepository['persistClassifiedCandidate']>[0]) => ({
+        resultId: 1,
+        requestId: input.requestId,
+        candidateIndex: input.candidate.candidateIndex,
+        decision: input.candidate.decision,
+        memoryId: 99,
+        targetMemoryId: null,
+        idempotent: false,
+      }),
+    );
     const repository: MemoryCandidateRepository = {
       listActiveMemories: vi.fn(async () => []),
       persistClassifiedCandidate,
@@ -51,7 +53,7 @@ describe('MemoryCandidatePipeline', () => {
 
   it.each(['DUPLICATE', 'UPDATE', 'CONTRADICT'] as const)(
     '%s requires an active target memory id',
-    async (decision) => {
+    async (decision: 'DUPLICATE' | 'UPDATE' | 'CONTRADICT') => {
       const repository: MemoryCandidateRepository = {
         listActiveMemories: vi.fn(async () => []),
         persistClassifiedCandidate: vi.fn(),
