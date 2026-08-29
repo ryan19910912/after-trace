@@ -92,7 +92,7 @@ Rewarded Ad grant minting is intentionally still disabled from LIFF because no W
 
 ## Verification status
 
-Round 14 implementation commit: `0f97196b556f51a9fa275df0e11556bd6c00ac21`.
+Round 14 implementation commit: `3aefbee6311324589ecbabc97c9c83f1892bb617`.
 
 The pre-Round-14 CI was still blocked before repository execution: run `33233657314` for `763d326c` had an empty `verify` step list. The Round 14 commit must be re-checked after push; only a run that actually starts Checkout/repository commands can count as dependency-aware verification.
 
