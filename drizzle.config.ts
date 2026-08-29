@@ -9,6 +9,7 @@ export default defineConfig({
     './apps/api/src/db/schema.ts',
     './apps/api/src/db/schema-round5.ts',
     './apps/api/src/db/schema-round6.ts',
+    './apps/api/src/db/schema-round8.ts',
   ],
   out: './drizzle',
   dialect: 'postgresql',

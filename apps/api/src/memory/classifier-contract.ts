@@ -18,34 +18,20 @@ export const memoryClassifierCandidateSchema = z
   .strict()
   .superRefine((candidate, context) => {
     if (candidate.decision === 'NEW' && candidate.targetMemoryId !== null) {
-      context.addIssue({
-        code: 'custom',
-        path: ['targetMemoryId'],
-        message: 'NEW candidate must not target an existing memory',
-      });
+      context.addIssue({ code: 'custom', path: ['targetMemoryId'], message: 'NEW candidate must not target an existing memory' });
     }
     if (candidate.decision !== 'NEW' && candidate.targetMemoryId === null) {
-      context.addIssue({
-        code: 'custom',
-        path: ['targetMemoryId'],
-        message: `${candidate.decision} candidate must target an active memory`,
-      });
+      context.addIssue({ code: 'custom', path: ['targetMemoryId'], message: `${candidate.decision} candidate must target an active memory` });
     }
   });
 
 export const memoryClassifierOutputSchema = z
-  .object({
-    candidates: z.array(memoryClassifierCandidateSchema).max(20),
-  })
+  .object({ candidates: z.array(memoryClassifierCandidateSchema).max(20) })
   .strict()
   .superRefine((output, context) => {
     output.candidates.forEach((candidate, index) => {
       if (candidate.candidateIndex !== index) {
-        context.addIssue({
-          code: 'custom',
-          path: ['candidates', index, 'candidateIndex'],
-          message: 'candidateIndex must equal its array index',
-        });
+        context.addIssue({ code: 'custom', path: ['candidates', index, 'candidateIndex'], message: 'candidateIndex must equal its array index' });
       }
     });
   });
@@ -56,6 +42,7 @@ export type MemoryClassifierResponse = {
   output: MemoryClassifierOutput;
   tokenUsage: AiTokenUsage;
   model: string;
+  providerResponseId?: string | null;
   latencyMs: number | null;
 };
 
@@ -63,26 +50,17 @@ export interface MemoryClassifierPort {
   classify(input: MemoryClassificationInput): Promise<MemoryClassifierResponse>;
 }
 
-export function parseMemoryClassifierOutput(
-  raw: unknown,
-  input: MemoryClassificationInput,
-): ClassifiedMemoryCandidate[] {
+export function parseMemoryClassifierOutput(raw: unknown, input: MemoryClassificationInput): ClassifiedMemoryCandidate[] {
   const parsed = memoryClassifierOutputSchema.parse(raw);
   const sourceIds = new Set(input.currentMessages.map((message) => message.id));
   const activeMemoryIds = new Set(input.activeMemories.map((memory) => memory.id));
-
   for (const candidate of parsed.candidates) {
     if (!sourceIds.has(candidate.sourceConversationMessageId)) {
-      throw new Error(
-        `classifier candidate ${candidate.candidateIndex} referenced a source outside the current request`,
-      );
+      throw new Error(`classifier candidate ${candidate.candidateIndex} referenced a source outside the current request`);
     }
     if (candidate.targetMemoryId !== null && !activeMemoryIds.has(candidate.targetMemoryId)) {
-      throw new Error(
-        `classifier candidate ${candidate.candidateIndex} referenced a non-active target memory`,
-      );
+      throw new Error(`classifier candidate ${candidate.candidateIndex} referenced a non-active target memory`);
     }
   }
-
   return parsed.candidates;
 }
