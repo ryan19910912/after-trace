@@ -68,17 +68,18 @@ export async function verifyAdminAccess(
   } catch {
     return null;
   }
-  let signature: Uint8Array;
+  let signature: Uint8Array<ArrayBuffer>;
   try {
     signature = decodeBase64UrlBytes(encodedSignature);
   } catch {
     return null;
   }
+  const signedData = new Uint8Array(encoder.encode(`${encodedHeader}.${encodedPayload}`));
   const valid = await crypto.subtle.verify(
     'RSASSA-PKCS1-v1_5',
     cryptoKey,
     signature,
-    encoder.encode(`${encodedHeader}.${encodedPayload}`),
+    signedData,
   );
   return valid ? { email: allowedEmail } : null;
 }
@@ -122,8 +123,10 @@ function decodeBase64UrlText(value: string): string {
   return new TextDecoder().decode(decodeBase64UrlBytes(value));
 }
 
-function decodeBase64UrlBytes(value: string): Uint8Array {
+function decodeBase64UrlBytes(value: string): Uint8Array<ArrayBuffer> {
   const base64 = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=');
   const binary = atob(base64);
-  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
 }
