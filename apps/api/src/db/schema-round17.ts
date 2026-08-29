@@ -3,6 +3,7 @@ import {
   bigserial,
   index,
   integer,
+  numeric,
   pgTable,
   timestamp,
   uniqueIndex,
@@ -27,6 +28,26 @@ export const automaticMemoryEligibleSubjects = pgTable(
     index('automatic_memory_eligible_batch_idx').on(table.extractionBatchId),
     index('automatic_memory_eligible_group_request_idx').on(table.groupId, table.requestId),
   ],
+);
+
+export const aiEnergyUsageEvents = pgTable(
+  'ai_energy_usage_events',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    requestId: bigint('request_id', { mode: 'number' }).notNull().unique(),
+    groupId: bigint('group_id', { mode: 'number' }).notNull(),
+    usageType: varchar('usage_type', { length: 64 }).notNull(),
+    provider: varchar('provider', { length: 32 }).notNull(),
+    model: varchar('model', { length: 128 }).notNull(),
+    inputTokens: integer('input_tokens').notNull(),
+    outputTokens: integer('output_tokens').notNull(),
+    costUsd: numeric('cost_usd', { precision: 18, scale: 10 }).notNull(),
+    costTwd: numeric('cost_twd', { precision: 18, scale: 8 }).notNull(),
+    energyUnits: bigint('energy_units', { mode: 'bigint' }).notNull(),
+    latencyMs: integer('latency_ms'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index('ai_energy_usage_group_created_idx').on(table.groupId, table.createdAt)],
 );
 
 export const aiUserEnergyAllocations = pgTable(
