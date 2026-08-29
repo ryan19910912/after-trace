@@ -140,3 +140,32 @@ export const explicitAiEnergyHoldAllocations = pgTable(
     index('explicit_ai_energy_hold_lot_idx').on(table.lotId),
   ],
 );
+
+export const proactivePushes = pgTable(
+  'proactive_pushes',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    userId: bigint('user_id', { mode: 'number' }).notNull(),
+    groupId: bigint('group_id', { mode: 'number' }).notNull(),
+    requestKey: varchar('request_key', { length: 128 }).notNull(),
+    sourceType: varchar('source_type', { length: 64 }).notNull(),
+    sourceId: varchar('source_id', { length: 160 }).notNull(),
+    message: text('message').notNull(),
+    scheduledFor: timestamp('scheduled_for', { withTimezone: true }).notNull(),
+    status: varchar('status', { length: 32 }).default('SCHEDULED').notNull(),
+    deliveryAttemptCount: integer('delivery_attempt_count').default(0).notNull(),
+    deliveryRetryKey: varchar('delivery_retry_key', { length: 36 }),
+    deliveryLeaseExpiresAt: timestamp('delivery_lease_expires_at', { withTimezone: true }),
+    deliveredAt: timestamp('delivered_at', { withTimezone: true }),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    lastErrorCode: varchar('last_error_code', { length: 128 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('proactive_push_user_request_uq').on(table.userId, table.requestKey),
+    uniqueIndex('proactive_push_source_uq').on(table.userId, table.sourceType, table.sourceId),
+    index('proactive_push_due_idx').on(table.status, table.scheduledFor, table.deliveryLeaseExpiresAt),
+    index('proactive_push_group_status_idx').on(table.groupId, table.status),
+  ],
+);
