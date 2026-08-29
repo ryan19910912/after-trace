@@ -8,6 +8,7 @@ import { backgroundPreflight } from './energy/background';
 import { DrizzleUserEnergyAccessRepository } from './energy/drizzle-access';
 import { DrizzleBackgroundEnergyRepository } from './energy/drizzle-background';
 import { DrizzleUserEnergyRepository } from './energy/drizzle-repository';
+import { createEnergyRoutes } from './energy/routes';
 import { DrizzleExtractionClaimRepository } from './extraction/drizzle-repository';
 import { ConversationExtractionCoordinator } from './extraction/service';
 import {
@@ -36,6 +37,7 @@ export type Bindings = ProductConfigEnv & {
 
 const app = new Hono<{ Bindings: Bindings }>();
 app.route('/api/v1/management', createManagementRoutes());
+app.route('/api/v1/energy', createEnergyRoutes());
 
 app.get('/health', (c) =>
   c.json({
