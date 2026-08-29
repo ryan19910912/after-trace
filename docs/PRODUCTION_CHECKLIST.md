@@ -26,8 +26,9 @@ This checklist separates completed product code from operator/provider configura
 - Configure the operational `USD_TWD_RATE` snapshot source/process.
 - Choose product economics and set `ENERGY_UNITS_PER_TWD`.
 - Set `GEMINI_CHAT_MAX_OUTPUT_TOKENS`.
+- Deliberately choose `GEMINI_MEMORY_MAX_OUTPUT_TOKENS`; it is part of the computed pre-provider worst-case budget bound.
 - Set `GLOBAL_FREE_AI_BUDGET_COST_TWD`.
-- Set `BACKGROUND_AI_MAX_SUBSIDY_COST_TWD`.
+- Set `BACKGROUND_AI_MAX_SUBSIDY_COST_TWD` as the additional per-call ceiling. If the computed request risk exceeds it, Memory Gemini is not invoked.
 - Confirm the chosen values preserve acceptable gross margin under worst-case usage before launch.
 
 ## 4. User Energy products
@@ -94,8 +95,8 @@ Only after V1 functional scope is frozen:
 2. lint;
 3. all Vitest suites;
 4. API and Vite production builds;
-5. Drizzle schema/migration generation and review;
+5. `pnpm db:schema:check` plus Drizzle migration generation/review;
 6. GitHub Actions CI;
-7. fix all failures until green;
+7. fix all repository failures until green;
 8. smoke-test LINE webhook, generic `@AI`, `@AI 記住`, background memory, LIFF wallet, Rewarded Ad, checkout adapter, Reminder and Proactive Push in a non-production Group;
 9. only then deploy production schema/configuration.
