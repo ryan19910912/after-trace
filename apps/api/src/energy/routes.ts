@@ -161,7 +161,10 @@ export function createEnergyRoutes() {
     if (result.status === 'POLICY_REJECTED') return c.json({ ok: false, result }, 429);
     if (result.status === 'REFERENCE_CONFLICT') return c.json({ ok: false, result }, 409);
     if (result.status === 'USER_NOT_FOUND') return c.json({ ok: false, result }, 404);
-    return c.json({ ok: true, result: { ...result, units: result.units.toString() } });
+    if ('units' in result) {
+      return c.json({ ok: true, result: { ...result, units: result.units.toString() } });
+    }
+    return c.json({ ok: false, error: 'UNEXPECTED_REWARDED_AD_RESULT' }, 500);
   });
 
   return app;
