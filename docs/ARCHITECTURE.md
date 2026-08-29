@@ -4,158 +4,327 @@
 
 - Language: TypeScript
 - Monorepo: pnpm workspaces
-- API framework/runtime: Hono on Cloudflare Workers
+- API/runtime: Hono on Cloudflare Workers
 - LIFF: React + Vite + TypeScript on Cloudflare Pages
 - Database: PostgreSQL on Neon
-- Data access/migrations: Drizzle ORM / Drizzle Kit
+- Data/migrations: Drizzle ORM / Drizzle Kit
 - AI: Gemini 2.5 Flash-Lite Standard
 - V1 intentionally has no Redis and no object storage.
 
-## Runtime flow
+## Ownership boundaries
+
+AFTERTRACE deliberately separates Group product context from User financial ownership.
+
+### Group-owned
+
+- Conversation buffer
+- Extraction batches
+- Memories and memory sources
+- Group membership snapshot
+- Reminder/Proactive Push destination
+- Group audit context
+
+### User-owned
+
+- Energy wallet and lots
+- FREE / SUBSCRIPTION / AD / PAID value
+- Subscription billing cycles
+- One-time PAID purchases
+- Rewarded Ad claims
+- Reminder ownership/payment
+- Per-user AI allocation/charge history
+
+The same LINE user uses one Energy wallet across every AFTERTRACE Group. Leaving a Group never transfers the user's Energy to anyone else.
+
+## Runtime overview
 
 ```text
-LINE group
+LINE Group
    |
    v
 Cloudflare Worker / Hono
-   |-- LINE signature verification on raw body
-   |-- ordered group event parsing
-   |-- idempotent conversation ingestion
-   |-- extraction batch claim / lease
-   |-- explicit @AI memory requests
-   |-- automatic memory requests
-   |-- memory request claim / lease + retry policy
-   |-- grounded classifier input + structured validation
-   |-- durable classifier result
-   |-- global free-AI gate + credit/usage settlement
-   |-- memory candidate classification + persistence
-   |-- paid-only reminder create/cancel/delivery settlement
+   |-- LINE signature verification
+   |-- ordered/idempotent conversation ingestion
+   |-- line_users + group_members observation
+   |-- lifetime FREE ensure-once
+   |-- deterministic @AI commands
+   |-- caller-only @AI Energy preflight
+   |-- extraction batch claim
+   |-- background eligible-participant preflight
+   |-- automatic memory request + eligible snapshot
    |
    +--> Neon PostgreSQL
-   +--> Gemini API (kept disabled from webhook composition until verification/runtime safety is complete)
    +--> LINE Messaging API
 
-LIFF React Web
-   |
-   v
-Cloudflare Pages --> Worker API --> Neon
+Memory AI execution boundary
+   |-- request claim / lease / retry fence
+   |-- eligible-subject-aware classifier input
+   |-- Gemini structured output
+   |-- durable classifier result
+   |-- User Energy settlement / platform subsidy
+   |-- candidate validation + persistence hard gate
+   +--> Neon PostgreSQL
+
+LIFF
+   |-- Group memory/reminder management
+   |-- private User Energy overview
+   |-- rewarded-ad nonce/claim API
+   +--> Worker API --> Neon
+
+Cron
+   |-- User-owned Reminder delivery
+   |-- Group retention cleanup
+   +--> LINE Push / Neon
 ```
 
-## LINE webhook ingestion
+Billable Gemini execution remains activation-gated until request-aware pre-provider funding/budget safety is composed. Missing external configuration must disable the provider path without blocking surrounding product development.
 
-`POST /webhooks/line` verifies `x-line-signature` before JSON parsing. Only LINE group context is a V1 memory boundary; direct-user context is ignored by the group ingestion pipeline.
+## LINE ingestion
 
-Supported message metadata is normalized before persistence. Text/location text is stored in the bounded conversation buffer. Image/video/audio/file/sticker events retain reference metadata only; AFTERTRACE does not copy binaries in V1.
+`POST /webhooks/line` verifies `x-line-signature` against the raw body before JSON parsing.
 
-`conversation_messages.line_message_id` is unique, so redelivery cannot increment pending counters twice. New messages update pending message/character counters with database-side arithmetic. Events are processed in payload order. `join` activates/upserts a group; `leave` marks it inactive. Messages received while inactive are ignored until a later `join` reactivates the group.
+Only LINE Group context enters the V1 shared-memory pipeline. Supported messages are normalized and persisted in a bounded conversation buffer. Image/video/audio/file/sticker content is not copied; only supported metadata/reference information is retained.
 
-The conversation buffer keeps quoted message id, quote token, source user, LINE timestamp and safe metadata needed for reply-based flows and later source attribution. Long-term memories copy their own source metadata because conversation-buffer rows are temporary.
+`conversation_messages.line_message_id` is unique, so LINE redelivery cannot increment extraction counters twice. Group lifecycle events activate/inactivate the Group. Messages received while inactive are ignored until a later join/reactivation.
 
-Every observed sender is persisted as a group-member snapshot for LIFF membership checks, audit actors and Welcome Credit attribution. This does not create Owner/Admin roles; every group member remains a memory manager.
+Every observed sender is ensured in `line_users`; `group_members` records the Group membership snapshot used for management permissions, Energy availability display and Reminder delivery safety.
 
-## Event-driven extraction ownership
+## User Energy model
 
-Do not poll PostgreSQL for extraction thresholds. Incoming LINE events already wake the Worker, so ingestion updates counters and asks the database whether work is due.
+`user_energy_lots` is the source of spendable User value.
 
-A threshold decision never calls Gemini directly. PostgreSQL atomically claims an immutable set of currently-unassigned conversation rows into `conversation_extraction_batches`. Only one open extraction claim per Group is allowed. Claiming the rows and decrementing pending counters happen in one database statement so concurrent webhook writes are not lost.
+Buckets:
 
-The webhook attempts a claim after every active message, including duplicate/redelivered events. This lets a later event reclaim an expired lease after a Worker failure even when that event itself did not cross a threshold.
+1. `FREE`: one lifetime grant per User, no expiry.
+2. `SUBSCRIPTION`: one billing-cycle grant per provider cycle, expires at provider `period_end`, no rollover.
+3. `AD`: Rewarded Ad grant, expires seven days after accepted claim.
+4. `PAID`: one-time pack grant, no expiry.
 
-The previous successful extraction batch remains available as context for the next batch. Conversation cleanup therefore happens only after the later extraction and memory persistence succeed.
+A lot stores original, available and reserved units plus stable source identity and expiry.
 
-## Memory request ownership
+Consumption ordering is deterministic:
 
-Explicit `@AI 記住...` / reply commands and automatic extraction work share `memory_candidate_requests`. Explicit commands are persisted immediately. A reply whose source has already left the conversation buffer becomes `BLOCKED_SOURCE_MISSING` rather than inventing content.
+1. expiring lots by `expires_at ASC`;
+2. FREE;
+3. PAID.
 
-Every extraction batch maps to exactly one AUTOMATIC memory request. `automatic_memory_request_keys` uses extraction batch identity as the idempotency boundary; creation is serialized by locking the extraction batch row so concurrent retries cannot create two requests.
+No mutation may create a negative balance.
 
-Processing ownership is separate from request identity. `memory_request_work_states.attempt_count` is a monotonic ownership/fencing token. Claiming uses `FOR UPDATE SKIP LOCKED`; an expired claim can be reclaimed, but downstream mutations must present the current attempt count. A stale Worker therefore cannot store the first durable model result, mutate memories, terminally fail the request, or mark a newer attempt complete.
+### Reconciliation
 
-Retry accounting is deliberately separate from fencing. `transient_failure_count` increments only when the AI execution path classifies a failure as retryable. Credit and free-budget waits do not consume that allowance.
+- `user_energy_operations`: logical idempotent mutation key.
+- `user_energy_transactions`: exact per-lot mutation history.
+- `user_energy_reservations`: reservation lifecycle.
+- `user_energy_reservation_allocations`: exact originating lots for release/settlement.
+- `user_subscription_cycles`: provider billing-cycle identity.
+- `user_paid_purchases`: provider purchase identity.
 
-When an AUTOMATIC request is successfully completed, its request state and owning `conversation_extraction_batches` row are completed in the same PostgreSQL statement. A terminal AUTOMATIC failure likewise closes the extraction batch and releases its active claim key while retaining the error code for diagnosis.
+The legacy Group Credit tables remain readable for old history only. New V1 AI/Reminder/monetization code must not create new Group-owned value.
 
-## Memory classifier grounding
+## Explicit @AI
 
-Both request origins build the same `MemoryClassificationInput` envelope before a model can be called.
+An explicit AI request belongs financially to the invoking LINE user.
 
-- EXPLICIT requests contain the resolved source conversation row, the user's instruction, and current Group-scoped active memories.
-- AUTOMATIC requests contain the claimed extraction batch, the previous successful batch as context, and the same Group-scoped active memories.
-- Previous-batch rows are context only. They are never valid `sourceConversationMessageId` values for newly emitted candidates.
-- Classifier output may target only ids from the Group's current ACTIVE memories.
-- Candidate indexes must be stable (`candidateIndex === array index`) because `(request_id, candidate_index)` is the persistence idempotency key.
+Before a request is allowed into the AI path, the backend queries that caller's User wallet. Another Group member is never considered as fallback funding.
 
-The model-facing prompt does not expose raw LINE user ids. Per-request ephemeral aliases (`speaker-1`, `speaker-2`, ...) preserve speaker continuity across current and previous context while avoiding unnecessary stable platform identifiers in the provider payload.
+If the caller is exhausted:
 
-The classifier contract is strict Zod structured output. Unknown fields, invalid decisions, invalid target shapes, hallucinated source ids, hallucinated active-memory ids and unstable candidate indexes are rejected before memory mutation.
+- Gemini is not invoked;
+- LINE receives a deterministic Energy-exhausted response;
+- Group members are shown only as `可使用 / 已用完`;
+- numeric balances/purchase information remain private in LIFF.
 
-## Durable model result and memory persistence
+`@AI 額度`, help and plan commands are deterministic and never consume Energy.
 
-A provider result is first validated/grounded and stored in `memory_classifier_results`. The first store is protected by the current attempt fence. Later retries reuse that result, including its provider/model, token usage, latency, pricing/FX snapshot and calculated cost; they do not recompute the old call under newer prices or intentionally repeat the Gemini request.
+The final AI settlement adapter resolves the caller by LINE identity and consumes only that User's wallet using an idempotent request reference.
 
-The classifier is allowed to emit only `NEW`, `DUPLICATE`, `UPDATE`, or `CONTRADICT`.
+## Background memory eligibility
 
-- `NEW`: must not target an existing memory; creates a new ACTIVE memory.
-- `DUPLICATE`: must target an ACTIVE memory; creates no second memory row.
-- `UPDATE`: must target an ACTIVE memory; creates a replacement ACTIVE memory and marks the prior row SUPERSEDED.
-- `CONTRADICT`: same persistence shape as UPDATE, but is audited distinctly so product/debug tooling can distinguish enrichment from contradiction.
+A due extraction batch is evaluated before an automatic memory request is created.
 
-`memory_candidate_results` is uniquely keyed by `(request_id, candidate_index)`. An exact retry returns the existing result; a retry that changes decision, target, source or content is rejected as a conflict rather than silently mutating a second time.
+A User is eligible only when:
 
-Candidate persistence validates that both the source conversation row and any target memory belong to the request's Group. UPDATE/CONTRADICT lock the active target before superseding it. New long-term memory rows copy LINE source message id, quote token, source user, source timestamp and safe metadata from the source conversation row.
+- they contributed valid textual content to the current extraction batch; and
+- they had positive usable Energy at preflight.
 
-Every candidate outcome writes an audit event: `MEMORY_CREATED`, `MEMORY_DUPLICATE_SKIPPED`, `MEMORY_UPDATED`, or `MEMORY_CONTRADICTED`.
+If no eligible participant exists, the extraction batch is terminally closed with a no-eligible reason before automatic request creation or Gemini invocation. Later recharge does not resurrect that old batch.
 
-## Credit and AI-cost safety
+For an eligible batch, `automatic_memory_eligible_subjects` snapshots:
 
-Credit accounting uses exact TWD internal-cost units with 8 decimal places. Normal consumption order is `WELCOME -> AD -> PAID`; paid reminder reservations use `PAID` only. Business services must never silently overdraw a bucket.
+- stable User id;
+- LINE user id;
+- normalized character contribution;
+- preflight available Energy.
 
-Logical credit idempotency lives at the operation level. `credit_operations` owns one reconciliation key for `(group, operation type, reference type, reference id)`. One CONSUME operation may fan out into WELCOME/AD/PAID ledger rows without allowing a retry to consume a different bucket again.
+The snapshot is created atomically with the AUTOMATIC memory request.
 
-Grant, consume, reserve, release and reserved-consume are atomic PostgreSQL mutations. Reusing a reference with different amount/scope is a reference conflict.
+Gemini may receive complete Group context, including ineligible speakers, because their text may be needed to understand an eligible speaker's statement. They remain context-only subjects.
 
-Reminder reservations use `RESERVED -> CONSUMED` on successful delivery or `RESERVED -> RELEASED` on cancellation. Reserving moves PAID available value to PAID reserved; release returns it; successful delivery removes reserved value without touching free credit.
+## Memory subject hard boundary
 
-A successful PAID grant marks the Group `hasPaid=true`, which later drives retention policy.
+Automatic subject authorization is enforced independently at multiple layers:
 
-Every billable AI usage event records provider/model, token counts, input/output USD-per-million-token pricing snapshot, USD/TWD conversion snapshot, USD cost, TWD cost and actual charged TWD. AI billing is retry-safe by tying usage persistence to the logical credit operation id.
+1. eligible subject snapshot at request creation;
+2. model prompt exposes only eligible ephemeral speaker aliases as durable-memory subjects;
+3. classifier output validation requires the source current message to belong to an eligible User;
+4. memory persistence repeats the same check against `automatic_memory_eligible_subjects`.
 
-Provider token prices and USD/TWD FX are runtime configuration, not memory-domain constants. Billable AI remains disabled when these snapshots are missing, preventing silent use of stale hard-coded pricing.
+A prompt injection or accidental direct repository call therefore cannot legitimately persist an automatic memory sourced from an ineligible speaker.
 
-## Paid-only Reminder lifecycle
+Previous successful extraction may be supplied as context but can never be used as a newly emitted `sourceConversationMessageId`.
 
-Reminder product state is stored separately from credit reconciliation state, but each state transition is committed together with its PAID credit mutation in one PostgreSQL statement. This avoids a service-level saga where a Worker crash could create a reminder without reserving value, release value without cancelling the reminder, or mark a delivery without consuming its reservation.
+## AI result durability and retry fencing
 
-Creation uses a caller-supplied stable `requestKey` as the reminder idempotency key. The caller also supplies the exact reservation cost in internal fixed-point units; the Reminder domain does not invent a price. An active Group with sufficient unexpired PAID balance creates a `SCHEDULED` reminder, a PAID `RESERVE` credit operation/reservation/transaction, moves PAID available value to reserved value, and writes `REMINDER_CREATED` audit data atomically. WELCOME and AD balances are never considered for Reminder creation. Exact retries return the existing reminder; reuse of the same key with different message, schedule, amount or actor is a reference conflict.
+Memory work ownership uses request claim leases and monotonic attempt counters. The attempt count is a fencing token: stale Workers cannot persist the first model result, mutate memories or close a newer claim.
 
-Cancellation locks the reminder and its PAID reservation. A `SCHEDULED` reminder transitions to `CANCELLED` only when the associated reservation transitions `RESERVED -> RELEASED`, the PAID account returns reserved value to available value, and `REMINDER_CANCELLED` audit data is written in the same statement. The cancelling LINE user is retained as the audit actor.
+A validated model response is stored before memory mutation. Retry reuses that durable result with its original provider/model/token/pricing/FX snapshot rather than calling Gemini again under new pricing.
 
-Successful delivery settlement is invoked only after an external delivery attempt has actually succeeded. It requires a stable delivery reference. A `SCHEDULED` reminder transitions to `DELIVERED` only together with `RESERVED -> CONSUMED`, removal of the reserved PAID value, and `REMINDER_DELIVERED` audit data. Retrying the same delivery reference is idempotent; attempting to reinterpret an already-delivered reminder under a different delivery reference is a conflict.
+Retryable provider failures use bounded exponential retry; configuration/auth/model errors are terminal for the current request.
 
-The reservation means an already-created reminder is not affected by later WELCOME/AD exhaustion. No proactive low-PAID warning threshold is hard-coded because PRODUCT_V1 does not define one. The current lifecycle establishes the financial/state boundary; due-reminder claiming, duplicate-send prevention and LINE Push/Cron composition remain separate runtime work and must not consume the reservation until LINE delivery is confirmed successful.
+## User Energy AI settlement
 
-### Global free-AI budget
+Provider cost remains recorded in USD/TWD while the customer wallet is denominated in Energy. The product conversion is explicitly configured by `ENERGY_UNITS_PER_TWD`.
 
-The V1 global free-AI safety ceiling is also a required runtime input. It caps cumulative actual AI cost funded from WELCOME/AD across the service; no reset cadence is invented by code.
+The conversion is intentionally not guessed. Missing conversion disables User-Energy AI billing activation.
 
-Guarded AI consumption takes a transaction-scoped global advisory lock, reads the free-budget state, allocates WELCOME then AD only up to the remaining allowance, then falls back to PAID. If paid value can cover the subsidy shortfall, the request proceeds. Otherwise a raw-credit-covered request that would exceed the global free allowance returns `FREE_BUDGET_EXHAUSTED` without creating a new logical charge.
+`ai_energy_usage_events` stores one provider usage record per logical memory request. Background calls fan out through `ai_user_energy_allocations` rather than pretending one Group credit operation funded the call.
 
-`global_free_ai_budget_operations` reconciles one free-budget contribution per credit operation, so idempotent charge retries cannot count subsidy twice. Paid-only Reminder reservations are outside this free-AI gate.
+### Background allocation
 
-## Memory AI retry policy
+Actual Energy cost is allocated among the snapshotted eligible Users in proportion to their normalized text-character contribution.
 
-Provider/configuration failures are classified before retry. Invalid credentials, rejected request configuration and missing model/endpoint are terminal for the current request. Network errors, timeout, rate limit and upstream failures use bounded exponential retry. Malformed provider outputs are retryable only within the same bound.
+At final settlement current wallet balances are locked and re-read. For each eligible User:
 
-`attempt_count` remains purely the ownership fence; `transient_failure_count` is the retry counter. Default code policy permits three transient failures with exponential delays starting at 60 seconds and capped at 15 minutes. Credit/budget waits are uncounted because they are settlement conditions rather than provider instability.
+- charge at most that User's own remaining Energy;
+- if their final share exceeds the remaining balance, consume to exactly zero;
+- the remainder becomes that User's platform shortfall subsidy;
+- never shift the shortfall to another member.
 
-See `docs/AI_SAFETY.md` for the activation and safety invariants.
+`platform_ai_subsidy_operations` records each subsidized User/share.
+
+### Global free-AI hard gate
+
+Background settlement uses the existing `global_free_ai_budget_state` row with budget key `V1_FREE_AI`.
+
+The settlement transaction locks both global budget state and relevant User Energy lots before mutations. If required platform subsidy would exceed the configured ceiling, that settlement does not deduct User Energy.
+
+A call that is fully User-funded has zero platform subsidy and is not blocked merely because the platform subsidy budget is already exhausted.
+
+A request-aware pre-provider budget/funding guard is still required before automatic Gemini invocation is enabled in production. Final settlement safety is implemented; provider activation must not be claimed complete until the pre-call boundary is also composed.
+
+## Memory persistence
+
+The classifier emits only `NEW`, `DUPLICATE`, `UPDATE`, or `CONTRADICT`.
+
+- `NEW`: creates an ACTIVE memory.
+- `DUPLICATE`: creates no duplicate memory.
+- `UPDATE`: creates a replacement ACTIVE memory and supersedes the old row.
+- `CONTRADICT`: same replacement shape, distinct audit action.
+
+Candidate persistence is idempotent by `(request_id, candidate_index)` and rejects retries that reinterpret decision/source/target/content.
+
+Long-term memories copy source metadata needed after conversation-buffer cleanup.
+
+## User-owned Reminder
+
+A Reminder has two independent dimensions:
+
+- owner/payer: User;
+- destination: Group.
+
+New Reminder creation uses `user_reminder_ownership` plus User Energy reservations. Legacy Group-credit reservation columns on `reminders` exist only to keep historical rows readable.
+
+Creation requires:
+
+- authenticated owner User;
+- active destination Group;
+- owner currently active in that Group;
+- enough eligible proactive Energy.
+
+Reservation ordering:
+
+1. SUBSCRIPTION lots whose `expires_at` is later than the scheduled delivery boundary;
+2. PAID lots.
+
+FREE/AD never fund Reminder.
+
+Cancellation is owner-only and releases the exact reserved lots.
+
+### Delivery
+
+Cron claims due User-owned reminders with a delivery lease/retry key.
+
+Immediately before Push, authorization rechecks current destination Group and owner membership.
+
+If the owner has left:
+
+- no LINE Push occurs;
+- Reminder becomes CANCELLED;
+- exact Energy reservation is released;
+- an audit event records owner-left cancellation.
+
+If LINE accepts the Push, the exact reservation becomes `CONSUMED` and the Reminder becomes DELIVERED atomically. Retryable delivery failures preserve the LINE retry key. Ambiguous/permanent failures do not guess whether the reservation should be consumed or refunded.
+
+`REMINDER_RESERVATION_ENERGY` is product configuration and remains blank until pricing is finalized.
+
+## Rewarded Ad
+
+V1 uses Google Ad Manager Web Rewarded behind a provider abstraction.
+
+Web rewarded completion is not mobile-app SSV. The backend therefore explicitly avoids describing the browser event as cryptographically provider-verified.
+
+The V1 anti-replay/abuse boundary is:
+
+1. authenticated LIFF User;
+2. server-issued random nonce;
+3. only SHA-256 nonce hash stored server-side;
+4. ten-minute nonce expiry;
+5. one-time nonce consumption;
+6. provider-event idempotency;
+7. User-level cooldown;
+8. User-level daily limit;
+9. accepted claim mapped to a stable 7-day AD Energy grant.
+
+Endpoints:
+
+- `POST /api/v1/energy/rewarded-ad/nonce`
+- `POST /api/v1/energy/rewarded-ad/claim`
+
+Missing `REWARDED_AD_ENERGY`, Google network code or ad-unit path keeps this path disabled.
+
+## LIFF privacy boundary
+
+Group memory/reminder management still requires verified Group context and current membership.
+
+Private Energy does not require a Group because the wallet belongs to the User. `GET /api/v1/energy/me` verifies LIFF identity and returns only the authenticated User's:
+
+- bucket balances;
+- reserved amounts;
+- lot expirations;
+- proactive capability.
+
+Other Group members' numeric balances are never returned through the Group Energy status path.
+
+## Retention
+
+Group retention deletes recoverable/private Group product data only after the configured inactive window and only when no active Reminder/reservation blocks cleanup.
+
+It never deletes User wallet/subscription/purchase/Energy transaction tables.
+
+When User-owned financial reconciliation still references a Group, the cleanup retains a minimal Group anchor instead of orphaning those records.
+
+Financial memory requests may be redacted rather than deleted so AI usage/allocation records keep a stable request identity. User-owned terminal Reminder text is redacted while Reminder ownership/reservation identity remains available for reconciliation.
+
+The legacy 30-day never-paid / 365-day paid Group timing remains a compatibility policy and must not be interpreted as ownership of User value.
 
 ## Portability and scale
 
-Business rules live in services/domain modules rather than Cloudflare route handlers. Cloudflare bindings and Neon/Drizzle implementations stay at adapter boundaries, so heavy workloads can later move to Cloud Run without rewriting domain behavior.
+Business rules remain in domain/services. Hono routes, Cloudflare execution context, Neon SQL and provider clients are adapters.
 
-V1 is LINE -> Workers -> Neon. If ingestion grows, introduce a queue between webhook acceptance and processing rather than replacing the edge entry point.
+V1 stays LINE -> Workers -> Neon. If ingestion/AI workloads grow, introduce a queue behind webhook acceptance rather than replacing the LINE edge entry point.
 
 ## Observability
 
-Use structured logs with request/event ids, non-sensitive correlation identifiers, event type, latency and AI model/token/cost metadata. Never log secrets, raw LINE group/user identifiers, or full private conversation text by default.
+Use structured logs with request/event ids, non-sensitive correlation ids, event type, latency, provider/model/token/cost information and reconciliation ids.
+
+Never log secrets, raw private conversation text or raw LINE user/group identifiers by default.
