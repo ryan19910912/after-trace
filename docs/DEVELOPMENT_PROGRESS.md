@@ -2,160 +2,195 @@
 
 ## Current status
 
-Round 18 is now focused on feature completion rather than incremental test work. User instruction is to finish the V1 functional mainline first, then run typecheck/lint/test/build/CI as one concentrated verification/fix phase.
+**AFTERTRACE V1 is Feature Complete at the functional/product-code level.**
 
-AFTERTRACE V1 is still not declared Feature Complete, but the major User Energy runtime paths are now implemented: generic @AI, automatic memory AI, Reminder, Rewarded Ad, provider-neutral commerce ingestion, private LIFF Energy UI and Proactive Push infrastructure.
+The implemented V1 now covers every behavior explicitly required by `docs/PRODUCT_V1.md`. Remaining work is release verification, generated migration review, deployment configuration and external provider/account setup; those are not missing V1 product features.
 
-## Ownership remains fixed
+**V1 is not yet Release Verified / Production Ready.** GitHub Actions currently creates the `verify` job but does not assign a hosted runner (`runner_id=0`, empty runner name, zero steps, no job log). Therefore the repository has not yet executed the final typecheck/lint/test/build/Drizzle chain.
 
-- Group owns conversation/extraction context, memories/sources and Push/Reminder destination.
-- User owns Energy, subscription, rewarded-ad rewards, purchases and Reminder/Proactive capability.
-- Same LINE user uses one wallet across all Groups.
-- AI/Reminder never borrows another member's Energy.
+## V1 functional completion checklist
 
-## Round 16–17 foundations already landed
+### LINE-first Group memory product
 
-- User Energy lots, expiry, immutable operations/transactions and reservations.
-- FREE / SUBSCRIPTION / AD / three PAID pack grant primitives.
-- Atomic consume/reserve/release/reserved-consume.
-- Caller-only @AI preflight and deterministic commands.
-- Automatic-memory eligible-speaker snapshot, no-eligible pre-Gemini skip and subject hard gates.
-- Per-user background allocation + Platform Subsidy + global free-AI budget reconciliation.
-- User-owned Reminder create/cancel/delivery.
-- User private Energy API.
-- Rewarded Ad nonce/claim backend.
-- User-owned retention safeguards.
+- LINE raw-body signature verification.
+- Group-only conversation ingestion.
+- Idempotent message buffering and extraction counters.
+- Bot join/leave lifecycle.
+- `memberJoined` / `memberLeft` membership lifecycle.
+- Attachment binaries are not persisted; supported metadata/reference only.
+- Previous extraction context support and retention-safe cleanup.
 
-## Round 18 — completed functional work
+### Group Memory
 
-### Memory AI runtime is now composed
+- Automatic extraction requests.
+- Explicit `@AI 記住` requests.
+- Gemini structured classifier.
+- NEW / DUPLICATE / UPDATE / CONTRADICT handling.
+- Durable source attribution.
+- LIFF list/search/edit/delete.
+- Actor audit for edits/deletes.
+- Background eligible-subject snapshot plus prompt/parser/DB persistence hard gates.
 
-- Added `UserEnergyMemoryAiRuntime` using real Drizzle work/input/result/candidate repositories, Gemini classifier and User Energy billing.
-- LINE webhook collects Groups with newly queued explicit/automatic memory requests and schedules processing through Worker `waitUntil`.
-- Runtime drains a bounded number of requests per Group rather than blocking webhook ingestion indefinitely.
-- Missing Gemini pricing/FX/Energy conversion/budget config safely disables provider execution without disabling LINE ingestion.
-- Background provider calls reserve Platform Subsidy risk before Gemini invocation.
-- `platform_ai_budget_reservations` tracks RESERVED/SETTLED/RELEASED provider-risk reservations.
-- Platform budget reserve and settlement now acquire the global advisory lock inside one SQL transaction statement; no cross-request transaction assumption is used with Neon HTTP.
-- Final background settlement uses the pre-provider reservation, charges current User lots, records per-user allocations/subsidy and settles the reserved global budget atomically.
+### Generic `@AI`
 
-### Generic `@AI` Q&A is now implemented
+- Deterministic `@AI 額度 / 幫助 / 方案` without Gemini/Energy charge.
+- General `@AI <question>` grounded in recent Group messages + ACTIVE memories.
+- Caller-only User Energy funding.
+- Full-request conservative Energy pre-hold before Gemini.
+- Actual-use settlement and unused-hold release.
+- Provider failure releases the hold.
+- LINE redelivery reuses completed answer rather than double-charging.
+- Raw LINE ids are pseudonymized before provider invocation.
+- Successful billable chat records usage type, provider/model, tokens, latency, pricing/FX snapshot, USD/TWD provider cost and Energy charge; exact User lot allocation is preserved by the hold allocation/settlement ledger.
 
-- Non-deterministic, non-`記住` `@AI` messages now use a real grounded answer path.
-- Context consists of recent Group text plus ACTIVE durable Group memories.
-- Raw LINE user ids are replaced with ephemeral speaker aliases before provider invocation.
-- Added `explicit_ai_chat_requests` for message-id idempotency and persisted provider/usage/cost result.
-- LINE redelivery of an already-completed chat request reuses the answer rather than charging again.
-- Added explicit caller Energy holds across the normal Energy order (expiring lots -> FREE -> PAID).
-- A request reserves a conservative maximum Energy amount before Gemini.
-- Actual provider usage is converted with configured `ENERGY_UNITS_PER_TWD`; only actual Energy is consumed and the unused hold is released.
-- Provider failure releases the entire hold.
-- Generic @AI therefore remains caller-only and cannot create a negative balance or transfer cost to another member.
-- `GEMINI_CHAT_MAX_OUTPUT_TOKENS` bounds generic answer output and the pre-hold risk calculation.
+### User Energy wallet
 
-### LINE member lifecycle is now complete for owner-left rules
+- Same LINE User shares one wallet across Groups.
+- Lifetime FREE once, non-expiring.
+- SUBSCRIPTION cycle lots expire at real provider `period_end`, no rollover.
+- Google Ad Manager Web Rewarded AD lots expire after seven days.
+- SMALL/MEDIUM/LARGE PAID lots do not expire.
+- Spend order: earliest expiring lots -> FREE -> PAID.
+- Atomic grant/consume/reserve/release/reserved-consume with idempotent references and no-negative guarantees.
+- Private LIFF wallet overview with usable/reserved bucket totals, lot expiry and subscription state.
+- Group Energy replies expose availability only, never another User's numeric balance.
 
-- Webhook parser now handles `memberJoined` and `memberLeft`, in addition to bot `join/leave`.
-- Joined users are touched/activated in `group_members`.
-- Left users are marked `is_active=false` immediately.
-- Reminder and Proactive owner-left delivery gates now have real webhook-fed membership state rather than depending only on future observed messages.
+### Background AI charging and safety
 
-### Proactive Push capability is implemented without inventing trigger rules
+- Eligible only when current extraction-batch textual contribution is positive and User Energy is positive at preflight.
+- No eligible participant -> stop before automatic request/Gemini.
+- Full Group context may be read while durable subjects remain eligible-only.
+- Actual Energy allocated among eligible Users proportional to normalized current-batch text characters.
+- Final per-User shortfall consumes that User to zero and becomes Platform Subsidy; never shifts to another member.
+- Per-User allocation/subsidy audit persistence.
+- Global `V1_FREE_AI` budget reconciliation.
+- Pre-provider global budget reservation uses a PostgreSQL advisory lock in the same SQL transaction statement.
+- Memory Gemini has explicit `GEMINI_MEMORY_MAX_OUTPUT_TOKENS`.
+- The exact serialized Gemini Memory request body is used as a UTF-8-byte conservative input-token upper bound.
+- Worst-case provider TWD cost is calculated from that full request-body bound plus configured max output tokens.
+- Global budget reserves that computed worst-case provider cost before Gemini.
+- `BACKGROUND_AI_MAX_SUBSIDY_COST_TWD` is an additional per-call safety ceiling; if computed risk exceeds it, Gemini is not invoked.
+- Final settlement converts only actual shortfall into spent Platform Subsidy and releases unused reserved risk.
 
-- Added User-owned `proactive_pushes` queue.
-- Product still does not define which business/memory events should generate proactive messages, so code does not invent triggers.
-- A trusted internal enqueue boundary accepts an already-approved trigger result with owner, Group destination, source identity, message and schedule.
-- Enqueue requires active Group membership and usable SUBSCRIPTION/PAID capability.
-- Scheduled delivery rechecks Group activity, membership and usable SUBSCRIPTION/PAID before LINE Push.
-- Ineligible scheduled work is cancelled instead of sent.
-- Delivery uses LINE retry keys and bounded dispatch leases.
-- Worker cron now runs Reminder, Proactive and Retention jobs in parallel.
-- `PROACTIVE_INTERNAL_SECRET` protects the internal enqueue boundary.
+### Rewarded Ad
 
-### LIFF Energy UI is now User-wallet based
+- Google Ad Manager Web Rewarded provider abstraction.
+- LIFF-authenticated server nonce issuance.
+- SHA-256 nonce persistence, ten-minute expiry and one-time use.
+- Provider-event idempotency.
+- User-level cooldown/daily limits.
+- GPT browser rewarded flow.
+- Server claim only after rewarded-granted browser event.
+- Accepted reward mints seven-day AD Energy.
+- Web Rewarded is not falsely described as mobile SSV/provider-cryptographic verification.
 
-- Legacy WELCOME/Group-credit Energy presentation was removed from the main LIFF Energy tab.
-- UI loads authenticated `/api/v1/energy/me` private wallet data.
-- Displays total usable/reserved Energy and FREE/SUBSCRIPTION/AD/PAID buckets.
-- Displays per-lot expiration and reservation state.
-- Displays proactive capability.
-- Private overview now includes User subscription provider/status/period_end/cancel-at-period-end state.
-- Reminder UI copy and capability now use SUBSCRIPTION/PAID User Energy semantics.
+### Subscription / PAID commerce
 
-### Google Ad Manager Web Rewarded browser flow is wired
-
-- Added GPT browser client loading `securepubads.g.doubleclick.net/tag/js/gpt.js`.
-- User button requests a server nonce first.
-- Uses Google Publisher Tag rewarded out-of-page slot.
-- Reward is claimed only after GPT emits the rewarded-granted event.
-- Closing before reward completion does not mint Energy.
-- Successful server claim refreshes private Energy overview.
-- Backend remains explicit that browser Rewarded is not mobile SSV; nonce/idempotency/cooldown/daily-limit remain the trust boundary available for Web V1.
-
-### Provider-neutral subscription / PAID commerce boundary
-
-- Added private product catalog from configured V1 Energy/price placeholders.
-- Added persisted `commerce_provider_events` idempotency ledger.
-- Added `user_subscription_state`.
-- Added provider-neutral verified event contract for:
+- One configured subscription product and three configured PAID packs.
+- Private LIFF catalog.
+- Provider-neutral checkout intent persistence and idempotency.
+- Generic trusted HTTP payment-adapter contract using the same `requestKey` as provider-side idempotency key.
+- Only HTTPS checkout/return URLs are accepted from the trusted adapter boundary.
+- LIFF Subscription/PAID buttons call the provider-neutral checkout API when adapter + price configuration is present.
+- Verified normalized provider-event boundary supports:
   - `SUBSCRIPTION_CYCLE_PAID`
   - `SUBSCRIPTION_CANCELLED`
   - `PAID_PACK_PURCHASED`
-- Successful subscription-cycle events mint Energy expiring at actual provider period_end.
-- Cancellation never removes already-paid current-cycle Energy before expiry.
-- PAID pack events mint SMALL/MEDIUM/LARGE permanent Energy using existing grant primitives.
-- Internal commerce event endpoint is protected by `COMMERCE_WEBHOOK_SECRET`.
-- No concrete payment provider adapter is invented. Merely setting `COMMERCE_PROVIDER` does not enable checkout UI; checkout remains disabled until a real adapter exists.
+- Provider event idempotency ledger.
+- Subscription cycle grants expire exactly at provider `period_end`.
+- Cancellation does not remove already-paid current-cycle Energy before expiry.
+- PAID purchase grants are permanent until consumed.
+- Core code does not guess Stripe/ECPay/other provider choice or production prices.
 
-### Retention extended for Round 18
+### Reminder
 
-- Active Proactive work blocks Group purge.
-- Terminal Proactive rows may be removed with Group product data.
-- Billed generic @AI requests are retained as financial identity but prompt/answer are redacted.
-- Unbilled failed/pending chat rows may be deleted.
-- Group anchor is retained when explicit AI financial history still needs the Group identity.
-- User wallet/payment/subscription/AI transaction value remains outside Group cleanup.
+- User owner/payer, Group destination.
+- Owner must be a current Group member.
+- Only valid SUBSCRIPTION/PAID can fund Reminder.
+- Subscription lot expiry must safely cover scheduled delivery.
+- Exact originating lots are reserved.
+- Owner-only cancellation releases exact lots.
+- Delivery rechecks Group activity + owner membership.
+- Owner-left -> no Push + cancel + release.
+- Successful LINE acceptance -> exact reservation consume.
+- Retry key / delivery lease safety.
 
-## External configuration still intentionally non-blocking
+### Proactive Push
 
-These values remain deployment/product decisions and may be blank while development continues:
+- User-owned Proactive capability requires usable SUBSCRIPTION or PAID Energy.
+- Approved trigger-producer contract; product modules cannot write queue rows directly.
+- Trusted internal enqueue boundary.
+- Queue idempotency by User/request/source.
+- Enqueue checks Group membership + current capability.
+- Delivery rechecks Group membership + current capability.
+- Lost capability/membership -> cancel rather than Push.
+- LINE retry keys and dispatch leases.
+- Worker cron delivery.
+- V1 does not invent business trigger rules that are absent from `PRODUCT_V1.md`.
 
-- Gemini key/current token prices/FX.
-- `ENERGY_UNITS_PER_TWD`.
-- global/background AI budget limits.
+### Retention / privacy / reconciliation
+
+- Group cleanup never deletes User wallet/subscription/purchase/Energy transaction value.
+- Active Reminder/Proactive work blocks purge.
+- Settled financial AI identity remains reconcilable while private prompt/content is redacted where appropriate.
+- User-owned Reminder financial identity is preserved while terminal private text can be redacted.
+- Minimal Group anchor remains while User-owned financial history references the Group.
+- Legacy 30/365-day Group timing remains compatibility configuration pending an explicit replacement product rule.
+
+### Legacy Group Credit quarantine
+
+- Active LIFF/management product surface no longer queries legacy Group Credit overview.
+- New V1 AI/Rewarded/Reminder/Proactive/Subscription/PAID paths use User Energy only.
+- `apps/api/src/credits` is explicitly documented as legacy history/migration/reconciliation code.
+- Legacy tables/modules remain readable until production migration policy permits removal.
+
+## External deployment configuration — not feature gaps
+
+Production still requires operator-approved values/accounts for:
+
+- LINE / LIFF secrets and URLs.
+- Neon production database and backup policy.
+- Gemini key, current official token pricing and FX process.
+- `ENERGY_UNITS_PER_TWD` product economics.
+- `GEMINI_CHAT_MAX_OUTPUT_TOKENS` and `GEMINI_MEMORY_MAX_OUTPUT_TOKENS`.
+- global/per-call AI safety budgets.
 - FREE/SUBSCRIPTION/AD/PAID Energy amounts and prices.
-- Google Ad Manager network/ad-unit values.
-- payment provider + provider credentials/checkout adapter.
-- internal Proactive trigger producer/secret.
-- production LINE/LIFF URLs and secrets.
+- Google Ad Manager network/ad-unit configuration.
+- one deployed payment adapter and its provider credentials.
+- approved Proactive business trigger producers.
+- Reminder Energy price.
 
-No production value is guessed in code.
+See `docs/PRODUCTION_CHECKLIST.md`.
 
-## Remaining functional work before V1 Feature Complete
+## Final verification status
 
-1. Implement a concrete payment checkout adapter only after the provider is selected/configured. The product catalog and verified post-payment event boundary are already provider-neutral.
-2. Decide/implement actual Proactive trigger producers. Queue, eligibility and delivery are complete; product trigger rules are intentionally not invented.
-3. Review management/listing surfaces for any remaining legacy Group Credit wording/read models that are no longer used by the main LIFF flow.
-4. Remove or quarantine remaining legacy Group Credit runtime modules after confirming no active V1 path imports them.
-5. Revisit legacy Group retention timing (30/365 days) only when a new product rule is explicitly chosen; User-owned value is already protected.
-6. Perform final configuration checklist/documentation for LINE, LIFF, Neon, Gemini, GAM and selected payment provider.
+The final verification workflow is now defined as:
 
-## Verification policy for the remaining development
+1. `pnpm typecheck`
+2. `pnpm lint`
+3. `pnpm test`
+4. `pnpm build`
+5. `pnpm db:schema:check` (`drizzle-kit export` across `schema*.ts` without production DB credentials)
+6. generated Drizzle migration review
+7. GitHub Actions CI
+8. non-production smoke test across LINE webhook, generic `@AI`, `@AI 記住`, background memory, LIFF wallet, Rewarded Ad, payment adapter, Reminder and Proactive Push
 
-Per current user instruction, do not spend development rounds repeatedly running or extending tests/CI while functional work is still incomplete.
+### Current blocker
 
-After V1 functional scope is completed:
+GitHub Actions is creating runs and the `verify` job, but GitHub-hosted runner allocation fails before repository execution:
 
-1. run dependency-aware typecheck;
-2. run lint;
-3. run all Vitest suites;
-4. run Vite/API builds;
-5. run Drizzle generation/schema validation;
-6. run GitHub Actions CI;
-7. fix all real failures until green.
+- `runner_id = 0`
+- runner name is empty
+- `steps = []`
+- job logs are unavailable
+- the same result occurs after manually rerunning failed jobs
 
-Existing focused tests remain in the repository, but no new claim of passing test/CI status should be made until that final verification phase.
+The check-run reports one annotation, but the available connector does not expose the annotation endpoint. The exact account/platform reason therefore cannot be stated safely from repository data alone.
 
-## Process note
+This is an external GitHub Actions runner/account allocation blocker, not a known repository test failure. Do not claim tests/build/Drizzle are green until a runner (or another dependency-complete execution environment) actually runs them.
 
-Never invent Energy amounts, subscription/pack prices, provider secrets, production URLs, Google network/ad-unit ids, payment provider choice or AI conversion economics. External configuration is a deployment boundary, not a reason to stop implementing provider-neutral product logic.
+## Next phase
+
+**Do not add new V1 feature scope unless a product requirement changes.**
+
+When runner execution is available, enter release-verification-only mode: run the complete verification chain, fix actual repository failures until green, generate/review migrations, perform smoke tests, then mark V1 Release Verified / Production Ready.
