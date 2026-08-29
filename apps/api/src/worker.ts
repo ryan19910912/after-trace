@@ -1,6 +1,6 @@
 import app, { type Bindings } from './index';
 import { createAdminRoutes } from './admin/routes';
-import { loadOperationalRuntimeEnv } from './config/operational-settings';
+import { loadOperationalRuntimeEnv, operationalSettingDefinitions } from './config/operational-settings';
 import { createDatabase } from './db/client';
 import { LineMessagingPushClient } from './line/push';
 import { DrizzleProactiveRepository } from './proactive/drizzle-repository';
@@ -20,42 +20,27 @@ const adminRoutes = createAdminRoutes();
 async function runtimeEnv(env: Bindings): Promise<Bindings> {
   const database = createDatabase(env.DATABASE_URL);
   const operational = await loadOperationalRuntimeEnv(database);
-  // Infrastructure credentials/origins remain Cloudflare bindings. Mutable product
-  // economics are loaded from DB and deliberately win over stale deployment vars.
-  return { ...env, ...operational };
+  const infrastructure = { ...env } as Record<string, unknown>;
+  // DB is authoritative for mutable product settings. Old Cloudflare vars with the
+  // same names are intentionally ignored so an operator cannot create split-brain config.
+  for (const definition of operationalSettingDefinitions) delete infrastructure[definition.key];
+  return { ...infrastructure, ...operational } as Bindings;
 }
 
 async function runReminderSchedule(controller: ScheduledControllerLike, env: Bindings): Promise<void> {
   const database = createDatabase(env.DATABASE_URL);
-  const service = new ReminderDeliveryService(
-    new DrizzleUserReminderDeliveryRepository(database),
-    new LineMessagingPushClient(env.LINE_CHANNEL_ACCESS_TOKEN),
-  );
-  console.log(JSON.stringify({
-    event: 'reminder_delivery_run',
-    ...(await service.deliverDue(new Date(controller.scheduledTime))),
-  }));
+  const service = new ReminderDeliveryService(new DrizzleUserReminderDeliveryRepository(database), new LineMessagingPushClient(env.LINE_CHANNEL_ACCESS_TOKEN));
+  console.log(JSON.stringify({ event: 'reminder_delivery_run', ...(await service.deliverDue(new Date(controller.scheduledTime))) }));
 }
-
 async function runProactiveSchedule(controller: ScheduledControllerLike, env: Bindings): Promise<void> {
   const database = createDatabase(env.DATABASE_URL);
-  const service = new ProactiveDeliveryService(
-    new DrizzleProactiveRepository(database),
-    new LineMessagingPushClient(env.LINE_CHANNEL_ACCESS_TOKEN),
-  );
-  console.log(JSON.stringify({
-    event: 'proactive_delivery_run',
-    ...(await service.deliverDue(new Date(controller.scheduledTime))),
-  }));
+  const service = new ProactiveDeliveryService(new DrizzleProactiveRepository(database), new LineMessagingPushClient(env.LINE_CHANNEL_ACCESS_TOKEN));
+  console.log(JSON.stringify({ event: 'proactive_delivery_run', ...(await service.deliverDue(new Date(controller.scheduledTime))) }));
 }
-
 async function runRetentionSchedule(controller: ScheduledControllerLike, env: Bindings): Promise<void> {
   const database = createDatabase(env.DATABASE_URL);
   const service = new GroupRetentionService(new DrizzleRetentionRepository(database));
-  console.log(JSON.stringify({
-    event: 'group_retention_run',
-    ...(await service.purgeExpired(new Date(controller.scheduledTime))),
-  }));
+  console.log(JSON.stringify({ event: 'group_retention_run', ...(await service.purgeExpired(new Date(controller.scheduledTime))) }));
 }
 
 export default {
@@ -63,33 +48,19 @@ export default {
     const env = await runtimeEnv(rawEnv);
     const url = new URL(request.url);
     if (url.pathname === '/api/v1/internal/proactive') {
-      const rewritten = new URL(request.url);
-      rewritten.pathname = '/';
-      return proactiveRoutes.fetch(
-        new Request(rewritten, request),
-        env as never,
-        executionContext as never,
-      );
+      const rewritten = new URL(request.url); rewritten.pathname = '/';
+      return proactiveRoutes.fetch(new Request(rewritten, request), env as never, executionContext as never);
     }
     if (url.pathname === '/api/v1/admin' || url.pathname.startsWith('/api/v1/admin/')) {
-      const rewritten = new URL(request.url);
-      rewritten.pathname = url.pathname.slice('/api/v1/admin'.length) || '/';
-      return adminRoutes.fetch(
-        new Request(rewritten, request),
-        env as never,
-        executionContext as never,
-      );
+      const rewritten = new URL(request.url); rewritten.pathname = url.pathname.slice('/api/v1/admin'.length) || '/';
+      return adminRoutes.fetch(new Request(rewritten, request), env as never, executionContext as never);
     }
     return app.fetch(request, env, executionContext as never);
   },
   scheduled(controller: ScheduledControllerLike, rawEnv: Bindings, executionContext: ExecutionContextLike) {
     executionContext.waitUntil((async () => {
       const env = await runtimeEnv(rawEnv);
-      await Promise.all([
-        runReminderSchedule(controller, env),
-        runProactiveSchedule(controller, env),
-        runRetentionSchedule(controller, env),
-      ]);
+      await Promise.all([runReminderSchedule(controller, env), runProactiveSchedule(controller, env), runRetentionSchedule(controller, env)]);
     })());
   },
 };
