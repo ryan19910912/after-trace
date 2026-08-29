@@ -9,7 +9,8 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
-    "lint": "pnpm -r lint"
+    "lint": "pnpm -r lint",
+    "db:schema:check": "pnpm --filter @aftertrace/api exec drizzle-kit export --dialect=postgresql --schema='src/db/schema*.ts' > /tmp/aftertrace-schema.sql"
   },
   "devDependencies": {
     "eslint": "^9.34.0",
