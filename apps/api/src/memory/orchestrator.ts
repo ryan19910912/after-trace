@@ -1,4 +1,5 @@
 import type { AiBillingResult, AiBillingService, UnchargedAiUsage } from '../ai/billing';
+import type { AiFundingEligibilityService } from '../ai/funding-eligibility';
 import type { AiRuntimeConfig } from '../ai/runtime-config';
 import type { MemoryClassificationInputService } from './classification-input';
 import { parseMemoryClassifierOutput, type MemoryClassifierPort } from './classifier-contract';
@@ -28,12 +29,14 @@ type WorkPort = Pick<
   'claimNextForGroup' | 'markSucceeded' | 'markFailed' | 'deferFailure' | 'deferTransientFailure'
 >;
 type InputPort = Pick<MemoryClassificationInputService, 'load'>;
+type EligibilityPort = Pick<AiFundingEligibilityService, 'check'>;
 type ResultPort = Pick<MemoryClassifierResultService, 'find' | 'validateAndStore'>;
 type BillingPort = Pick<AiBillingService, 'chargeAndRecord'>;
 type CandidatePort = Pick<MemoryCandidatePipeline, 'persist'>;
 
 export class MemoryAiOrchestrator {
   private readonly retryPolicy: MemoryAiRetryPolicy;
+  private readonly eligibility: EligibilityPort | null;
 
   constructor(
     private readonly work: WorkPort,
@@ -44,8 +47,10 @@ export class MemoryAiOrchestrator {
     private readonly candidates: CandidatePort,
     private readonly runtime: AiRuntimeConfig,
     retryPolicy: MemoryAiRetryPolicy = defaultMemoryAiRetryPolicy,
+    eligibility?: EligibilityPort,
   ) {
     this.retryPolicy = validateMemoryAiRetryPolicy(retryPolicy);
+    this.eligibility = eligibility ?? null;
   }
 
   async runNextForGroup(groupId: number, now = new Date()): Promise<MemoryAiRunResult> {
@@ -53,10 +58,32 @@ export class MemoryAiOrchestrator {
     if (!request) return { status: 'NO_WORK' };
 
     try {
-      const classificationInput = await this.inputs.load(request);
       let durable = await this.results.find(request.id);
       const reusedClassifierResult = durable !== null;
 
+      if (!durable && this.eligibility) {
+        const funding = await this.eligibility.check(request.groupId);
+        if (funding.status === 'NO_CREDIT') {
+          return this.deferWait(
+            request.id,
+            request.attemptCount,
+            now,
+            'AI_INSUFFICIENT_CREDIT',
+            'WAITING_FOR_CREDIT',
+          );
+        }
+        if (funding.status === 'FREE_BUDGET_EXHAUSTED') {
+          return this.deferWait(
+            request.id,
+            request.attemptCount,
+            now,
+            'AI_FREE_BUDGET_EXHAUSTED',
+            'WAITING_FOR_FREE_BUDGET',
+          );
+        }
+      }
+
+      const classificationInput = await this.inputs.load(request);
       if (!durable) {
         const response = await this.classifier.classify(classificationInput);
         const stored = await this.results.validateAndStore({
@@ -81,26 +108,22 @@ export class MemoryAiOrchestrator {
         now,
       );
       if (billed.status === 'INSUFFICIENT_CREDIT') {
-        const deferred = await this.work.deferFailure(
+        return this.deferWait(
           request.id,
           request.attemptCount,
-          waitingMemoryAiRetryAt(now, this.retryPolicy),
+          now,
           'AI_INSUFFICIENT_CREDIT',
+          'WAITING_FOR_CREDIT',
         );
-        return deferred
-          ? { status: 'WAITING_FOR_CREDIT', requestId: request.id }
-          : { status: 'STALE_CLAIM', requestId: request.id };
       }
       if (billed.status === 'FREE_AI_BUDGET_EXHAUSTED') {
-        const deferred = await this.work.deferFailure(
+        return this.deferWait(
           request.id,
           request.attemptCount,
-          waitingMemoryAiRetryAt(now, this.retryPolicy),
+          now,
           'AI_FREE_BUDGET_EXHAUSTED',
+          'WAITING_FOR_FREE_BUDGET',
         );
-        return deferred
-          ? { status: 'WAITING_FOR_FREE_BUDGET', requestId: request.id }
-          : { status: 'STALE_CLAIM', requestId: request.id };
       }
       if (billed.status === 'CREDIT_REFERENCE_CONFLICT') {
         return this.fail(
@@ -178,15 +201,21 @@ export class MemoryAiOrchestrator {
     );
   }
 
-  private async defer(
+  private async deferWait(
     requestId: number,
     attemptCount: number,
-    retryAt: Date,
+    now: Date,
     errorCode: string,
+    status: 'WAITING_FOR_CREDIT' | 'WAITING_FOR_FREE_BUDGET',
   ): Promise<MemoryAiRunResult> {
-    const deferred = await this.work.deferFailure(requestId, attemptCount, retryAt, errorCode);
+    const deferred = await this.work.deferFailure(
+      requestId,
+      attemptCount,
+      waitingMemoryAiRetryAt(now, this.retryPolicy),
+      errorCode,
+    );
     return deferred
-      ? { status: 'DEFERRED', requestId, errorCode }
+      ? { status, requestId }
       : { status: 'STALE_CLAIM', requestId };
   }
 

@@ -25,6 +25,17 @@ For a guarded AI consume operation:
 
 Reminder reservations are PAID-only and do not consume the free-AI budget.
 
+## Pre-invocation funding eligibility
+
+Before the first provider call for a request, the runtime may run an advisory funding check. It reads the Group's current WELCOME/AD/PAID available balances together with the current global free-AI spend.
+
+- If the Group has neither usable free allowance nor PAID balance, the request is deferred before loading private conversation context or calling Gemini.
+- If only WELCOME/AD balance exists but the global free-AI allowance is already exhausted, the request is deferred as `AI_FREE_BUDGET_EXHAUSTED`.
+- A positive PAID balance keeps the request eligible even after the free subsidy is exhausted.
+- A request that already has a durable classifier result skips this advisory check. The provider cost is already sunk and the system must continue toward exact idempotent settlement rather than strand the reusable result.
+
+This preflight is deliberately non-locking and cannot know the exact provider cost before the model responds. It is only an avoid-obviously-unfunded-call optimization. The atomic post-call credit/global-budget transaction remains authoritative and can still defer a request if balances changed or the actual cost is larger than available value.
+
 ## Claim fencing is not retry counting
 
 `memory_request_work_states.attempt_count` is a fencing token. It changes whenever ownership is reclaimed and must never be interpreted as the number of provider failures; credit waits and Worker recovery can legitimately increase it.
@@ -39,7 +50,19 @@ Transient failures use bounded exponential retry. Network failures, timeouts, ra
 
 The default V1 code policy allows three transient failures, starting at a 60-second delay and capping the delay at 15 minutes. Terminal transitions remain attempt-fenced.
 
-A terminal AUTOMATIC memory request also terminally closes its extraction batch and releases the active claim key. Operator/manual recovery semantics are intentionally a later explicit feature rather than an implicit infinite retry.
+A terminal AUTOMATIC memory request also terminally closes its extraction batch and releases the active claim key.
+
+## Explicit terminal recovery
+
+Terminal work never resumes automatically. Recovery is an explicit operator action after the cause has been corrected.
+
+`MemoryRecoveryService` requires the failed request id, the exact current `attempt_count`, an operator reference and a reason. The database mutation locks the failed request/work rows and only requeues when the expected fence still matches. It resets the transient-failure counter and terminal work timestamps/errors, returns the request to `PENDING`, and writes `MEMORY_REQUEST_REQUEUED` audit context containing the operator reference and reason.
+
+For an AUTOMATIC request, the associated failed extraction batch is reopened in the same transaction. It is set back to `CLAIMED` without an `OPEN` active-claim key. This preserves the original assigned message set while avoiding a uniqueness conflict with any newer extraction batch already active for the Group. Completion/failure remains owned by the recovered memory request.
+
+Recovery does not delete `memory_classifier_results`. If a validated result already exists, the normal orchestration path must reuse it and continue billing/candidate settlement without another Gemini call.
+
+No unauthenticated HTTP recovery endpoint should be exposed. A future operator/admin surface must provide its own authenticated authorization boundary before invoking this service.
 
 ## Runtime activation rule
 

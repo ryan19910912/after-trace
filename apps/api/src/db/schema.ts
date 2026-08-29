@@ -28,7 +28,11 @@ export const creditReservationStatusEnum = pgEnum('credit_reservation_status', [
   'RELEASED',
 ]);
 export const memoryStatusEnum = pgEnum('memory_status', ['ACTIVE', 'SUPERSEDED']);
-export const extractionBatchStatusEnum = pgEnum('extraction_batch_status', ['CLAIMED', 'SUCCEEDED']);
+export const extractionBatchStatusEnum = pgEnum('extraction_batch_status', [
+  'CLAIMED',
+  'SUCCEEDED',
+  'FAILED',
+]);
 
 export const lineUsers = pgTable('line_users', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
