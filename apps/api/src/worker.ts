@@ -1,5 +1,6 @@
 import app, { type Bindings } from './index';
 import { createAdminRoutes } from './admin/routes';
+import { loadOperationalRuntimeEnv } from './config/operational-settings';
 import { createDatabase } from './db/client';
 import { LineMessagingPushClient } from './line/push';
 import { DrizzleProactiveRepository } from './proactive/drizzle-repository';
@@ -15,6 +16,14 @@ type ExecutionContextLike = { waitUntil(promise: Promise<unknown>): void };
 
 const proactiveRoutes = createProactiveRoutes();
 const adminRoutes = createAdminRoutes();
+
+async function runtimeEnv(env: Bindings): Promise<Bindings> {
+  const database = createDatabase(env.DATABASE_URL);
+  const operational = await loadOperationalRuntimeEnv(database);
+  // Infrastructure credentials/origins remain Cloudflare bindings. Mutable product
+  // economics are loaded from DB and deliberately win over stale deployment vars.
+  return { ...env, ...operational };
+}
 
 async function runReminderSchedule(controller: ScheduledControllerLike, env: Bindings): Promise<void> {
   const database = createDatabase(env.DATABASE_URL);
@@ -50,7 +59,8 @@ async function runRetentionSchedule(controller: ScheduledControllerLike, env: Bi
 }
 
 export default {
-  fetch(request: Request, env: Bindings, executionContext: ExecutionContextLike) {
+  async fetch(request: Request, rawEnv: Bindings, executionContext: ExecutionContextLike) {
+    const env = await runtimeEnv(rawEnv);
     const url = new URL(request.url);
     if (url.pathname === '/api/v1/internal/proactive') {
       const rewritten = new URL(request.url);
@@ -72,13 +82,14 @@ export default {
     }
     return app.fetch(request, env, executionContext as never);
   },
-  scheduled(controller: ScheduledControllerLike, env: Bindings, executionContext: ExecutionContextLike) {
-    executionContext.waitUntil(
-      Promise.all([
+  scheduled(controller: ScheduledControllerLike, rawEnv: Bindings, executionContext: ExecutionContextLike) {
+    executionContext.waitUntil((async () => {
+      const env = await runtimeEnv(rawEnv);
+      await Promise.all([
         runReminderSchedule(controller, env),
         runProactiveSchedule(controller, env),
         runRetentionSchedule(controller, env),
-      ]).then(() => undefined),
-    );
+      ]);
+    })());
   },
 };
