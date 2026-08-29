@@ -29,6 +29,7 @@ Cloudflare Worker / Hono
    |-- durable classifier result
    |-- global free-AI gate + credit/usage settlement
    |-- memory candidate classification + persistence
+   |-- paid-only reminder create/cancel/delivery settlement
    |
    +--> Neon PostgreSQL
    +--> Gemini API (kept disabled from webhook composition until verification/runtime safety is complete)
@@ -120,6 +121,18 @@ A successful PAID grant marks the Group `hasPaid=true`, which later drives reten
 Every billable AI usage event records provider/model, token counts, input/output USD-per-million-token pricing snapshot, USD/TWD conversion snapshot, USD cost, TWD cost and actual charged TWD. AI billing is retry-safe by tying usage persistence to the logical credit operation id.
 
 Provider token prices and USD/TWD FX are runtime configuration, not memory-domain constants. Billable AI remains disabled when these snapshots are missing, preventing silent use of stale hard-coded pricing.
+
+## Paid-only Reminder lifecycle
+
+Reminder product state is stored separately from credit reconciliation state, but each state transition is committed together with its PAID credit mutation in one PostgreSQL statement. This avoids a service-level saga where a Worker crash could create a reminder without reserving value, release value without cancelling the reminder, or mark a delivery without consuming its reservation.
+
+Creation uses a caller-supplied stable `requestKey` as the reminder idempotency key. The caller also supplies the exact reservation cost in internal fixed-point units; the Reminder domain does not invent a price. An active Group with sufficient unexpired PAID balance creates a `SCHEDULED` reminder, a PAID `RESERVE` credit operation/reservation/transaction, moves PAID available value to reserved value, and writes `REMINDER_CREATED` audit data atomically. WELCOME and AD balances are never considered for Reminder creation. Exact retries return the existing reminder; reuse of the same key with different message, schedule, amount or actor is a reference conflict.
+
+Cancellation locks the reminder and its PAID reservation. A `SCHEDULED` reminder transitions to `CANCELLED` only when the associated reservation transitions `RESERVED -> RELEASED`, the PAID account returns reserved value to available value, and `REMINDER_CANCELLED` audit data is written in the same statement. The cancelling LINE user is retained as the audit actor.
+
+Successful delivery settlement is invoked only after an external delivery attempt has actually succeeded. It requires a stable delivery reference. A `SCHEDULED` reminder transitions to `DELIVERED` only together with `RESERVED -> CONSUMED`, removal of the reserved PAID value, and `REMINDER_DELIVERED` audit data. Retrying the same delivery reference is idempotent; attempting to reinterpret an already-delivered reminder under a different delivery reference is a conflict.
+
+The reservation means an already-created reminder is not affected by later WELCOME/AD exhaustion. No proactive low-PAID warning threshold is hard-coded because PRODUCT_V1 does not define one. The current lifecycle establishes the financial/state boundary; due-reminder claiming, duplicate-send prevention and LINE Push/Cron composition remain separate runtime work and must not consume the reservation until LINE delivery is confirmed successful.
 
 ### Global free-AI budget
 
