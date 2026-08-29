@@ -1,32 +1,48 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { Capabilities, ManagedMemory, ManagedReminder, Overview } from './api';
+import type {
+  EnergyBucket,
+  EnergyCatalogResponse,
+  ManagedMemory,
+  ManagedReminder,
+  PrivateEnergyOverview,
+} from './api';
 import { ManagementApi } from './api';
+import { runGoogleRewardedAd } from './rewarded-ad';
 
 type Props = { api: ManagementApi };
 type Tab = 'memories' | 'energy' | 'reminders';
 
-function bucketLabel(bucket: 'WELCOME' | 'AD' | 'PAID') {
-  if (bucket === 'WELCOME') return 'Welcome';
-  if (bucket === 'AD') return 'Reward';
-  return 'Paid';
+const buckets: EnergyBucket[] = ['FREE', 'SUBSCRIPTION', 'AD', 'PAID'];
+const bucketLabels: Record<EnergyBucket, string> = {
+  FREE: 'Free',
+  SUBSCRIPTION: 'Subscription',
+  AD: 'Rewarded Ad',
+  PAID: 'Paid',
+};
+
+function units(value: string) {
+  return BigInt(value).toLocaleString();
 }
 
-function stateLabel(state: { hasAvailable: boolean; hasReserved: boolean }) {
-  if (state.hasAvailable && state.hasReserved) return '可用，且有保留額度';
-  if (state.hasAvailable) return '有可用額度';
-  if (state.hasReserved) return '目前全數保留中';
-  return '目前沒有可用額度';
+function expiryLabel(value: string | null) {
+  return value ? new Date(value).toLocaleString() : '不過期';
+}
+
+function priceLabel(value: string | null) {
+  return value ? `NT$ ${value}` : '價格尚未設定';
 }
 
 export function App({ api }: Props) {
   const [tab, setTab] = useState<Tab>('memories');
-  const [overview, setOverview] = useState<Overview | null>(null);
-  const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
+  const [energy, setEnergy] = useState<PrivateEnergyOverview | null>(null);
+  const [catalog, setCatalog] = useState<EnergyCatalogResponse | null>(null);
   const [memories, setMemories] = useState<ManagedMemory[]>([]);
   const [reminders, setReminders] = useState<ManagedReminder[]>([]);
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(false);
+  const [adBusy, setAdBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [editing, setEditing] = useState<ManagedMemory | null>(null);
   const [reminderMessage, setReminderMessage] = useState('');
   const [reminderAt, setReminderAt] = useState('');
@@ -40,13 +56,14 @@ export function App({ api }: Props) {
     setBusy(true);
     setError(null);
     try {
-      const [overviewResult, memoryResult, reminderResult] = await Promise.all([
-        api.overview(),
+      const [energyResult, catalogResult, memoryResult, reminderResult] = await Promise.all([
+        api.energy(),
+        api.catalog(),
         api.memories(query),
         api.reminders(),
       ]);
-      setOverview(overviewResult.overview);
-      setCapabilities(overviewResult.capabilities);
+      setEnergy(energyResult);
+      setCatalog(catalogResult);
       setMemories(memoryResult);
       setReminders(reminderResult);
     } catch (cause) {
@@ -59,6 +76,30 @@ export function App({ api }: Props) {
   useEffect(() => {
     void reload();
   }, []);
+
+  async function refreshEnergy() {
+    const [nextEnergy, nextCatalog] = await Promise.all([api.energy(), api.catalog()]);
+    setEnergy(nextEnergy);
+    setCatalog(nextCatalog);
+  }
+
+  async function watchRewardedAd() {
+    if (!catalog?.rewardedAd.enabled) return;
+    setAdBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const issued = await api.rewardedAdNonce();
+      const completed = await runGoogleRewardedAd(issued);
+      const claim = await api.claimRewardedAd(issued.nonce, completed.providerEventId);
+      await refreshEnergy();
+      setNotice(`已取得 ${units(claim.units)} Energy，有效期限 7 天。`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Rewarded Ad 處理失敗');
+    } finally {
+      setAdBusy(false);
+    }
+  }
 
   async function search() {
     setBusy(true);
@@ -118,6 +159,7 @@ export function App({ api }: Props) {
       setReminderMessage('');
       setReminderAt('');
       setReminders(await api.reminders());
+      await refreshEnergy();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '建立提醒失敗');
     } finally {
@@ -126,14 +168,13 @@ export function App({ api }: Props) {
   }
 
   async function cancelReminder(reminder: ManagedReminder) {
-    if (!window.confirm('確定取消這個提醒嗎？已保留的 Paid 額度會釋放。')) return;
+    if (!window.confirm('確定取消這個提醒嗎？已保留的 Energy 會退回原本的 Subscription / Paid lot。')) return;
     setBusy(true);
     setError(null);
     try {
       await api.cancelReminder(reminder.id);
       setReminders(await api.reminders());
-      const overviewResult = await api.overview();
-      setOverview(overviewResult.overview);
+      await refreshEnergy();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '取消提醒失敗');
     } finally {
@@ -146,9 +187,9 @@ export function App({ api }: Props) {
       <header className="topbar">
         <div>
           <p className="eyebrow">AFTERTRACE</p>
-          <h1>群組記憶管理</h1>
+          <h1>記憶與 Energy</h1>
         </div>
-        <button className="ghost" disabled={busy} onClick={() => void reload()}>重新整理</button>
+        <button className="ghost" disabled={busy || adBusy} onClick={() => void reload()}>重新整理</button>
       </header>
 
       <nav className="tabs" aria-label="管理功能">
@@ -158,13 +199,14 @@ export function App({ api }: Props) {
       </nav>
 
       {error && <div className="error">{error}</div>}
+      {notice && <div className="card"><strong>{notice}</strong></div>}
 
       {tab === 'memories' && (
         <section className="panel">
           <div className="section-head">
             <div>
               <h2>群組記憶</h2>
-              <p>只顯示目前有效記憶；來源資訊存在時會一併顯示。</p>
+              <p>Conversation / Memory 屬於目前群組；Energy 則屬於你本人並跨群共用。</p>
             </div>
             <div className="search-row">
               <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜尋內容、分類或主題" />
@@ -197,33 +239,114 @@ export function App({ api }: Props) {
         </section>
       )}
 
-      {tab === 'energy' && overview && capabilities && (
+      {tab === 'energy' && energy && catalog && (
         <section className="panel">
           <div className="section-head">
             <div>
-              <h2>Energy / Credit 狀態</h2>
-              <p>V1 尚未定義對外 Energy 換算，因此不顯示 Gemini/TWD 內部成本。</p>
+              <h2>我的 Energy</h2>
+              <p>這是你的私人 wallet，會跨所有 AFTERTRACE LINE 群組共用。</p>
             </div>
           </div>
+
           <div className="metric-grid">
-            {(['WELCOME', 'AD', 'PAID'] as const).map((bucket) => (
-              <article className="metric" key={bucket}>
-                <span>{bucketLabel(bucket)}</span>
-                <strong>{stateLabel(overview.buckets[bucket])}</strong>
-              </article>
-            ))}
             <article className="metric">
-              <span>AI 使用次數</span>
-              <strong>{overview.aiUsageCount}</strong>
+              <span>可用總額</span>
+              <strong>{units(energy.usableUnits)}</strong>
+            </article>
+            <article className="metric">
+              <span>Reminder 保留中</span>
+              <strong>{units(energy.reservedUnits)}</strong>
+            </article>
+            <article className="metric">
+              <span>Proactive / Reminder</span>
+              <strong>{energy.proactive.enabled ? '可使用' : '尚未解鎖'}</strong>
             </article>
           </div>
+
+          <div className="metric-grid">
+            {buckets.map((bucket) => (
+              <article className="metric" key={bucket}>
+                <span>{bucketLabels[bucket]}</span>
+                <strong>{units(energy.buckets[bucket].usableUnits)}</strong>
+                {BigInt(energy.buckets[bucket].reservedUnits) > 0n && (
+                  <small>保留 {units(energy.buckets[bucket].reservedUnits)}</small>
+                )}
+              </article>
+            ))}
+          </div>
+
+          <article className="card">
+            <h3>我的訂閱</h3>
+            {energy.subscription ? (
+              <>
+                <p>{energy.subscription.status} · {energy.subscription.provider}</p>
+                <p className="muted">
+                  本期至 {energy.subscription.currentPeriodEnd ? new Date(energy.subscription.currentPeriodEnd).toLocaleString() : '未知'}
+                  {energy.subscription.cancelAtPeriodEnd ? '，期末取消' : ''}
+                </p>
+              </>
+            ) : (
+              <p className="muted">目前沒有有效的訂閱紀錄。</p>
+            )}
+          </article>
+
           <article className="card">
             <h3>Rewarded Ad</h3>
-            <p>今日已取得 {overview.rewardedAd.grantCountToday} / {capabilities.rewardedAdDailyLimit} 次獎勵。</p>
-            <button disabled title="尚未定義可驗證的 Web rewarded-ad provider">
-              看廣告取得 Energy
+            <p>
+              {catalog.rewardedAd.energyUnits
+                ? `完成一則廣告取得 ${units(catalog.rewardedAd.energyUnits)} Energy，有效 7 天。`
+                : '部署端尚未設定廣告 Energy。'}
+            </p>
+            <button
+              disabled={adBusy || !catalog.rewardedAd.enabled}
+              onClick={() => void watchRewardedAd()}
+            >
+              {adBusy ? '廣告處理中…' : '看廣告取得 Energy'}
             </button>
-            <p className="muted">目前只開放安全的 policy/status 顯示；尚未選定可驗證的 Web 廣告供應商前，不會讓前端自行偽造 reward event。</p>
+            <p className="muted">
+              每日最多 {catalog.rewardedAd.dailyLimit} 次；兩次獎勵至少間隔 {catalog.rewardedAd.cooldownMinutes} 分鐘。
+            </p>
+          </article>
+
+          {catalog.catalog.subscription && (
+            <article className="card">
+              <h3>Subscription</h3>
+              <p>每個 billing cycle 發放 {units(catalog.catalog.subscription.energyUnits)} Energy，到當期 period_end 過期，不 rollover。</p>
+              <p><strong>{priceLabel(catalog.catalog.subscription.priceTwd)}</strong></p>
+              <button disabled={!catalog.catalog.checkoutEnabled}>
+                {catalog.catalog.checkoutEnabled ? '前往訂閱' : '付款服務尚未啟用'}
+              </button>
+            </article>
+          )}
+
+          <div className="list">
+            {catalog.catalog.paidPacks.map((pack) => (
+              <article className="card" key={pack.code}>
+                <div className="card-head">
+                  <span className="pill">PAID {pack.code}</span>
+                  <strong>{units(pack.energyUnits)} Energy</strong>
+                </div>
+                <p>一次性購買，不過期，跨群共用。</p>
+                <p><strong>{priceLabel(pack.priceTwd)}</strong></p>
+                <button disabled={!catalog.catalog.checkoutEnabled}>
+                  {catalog.catalog.checkoutEnabled ? '購買 Energy' : '付款服務尚未啟用'}
+                </button>
+              </article>
+            ))}
+          </div>
+
+          <article className="card">
+            <h3>Energy Lots</h3>
+            <div className="list">
+              {energy.lots.map((lot) => (
+                <div className="source" key={lot.id}>
+                  <strong>{bucketLabels[lot.bucket]} · {units(lot.availableUnits)}</strong>
+                  <span>{expiryLabel(lot.expiresAt)}</span>
+                  {BigInt(lot.reservedUnits) > 0n && <span>保留中 {units(lot.reservedUnits)}</span>}
+                </div>
+              ))}
+              {energy.lots.length === 0 && <p className="empty">目前沒有 Energy lot。</p>}
+            </div>
           </article>
         </section>
       )}
@@ -232,8 +355,8 @@ export function App({ api }: Props) {
         <section className="panel">
           <div className="section-head">
             <div>
-              <h2>Paid Reminder</h2>
-              <p>提醒只使用 Paid 額度；成功送達才真正 consume，取消會 release。</p>
+              <h2>Reminder</h2>
+              <p>Reminder 屬於你本人、送到目前群組，只使用有效 Subscription / Paid Energy。</p>
             </div>
           </div>
 
@@ -242,13 +365,13 @@ export function App({ api }: Props) {
             <textarea value={reminderMessage} onChange={(event) => setReminderMessage(event.target.value)} placeholder="提醒內容" />
             <input type="datetime-local" value={reminderAt} onChange={(event) => setReminderAt(event.target.value)} />
             <button
-              disabled={busy || !capabilities?.reminderCreationEnabled || !reminderMessage.trim() || !reminderAt}
+              disabled={busy || !energy?.proactive.enabled || !reminderMessage.trim() || !reminderAt}
               onClick={() => void createReminder()}
             >
               建立提醒
             </button>
-            {!capabilities?.reminderCreationEnabled && (
-              <p className="muted">部署端尚未設定 Reminder reservation price，因此建立功能安全停用；既有提醒仍可查看與取消。</p>
+            {!energy?.proactive.enabled && (
+              <p className="muted">需要有效 Subscription Energy 或可用 Paid Energy 才能建立 Reminder。</p>
             )}
           </article>
 
