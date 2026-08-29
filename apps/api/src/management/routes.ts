@@ -1,7 +1,5 @@
 import { Hono, type Context } from 'hono';
 import type { ProductConfigEnv } from '../config/product';
-import { resolveProductConfig } from '../config/product';
-import { rewardedAdPolicyDay } from '../credits/rewarded-ad';
 import { createDatabase } from '../db/client';
 import { DrizzleUserReminderRepository } from '../reminders/drizzle-user-repository';
 import { UserReminderService } from '../reminders/user-service';
@@ -113,25 +111,6 @@ export function createManagementRoutes() {
     c.header('Access-Control-Max-Age', '600');
     c.header('Vary', 'Origin');
     return c.body(null, 204);
-  });
-
-  app.get('/overview', async (c) => {
-    const session = await sessionFor(c);
-    if (isResponse(session)) return session;
-    const db = createDatabase(c.env.DATABASE_URL);
-    const service = new ManagementService(new DrizzleManagementRepository(db));
-    const config = resolveProductConfig(c.env);
-    const overview = await service.overview(session.groupId, rewardedAdPolicyDay(new Date()));
-    return c.json({
-      ok: true,
-      overview,
-      capabilities: {
-        rewardedAdClaimEnabled: false,
-        rewardedAdDailyLimit: config.credits.rewardedAdDailyLimit,
-        rewardedAdCooldownMinutes: config.credits.rewardedAdCooldownMinutes,
-        reminderCreationEnabled: configuredReminderEnergy(c.env.REMINDER_RESERVATION_ENERGY) !== null,
-      },
-    });
   });
 
   app.get('/memories', async (c) => {
