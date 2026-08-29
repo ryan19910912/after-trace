@@ -17,13 +17,12 @@ export class AdminApi {
   constructor(private readonly baseUrl: string) {}
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
+    const headers = new Headers(init?.headers);
+    if (init?.body) headers.set('Content-Type', 'application/json');
     const response = await fetch(`${this.baseUrl.replace(/\/$/, '')}/api/v1/admin${path}`, {
       ...init,
       credentials: 'include',
-      headers: {
-        ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-        ...(init?.headers ?? {}),
-      },
+      headers,
     });
     const body = await response.json() as { ok?: boolean; error?: string } & T;
     if (!response.ok) throw new Error(body.error || `Admin API failed: ${response.status}`);
