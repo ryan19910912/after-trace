@@ -1,5 +1,11 @@
 import { Hono } from 'hono';
-import { resolveCommerceCatalog, type CommerceCatalogEnv } from '../commerce/catalog';
+import { resolveCommerceCatalog } from '../commerce/catalog';
+import {
+  checkoutConfigured,
+  createCheckoutService,
+  type CheckoutEnv,
+  type CommerceProductCode,
+} from '../commerce/checkout';
 import { resolveProductConfig } from '../config/product';
 import { createDatabase } from '../db/client';
 import { LineLiffUserSessionVerifier } from '../management/session';
@@ -11,7 +17,7 @@ import {
   UserRewardedAdService,
 } from './rewarded-ad';
 
-export type EnergyRouteBindings = CommerceCatalogEnv & {
+export type EnergyRouteBindings = CheckoutEnv & {
   DATABASE_URL: string;
   LIFF_CHANNEL_ID: string;
   LIFF_WEB_ORIGIN?: string;
@@ -61,16 +67,57 @@ export function createEnergyRoutes() {
   app.get('/catalog', async (c) => {
     const user = await authorizeUser(c.env.LIFF_CHANNEL_ID, c.req.header('authorization'));
     if ('error' in user) return c.json({ ok: false, error: user.error }, user.status);
+    const catalog = resolveCommerceCatalog(c.env);
+    const product = resolveProductConfig(c.env);
     return c.json({
       ok: true,
-      catalog: resolveCommerceCatalog(c.env),
+      catalog: {
+        ...catalog,
+        checkoutEnabled: checkoutConfigured(c.env),
+      },
       rewardedAd: {
         enabled: rewardedAdService(c.env) !== null,
-        energyUnits: resolveProductConfig(c.env).energy.rewardedAdUnits?.toString() ?? null,
-        dailyLimit: resolveProductConfig(c.env).credits.rewardedAdDailyLimit,
-        cooldownMinutes: resolveProductConfig(c.env).credits.rewardedAdCooldownMinutes,
+        energyUnits: product.energy.rewardedAdUnits?.toString() ?? null,
+        dailyLimit: product.credits.rewardedAdDailyLimit,
+        cooldownMinutes: product.credits.rewardedAdCooldownMinutes,
       },
     });
+  });
+
+  app.post('/checkout', async (c) => {
+    const user = await authorizeUser(c.env.LIFF_CHANNEL_ID, c.req.header('authorization'));
+    if ('error' in user) return c.json({ ok: false, error: user.error }, user.status);
+    const service = createCheckoutService(createDatabase(c.env.DATABASE_URL), c.env);
+    if (!service) return c.json({ ok: false, error: 'CHECKOUT_NOT_CONFIGURED' }, 503);
+
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
+    }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return c.json({ ok: false, error: 'INVALID_REQUEST' }, 400);
+    }
+    const record = body as Record<string, unknown>;
+    if (typeof record.requestKey !== 'string' || typeof record.productCode !== 'string') {
+      return c.json({ ok: false, error: 'INVALID_REQUEST' }, 400);
+    }
+    const productCode = commerceProductCode(record.productCode);
+    if (!productCode) return c.json({ ok: false, error: 'INVALID_PRODUCT_CODE' }, 400);
+
+    const result = await service.create({
+      lineUserId: user.lineUserId,
+      requestKey: record.requestKey,
+      productCode,
+    });
+    if (result.status === 'USER_NOT_FOUND') return c.json({ ok: false, result }, 404);
+    if (result.status === 'PRODUCT_NOT_CONFIGURED' || result.status === 'CHECKOUT_NOT_CONFIGURED') {
+      return c.json({ ok: false, result }, 503);
+    }
+    if (result.status === 'PROVIDER_UNAVAILABLE') return c.json({ ok: false, result }, 502);
+    if (result.status === 'REFERENCE_CONFLICT') return c.json({ ok: false, result }, 409);
+    return c.json({ ok: true, checkout: result });
   });
 
   app.post('/rewarded-ad/nonce', async (c) => {
@@ -147,4 +194,13 @@ async function authorizeUser(
     error: session.status,
     status: session.status === 'LINE_VERIFICATION_UNAVAILABLE' ? 503 : 401,
   };
+}
+
+function commerceProductCode(value: string): CommerceProductCode | null {
+  return value === 'SUBSCRIPTION_V1'
+    || value === 'PAID_SMALL'
+    || value === 'PAID_MEDIUM'
+    || value === 'PAID_LARGE'
+    ? value
+    : null;
 }
