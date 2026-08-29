@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type {
+  CheckoutProductCode,
   EnergyBucket,
   EnergyCatalogResponse,
   ManagedMemory,
@@ -98,6 +99,19 @@ export function App({ api }: Props) {
       setError(cause instanceof Error ? cause.message : 'Rewarded Ad 處理失敗');
     } finally {
       setAdBusy(false);
+    }
+  }
+
+  async function beginCheckout(productCode: CheckoutProductCode) {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const checkout = await api.checkout(productCode);
+      window.location.assign(checkout.checkoutUrl);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '無法建立付款頁面');
+      setBusy(false);
     }
   }
 
@@ -313,7 +327,10 @@ export function App({ api }: Props) {
               <h3>Subscription</h3>
               <p>每個 billing cycle 發放 {units(catalog.catalog.subscription.energyUnits)} Energy，到當期 period_end 過期，不 rollover。</p>
               <p><strong>{priceLabel(catalog.catalog.subscription.priceTwd)}</strong></p>
-              <button disabled={!catalog.catalog.checkoutEnabled}>
+              <button
+                disabled={busy || !catalog.catalog.checkoutEnabled || !catalog.catalog.subscription.priceTwd}
+                onClick={() => void beginCheckout('SUBSCRIPTION_V1')}
+              >
                 {catalog.catalog.checkoutEnabled ? '前往訂閱' : '付款服務尚未啟用'}
               </button>
             </article>
@@ -328,7 +345,10 @@ export function App({ api }: Props) {
                 </div>
                 <p>一次性購買，不過期，跨群共用。</p>
                 <p><strong>{priceLabel(pack.priceTwd)}</strong></p>
-                <button disabled={!catalog.catalog.checkoutEnabled}>
+                <button
+                  disabled={busy || !catalog.catalog.checkoutEnabled || !pack.priceTwd}
+                  onClick={() => void beginCheckout(`PAID_${pack.code}` as CheckoutProductCode)}
+                >
                   {catalog.catalog.checkoutEnabled ? '購買 Energy' : '付款服務尚未啟用'}
                 </button>
               </article>
