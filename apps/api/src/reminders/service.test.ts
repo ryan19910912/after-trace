@@ -4,9 +4,9 @@ import { ReminderService } from './service';
 
 function repository(): ReminderRepository {
   return {
-    create: vi.fn(async () => ({ status: 'CREATED', reminderId: 11 })),
-    cancel: vi.fn(async () => ({ status: 'CANCELLED', reminderId: 11 })),
-    settleSuccessfulDelivery: vi.fn(async () => ({ status: 'DELIVERED', reminderId: 11 })),
+    create: vi.fn(async () => ({ status: 'CREATED' as const, reminderId: 11 })),
+    cancel: vi.fn(async () => ({ status: 'CANCELLED' as const, reminderId: 11 })),
+    settleSuccessfulDelivery: vi.fn(async () => ({ status: 'DELIVERED' as const, reminderId: 11 })),
   };
 }
 
