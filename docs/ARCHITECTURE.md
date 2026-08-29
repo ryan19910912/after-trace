@@ -2,39 +2,35 @@
 
 ## V1 stack
 
-- Language: TypeScript
-- Monorepo: pnpm workspaces
-- API/runtime: Hono on Cloudflare Workers
-- LIFF: React + Vite + TypeScript on Cloudflare Pages
-- Database: PostgreSQL on Neon
-- Data/migrations: Drizzle ORM / Drizzle Kit
-- AI: Gemini 2.5 Flash-Lite Standard
+- TypeScript / pnpm workspaces
+- Hono on Cloudflare Workers
+- React + Vite LIFF on Cloudflare Pages
+- PostgreSQL on Neon
+- Drizzle ORM / Drizzle Kit
+- Gemini 2.5 Flash-Lite Standard
+- Google Ad Manager Web Rewarded
 - V1 intentionally has no Redis and no object storage.
 
-## Ownership boundaries
-
-AFTERTRACE deliberately separates Group product context from User financial ownership.
+## Ownership
 
 ### Group-owned
 
-- Conversation buffer
-- Extraction batches
-- Memories and memory sources
+- Conversation buffer and extraction context
+- Memories and source metadata
 - Group membership snapshot
-- Reminder/Proactive Push destination
+- Reminder / Proactive destination
 - Group audit context
 
 ### User-owned
 
-- Energy wallet and lots
-- FREE / SUBSCRIPTION / AD / PAID value
-- Subscription billing cycles
-- One-time PAID purchases
-- Rewarded Ad claims
+- FREE / SUBSCRIPTION / AD / PAID Energy lots
+- Subscription and one-time purchases
+- Rewarded Ad rewards
+- AI charges/holds
 - Reminder ownership/payment
-- Per-user AI allocation/charge history
+- Proactive capability
 
-The same LINE user uses one Energy wallet across every AFTERTRACE Group. Leaving a Group never transfers the user's Energy to anyone else.
+One LINE user has one wallet across all Groups. User value is never transferred to other members when membership changes.
 
 ## Runtime overview
 
@@ -43,288 +39,263 @@ LINE Group
    |
    v
 Cloudflare Worker / Hono
-   |-- LINE signature verification
-   |-- ordered/idempotent conversation ingestion
-   |-- line_users + group_members observation
-   |-- lifetime FREE ensure-once
-   |-- deterministic @AI commands
-   |-- caller-only @AI Energy preflight
-   |-- extraction batch claim
-   |-- background eligible-participant preflight
-   |-- automatic memory request + eligible snapshot
+   |-- verify LINE signature
+   |-- parse message + join/leave + memberJoined/memberLeft
+   |-- idempotent conversation ingestion
+   |-- update line_users / group_members
+   |-- ensure lifetime FREE
    |
-   +--> Neon PostgreSQL
-   +--> LINE Messaging API
-
-Memory AI execution boundary
-   |-- request claim / lease / retry fence
-   |-- eligible-subject-aware classifier input
-   |-- Gemini structured output
-   |-- durable classifier result
-   |-- User Energy settlement / platform subsidy
-   |-- candidate validation + persistence hard gate
-   +--> Neon PostgreSQL
+   |-- deterministic @AI command ----------------------> LINE Reply
+   |-- generic @AI -> caller Energy hold -> Gemini ----> LINE Reply
+   |-- @AI 記住 -> memory request
+   |-- extraction due -> eligible snapshot -> memory request
+   |
+   +--> Memory AI waitUntil runtime
+          |-- claim/lease/fence
+          |-- provider pre-funding/budget gate
+          |-- Gemini structured classifier
+          |-- durable result
+          |-- User Energy settlement
+          |-- memory hard-gated persistence
 
 LIFF
-   |-- Group memory/reminder management
-   |-- private User Energy overview
-   |-- rewarded-ad nonce/claim API
-   +--> Worker API --> Neon
+   |-- Group Memory / Reminder management
+   |-- private User Energy + subscription state
+   |-- Energy product catalog
+   |-- Google Publisher Tag Rewarded
+   +--> Worker APIs --> Neon
+
+Internal provider boundaries
+   |-- verified commerce events -> subscription/PAID grants
+   |-- approved proactive triggers -> proactive queue
 
 Cron
    |-- User-owned Reminder delivery
-   |-- Group retention cleanup
+   |-- Proactive Push delivery
+   |-- Group retention
    +--> LINE Push / Neon
 ```
 
-Billable Gemini execution remains activation-gated until request-aware pre-provider funding/budget safety is composed. Missing external configuration must disable the provider path without blocking surrounding product development.
+Missing external keys/prices/provider configuration disables only the affected external path. It does not change product ownership or block surrounding development.
 
-## LINE ingestion
+## LINE ingestion and membership
 
-`POST /webhooks/line` verifies `x-line-signature` against the raw body before JSON parsing.
+`POST /webhooks/line` verifies `x-line-signature` against the raw request body before parsing.
 
-Only LINE Group context enters the V1 shared-memory pipeline. Supported messages are normalized and persisted in a bounded conversation buffer. Image/video/audio/file/sticker content is not copied; only supported metadata/reference information is retained.
+Only Group conversations enter the V1 shared-memory pipeline. Supported text/location data is buffered; attachment binaries are not copied.
 
-`conversation_messages.line_message_id` is unique, so LINE redelivery cannot increment extraction counters twice. Group lifecycle events activate/inactivate the Group. Messages received while inactive are ignored until a later join/reactivation.
+`conversation_messages.line_message_id` is unique, so redelivery cannot double-increment extraction counters.
 
-Every observed sender is ensured in `line_users`; `group_members` records the Group membership snapshot used for management permissions, Energy availability display and Reminder delivery safety.
+Lifecycle handling covers:
 
-## User Energy model
+- bot `join` -> Group ACTIVE;
+- bot `leave` -> Group INACTIVE;
+- `memberJoined` -> touched/active `group_members` rows;
+- `memberLeft` -> `group_members.is_active=false`.
 
-`user_energy_lots` is the source of spendable User value.
+The membership snapshot is used by LIFF authorization, Reminder owner-left safety and Proactive Push delivery safety.
+
+## User Energy
+
+`user_energy_lots` is the spendable source of truth.
 
 Buckets:
 
-1. `FREE`: one lifetime grant per User, no expiry.
-2. `SUBSCRIPTION`: one billing-cycle grant per provider cycle, expires at provider `period_end`, no rollover.
-3. `AD`: Rewarded Ad grant, expires seven days after accepted claim.
-4. `PAID`: one-time pack grant, no expiry.
+1. FREE — lifetime once, no expiry.
+2. SUBSCRIPTION — billing-cycle grant, expires at provider `period_end`, no rollover.
+3. AD — accepted Rewarded claim, seven-day expiry.
+4. PAID — one-time pack, no expiry.
 
-A lot stores original, available and reserved units plus stable source identity and expiry.
+Consumption order:
 
-Consumption ordering is deterministic:
-
-1. expiring lots by `expires_at ASC`;
+1. expiring lots by earliest `expires_at`;
 2. FREE;
 3. PAID.
 
-No mutation may create a negative balance.
+User Energy mutations are idempotent and never allow negative value.
 
-### Reconciliation
+Reconciliation uses:
 
-- `user_energy_operations`: logical idempotent mutation key.
-- `user_energy_transactions`: exact per-lot mutation history.
-- `user_energy_reservations`: reservation lifecycle.
-- `user_energy_reservation_allocations`: exact originating lots for release/settlement.
-- `user_subscription_cycles`: provider billing-cycle identity.
-- `user_paid_purchases`: provider purchase identity.
+- `user_energy_operations`;
+- `user_energy_transactions`;
+- `user_energy_reservations`;
+- exact reservation lot allocations;
+- subscription cycles;
+- paid purchases.
 
-The legacy Group Credit tables remain readable for old history only. New V1 AI/Reminder/monetization code must not create new Group-owned value.
+Legacy Group Credit tables are history-only compatibility data. New V1 paths do not mint new Group-owned value.
 
-## Explicit @AI
+## Generic `@AI`
 
-An explicit AI request belongs financially to the invoking LINE user.
+A non-deterministic/non-memory-command `@AI` request is grounded in recent Group messages and ACTIVE Group memories.
 
-Before a request is allowed into the AI path, the backend queries that caller's User wallet. Another Group member is never considered as fallback funding.
+Before Gemini:
 
-If the caller is exhausted:
+- caller identity resolves to one User wallet;
+- recent speakers are replaced with ephemeral aliases;
+- a conservative maximum provider cost is converted with configured `ENERGY_UNITS_PER_TWD`;
+- that maximum Energy is held from the caller's own lots.
 
-- Gemini is not invoked;
-- LINE receives a deterministic Energy-exhausted response;
-- Group members are shown only as `可使用 / 已用完`;
-- numeric balances/purchase information remain private in LIFF.
+After Gemini:
 
-`@AI 額度`, help and plan commands are deterministic and never consume Energy.
+- actual token usage produces actual TWD cost;
+- actual cost converts to Energy;
+- only actual Energy is consumed;
+- unused held Energy is returned to its originating lots.
 
-The final AI settlement adapter resolves the caller by LINE identity and consumes only that User's wallet using an idempotent request reference.
+Provider failure releases the whole hold.
 
-## Background memory eligibility
+`explicit_ai_chat_requests` uses LINE message identity for retry/redelivery idempotency. Completed answers can be reused without a second provider charge.
 
-A due extraction batch is evaluated before an automatic memory request is created.
+Another member's Energy is never used.
 
-A User is eligible only when:
+## Deterministic commands
 
-- they contributed valid textual content to the current extraction batch; and
-- they had positive usable Energy at preflight.
+`@AI 額度`, help and plan commands do not call Gemini and do not consume Energy.
 
-If no eligible participant exists, the extraction batch is terminally closed with a no-eligible reason before automatic request creation or Gemini invocation. Later recharge does not resurrect that old batch.
+Group Energy replies expose only `可使用 / 已用完`. Numeric balances and purchase/subscription details are private to LIFF.
 
-For an eligible batch, `automatic_memory_eligible_subjects` snapshots:
+## Automatic Memory
 
-- stable User id;
-- LINE user id;
-- normalized character contribution;
-- preflight available Energy.
+A due extraction batch first computes actual textual contributors and current User Energy.
 
-The snapshot is created atomically with the AUTOMATIC memory request.
+Eligible means:
 
-Gemini may receive complete Group context, including ineligible speakers, because their text may be needed to understand an eligible speaker's statement. They remain context-only subjects.
+- positive normalized textual contribution in the current batch; and
+- positive usable Energy at preflight.
 
-## Memory subject hard boundary
+No eligible User -> extraction closes before automatic request creation/Gemini.
 
-Automatic subject authorization is enforced independently at multiple layers:
+For eligible work, `automatic_memory_eligible_subjects` is created with the automatic request and snapshots User id, LINE identity, normalized contribution and preflight Energy.
 
-1. eligible subject snapshot at request creation;
-2. model prompt exposes only eligible ephemeral speaker aliases as durable-memory subjects;
-3. classifier output validation requires the source current message to belong to an eligible User;
-4. memory persistence repeats the same check against `automatic_memory_eligible_subjects`.
+Gemini may read complete Group context, including ineligible speakers, but durable memory creation is restricted at multiple layers:
 
-A prompt injection or accidental direct repository call therefore cannot legitimately persist an automatic memory sourced from an ineligible speaker.
+1. request eligible snapshot;
+2. prompt eligible aliases;
+3. classifier source validation;
+4. DB persistence validation.
 
-Previous successful extraction may be supplied as context but can never be used as a newly emitted `sourceConversationMessageId`.
+Previous extraction context can inform classification but cannot become a newly emitted source.
 
-## AI result durability and retry fencing
+## Memory AI execution and budget safety
 
-Memory work ownership uses request claim leases and monotonic attempt counters. The attempt count is a fencing token: stale Workers cannot persist the first model result, mutate memories or close a newer claim.
+Memory requests use lease/fencing ownership. Durable classifier results preserve the original provider/model/token/pricing/FX snapshot and are reused on retry.
 
-A validated model response is stored before memory mutation. Retry reuses that durable result with its original provider/model/token/pricing/FX snapshot rather than calling Gemini again under new pricing.
+Before a Background Gemini call, AFTERTRACE creates `platform_ai_budget_reservations` against the global `V1_FREE_AI` ceiling. Reservation decisions use a PostgreSQL transaction-scoped advisory lock in the same SQL statement that reads spent/reserved budget and creates the reservation.
 
-Retryable provider failures use bounded exponential retry; configuration/auth/model errors are terminal for the current request.
+Provider failure releases the reservation.
 
-## User Energy AI settlement
+Final settlement:
 
-Provider cost remains recorded in USD/TWD while the customer wallet is denominated in Energy. The product conversion is explicitly configured by `ENERGY_UNITS_PER_TWD`.
+- allocates actual Energy among eligible Users by normalized text contribution;
+- locks current User lots;
+- charges each User at most their own remaining balance;
+- converts only that User's shortfall into Platform Subsidy;
+- never transfers shortfall to another member;
+- records `ai_user_energy_allocations` and `platform_ai_subsidy_operations`;
+- settles the pre-provider global budget reservation.
 
-The conversion is intentionally not guessed. Missing conversion disables User-Energy AI billing activation.
+`ai_energy_usage_events` stores provider usage per memory request.
 
-`ai_energy_usage_events` stores one provider usage record per logical memory request. Background calls fan out through `ai_user_energy_allocations` rather than pretending one Group credit operation funded the call.
+## Reminder
 
-### Background allocation
+Reminder owner/payer is User; Group is destination.
 
-Actual Energy cost is allocated among the snapshotted eligible Users in proportion to their normalized text-character contribution.
+Creation requires owner still active in destination Group and enough proactive-capable Energy.
 
-At final settlement current wallet balances are locked and re-read. For each eligible User:
+Reservation order:
 
-- charge at most that User's own remaining Energy;
-- if their final share exceeds the remaining balance, consume to exactly zero;
-- the remainder becomes that User's platform shortfall subsidy;
-- never shift the shortfall to another member.
-
-`platform_ai_subsidy_operations` records each subsidized User/share.
-
-### Global free-AI hard gate
-
-Background settlement uses the existing `global_free_ai_budget_state` row with budget key `V1_FREE_AI`.
-
-The settlement transaction locks both global budget state and relevant User Energy lots before mutations. If required platform subsidy would exceed the configured ceiling, that settlement does not deduct User Energy.
-
-A call that is fully User-funded has zero platform subsidy and is not blocked merely because the platform subsidy budget is already exhausted.
-
-A request-aware pre-provider budget/funding guard is still required before automatic Gemini invocation is enabled in production. Final settlement safety is implemented; provider activation must not be claimed complete until the pre-call boundary is also composed.
-
-## Memory persistence
-
-The classifier emits only `NEW`, `DUPLICATE`, `UPDATE`, or `CONTRADICT`.
-
-- `NEW`: creates an ACTIVE memory.
-- `DUPLICATE`: creates no duplicate memory.
-- `UPDATE`: creates a replacement ACTIVE memory and supersedes the old row.
-- `CONTRADICT`: same replacement shape, distinct audit action.
-
-Candidate persistence is idempotent by `(request_id, candidate_index)` and rejects retries that reinterpret decision/source/target/content.
-
-Long-term memories copy source metadata needed after conversation-buffer cleanup.
-
-## User-owned Reminder
-
-A Reminder has two independent dimensions:
-
-- owner/payer: User;
-- destination: Group.
-
-New Reminder creation uses `user_reminder_ownership` plus User Energy reservations. Legacy Group-credit reservation columns on `reminders` exist only to keep historical rows readable.
-
-Creation requires:
-
-- authenticated owner User;
-- active destination Group;
-- owner currently active in that Group;
-- enough eligible proactive Energy.
-
-Reservation ordering:
-
-1. SUBSCRIPTION lots whose `expires_at` is later than the scheduled delivery boundary;
-2. PAID lots.
+1. SUBSCRIPTION whose expiry safely exceeds delivery time;
+2. PAID.
 
 FREE/AD never fund Reminder.
 
-Cancellation is owner-only and releases the exact reserved lots.
+Cancellation is owner-only and releases exact originating lots. Successful LINE delivery consumes the exact reservation only after LINE accepts Push.
 
-### Delivery
+Before dispatch, membership is rechecked from webhook-fed Group membership state. Owner-left means cancel + release + no Push.
 
-Cron claims due User-owned reminders with a delivery lease/retry key.
+## Proactive Push
 
-Immediately before Push, authorization rechecks current destination Group and owner membership.
+Proactive capability belongs to a User with usable SUBSCRIPTION or PAID Energy.
 
-If the owner has left:
+V1 product rules do not yet define which real-world/memory conditions should generate a proactive message, so infrastructure does not invent trigger logic.
 
-- no LINE Push occurs;
-- Reminder becomes CANCELLED;
-- exact Energy reservation is released;
-- an audit event records owner-left cancellation.
+A trusted internal boundary accepts an already-approved trigger result containing owner, Group destination, source id, message and schedule.
 
-If LINE accepts the Push, the exact reservation becomes `CONSUMED` and the Reminder becomes DELIVERED atomically. Retryable delivery failures preserve the LINE retry key. Ambiguous/permanent failures do not guess whether the reservation should be consumed or refunded.
+Enqueue checks current Group membership + proactive capability. Delivery rechecks both again. If capability or membership disappears before delivery, the push is cancelled rather than sent.
 
-`REMINDER_RESERVATION_ENERGY` is product configuration and remains blank until pricing is finalized.
+Proactive delivery uses LINE retry keys and dispatch leases. Delivery itself does not invent an additional Energy price; any AI work used to generate proactive content must be funded separately by the AI path that generated it.
 
 ## Rewarded Ad
 
-V1 uses Google Ad Manager Web Rewarded behind a provider abstraction.
+Google Ad Manager Web Rewarded uses:
 
-Web rewarded completion is not mobile-app SSV. The backend therefore explicitly avoids describing the browser event as cryptographically provider-verified.
+- authenticated LIFF User;
+- server-issued random nonce;
+- SHA-256 nonce storage;
+- nonce expiry and one-time consumption;
+- provider-event idempotency;
+- User-level cooldown/daily limit;
+- 7-day AD Energy grant.
 
-The V1 anti-replay/abuse boundary is:
+LIFF loads Google Publisher Tag and requests a nonce before showing the rewarded slot. The backend claim is submitted only after the rewarded-granted browser event.
 
-1. authenticated LIFF User;
-2. server-issued random nonce;
-3. only SHA-256 nonce hash stored server-side;
-4. ten-minute nonce expiry;
-5. one-time nonce consumption;
-6. provider-event idempotency;
-7. User-level cooldown;
-8. User-level daily limit;
-9. accepted claim mapped to a stable 7-day AD Energy grant.
+Web Rewarded is not described as mobile SSV/cryptographic provider verification.
 
-Endpoints:
+## Subscription / PAID commerce
 
-- `POST /api/v1/energy/rewarded-ad/nonce`
-- `POST /api/v1/energy/rewarded-ad/claim`
+Product logic is payment-provider-neutral.
 
-Missing `REWARDED_AD_ENERGY`, Google network code or ad-unit path keeps this path disabled.
+The authenticated Energy catalog exposes configured Subscription and SMALL/MEDIUM/LARGE PAID products. Checkout buttons stay disabled until a concrete provider adapter exists.
 
-## LIFF privacy boundary
+A trusted verified-provider event boundary accepts normalized events:
 
-Group memory/reminder management still requires verified Group context and current membership.
+- `SUBSCRIPTION_CYCLE_PAID`;
+- `SUBSCRIPTION_CANCELLED`;
+- `PAID_PACK_PURCHASED`.
 
-Private Energy does not require a Group because the wallet belongs to the User. `GET /api/v1/energy/me` verifies LIFF identity and returns only the authenticated User's:
+Provider event ids are persisted for idempotency.
 
-- bucket balances;
-- reserved amounts;
-- lot expirations;
-- proactive capability.
+Subscription-cycle grants expire at actual `period_end`; cancellation never removes already-paid current-period Energy. PAID purchases create permanent lots.
 
-Other Group members' numeric balances are never returned through the Group Energy status path.
+No payment provider, product price or checkout URL is invented by core code.
+
+## LIFF privacy
+
+Group Memory/Reminder management requires verified Group context and current membership.
+
+Private wallet endpoints require only authenticated LIFF User identity because Energy belongs to the User, not a Group.
+
+`GET /api/v1/energy/me` exposes only that User's:
+
+- usable/reserved totals;
+- FREE/SUBSCRIPTION/AD/PAID buckets;
+- lots + expiry;
+- proactive capability;
+- subscription provider/status/period end.
+
+`GET /api/v1/energy/catalog` exposes product configuration without exposing another User's financial state.
 
 ## Retention
 
-Group retention deletes recoverable/private Group product data only after the configured inactive window and only when no active Reminder/reservation blocks cleanup.
+Group retention never deletes User wallet/subscription/purchase/Energy transaction value.
 
-It never deletes User wallet/subscription/purchase/Energy transaction tables.
+Active Reminder/Proactive work blocks purge.
 
-When User-owned financial reconciliation still references a Group, the cleanup retains a minimal Group anchor instead of orphaning those records.
+Financial Memory AI requests and billed generic `@AI` requests keep minimal reconciliation identity while private prompt/content is redacted. Terminal Proactive data can be removed; User-owned Reminder financial identity remains retained/redacted as required.
 
-Financial memory requests may be redacted rather than deleted so AI usage/allocation records keep a stable request identity. User-owned terminal Reminder text is redacted while Reminder ownership/reservation identity remains available for reconciliation.
+A minimal Group anchor remains whenever User-owned financial history still references the Group.
 
-The legacy 30-day never-paid / 365-day paid Group timing remains a compatibility policy and must not be interpreted as ownership of User value.
+Legacy 30/365-day Group timing remains compatibility policy until a new retention rule is explicitly chosen.
 
 ## Portability and scale
 
-Business rules remain in domain/services. Hono routes, Cloudflare execution context, Neon SQL and provider clients are adapters.
+Business rules live outside route handlers. Hono, Cloudflare execution context, Neon SQL, Gemini, LINE, GAM and future payment providers remain adapters.
 
-V1 stays LINE -> Workers -> Neon. If ingestion/AI workloads grow, introduce a queue behind webhook acceptance rather than replacing the LINE edge entry point.
+If load grows, a queue can be inserted behind webhook acceptance without changing ownership/business semantics.
 
 ## Observability
 
-Use structured logs with request/event ids, non-sensitive correlation ids, event type, latency, provider/model/token/cost information and reconciliation ids.
+Use structured logs with non-sensitive correlation ids, request ids, event type, latency, provider/model/token/cost and reconciliation ids.
 
-Never log secrets, raw private conversation text or raw LINE user/group identifiers by default.
+Never log secrets, raw private conversations or raw LINE user/group identifiers by default.
