@@ -48,6 +48,23 @@ export type PrivateEnergyOverview = {
   };
 };
 
+export type RewardedAdNonce = {
+  nonce: string;
+  expiresAt: string;
+  client: {
+    provider: 'GOOGLE_AD_MANAGER_WEB';
+    networkCode: string;
+    adUnitPath: string;
+  };
+};
+
+export type RewardedAdClaim = {
+  status: 'GRANTED' | 'ALREADY_GRANTED';
+  claimId: number;
+  operationId: number;
+  units: string;
+};
+
 export type Capabilities = {
   rewardedAdClaimEnabled: boolean;
   rewardedAdDailyLimit: number;
@@ -79,9 +96,13 @@ export class ManagementApi {
     return body;
   }
 
-  private async userEnergyRequest<T>(path: string): Promise<T> {
+  private async userEnergyRequest<T>(path: string, init?: RequestInit): Promise<T> {
+    const headers = new Headers(init?.headers);
+    headers.set('Authorization', `Bearer ${this.accessToken}`);
+    if (init?.body) headers.set('Content-Type', 'application/json');
     const response = await fetch(`${this.baseUrl.replace(/\/$/, '')}/api/v1/energy${path}`, {
-      headers: { Authorization: `Bearer ${this.accessToken}` },
+      ...init,
+      headers,
     });
     const body = (await response.json()) as { ok?: boolean; error?: string } & T;
     if (!response.ok) {
@@ -97,6 +118,18 @@ export class ManagementApi {
   async energy(): Promise<PrivateEnergyOverview> {
     const body = await this.userEnergyRequest<{ energy: PrivateEnergyOverview }>('/me');
     return body.energy;
+  }
+
+  async rewardedAdNonce(): Promise<RewardedAdNonce> {
+    return this.userEnergyRequest<RewardedAdNonce>('/rewarded-ad/nonce', { method: 'POST' });
+  }
+
+  async claimRewardedAd(nonce: string, providerEventId: string): Promise<RewardedAdClaim> {
+    const body = await this.userEnergyRequest<{ result: RewardedAdClaim }>('/rewarded-ad/claim', {
+      method: 'POST',
+      body: JSON.stringify({ nonce, providerEventId }),
+    });
+    return body.result;
   }
 
   async memories(query = ''): Promise<ManagedMemory[]> {
