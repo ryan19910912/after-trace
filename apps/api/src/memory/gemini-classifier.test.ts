@@ -4,9 +4,26 @@ import { GeminiMemoryClassifier } from './gemini-classifier';
 import { MemoryAiExecutionError } from './retry-policy';
 
 const input: MemoryClassificationInput = {
-  requestId: 1, groupId: 1, origin: 'EXPLICIT', actorLineUserId: 'U-actor', instruction: '記住',
-  currentMessages: [{ id: 7, lineMessageId: 'm7', quotedLineMessageId: null, lineUserId: 'U-secret', messageType: 'text', textContent: '喜歡咖啡', quoteToken: null, lineTimestamp: new Date('2026-08-29T01:00:00Z'), metadata: null }],
-  previousContext: null, activeMemories: [],
+  requestId: 1,
+  groupId: 1,
+  origin: 'EXPLICIT',
+  actorLineUserId: 'U-actor',
+  instruction: '記住',
+  currentMessages: [{
+    id: 7,
+    lineMessageId: 'm7',
+    quotedLineMessageId: null,
+    lineUserId: 'U-secret',
+    messageType: 'text',
+    textContent: '喜歡咖啡',
+    charCount: 4,
+    quoteToken: null,
+    lineTimestamp: new Date('2026-08-29T01:00:00Z'),
+    metadata: null,
+  }],
+  previousContext: null,
+  activeMemories: [],
+  eligibleSubjectLineUserIds: ['U-actor'],
 };
 
 describe('GeminiMemoryClassifier', () => {
@@ -15,6 +32,7 @@ describe('GeminiMemoryClassifier', () => {
       const body = JSON.parse(String(init?.body));
       expect(body.generationConfig.responseMimeType).toBe('application/json');
       expect(JSON.stringify(body)).not.toContain('U-secret');
+      expect(JSON.stringify(body)).not.toContain('U-actor');
       return new Response(JSON.stringify({
         responseId: 'r-1',
         candidates: [{ content: { parts: [{ text: JSON.stringify({ candidates: [{ candidateIndex: 0, decision: 'NEW', targetMemoryId: null, category: 'PREFERENCE', subject: null, content: '喜歡咖啡', sourceConversationMessageId: 7 }] }) }] } }],
