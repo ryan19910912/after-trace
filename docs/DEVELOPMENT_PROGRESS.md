@@ -2,11 +2,11 @@
 
 ## Current status
 
-Round 12 is complete on `main` once the implementation commit lands. Paid-only Reminder now has a runtime delivery boundary in addition to the Round 11 financial lifecycle: due work is claimed with PostgreSQL row locking, lease/fence state and one stable LINE retry key; dispatch is authorized immediately before the external Push; LINE acceptance is then settled atomically into Reminder `DELIVERED` plus PAID reservation consumption/audit.
+Round 12 is complete on `main` at implementation commit `1f6ddff0b26b73b0683245c154e7a8d639e3c1cb`. Paid-only Reminder now has a runtime delivery boundary in addition to the Round 11 financial lifecycle: due work is claimed with PostgreSQL row locking, lease/fence state and one stable LINE retry key; dispatch is authorized immediately before the external Push; LINE acceptance is then settled atomically into Reminder `DELIVERED` plus PAID reservation consumption/audit.
 
 The Worker module entry now exposes both HTTP fetch and Cloudflare scheduled execution. The repository deliberately does not hard-code a Cron Trigger cadence because the V1 product requirements do not define reminder scheduling resolution. Production delivery still requires an explicit Cloudflare Cron Trigger plus valid LINE/Neon settings.
 
-Real Gemini invocation remains intentionally disconnected from the LINE webhook/runtime composition. Dependency-aware verification is still blocked because GitHub Actions continues to fail before executing repository steps. Production AI activation also still requires explicit Gemini credentials/pricing, USD/TWD FX and the global free-AI ceiling.
+Real Gemini invocation remains intentionally disconnected from the LINE webhook/runtime composition. Dependency-aware verification is still unavailable. Production AI activation also still requires explicit Gemini credentials/pricing, USD/TWD FX and the global free-AI ceiling.
 
 ## Confirmed V1 baseline
 
@@ -34,15 +34,6 @@ Real Gemini invocation remains intentionally disconnected from the LINE webhook/
 10. Attempt-fenced terminal recovery, pre-invocation funding eligibility and extraction FAILED-schema correction.
 11. Paid-only Reminder create/reserve, cancel/release and successful-delivery/consume lifecycle with atomic audit/settlement fencing.
 12. Due Reminder claim/lease, LINE retry-key duplicate-send protection, dispatch fencing, Cloudflare scheduled boundary and accepted-delivery settlement.
-
-## Round 11 summary
-
-- Reminder creation atomically reserves explicit caller-supplied PAID value and creates `SCHEDULED` state.
-- Cancellation atomically releases the reservation and writes actor-attributed audit.
-- Successful-delivery settlement atomically consumes the reservation, updates PAID reserved balance and writes audit.
-- WELCOME/AD are never Reminder funding.
-- Stable Group-scoped request keys and delivery references protect exact retries and reject reference conflicts.
-- No Reminder price or low-balance threshold was invented.
 
 ## Round 12 — completed
 
@@ -93,9 +84,11 @@ Real Gemini invocation remains intentionally disconnected from the LINE webhook/
 
 ## Verification status
 
-The newest pre-Round-12 `main` run is GitHub Actions run `33233008630` for `b022b0b2`. It completed as failure before useful repository verification, consistent with prior runner/environment failures. No successful dependency-aware `pnpm install -> typecheck -> lint -> test -> Wrangler build -> Vite build -> Drizzle generate` result is available yet.
-
-Round 12 changed modules were statically reviewed for TypeScript shape, PostgreSQL fencing, PAID settlement ordering and LINE retry-key semantics. Full CI/build verification must be retried after the implementation commit. No Neon/LINE/Cloudflare/Gemini credentials were guessed or used.
+- The newest pre-Round-12 `main` run is GitHub Actions run `33233008630` for `b022b0b2`; it failed before useful repository verification, consistent with the prior runner/environment issue.
+- After pushing `1f6ddff0`, GitHub exposed no Actions run and no commit status for that SHA at the time of this handoff. Therefore CI is neither green nor a repository-level failure signal for Round 12 yet.
+- The available local environment has TypeScript 5.8.3 but no pnpm. A strict lightweight TypeScript check was executed for the new `ReminderDeliveryService` and `LineMessagingPushClient` with minimal local type stubs; it passed with no compiler output.
+- The Drizzle/PostgreSQL repository SQL, PAID settlement ordering, cancellation/dispatch fence and LINE retry-key semantics were manually reviewed. Full dependency-aware `pnpm install -> typecheck -> lint -> test -> Wrangler build -> Vite build -> Drizzle generate` is still not claimable.
+- No Neon/LINE/Cloudflare/Gemini credentials were guessed or used.
 
 ## Round 13 — highest priority
 
