@@ -1,6 +1,6 @@
 export type BufferedGroupMessage = {
   webhookEventId: string | null;
-  replyToken: string | null;
+  replyToken?: string | null;
   lineGroupId: string;
   lineMessageId: string;
   quotedLineMessageId: string | null;
@@ -15,7 +15,7 @@ export type BufferedGroupMessage = {
 
 export type GroupLifecycleEvent = {
   webhookEventId: string | null;
-  replyToken: string | null;
+  replyToken?: string | null;
   lineGroupId: string;
   type: 'JOIN' | 'LEAVE';
   lineTimestamp: Date;
