@@ -14,13 +14,12 @@ type PurgeRow = {
 type CountRow = { blocked_count: string | number };
 
 /**
- * Retention intentionally deletes recoverable/private product state while preserving
- * credit/usage/audit reconciliation rows. A minimal line_groups anchor is retained
- * only while non-zero PAID value still needs the stable LINE group identity.
+ * Group retention may delete recoverable conversation/memory product data, but it must
+ * never destroy or semantically orphan User-owned Energy, AI allocation/subsidy,
+ * subscription/payment, or Reminder reservation reconciliation.
  *
- * A GROUP_PRODUCT_DATA_PURGED audit row at/after the current inactive_at acts as the
- * durable purge marker. If the Group later rejoins and leaves again, the new inactive_at
- * is newer than the old marker, so the next retention cycle is eligible normally.
+ * Financially relevant Group/request/reminder rows are retained as minimal redacted
+ * anchors. User wallet tables themselves are never touched by this repository.
  */
 export class DrizzleRetentionRepository implements RetentionRepository {
   constructor(private readonly db: Database) {}
@@ -46,14 +45,19 @@ export class DrizzleRetentionRepository implements RetentionRepository {
         AND EXISTS (
           SELECT 1
           FROM reminders AS reminder
-          LEFT JOIN credit_reservations AS reservation
-            ON reservation.group_id = reminder.group_id
-           AND reservation.reference_type = 'REMINDER'
-           AND reservation.reference_id = reminder.request_key
+          LEFT JOIN credit_reservations AS legacy_reservation
+            ON legacy_reservation.group_id = reminder.group_id
+           AND legacy_reservation.reference_type = 'REMINDER'
+           AND legacy_reservation.reference_id = reminder.request_key
+          LEFT JOIN user_reminder_ownership AS ownership
+            ON ownership.reminder_id = reminder.id
+          LEFT JOIN user_energy_reservations AS energy_reservation
+            ON energy_reservation.id = ownership.energy_reservation_id
           WHERE reminder.group_id = group_state.id
             AND (
               reminder.status IN ('SCHEDULED', 'DISPATCHING')
-              OR reservation.status = 'RESERVED'
+              OR legacy_reservation.status = 'RESERVED'
+              OR energy_reservation.status = 'RESERVED'
             )
         )
     `);
@@ -83,36 +87,65 @@ export class DrizzleRetentionRepository implements RetentionRepository {
           AND NOT EXISTS (
             SELECT 1
             FROM reminders AS reminder
-            LEFT JOIN credit_reservations AS reservation
-              ON reservation.group_id = reminder.group_id
-             AND reservation.reference_type = 'REMINDER'
-             AND reservation.reference_id = reminder.request_key
+            LEFT JOIN credit_reservations AS legacy_reservation
+              ON legacy_reservation.group_id = reminder.group_id
+             AND legacy_reservation.reference_type = 'REMINDER'
+             AND legacy_reservation.reference_id = reminder.request_key
+            LEFT JOIN user_reminder_ownership AS ownership
+              ON ownership.reminder_id = reminder.id
+            LEFT JOIN user_energy_reservations AS energy_reservation
+              ON energy_reservation.id = ownership.energy_reservation_id
             WHERE reminder.group_id = group_state.id
               AND (
                 reminder.status IN ('SCHEDULED', 'DISPATCHING')
-                OR reservation.status = 'RESERVED'
+                OR legacy_reservation.status = 'RESERVED'
+                OR energy_reservation.status = 'RESERVED'
               )
           )
         ORDER BY group_state.inactive_at, group_state.id
         FOR UPDATE SKIP LOCKED
         LIMIT 1
       ),
-      paid_anchor AS MATERIALIZED (
-        SELECT EXISTS (
-          SELECT 1
-          FROM credit_accounts AS account
-          JOIN candidate ON candidate.id = account.group_id
-          WHERE account.bucket = 'PAID'
-            AND (
-              account.available_cost_twd > 0
-              OR account.reserved_cost_twd > 0
-            )
+      reconciliation_anchor AS MATERIALIZED (
+        SELECT (
+          EXISTS (
+            SELECT 1
+            FROM credit_accounts AS account
+            JOIN candidate ON candidate.id = account.group_id
+            WHERE account.bucket = 'PAID'
+              AND (account.available_cost_twd > 0 OR account.reserved_cost_twd > 0)
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM user_reminder_ownership ownership
+            JOIN candidate ON candidate.id = ownership.group_id
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM ai_energy_usage_events usage
+            JOIN candidate ON candidate.id = usage.group_id
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM ai_user_energy_allocations allocation
+            JOIN candidate ON candidate.id = allocation.group_id
+          )
         ) AS retain
       ),
       request_ids AS MATERIALIZED (
         SELECT request.id
         FROM memory_candidate_requests AS request
         JOIN candidate ON candidate.id = request.group_id
+      ),
+      financial_request_ids AS MATERIALIZED (
+        SELECT request.id
+        FROM memory_candidate_requests request
+        JOIN candidate ON candidate.id = request.group_id
+        WHERE EXISTS (
+          SELECT 1 FROM ai_energy_usage_events usage WHERE usage.request_id = request.id
+        ) OR EXISTS (
+          SELECT 1 FROM ai_user_energy_allocations allocation WHERE allocation.request_id = request.id
+        )
       ),
       deleted_classifier_results AS (
         DELETE FROM memory_classifier_results
@@ -134,9 +167,28 @@ export class DrizzleRetentionRepository implements RetentionRepository {
         WHERE group_id IN (SELECT id FROM candidate)
         RETURNING request_id
       ),
+      deleted_nonfinancial_eligible_subjects AS (
+        DELETE FROM automatic_memory_eligible_subjects
+        WHERE request_id IN (SELECT id FROM request_ids)
+          AND request_id NOT IN (SELECT id FROM financial_request_ids)
+        RETURNING request_id
+      ),
+      redacted_financial_requests AS (
+        UPDATE memory_candidate_requests request
+        SET request_line_message_id = NULL,
+            actor_line_user_id = NULL,
+            source_line_message_id = NULL,
+            source_conversation_message_id = NULL,
+            instruction = NULL,
+            extraction_batch_id = NULL,
+            updated_at = ${command.at}
+        WHERE request.id IN (SELECT id FROM financial_request_ids)
+        RETURNING request.id
+      ),
       deleted_requests AS (
         DELETE FROM memory_candidate_requests
         WHERE group_id IN (SELECT id FROM candidate)
+          AND id NOT IN (SELECT id FROM financial_request_ids)
         RETURNING id
       ),
       deleted_messages AS (
@@ -164,11 +216,26 @@ export class DrizzleRetentionRepository implements RetentionRepository {
         WHERE group_id IN (SELECT id FROM candidate)
         RETURNING id
       ),
-      deleted_terminal_reminders AS (
-        DELETE FROM reminders
-        WHERE group_id IN (SELECT id FROM candidate)
-          AND status IN ('CANCELLED', 'DELIVERED')
-        RETURNING id
+      redacted_user_reminders AS (
+        UPDATE reminders reminder
+        SET message = '[PURGED]', updated_at = ${command.at}
+        WHERE reminder.group_id IN (SELECT id FROM candidate)
+          AND reminder.status IN ('CANCELLED', 'DELIVERED')
+          AND EXISTS (
+            SELECT 1 FROM user_reminder_ownership ownership
+            WHERE ownership.reminder_id = reminder.id
+          )
+        RETURNING reminder.id
+      ),
+      deleted_legacy_terminal_reminders AS (
+        DELETE FROM reminders reminder
+        WHERE reminder.group_id IN (SELECT id FROM candidate)
+          AND reminder.status IN ('CANCELLED', 'DELIVERED')
+          AND NOT EXISTS (
+            SELECT 1 FROM user_reminder_ownership ownership
+            WHERE ownership.reminder_id = reminder.id
+          )
+        RETURNING reminder.id
       ),
       audit AS (
         INSERT INTO audit_logs (
@@ -188,9 +255,10 @@ export class DrizzleRetentionRepository implements RetentionRepository {
           candidate.id::text,
           jsonb_build_object(
             'inactiveAt', candidate.inactive_at,
-            'hasPaid', candidate.has_paid,
-            'paidAnchorRetained', (SELECT retain FROM paid_anchor),
-            'policy', CASE WHEN candidate.has_paid THEN 'PAID_1_YEAR' ELSE 'NEVER_PAID_30_DAYS' END
+            'legacyHasPaid', candidate.has_paid,
+            'reconciliationAnchorRetained', (SELECT retain FROM reconciliation_anchor),
+            'userOwnedFinancialRecordsPreserved', true,
+            'policy', CASE WHEN candidate.has_paid THEN 'LEGACY_PAID_1_YEAR' ELSE 'LEGACY_NEVER_PAID_30_DAYS' END
           ),
           ${command.at}
         FROM candidate
@@ -203,19 +271,19 @@ export class DrizzleRetentionRepository implements RetentionRepository {
             updated_at = ${command.at}
         FROM candidate
         WHERE group_state.id = candidate.id
-          AND (SELECT retain FROM paid_anchor)
+          AND (SELECT retain FROM reconciliation_anchor)
         RETURNING group_state.id
       ),
       deleted_group AS (
         DELETE FROM line_groups AS group_state
         USING candidate
         WHERE group_state.id = candidate.id
-          AND NOT (SELECT retain FROM paid_anchor)
+          AND NOT (SELECT retain FROM reconciliation_anchor)
         RETURNING group_state.id
       )
       SELECT
         candidate.id::text AS group_id,
-        (SELECT retain FROM paid_anchor) AS retained_anchor
+        (SELECT retain FROM reconciliation_anchor) AS retained_anchor
       FROM candidate
     `);
 
