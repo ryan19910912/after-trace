@@ -47,10 +47,10 @@ describe('ReminderRecoveryService', () => {
     });
   });
 
-  it('rejects recovery without an exact positive attempt fence', async () => {
+  it('rejects recovery without an exact positive attempt fence', () => {
     const service = new ReminderRecoveryService(new FakeRepository());
 
-    await expect(
+    expect(() =>
       service.requeueUnresolved({
         groupId: 3,
         reminderId: 9,
@@ -59,6 +59,6 @@ describe('ReminderRecoveryService', () => {
         operatorRef: 'ops-42',
         reason: 'retry',
       }),
-    ).rejects.toThrow('expectedAttemptCount must be a positive safe integer');
+    ).toThrow('expectedAttemptCount must be a positive safe integer');
   });
 });
