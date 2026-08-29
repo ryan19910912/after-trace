@@ -50,13 +50,27 @@ export interface MemoryClassifierPort {
   classify(input: MemoryClassificationInput): Promise<MemoryClassifierResponse>;
 }
 
-export function parseMemoryClassifierOutput(raw: unknown, input: MemoryClassificationInput): ClassifiedMemoryCandidate[] {
+export function parseMemoryClassifierOutput(
+  raw: unknown,
+  input: MemoryClassificationInput,
+): ClassifiedMemoryCandidate[] {
   const parsed = memoryClassifierOutputSchema.parse(raw);
-  const sourceIds = new Set(input.currentMessages.map((message) => message.id));
+  const sourceMessages = new Map(input.currentMessages.map((message) => [message.id, message]));
   const activeMemoryIds = new Set(input.activeMemories.map((memory) => memory.id));
+  const eligibleSubjects = new Set(input.eligibleSubjectLineUserIds);
+
   for (const candidate of parsed.candidates) {
-    if (!sourceIds.has(candidate.sourceConversationMessageId)) {
+    const source = sourceMessages.get(candidate.sourceConversationMessageId);
+    if (!source) {
       throw new Error(`classifier candidate ${candidate.candidateIndex} referenced a source outside the current request`);
+    }
+    if (
+      input.origin === 'AUTOMATIC' &&
+      (!source.lineUserId || !eligibleSubjects.has(source.lineUserId))
+    ) {
+      throw new Error(
+        `classifier candidate ${candidate.candidateIndex} referenced an ineligible automatic-memory subject`,
+      );
     }
     if (candidate.targetMemoryId !== null && !activeMemoryIds.has(candidate.targetMemoryId)) {
       throw new Error(`classifier candidate ${candidate.candidateIndex} referenced a non-active target memory`);
