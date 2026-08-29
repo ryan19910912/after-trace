@@ -1,6 +1,8 @@
 import app, { type Bindings } from './index';
 import { createDatabase } from './db/client';
 import { LineMessagingPushClient } from './line/push';
+import { DrizzleProactiveRepository } from './proactive/drizzle-repository';
+import { ProactiveDeliveryService } from './proactive/service';
 import { ReminderDeliveryService } from './reminders/delivery';
 import { DrizzleUserReminderDeliveryRepository } from './reminders/drizzle-user-delivery-repository';
 import { DrizzleRetentionRepository } from './retention/drizzle-repository';
@@ -9,52 +11,48 @@ import { GroupRetentionService } from './retention/service';
 type ScheduledControllerLike = { scheduledTime: number };
 type ExecutionContextLike = { waitUntil(promise: Promise<unknown>): void };
 
-async function runReminderSchedule(
-  controller: ScheduledControllerLike,
-  env: Bindings,
-): Promise<void> {
+async function runReminderSchedule(controller: ScheduledControllerLike, env: Bindings): Promise<void> {
   const database = createDatabase(env.DATABASE_URL);
-  const repository = new DrizzleUserReminderDeliveryRepository(database);
-  const line = new LineMessagingPushClient(env.LINE_CHANNEL_ACCESS_TOKEN);
-  const service = new ReminderDeliveryService(repository, line);
-  const result = await service.deliverDue(new Date(controller.scheduledTime));
-
-  console.log(
-    JSON.stringify({
-      event: 'reminder_delivery_run',
-      ...result,
-    }),
+  const service = new ReminderDeliveryService(
+    new DrizzleUserReminderDeliveryRepository(database),
+    new LineMessagingPushClient(env.LINE_CHANNEL_ACCESS_TOKEN),
   );
+  console.log(JSON.stringify({
+    event: 'reminder_delivery_run',
+    ...(await service.deliverDue(new Date(controller.scheduledTime))),
+  }));
 }
 
-async function runRetentionSchedule(
-  controller: ScheduledControllerLike,
-  env: Bindings,
-): Promise<void> {
+async function runProactiveSchedule(controller: ScheduledControllerLike, env: Bindings): Promise<void> {
+  const database = createDatabase(env.DATABASE_URL);
+  const service = new ProactiveDeliveryService(
+    new DrizzleProactiveRepository(database),
+    new LineMessagingPushClient(env.LINE_CHANNEL_ACCESS_TOKEN),
+  );
+  console.log(JSON.stringify({
+    event: 'proactive_delivery_run',
+    ...(await service.deliverDue(new Date(controller.scheduledTime))),
+  }));
+}
+
+async function runRetentionSchedule(controller: ScheduledControllerLike, env: Bindings): Promise<void> {
   const database = createDatabase(env.DATABASE_URL);
   const service = new GroupRetentionService(new DrizzleRetentionRepository(database));
-  const result = await service.purgeExpired(new Date(controller.scheduledTime));
-
-  console.log(
-    JSON.stringify({
-      event: 'group_retention_run',
-      ...result,
-    }),
-  );
+  console.log(JSON.stringify({
+    event: 'group_retention_run',
+    ...(await service.purgeExpired(new Date(controller.scheduledTime))),
+  }));
 }
 
 export default {
   fetch(request: Request, env: Bindings, executionContext: ExecutionContextLike) {
     return app.fetch(request, env, executionContext as never);
   },
-  scheduled(
-    controller: ScheduledControllerLike,
-    env: Bindings,
-    executionContext: ExecutionContextLike,
-  ) {
+  scheduled(controller: ScheduledControllerLike, env: Bindings, executionContext: ExecutionContextLike) {
     executionContext.waitUntil(
       Promise.all([
         runReminderSchedule(controller, env),
+        runProactiveSchedule(controller, env),
         runRetentionSchedule(controller, env),
       ]).then(() => undefined),
     );
