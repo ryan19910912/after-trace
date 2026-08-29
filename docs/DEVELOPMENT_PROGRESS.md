@@ -2,9 +2,9 @@
 
 ## Current status
 
-Round 8 is complete on `main`. The memory classifier now has a durable validated-result boundary keyed by memory request and a Gemini 2.5 Flash-Lite REST adapter behind `MemoryClassifierPort`. Gemini remains intentionally disabled from the webhook: billing, candidate persistence and request settlement still need to be assembled into one retry-safe orchestrator before production invocation is safe.
+Round 8 is complete on `main`. The memory AI path now has a durable validated-classifier-result boundary, a Gemini 2.5 Flash-Lite REST adapter, and a retry-safe orchestration service that reuses durable model results, bills with a deterministic request reference, persists candidates idempotently, and settles the request only under the current claim fence. Gemini is still intentionally not wired from the webhook/runtime composition until dependency-aware verification and the remaining safety gates are complete.
 
-GitHub Actions remains an external environment blocker. The latest pre-Round-8 main run (`33222523981`, commit `ef5f62c`) completed in about three seconds with failure before useful repository verification; prior inspected jobs had `steps=[]` and `runner_id=0`.
+GitHub Actions remains an external environment blocker. The latest pre-Round-8 run (`33222523981`, commit `ef5f62c`) completed in about three seconds with failure before useful repository verification; previously inspected jobs had `steps=[]` and `runner_id=0`.
 
 ## Confirmed V1 baseline
 
@@ -33,36 +33,47 @@ GitHub Actions remains an external environment blocker. The latest pre-Round-8 m
 
 - Added `memory_classifier_results`, one row per memory request, containing attempt fence, provider/model, optional provider response id, validated structured output, token counts, latency, pricing/FX snapshot and calculated USD/TWD cost.
 - Added `MemoryClassifierResultService` and repository contract. Results are grounded again before storage and the response model must match the pricing snapshot model.
-- `DrizzleMemoryClassifierResultRepository.storeIfCurrent` inserts only while the request is CLAIMED by the current `attempt_count` fence. A stale Worker cannot create the first durable result.
-- If a result already exists, later attempts reuse the first stored row. This closes the crash window after successful model response persistence and prevents a retry from intentionally issuing another provider call.
+- `DrizzleMemoryClassifierResultRepository.storeIfCurrent` inserts the first result only while the request is CLAIMED by the current `attempt_count` fence. A stale Worker cannot create the durable result.
+- Later attempts reuse the first stored row. A Worker crash after model completion therefore does not require another intentional Gemini call.
 - Added Round 8 schema to Drizzle Kit configuration. No migration was generated or applied while dependency-aware CI remains unavailable.
 
 ### Gemini adapter
 
-- Added `GeminiMemoryClassifier` using Cloudflare-compatible `fetch`, no new SDK dependency.
-- Uses Gemini `generateContent` with `responseMimeType=application/json` and JSON schema constrained to the Round 7 candidate shape.
+- Added `GeminiMemoryClassifier` using Cloudflare-compatible `fetch`, with no new SDK dependency.
+- Uses Gemini `generateContent` with `responseMimeType=application/json` and `responseJsonSchema` matching the classifier candidate contract.
 - Uses the pseudonymized Round 7 prompt; raw LINE user ids are not added by the adapter.
-- Parses provider JSON, validates Zod + Group/source/active-memory grounding before returning a classifier response, and requires provider token usage for reproducible billing.
-- Adapter is not wired into webhook/runtime composition yet and no API key, pricing or FX value was guessed.
+- Parses provider JSON, validates Zod + source/active-memory grounding, and requires prompt/output token counts before returning a billable response.
+- Provider response id is retained when available for debugging/idempotency traceability.
+
+### Retry-safe memory AI orchestration
+
+- Added `MemoryAiOrchestrator`: claim -> load grounded input -> reuse durable result or call classifier -> durable store -> idempotent billing/usage -> candidate persistence -> fenced success.
+- Billing reference is deterministically `{ type: AI_MEMORY_CLASSIFIER, id: requestId }`, so retries reuse the same logical credit operation.
+- Billing is constructed only from the durable classifier-result snapshot; a retry never recomputes cost using newer pricing/FX.
+- `AiBillingService.chargeAndRecord` now accepts a separate settlement timestamp. Model-call time remains on the usage record while credit expiry/allocation is evaluated at the actual retry/settlement time.
+- Insufficient credit keeps the validated result durable and defers the request. A later top-up can settle the same result without another Gemini call.
+- Candidate persistence remains candidate-level idempotent and attempt-fenced; final request/extraction success still requires the current work fence.
+- Gemini remains disconnected from the webhook so no network AI call is activated accidentally.
 
 ### Tests / validation
 
-- Added tests for durable pricing snapshots, hallucinated-source rejection, structured Gemini request shape, pseudonymization and token usage parsing.
+- Added tests for durable pricing snapshots, hallucinated-source rejection, structured Gemini request shape, prompt pseudonymization and token usage parsing.
+- Added orchestrator tests proving an existing durable result skips the classifier and insufficient credit defers without candidate mutation or another model call.
+- Fixed token-usage narrowing in the REST adapter so missing/invalid Gemini usage metadata is rejected explicitly.
 - Re-read PRODUCT_V1, architecture/progress handoff, recent commits, memory work/pipeline, credit billing and AI usage code before implementation.
-- Full `pnpm install -> typecheck -> lint -> test -> Wrangler build -> Vite build -> Drizzle generate` remains unproven because GitHub Actions still fails before useful runner execution and this automation runtime has no dependency-capable checkout.
-- No production Neon/LINE/Cloudflare/Gemini credentials were guessed or committed.
+- Full `pnpm install -> typecheck -> lint -> test -> Wrangler build -> Vite build -> Drizzle generate` remains unproven because the available GitHub Actions runner path has continued to fail before useful repository steps. No production Neon/LINE/Cloudflare/Gemini credential or provider price/FX value was guessed.
 
 ## Round 9 — highest priority
 
-1. Re-check main CI; if a runner actually executes, fix all real install/typecheck/lint/test/build errors first.
-2. Build a retry-safe memory AI orchestrator: claim request -> load grounded input -> load durable result or call classifier -> store validated result -> idempotent charge/AI usage -> persist every candidate -> mark request/batch succeeded.
-3. Use a deterministic credit reference based on memory request id so retries cannot double-charge; construct usage only from the durable result snapshot, never from a fresh recomputation.
-4. Define insufficient-credit behavior without another Gemini call: keep the validated result durable and defer settlement until credit is available.
-5. Add tests for crash/retry boundaries: existing result skips classifier, stale result store cannot bill, already-billed retry does not double charge, candidate retries are idempotent, and only current fence can mark success.
-6. Only after the full orchestrator is testable, wire it from the event-driven webhook path. Keep Gemini disabled until then.
-7. Then implement Paid-only Reminder create/reserve, cancel/release, delivered/consume, followed by retention cleanup.
-8. Generate initial Drizzle migration only after dependency-aware verification is available and the V1 schema is stable.
+1. Re-check the latest main CI created by this documentation commit. If a runner actually executes, fix every real install/typecheck/lint/test/build/Drizzle error before adding behavior.
+2. Add explicit tests for the remaining crash boundaries: stale classifier-result store must never bill; an already-billed retry must reuse the credit operation and usage row; partial candidate persistence must resume idempotently; stale fence must not mark success.
+3. Add the global free-AI budget hard safety gate required by PRODUCT_V1 before enabling automatic Gemini extraction.
+4. Decide and implement a bounded retry policy for permanent provider/configuration errors versus transient errors; do not retry invalid credentials indefinitely.
+5. After the above gates are verified, wire `MemoryAiOrchestrator` into the event-driven memory request trigger without polling. Keep real Gemini disabled unless all runtime secrets + pricing/FX are explicitly configured.
+6. Implement Paid-only Reminder create/reserve, cancel/release, delivered/consume.
+7. Implement inactive Group retention cleanup: 30 days never-paid, 1 year paid, while preserving required financial/audit records.
+8. Generate the initial Drizzle migration only after dependency-aware verification is available and the V1 schema is stable.
 
 ## Process note
 
-Never bypass the durable-result, billing or request-fence boundaries to make Gemini appear connected sooner. Always update this file before the next handoff.
+Never bypass durable result reuse, billing idempotency, source grounding, candidate idempotency or request fencing merely to make Gemini appear connected sooner. Always update this file before the next handoff.
