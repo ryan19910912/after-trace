@@ -48,6 +48,7 @@ export type Bindings = ProductConfigEnv & {
   GOOGLE_AD_MANAGER_REWARDED_AD_UNIT_PATH?: string;
   COMMERCE_WEBHOOK_SECRET?: string;
   COMMERCE_PROVIDER?: string;
+  PROACTIVE_INTERNAL_SECRET?: string;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -135,11 +136,7 @@ app.post('/webhooks/line', async (c) => {
 
   for (const parsedEvent of parsed.events) {
     if (parsedEvent.kind === 'LIFECYCLE') {
-      await conversationService.handleLifecycle(
-        parsedEvent.event.lineGroupId,
-        parsedEvent.event.type,
-        parsedEvent.event.lineTimestamp,
-      );
+      await conversationService.handleLifecycle(parsedEvent.event);
       lifecycleEvents += 1;
       continue;
     }
