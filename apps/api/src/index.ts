@@ -3,9 +3,11 @@ import { resolveProductConfig, type ProductConfigEnv } from './config/product';
 import { DrizzleConversationRepository } from './conversation/drizzle-repository';
 import { ConversationIngestionService } from './conversation/service';
 import { createDatabase } from './db/client';
-import { DrizzleUserEnergyAccessRepository } from './energy/drizzle-access';
-import { DrizzleUserEnergyRepository } from './energy/drizzle-repository';
 import { UserEnergyAccessService } from './energy/access';
+import { backgroundPreflight } from './energy/background';
+import { DrizzleUserEnergyAccessRepository } from './energy/drizzle-access';
+import { DrizzleBackgroundEnergyRepository } from './energy/drizzle-background';
+import { DrizzleUserEnergyRepository } from './energy/drizzle-repository';
 import { DrizzleExtractionClaimRepository } from './extraction/drizzle-repository';
 import { ConversationExtractionCoordinator } from './extraction/service';
 import {
@@ -72,6 +74,7 @@ app.post('/webhooks/line', async (c) => {
       automaticMemoryRequests: 0,
       extractionCandidates: 0,
       extractionClaims: 0,
+      extractionNoEligibleSkips: 0,
     });
   }
 
@@ -82,6 +85,7 @@ app.post('/webhooks/line', async (c) => {
   const extractionRepository = new DrizzleExtractionClaimRepository(database);
   const extractionCoordinator = new ConversationExtractionCoordinator(extractionRepository, config);
   const energyRepository = new DrizzleUserEnergyRepository(database);
+  const backgroundEnergyRepository = new DrizzleBackgroundEnergyRepository(database);
   const energyAccessService = c.env.LIFF_APP_URL?.trim()
     ? new UserEnergyAccessService(
         new DrizzleUserEnergyAccessRepository(database),
@@ -105,6 +109,7 @@ app.post('/webhooks/line', async (c) => {
   let automaticMemoryRequests = 0;
   let extractionCandidates = 0;
   let extractionClaims = 0;
+  let extractionNoEligibleSkips = 0;
 
   for (const parsedEvent of parsed.events) {
     if (parsedEvent.kind === 'LIFECYCLE') {
@@ -208,9 +213,35 @@ app.post('/webhooks/line', async (c) => {
       extractionCandidates += 1;
     }
 
-    const claim = await extractionCoordinator.claimDueBatch(result.groupId);
+    const claim = await extractionCoordinator.claimDueBatch(result.groupId, message.lineTimestamp);
     if (claim) {
       extractionClaims += 1;
+      const participants = await backgroundEnergyRepository.listBatchParticipants(
+        result.groupId,
+        claim.id,
+        message.lineTimestamp,
+      );
+      const preflight = backgroundPreflight(participants);
+      if (preflight.status === 'SKIP_NO_ELIGIBLE_PARTICIPANT') {
+        const closed = await extractionCoordinator.markNoEligibleParticipant(
+          claim.id,
+          message.lineTimestamp,
+        );
+        if (!closed) {
+          throw new Error('Failed to terminally close no-eligible extraction batch');
+        }
+        extractionNoEligibleSkips += 1;
+        console.log(
+          JSON.stringify({
+            event: 'conversation_extraction_skipped_no_eligible_energy',
+            extractionBatchId: claim.id,
+            messageCount: claim.messageCount,
+            charCount: claim.charCount,
+          }),
+        );
+        continue;
+      }
+
       const automaticRequest = await automaticMemoryRequestService.ensureForExtractionBatch(
         result.groupId,
         claim.id,
@@ -224,6 +255,7 @@ app.post('/webhooks/line', async (c) => {
           extractionBatchId: claim.id,
           memoryRequestId: automaticRequest.id,
           memoryRequestCreated: automaticRequest.created,
+          eligibleParticipantCount: preflight.participants.length,
           messageCount: claim.messageCount,
           charCount: claim.charCount,
           attemptCount: claim.attemptCount,
@@ -246,6 +278,7 @@ app.post('/webhooks/line', async (c) => {
     automaticMemoryRequests,
     extractionCandidates,
     extractionClaims,
+    extractionNoEligibleSkips,
   });
 });
 
