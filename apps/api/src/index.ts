@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { createCommerceRoutes } from './commerce/routes';
 import { resolveProductConfig, type ProductConfigEnv } from './config/product';
 import { DrizzleConversationRepository } from './conversation/drizzle-repository';
 import { ConversationIngestionService } from './conversation/service';
@@ -50,10 +51,9 @@ export type Bindings = ProductConfigEnv & {
 const app = new Hono<{ Bindings: Bindings }>();
 app.route('/api/v1/management', createManagementRoutes());
 app.route('/api/v1/energy', createEnergyRoutes());
+app.route('/api/v1/internal/commerce', createCommerceRoutes());
 
-app.get('/health', (c) =>
-  c.json({ service: 'after-trace-api', status: 'ok' }),
-);
+app.get('/health', (c) => c.json({ service: 'after-trace-api', status: 'ok' }));
 
 app.post('/webhooks/line', async (c) => {
   const rawBody = await c.req.text();
@@ -156,9 +156,7 @@ app.post('/webhooks/line', async (c) => {
         config.energy.freeInitialUnits,
       );
       if (free.status === 'GRANTED') lifetimeFreeGrants += 1;
-      if (free.status === 'REFERENCE_CONFLICT') {
-        throw new Error('lifetime FREE Energy consistency failure');
-      }
+      if (free.status === 'REFERENCE_CONFLICT') throw new Error('lifetime FREE Energy consistency failure');
     }
 
     const deterministicCommand = detectDeterministicAiCommand(message);
@@ -208,17 +206,11 @@ app.post('/webhooks/line', async (c) => {
 
     const explicitMemoryCommand = detectExplicitMemoryCommand(message);
     if (explicitMemoryCommand) {
-      const request = await explicitMemoryRequestService.enqueue(
-        result.groupId,
-        message,
-        explicitMemoryCommand,
-      );
+      const request = await explicitMemoryRequestService.enqueue(result.groupId, message, explicitMemoryCommand);
       if (request.status === 'PENDING') {
         explicitMemoryRequests += 1;
         groupsWithAiWork.add(result.groupId);
-      } else {
-        blockedMemoryRequests += 1;
-      }
+      } else blockedMemoryRequests += 1;
     }
 
     if (result.threshold.extractionDue) extractionCandidates += 1;
@@ -233,10 +225,7 @@ app.post('/webhooks/line', async (c) => {
     );
     const preflight = backgroundPreflight(participants);
     if (preflight.status === 'SKIP_NO_ELIGIBLE_PARTICIPANT') {
-      const closed = await extractionCoordinator.markNoEligibleParticipant(
-        claim.id,
-        message.lineTimestamp,
-      );
+      const closed = await extractionCoordinator.markNoEligibleParticipant(claim.id, message.lineTimestamp);
       if (!closed) throw new Error('Failed to terminally close no-eligible extraction batch');
       extractionNoEligibleSkips += 1;
       continue;
@@ -274,7 +263,11 @@ app.post('/webhooks/line', async (c) => {
         for (let i = 0; i < 5; i += 1) {
           const aiResult = await aiRuntime.runNextForGroup(groupId);
           console.log(JSON.stringify({ event: 'memory_ai_runtime', groupId, ...aiResult }));
-          if (aiResult.status === 'NO_WORK' || aiResult.status === 'WAITING_FOR_CREDIT' || aiResult.status === 'WAITING_FOR_FREE_BUDGET') break;
+          if (
+            aiResult.status === 'NO_WORK' ||
+            aiResult.status === 'WAITING_FOR_CREDIT' ||
+            aiResult.status === 'WAITING_FOR_FREE_BUDGET'
+          ) break;
         }
       })().catch((error) => {
         console.error(JSON.stringify({
