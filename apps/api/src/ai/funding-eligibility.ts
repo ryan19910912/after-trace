@@ -8,7 +8,7 @@ export type AiFundingSnapshot = {
 };
 
 export interface AiFundingSnapshotRepository {
-  load(groupId: number): Promise<AiFundingSnapshot>;
+  load(groupId: number, at: Date): Promise<AiFundingSnapshot>;
 }
 
 export type AiFundingEligibility =
@@ -44,12 +44,12 @@ export class AiFundingEligibilityService {
     }
   }
 
-  async check(groupId: number): Promise<AiFundingEligibility> {
+  async check(groupId: number, at = new Date()): Promise<AiFundingEligibility> {
     if (!Number.isSafeInteger(groupId) || groupId <= 0) {
       throw new Error('groupId must be a positive safe integer');
     }
 
-    const snapshot = await this.repository.load(groupId);
+    const snapshot = await this.repository.load(groupId, at);
     assertNonNegative(snapshot.welcomeAvailableUnits, 'welcomeAvailableUnits');
     assertNonNegative(snapshot.adAvailableUnits, 'adAvailableUnits');
     assertNonNegative(snapshot.paidAvailableUnits, 'paidAvailableUnits');

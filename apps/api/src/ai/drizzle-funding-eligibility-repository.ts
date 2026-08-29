@@ -15,7 +15,7 @@ const GLOBAL_FREE_AI_BUDGET_KEY = 'V1_FREE_AI';
 export class DrizzleAiFundingSnapshotRepository implements AiFundingSnapshotRepository {
   constructor(private readonly db: Database) {}
 
-  async load(groupId: number): Promise<AiFundingSnapshot> {
+  async load(groupId: number, at: Date): Promise<AiFundingSnapshot> {
     const result = await this.db.execute(sql`
       SELECT
         COALESCE(SUM(available_cost_twd) FILTER (WHERE bucket = 'WELCOME'), 0)::text
@@ -32,6 +32,7 @@ export class DrizzleAiFundingSnapshotRepository implements AiFundingSnapshotRepo
         ), 0)::text AS global_free_ai_spent_cost_twd
       FROM credit_accounts
       WHERE group_id = ${groupId}
+        AND (expires_at IS NULL OR expires_at > ${at})
     `);
     const row = result.rows[0] as FundingRow | undefined;
     if (!row) throw new Error('AI funding snapshot returned no row');

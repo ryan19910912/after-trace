@@ -62,7 +62,7 @@ export class MemoryAiOrchestrator {
       const reusedClassifierResult = durable !== null;
 
       if (!durable && this.eligibility) {
-        const funding = await this.eligibility.check(request.groupId);
+        const funding = await this.eligibility.check(request.groupId, now);
         if (funding.status === 'NO_CREDIT') {
           return this.deferWait(
             request.id,
