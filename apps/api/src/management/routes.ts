@@ -1,11 +1,10 @@
 import { Hono, type Context } from 'hono';
 import type { ProductConfigEnv } from '../config/product';
 import { resolveProductConfig } from '../config/product';
-import { parseTwdCostUnits } from '../credits/allocation';
 import { rewardedAdPolicyDay } from '../credits/rewarded-ad';
 import { createDatabase } from '../db/client';
-import { DrizzleReminderRepository } from '../reminders/drizzle-repository';
-import { ReminderService } from '../reminders/service';
+import { DrizzleUserReminderRepository } from '../reminders/drizzle-user-repository';
+import { UserReminderService } from '../reminders/user-service';
 import { DrizzleManagementRepository } from './drizzle-repository';
 import { LineLiffGroupSessionVerifier, type LiffGroupSession } from './session';
 import { ManagementService } from './service';
@@ -15,16 +14,19 @@ export type ManagementBindings = ProductConfigEnv & {
   LINE_CHANNEL_ACCESS_TOKEN: string;
   LIFF_CHANNEL_ID: string;
   LIFF_WEB_ORIGIN?: string;
-  REMINDER_RESERVATION_COST_TWD?: string;
+  REMINDER_RESERVATION_ENERGY?: string;
 };
 
 type ManagementEnv = { Bindings: ManagementBindings };
 type ManagementContext = Context<ManagementEnv>;
 
-function configuredReminderUnits(value: string | undefined): bigint | null {
+function configuredReminderEnergy(value: string | undefined): bigint | null {
   if (!value?.trim()) return null;
-  const units = parseTwdCostUnits(value);
-  if (units <= 0n) throw new Error('REMINDER_RESERVATION_COST_TWD must be greater than zero');
+  if (!/^\d+$/.test(value.trim())) {
+    throw new Error('REMINDER_RESERVATION_ENERGY must be a positive integer');
+  }
+  const units = BigInt(value.trim());
+  if (units <= 0n) throw new Error('REMINDER_RESERVATION_ENERGY must be greater than zero');
   return units;
 }
 
@@ -77,12 +79,8 @@ async function sessionFor(c: ManagementContext): Promise<LiffGroupSession | Resp
   ) {
     return c.json({ ok: false, error: result.status }, 401);
   }
-  if (result.status === 'NOT_GROUP_MEMBER') {
-    return c.json({ ok: false, error: result.status }, 403);
-  }
-  if (result.status === 'GROUP_NOT_FOUND') {
-    return c.json({ ok: false, error: result.status }, 404);
-  }
+  if (result.status === 'NOT_GROUP_MEMBER') return c.json({ ok: false, error: result.status }, 403);
+  if (result.status === 'GROUP_NOT_FOUND') return c.json({ ok: false, error: result.status }, 404);
   return c.json({ ok: false, error: result.status }, 409);
 }
 
@@ -96,12 +94,8 @@ export function createManagementRoutes() {
   app.use('*', async (c, next) => {
     const origin = c.req.header('origin');
     const allowedOrigin = c.env.LIFF_WEB_ORIGIN?.trim();
-    if (origin && !allowedOrigin) {
-      return c.json({ ok: false, error: 'LIFF_WEB_ORIGIN_NOT_CONFIGURED' }, 503);
-    }
-    if (origin && origin !== allowedOrigin) {
-      return c.json({ ok: false, error: 'ORIGIN_NOT_ALLOWED' }, 403);
-    }
+    if (origin && !allowedOrigin) return c.json({ ok: false, error: 'LIFF_WEB_ORIGIN_NOT_CONFIGURED' }, 503);
+    if (origin && origin !== allowedOrigin) return c.json({ ok: false, error: 'ORIGIN_NOT_ALLOWED' }, 403);
     await next();
     if (origin && origin === allowedOrigin) {
       c.header('Access-Control-Allow-Origin', origin);
@@ -112,9 +106,7 @@ export function createManagementRoutes() {
   app.options('*', (c) => {
     const origin = c.req.header('origin');
     const allowedOrigin = c.env.LIFF_WEB_ORIGIN?.trim();
-    if (!origin || !allowedOrigin || origin !== allowedOrigin) {
-      return c.body(null, 403);
-    }
+    if (!origin || !allowedOrigin || origin !== allowedOrigin) return c.body(null, 403);
     c.header('Access-Control-Allow-Origin', origin);
     c.header('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Line-Group-Id');
     c.header('Access-Control-Allow-Methods', 'GET, PATCH, POST, DELETE, OPTIONS');
@@ -137,7 +129,7 @@ export function createManagementRoutes() {
         rewardedAdClaimEnabled: false,
         rewardedAdDailyLimit: config.credits.rewardedAdDailyLimit,
         rewardedAdCooldownMinutes: config.credits.rewardedAdCooldownMinutes,
-        reminderCreationEnabled: configuredReminderUnits(c.env.REMINDER_RESERVATION_COST_TWD) !== null,
+        reminderCreationEnabled: configuredReminderEnergy(c.env.REMINDER_RESERVATION_ENERGY) !== null,
       },
     });
   });
@@ -145,11 +137,8 @@ export function createManagementRoutes() {
   app.get('/memories', async (c) => {
     const session = await sessionFor(c);
     if (isResponse(session)) return session;
-    const service = new ManagementService(
-      new DrizzleManagementRepository(createDatabase(c.env.DATABASE_URL)),
-    );
-    const memories = await service.listMemories(session.groupId, c.req.query('q') ?? null);
-    return c.json({ ok: true, memories });
+    const service = new ManagementService(new DrizzleManagementRepository(createDatabase(c.env.DATABASE_URL)));
+    return c.json({ ok: true, memories: await service.listMemories(session.groupId, c.req.query('q') ?? null) });
   });
 
   app.patch('/memories/:id', async (c) => {
@@ -157,9 +146,7 @@ export function createManagementRoutes() {
     if (isResponse(session)) return session;
     try {
       const body = jsonBody(await c.req.json());
-      const service = new ManagementService(
-        new DrizzleManagementRepository(createDatabase(c.env.DATABASE_URL)),
-      );
+      const service = new ManagementService(new DrizzleManagementRepository(createDatabase(c.env.DATABASE_URL)));
       const result = await service.updateMemory(
         session.groupId,
         positivePathId(c.req.param('id')),
@@ -170,8 +157,9 @@ export function createManagementRoutes() {
           content: stringField(body, 'content'),
         },
       );
-      if (result === 'UPDATED') return c.json({ ok: true });
-      return c.json({ ok: false, error: 'MEMORY_NOT_FOUND' }, 404);
+      return result === 'UPDATED'
+        ? c.json({ ok: true })
+        : c.json({ ok: false, error: 'MEMORY_NOT_FOUND' }, 404);
     } catch (error) {
       return c.json({ ok: false, error: error instanceof Error ? error.message : 'INVALID_REQUEST' }, 400);
     }
@@ -181,16 +169,15 @@ export function createManagementRoutes() {
     const session = await sessionFor(c);
     if (isResponse(session)) return session;
     try {
-      const service = new ManagementService(
-        new DrizzleManagementRepository(createDatabase(c.env.DATABASE_URL)),
-      );
+      const service = new ManagementService(new DrizzleManagementRepository(createDatabase(c.env.DATABASE_URL)));
       const result = await service.deleteMemory(
         session.groupId,
         positivePathId(c.req.param('id')),
         session.lineUserId,
       );
-      if (result === 'DELETED') return c.json({ ok: true });
-      return c.json({ ok: false, error: 'MEMORY_NOT_FOUND' }, 404);
+      return result === 'DELETED'
+        ? c.json({ ok: true })
+        : c.json({ ok: false, error: 'MEMORY_NOT_FOUND' }, 404);
     } catch (error) {
       return c.json({ ok: false, error: error instanceof Error ? error.message : 'INVALID_REQUEST' }, 400);
     }
@@ -199,39 +186,31 @@ export function createManagementRoutes() {
   app.get('/reminders', async (c) => {
     const session = await sessionFor(c);
     if (isResponse(session)) return session;
-    const service = new ManagementService(
-      new DrizzleManagementRepository(createDatabase(c.env.DATABASE_URL)),
-    );
+    const service = new ManagementService(new DrizzleManagementRepository(createDatabase(c.env.DATABASE_URL)));
     return c.json({ ok: true, reminders: await service.listReminders(session.groupId) });
   });
 
   app.post('/reminders', async (c) => {
     const session = await sessionFor(c);
     if (isResponse(session)) return session;
-    const units = configuredReminderUnits(c.env.REMINDER_RESERVATION_COST_TWD);
-    if (units === null) {
-      return c.json({ ok: false, error: 'REMINDER_PRICING_NOT_CONFIGURED' }, 503);
-    }
+    const units = configuredReminderEnergy(c.env.REMINDER_RESERVATION_ENERGY);
+    if (units === null) return c.json({ ok: false, error: 'REMINDER_ENERGY_NOT_CONFIGURED' }, 503);
     try {
       const body = jsonBody(await c.req.json());
-      const scheduledFor = new Date(stringField(body, 'scheduledFor'));
-      const service = new ReminderService(
-        new DrizzleReminderRepository(createDatabase(c.env.DATABASE_URL)),
+      const service = new UserReminderService(
+        new DrizzleUserReminderRepository(createDatabase(c.env.DATABASE_URL)),
       );
       const result = await service.create({
         groupId: session.groupId,
+        ownerLineUserId: session.lineUserId,
         requestKey: stringField(body, 'requestKey'),
         message: stringField(body, 'message'),
-        scheduledFor,
-        reservedCostUnits: units,
-        actorLineUserId: session.lineUserId,
+        scheduledFor: new Date(stringField(body, 'scheduledFor')),
+        reservationUnits: units,
       });
-      if (result.status === 'INSUFFICIENT_PAID') {
-        return c.json({ ok: false, result }, 402);
-      }
-      if (result.status === 'REFERENCE_CONFLICT') {
-        return c.json({ ok: false, result }, 409);
-      }
+      if (result.status === 'INSUFFICIENT_PROACTIVE_ENERGY') return c.json({ ok: false, result }, 402);
+      if (result.status === 'OWNER_NOT_GROUP_MEMBER') return c.json({ ok: false, result }, 403);
+      if (result.status === 'REFERENCE_CONFLICT') return c.json({ ok: false, result }, 409);
       return c.json({ ok: true, result });
     } catch (error) {
       return c.json({ ok: false, error: error instanceof Error ? error.message : 'INVALID_REQUEST' }, 400);
@@ -242,20 +221,19 @@ export function createManagementRoutes() {
     const session = await sessionFor(c);
     if (isResponse(session)) return session;
     try {
-      const service = new ReminderService(
-        new DrizzleReminderRepository(createDatabase(c.env.DATABASE_URL)),
+      const service = new UserReminderService(
+        new DrizzleUserReminderRepository(createDatabase(c.env.DATABASE_URL)),
       );
-      const result = await service.cancel(
-        session.groupId,
-        positivePathId(c.req.param('id')),
-        session.lineUserId,
-      );
-      if (result.status === 'NOT_FOUND') {
-        return c.json({ ok: false, result }, 404);
-      }
-      if (result.status === 'REFERENCE_CONFLICT') {
-        return c.json({ ok: false, result }, 409);
-      }
+      const reminderId = positivePathId(c.req.param('id'));
+      const result = await service.cancel({
+        groupId: session.groupId,
+        reminderId,
+        ownerLineUserId: session.lineUserId,
+        mutationKey: `liff:${reminderId}:${session.lineUserId}`,
+      });
+      if (result.status === 'NOT_FOUND') return c.json({ ok: false, result }, 404);
+      if (result.status === 'NOT_OWNER') return c.json({ ok: false, result }, 403);
+      if (result.status === 'REFERENCE_CONFLICT') return c.json({ ok: false, result }, 409);
       return c.json({ ok: true, result });
     } catch (error) {
       return c.json({ ok: false, error: error instanceof Error ? error.message : 'INVALID_REQUEST' }, 400);
