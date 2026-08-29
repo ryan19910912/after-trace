@@ -28,8 +28,11 @@ export const reminders = pgTable(
     message: text('message').notNull(),
     scheduledFor: timestamp('scheduled_for', { withTimezone: true }).notNull(),
     status: reminderStatusEnum('status').default('SCHEDULED').notNull(),
-    reservedCostTwd: numeric('reserved_cost_twd', { precision: 18, scale: 8 }).notNull(),
-    reserveOperationId: bigint('reserve_operation_id', { mode: 'number' }).notNull().unique(),
+    // Legacy Group-credit field. New User-Energy reminders store zero here and use
+    // user_reminder_ownership -> user_energy_reservations for financial ownership.
+    reservedCostTwd: numeric('reserved_cost_twd', { precision: 18, scale: 8 }).default('0').notNull(),
+    // Nullable for new User-Energy reminders. Legacy rows retain their credit operation id.
+    reserveOperationId: bigint('reserve_operation_id', { mode: 'number' }).unique(),
     createdByLineUserId: varchar('created_by_line_user_id', { length: 64 }).notNull(),
     cancelledByLineUserId: varchar('cancelled_by_line_user_id', { length: 64 }),
     deliveryReference: varchar('delivery_reference', { length: 128 }),
