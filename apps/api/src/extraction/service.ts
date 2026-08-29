@@ -25,6 +25,7 @@ export interface ExtractionClaimRepository {
     thresholds: ExtractionClaimThresholds,
   ): Promise<ExtractionBatchClaim | null>;
   markSucceeded(batchId: number, completedAt: Date): Promise<boolean>;
+  markTerminalSkipped(batchId: number, completedAt: Date, errorCode: string): Promise<boolean>;
   deferFailure(batchId: number, retryAt: Date, errorCode: string): Promise<boolean>;
 }
 
@@ -48,6 +49,14 @@ export class ConversationExtractionCoordinator {
 
   markSucceeded(batchId: number, completedAt = new Date()): Promise<boolean> {
     return this.repository.markSucceeded(batchId, completedAt);
+  }
+
+  markNoEligibleParticipant(batchId: number, completedAt = new Date()): Promise<boolean> {
+    return this.repository.markTerminalSkipped(
+      batchId,
+      completedAt,
+      'NO_ELIGIBLE_ENERGY_PARTICIPANT',
+    );
   }
 
   deferFailure(
