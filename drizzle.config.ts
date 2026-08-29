@@ -1,23 +1,27 @@
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'drizzle-kit';
 
 if (!process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL is required for Drizzle Kit');
 }
 
+const rootDir = dirname(fileURLToPath(import.meta.url));
+
 export default defineConfig({
   schema: [
-    './apps/api/src/db/schema.ts',
-    './apps/api/src/db/schema-round5.ts',
-    './apps/api/src/db/schema-round6.ts',
-    './apps/api/src/db/schema-round8.ts',
-    './apps/api/src/db/schema-round9.ts',
-    './apps/api/src/db/schema-round11.ts',
-    './apps/api/src/db/schema-round16.ts',
-    './apps/api/src/db/schema-round17.ts',
-    './apps/api/src/db/schema-round18.ts',
-    './apps/api/src/db/schema-round19.ts',
+    resolve(rootDir, 'apps/api/src/db/schema.ts'),
+    resolve(rootDir, 'apps/api/src/db/schema-round5.ts'),
+    resolve(rootDir, 'apps/api/src/db/schema-round6.ts'),
+    resolve(rootDir, 'apps/api/src/db/schema-round8.ts'),
+    resolve(rootDir, 'apps/api/src/db/schema-round9.ts'),
+    resolve(rootDir, 'apps/api/src/db/schema-round11.ts'),
+    resolve(rootDir, 'apps/api/src/db/schema-round16.ts'),
+    resolve(rootDir, 'apps/api/src/db/schema-round17.ts'),
+    resolve(rootDir, 'apps/api/src/db/schema-round18.ts'),
+    resolve(rootDir, 'apps/api/src/db/schema-round19.ts'),
   ],
-  out: './drizzle',
+  out: resolve(rootDir, 'drizzle'),
   dialect: 'postgresql',
   dbCredentials: {
     url: process.env.DATABASE_URL,
