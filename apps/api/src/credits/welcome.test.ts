@@ -47,7 +47,11 @@ describe('WelcomeCreditService', () => {
 
   it('does not grant again when attribution already owns an operation', async () => {
     const repository: WelcomeCreditRepository = {
-      claimAttribution: vi.fn(async () => ({ ...attribution, grantOperationId: 91, state: 'EXISTING' })),
+      claimAttribution: vi.fn(async () => ({
+        ...attribution,
+        grantOperationId: 91,
+        state: 'EXISTING' as const,
+      })),
       completeAttribution: vi.fn(async () => 'ALREADY_COMPLETED' as const),
     };
     const grant = vi.fn();
