@@ -3,7 +3,6 @@ import type { Database } from '../db/client';
 import type {
   ManagedMemory,
   ManagedReminder,
-  ManagementOverview,
   ManagementRepository,
   MemoryUpdateInput,
 } from './service';
@@ -26,15 +25,6 @@ type ReminderRow = {
   scheduled_for: Date | string;
   status: ManagedReminder['status'];
 };
-
-type BalanceRow = {
-  bucket: 'WELCOME' | 'AD' | 'PAID';
-  has_available: boolean;
-  has_reserved: boolean;
-};
-
-type UsageRow = { usage_count: string | number };
-type AdStateRow = { grant_count: number; last_accepted_at: Date | string | null };
 
 function iso(value: Date | string | null): string | null {
   return value === null ? null : new Date(value).toISOString();
@@ -201,54 +191,6 @@ export class DrizzleManagementRepository implements ManagementRepository {
     `);
     const row = result.rows[0] as { changed: boolean } | undefined;
     return row?.changed ? 'DELETED' : 'NOT_FOUND';
-  }
-
-  async overview(groupId: number, policyDay: string): Promise<ManagementOverview> {
-    const [balanceResult, usageResult, adResult] = await Promise.all([
-      this.db.execute(sql`
-        SELECT
-          bucket,
-          (available_cost_twd > 0) AS has_available,
-          (reserved_cost_twd > 0) AS has_reserved
-        FROM credit_accounts
-        WHERE group_id = ${groupId}
-      `),
-      this.db.execute(sql`
-        SELECT COUNT(*)::text AS usage_count
-        FROM ai_usage_events
-        WHERE group_id = ${groupId}
-      `),
-      this.db.execute(sql`
-        SELECT grant_count, last_accepted_at
-        FROM rewarded_ad_policy_state
-        WHERE group_id = ${groupId}
-          AND policy_day = ${policyDay}
-        LIMIT 1
-      `),
-    ]);
-
-    const buckets: ManagementOverview['buckets'] = {
-      WELCOME: { hasAvailable: false, hasReserved: false },
-      AD: { hasAvailable: false, hasReserved: false },
-      PAID: { hasAvailable: false, hasReserved: false },
-    };
-    for (const row of balanceResult.rows as BalanceRow[]) {
-      buckets[row.bucket] = {
-        hasAvailable: row.has_available,
-        hasReserved: row.has_reserved,
-      };
-    }
-
-    const usage = usageResult.rows[0] as UsageRow | undefined;
-    const ad = adResult.rows[0] as AdStateRow | undefined;
-    return {
-      buckets,
-      aiUsageCount: usage ? Number(usage.usage_count) : 0,
-      rewardedAd: {
-        grantCountToday: ad?.grant_count ?? 0,
-        lastAcceptedAt: ad ? iso(ad.last_accepted_at) : null,
-      },
-    };
   }
 
   async listReminders(groupId: number, limit: number): Promise<ManagedReminder[]> {
