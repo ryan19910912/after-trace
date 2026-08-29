@@ -5,11 +5,39 @@ import type { MemoryClassifierResultRepository } from './classifier-result';
 import { MemoryClassifierResultService } from './classifier-result';
 import type { ClaimedMemoryRequest } from './work';
 
-const request: ClaimedMemoryRequest = { id: 10, groupId: 2, origin: 'AUTOMATIC', extractionBatchId: 8, actorLineUserId: null, sourceConversationMessageId: null, instruction: null, attemptCount: 3, transientFailureCount: 0, leaseExpiresAt: new Date('2026-08-29T01:10:00Z') };
+const request: ClaimedMemoryRequest = {
+  id: 10,
+  groupId: 2,
+  origin: 'AUTOMATIC',
+  extractionBatchId: 8,
+  actorLineUserId: null,
+  sourceConversationMessageId: null,
+  instruction: null,
+  attemptCount: 3,
+  transientFailureCount: 0,
+  leaseExpiresAt: new Date('2026-08-29T01:10:00Z'),
+};
 const classificationInput: MemoryClassificationInput = {
-  requestId: 10, groupId: 2, origin: 'AUTOMATIC', actorLineUserId: null, instruction: null,
-  currentMessages: [{ id: 41, lineMessageId: 'm41', quotedLineMessageId: null, lineUserId: 'U1', messageType: 'text', textContent: '我喜歡拉麵', quoteToken: null, lineTimestamp: new Date('2026-08-29T01:00:00Z'), metadata: null }],
-  previousContext: null, activeMemories: [],
+  requestId: 10,
+  groupId: 2,
+  origin: 'AUTOMATIC',
+  actorLineUserId: null,
+  instruction: null,
+  currentMessages: [{
+    id: 41,
+    lineMessageId: 'm41',
+    quotedLineMessageId: null,
+    lineUserId: 'U1',
+    messageType: 'text',
+    textContent: '我喜歡拉麵',
+    charCount: 6,
+    quoteToken: null,
+    lineTimestamp: new Date('2026-08-29T01:00:00Z'),
+    metadata: null,
+  }],
+  previousContext: null,
+  activeMemories: [],
+  eligibleSubjectLineUserIds: ['U1'],
 };
 const runtime: AiRuntimeConfig = {
   provider: 'GOOGLE',
