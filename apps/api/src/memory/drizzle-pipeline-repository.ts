@@ -63,7 +63,7 @@ export class DrizzleMemoryCandidateRepository implements MemoryCandidateReposito
     const candidate = input.candidate;
     const result = await this.db.execute(sql`
       WITH request_owner AS MATERIALIZED (
-        SELECT request.id, request.group_id
+        SELECT request.id, request.group_id, request.origin
         FROM memory_candidate_requests request
         JOIN memory_request_work_states work ON work.request_id = request.id
         WHERE request.id = ${input.requestId}
@@ -105,6 +105,19 @@ export class DrizzleMemoryCandidateRepository implements MemoryCandidateReposito
         WHERE message.id = ${candidate.sourceConversationMessageId}
         LIMIT 1
       ),
+      source_is_allowed AS (
+        SELECT 1
+        FROM request_owner request
+        CROSS JOIN source_message source
+        WHERE request.origin = 'EXPLICIT'
+           OR EXISTS (
+             SELECT 1
+             FROM automatic_memory_eligible_subjects eligible
+             WHERE eligible.request_id = request.id
+               AND eligible.group_id = request.group_id
+               AND eligible.line_user_id = source.line_user_id
+           )
+      ),
       target_memory AS MATERIALIZED (
         SELECT memory.*
         FROM memories memory
@@ -118,6 +131,7 @@ export class DrizzleMemoryCandidateRepository implements MemoryCandidateReposito
         FROM request_owner request
         WHERE NOT EXISTS (SELECT 1 FROM existing_result)
           AND EXISTS (SELECT 1 FROM source_message)
+          AND EXISTS (SELECT 1 FROM source_is_allowed)
           AND (
             (${candidate.decision} = 'NEW' AND ${candidate.targetMemoryId} IS NULL)
             OR (
@@ -187,10 +201,7 @@ export class DrizzleMemoryCandidateRepository implements MemoryCandidateReposito
           ${candidate.candidateIndex},
           ${candidate.decision},
           CASE WHEN ${candidate.decision} = 'NEW' THEN NULL ELSE target.id END,
-          CASE
-            WHEN ${candidate.decision} = 'DUPLICATE' THEN target.id
-            ELSE inserted.id
-          END,
+          CASE WHEN ${candidate.decision} = 'DUPLICATE' THEN target.id ELSE inserted.id END,
           source.id,
           ${candidate.category},
           ${candidate.subject},
@@ -279,7 +290,7 @@ export class DrizzleMemoryCandidateRepository implements MemoryCandidateReposito
     const row = result.rows[0] as PersistRow | undefined;
     if (!row) {
       throw new Error(
-        'memory candidate persistence rejected: stale claim, conflicting retry, missing source, or invalid active target',
+        'memory candidate persistence rejected: stale claim, conflicting retry, missing/ineligible source, or invalid active target',
       );
     }
 
