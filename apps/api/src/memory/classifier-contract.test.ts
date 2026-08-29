@@ -21,6 +21,18 @@ const input: MemoryClassificationInput = {
       lineTimestamp: new Date('2026-08-29T00:00:00Z'),
       metadata: null,
     },
+    {
+      id: 12,
+      lineMessageId: 'line-12',
+      lineUserId: 'user-2',
+      messageType: 'text',
+      textContent: '我想去台南',
+      charCount: 6,
+      quoteToken: null,
+      quotedLineMessageId: null,
+      lineTimestamp: new Date('2026-08-29T00:00:01Z'),
+      metadata: null,
+    },
   ],
   previousContext: {
     batchId: 8,
@@ -50,10 +62,11 @@ const input: MemoryClassificationInput = {
       sourceLineTimestamp: new Date('2026-01-01T00:00:00Z'),
     },
   ],
+  eligibleSubjectLineUserIds: ['user-1'],
 };
 
 describe('parseMemoryClassifierOutput', () => {
-  it('accepts a candidate grounded in current messages and active memories', () => {
+  it('accepts a candidate grounded in an eligible current speaker and active memories', () => {
     expect(
       parseMemoryClassifierOutput(
         {
@@ -72,6 +85,27 @@ describe('parseMemoryClassifierOutput', () => {
         input,
       ),
     ).toHaveLength(1);
+  });
+
+  it('rejects a current source authored by an ineligible background speaker', () => {
+    expect(() =>
+      parseMemoryClassifierOutput(
+        {
+          candidates: [
+            {
+              candidateIndex: 0,
+              decision: 'NEW',
+              targetMemoryId: null,
+              category: 'PLACE',
+              subject: '台南',
+              content: '想去台南',
+              sourceConversationMessageId: 12,
+            },
+          ],
+        },
+        input,
+      ),
+    ).toThrow('ineligible automatic-memory subject');
   });
 
   it('does not let previous context become a new source attribution', () => {
