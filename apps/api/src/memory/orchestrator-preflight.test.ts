@@ -66,7 +66,7 @@ function setup(status: 'NO_CREDIT' | 'FREE_BUDGET_EXHAUSTED') {
 }
 
 describe('MemoryAiOrchestrator pre-invocation funding gate', () => {
-  it('does not load private context or call Gemini when the group has no usable credit', async () => {
+  it('does not load private context or call Gemini when advisory funding is unavailable', async () => {
     const { service, work, load, classify } = setup('NO_CREDIT');
     await expect(service.runNextForGroup(4, now)).resolves.toEqual({
       status: 'WAITING_FOR_CREDIT',
@@ -82,7 +82,7 @@ describe('MemoryAiOrchestrator pre-invocation funding gate', () => {
     );
   });
 
-  it('does not call Gemini when only exhausted free subsidy could fund the request', async () => {
+  it('does not call Gemini when advisory free subsidy is exhausted', async () => {
     const { service, work, classify } = setup('FREE_BUDGET_EXHAUSTED');
     await expect(service.runNextForGroup(4, now)).resolves.toEqual({
       status: 'WAITING_FOR_FREE_BUDGET',
@@ -134,14 +134,11 @@ describe('MemoryAiOrchestrator pre-invocation funding gate', () => {
         currentMessages: [],
         previousContext: null,
         activeMemories: [],
+        eligibleSubjectLineUserIds: ['U1'],
       })) },
       { classify: vi.fn() },
       { find: vi.fn(async () => durable), validateAndStore: vi.fn() },
-      { chargeAndRecord: vi.fn(async () => ({
-        status: 'BILLED' as const,
-        operationId: 5,
-        usageRecord: 'ALREADY_RECORDED' as const,
-      })) },
+      { chargeAndRecord: vi.fn(async () => ({ status: 'BILLED' as const })) },
       { persist: vi.fn() },
       runtime,
       undefined,
