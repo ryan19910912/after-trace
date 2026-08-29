@@ -2,15 +2,19 @@ import { Hono } from 'hono';
 import { resolveProductConfig, type ProductConfigEnv } from './config/product';
 import { DrizzleConversationRepository } from './conversation/drizzle-repository';
 import { ConversationIngestionService } from './conversation/service';
-import { DrizzleCreditLedgerRepository } from './credits/drizzle-ledger';
-import { DrizzleWelcomeCreditRepository } from './credits/drizzle-welcome';
-import { CreditLedgerService } from './credits/ledger';
-import { WelcomeCreditService } from './credits/welcome';
 import { createDatabase } from './db/client';
+import { DrizzleUserEnergyAccessRepository } from './energy/drizzle-access';
+import { DrizzleUserEnergyRepository } from './energy/drizzle-repository';
+import { UserEnergyAccessService } from './energy/access';
 import { DrizzleExtractionClaimRepository } from './extraction/drizzle-repository';
 import { ConversationExtractionCoordinator } from './extraction/service';
-import { detectExplicitMemoryCommand } from './line/commands';
+import {
+  detectDeterministicAiCommand,
+  detectExplicitMemoryCommand,
+  isAiMention,
+} from './line/commands';
 import { parseLineWebhook } from './line/events';
+import { LineMessagingReplyClient } from './line/reply';
 import { verifyLineSignature } from './line/signature';
 import { createManagementRoutes } from './management/routes';
 import { DrizzleMemoryRequestRepository } from './memory/drizzle-request-repository';
@@ -22,6 +26,7 @@ export type Bindings = ProductConfigEnv & {
   LINE_CHANNEL_SECRET: string;
   LINE_CHANNEL_ACCESS_TOKEN: string;
   LIFF_CHANNEL_ID: string;
+  LIFF_APP_URL?: string;
   GEMINI_API_KEY: string;
   LIFF_WEB_ORIGIN?: string;
   REMINDER_RESERVATION_COST_TWD?: string;
@@ -59,7 +64,9 @@ app.post('/webhooks/line', async (c) => {
       storedMessages: 0,
       duplicateMessages: 0,
       ignoredInactiveMessages: 0,
-      welcomeCreditGrants: 0,
+      lifetimeFreeGrants: 0,
+      deterministicReplies: 0,
+      energyBlockedAiRequests: 0,
       explicitMemoryRequests: 0,
       blockedMemoryRequests: 0,
       automaticMemoryRequests: 0,
@@ -74,12 +81,14 @@ app.post('/webhooks/line', async (c) => {
   const conversationService = new ConversationIngestionService(conversationRepository, config);
   const extractionRepository = new DrizzleExtractionClaimRepository(database);
   const extractionCoordinator = new ConversationExtractionCoordinator(extractionRepository, config);
-  const creditLedger = new CreditLedgerService(new DrizzleCreditLedgerRepository(database));
-  const welcomeCreditService = new WelcomeCreditService(
-    new DrizzleWelcomeCreditRepository(database),
-    creditLedger,
-    config,
-  );
+  const energyRepository = new DrizzleUserEnergyRepository(database);
+  const energyAccessService = c.env.LIFF_APP_URL?.trim()
+    ? new UserEnergyAccessService(
+        new DrizzleUserEnergyAccessRepository(database),
+        c.env.LIFF_APP_URL,
+      )
+    : null;
+  const lineReplyClient = new LineMessagingReplyClient(c.env.LINE_CHANNEL_ACCESS_TOKEN);
   const memoryRequestRepository = new DrizzleMemoryRequestRepository(database);
   const explicitMemoryRequestService = new ExplicitMemoryRequestService(memoryRequestRepository);
   const automaticMemoryRequestService = new AutomaticMemoryRequestService(memoryRequestRepository);
@@ -88,7 +97,9 @@ app.post('/webhooks/line', async (c) => {
   let storedMessages = 0;
   let duplicateMessages = 0;
   let ignoredInactiveMessages = 0;
-  let welcomeCreditGrants = 0;
+  let lifetimeFreeGrants = 0;
+  let deterministicReplies = 0;
+  let energyBlockedAiRequests = 0;
   let explicitMemoryRequests = 0;
   let blockedMemoryRequests = 0;
   let automaticMemoryRequests = 0;
@@ -114,18 +125,71 @@ app.post('/webhooks/line', async (c) => {
     else storedMessages += 1;
 
     if (message.lineUserId) {
-      const welcome = await welcomeCreditService.ensureForObservedMember(
-        result.groupId,
+      const free = await energyRepository.ensureLifetimeFreeForLineUser(
         message.lineUserId,
-        message.lineTimestamp,
+        config.energy.freeInitialUnits,
       );
-      if (welcome.status === 'GRANTED') {
-        welcomeCreditGrants += 1;
-      } else if (
-        welcome.status === 'REFERENCE_CONFLICT' ||
-        welcome.status === 'PERSISTENCE_CONFLICT'
-      ) {
-        throw new Error(`welcome credit consistency failure: ${welcome.status}`);
+      if (free.status === 'GRANTED') lifetimeFreeGrants += 1;
+      if (free.status === 'REFERENCE_CONFLICT') {
+        throw new Error('lifetime FREE Energy consistency failure');
+      }
+    }
+
+    const deterministicCommand = detectDeterministicAiCommand(message);
+    if (
+      deterministicCommand &&
+      message.lineUserId &&
+      message.replyToken &&
+      energyAccessService
+    ) {
+      let reply: string;
+      if (deterministicCommand.kind === 'ENERGY_STATUS') {
+        reply = await energyAccessService.energyStatus({
+          groupId: result.groupId,
+          callerLineUserId: message.lineUserId,
+          at: message.lineTimestamp,
+        });
+      } else if (deterministicCommand.kind === 'HELP') {
+        reply = [
+          'AFTERTRACE｜幫助',
+          '',
+          '@AI 額度：查看群組成員是否還可使用 Energy（不顯示他人數字）',
+          '@AI 記住 ...：明確要求 AFTERTRACE 記住資訊',
+          '@AI 方案：查看目前 V1 Energy 取得方式',
+        ].join('\n');
+      } else {
+        reply = [
+          'AFTERTRACE｜V1 Energy',
+          '',
+          'FREE：每位使用者一生一次',
+          'SUBSCRIPTION：每個 billing cycle 發放，到 period_end 過期',
+          'AD：Rewarded Ad，取得後 7 天過期',
+          'PAID：一次性 Energy Pack，不過期',
+          '',
+          '實際 Energy 數量與價格以 AFTERTRACE LIFF 顯示為準。',
+          c.env.LIFF_APP_URL,
+        ].join('\n');
+      }
+      await lineReplyClient.reply(message.replyToken, reply);
+      deterministicReplies += 1;
+      continue;
+    }
+
+    if (
+      isAiMention(message) &&
+      message.lineUserId &&
+      message.replyToken &&
+      energyAccessService
+    ) {
+      const preflight = await energyAccessService.preflightExplicitAi({
+        groupId: result.groupId,
+        callerLineUserId: message.lineUserId,
+        at: message.lineTimestamp,
+      });
+      if (preflight.status !== 'READY') {
+        await lineReplyClient.reply(message.replyToken, preflight.reply);
+        energyBlockedAiRequests += 1;
+        continue;
       }
     }
 
@@ -174,7 +238,9 @@ app.post('/webhooks/line', async (c) => {
     storedMessages,
     duplicateMessages,
     ignoredInactiveMessages,
-    welcomeCreditGrants,
+    lifetimeFreeGrants,
+    deterministicReplies,
+    energyBlockedAiRequests,
     explicitMemoryRequests,
     blockedMemoryRequests,
     automaticMemoryRequests,
