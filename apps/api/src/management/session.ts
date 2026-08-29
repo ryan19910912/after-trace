@@ -1,10 +1,23 @@
 import { sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
 
-export type LiffGroupSession = {
+export type LiffUserSession = {
+  lineUserId: string;
+};
+
+export type LiffUserSessionResult =
+  | { status: 'AUTHORIZED'; session: LiffUserSession }
+  | {
+      status:
+        | 'MISSING_BEARER_TOKEN'
+        | 'INVALID_USER_TOKEN'
+        | 'WRONG_LIFF_CHANNEL'
+        | 'LINE_VERIFICATION_UNAVAILABLE';
+    };
+
+export type LiffGroupSession = LiffUserSession & {
   groupId: number;
   lineGroupId: string;
-  lineUserId: string;
 };
 
 export type LiffGroupSessionResult =
@@ -54,11 +67,64 @@ function providerUnavailable(status: number): boolean {
   return status === 429 || status >= 500;
 }
 
+async function resolveVerifiedLineUser(input: {
+  authorizationHeader: string | undefined;
+  liffChannelId: string;
+  fetcher: typeof fetch;
+}): Promise<LiffUserSessionResult> {
+  const token = bearerToken(input.authorizationHeader);
+  if (!token) return { status: 'MISSING_BEARER_TOKEN' };
+
+  const expectedChannelId = input.liffChannelId.trim();
+  if (!expectedChannelId) throw new Error('LIFF_CHANNEL_ID is required');
+
+  const verificationResponse = await input.fetcher(
+    `${LINE_VERIFY_URL}?access_token=${encodeURIComponent(token)}`,
+  );
+  if (providerUnavailable(verificationResponse.status)) {
+    return { status: 'LINE_VERIFICATION_UNAVAILABLE' };
+  }
+  if (!verificationResponse.ok) return { status: 'INVALID_USER_TOKEN' };
+  const verification = (await verificationResponse.json()) as TokenVerification;
+  if (verification.client_id !== expectedChannelId) return { status: 'WRONG_LIFF_CHANNEL' };
+  if (typeof verification.expires_in !== 'number' || verification.expires_in <= 0) {
+    return { status: 'INVALID_USER_TOKEN' };
+  }
+
+  const profileResponse = await input.fetcher(LINE_PROFILE_URL, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (providerUnavailable(profileResponse.status)) {
+    return { status: 'LINE_VERIFICATION_UNAVAILABLE' };
+  }
+  if (!profileResponse.ok) return { status: 'INVALID_USER_TOKEN' };
+
+  const profile = (await profileResponse.json()) as LineProfile;
+  if (typeof profile.userId !== 'string') return { status: 'INVALID_USER_TOKEN' };
+  return {
+    status: 'AUTHORIZED',
+    session: { lineUserId: boundedLineId(profile.userId, 'lineUserId') },
+  };
+}
+
+export class LineLiffUserSessionVerifier {
+  constructor(
+    private readonly liffChannelId: string,
+    private readonly fetcher: typeof fetch = fetch,
+  ) {}
+
+  verify(authorizationHeader: string | undefined): Promise<LiffUserSessionResult> {
+    return resolveVerifiedLineUser({
+      authorizationHeader,
+      liffChannelId: this.liffChannelId,
+      fetcher: this.fetcher,
+    });
+  }
+}
+
 /**
  * Authenticates a LIFF caller without trusting client-supplied user identity.
- * The access token is first verified against the configured LIFF channel, then
- * the user profile is resolved from LINE, and current group membership is checked
- * again through the Messaging API before any group-scoped product data is exposed.
+ * Group-scoped data additionally requires current LINE group membership.
  */
 export class LineLiffGroupSessionVerifier {
   constructor(
@@ -72,38 +138,14 @@ export class LineLiffGroupSessionVerifier {
     authorizationHeader: string | undefined,
     lineGroupIdInput: string,
   ): Promise<LiffGroupSessionResult> {
-    const token = bearerToken(authorizationHeader);
-    if (!token) return { status: 'MISSING_BEARER_TOKEN' };
-
-    const expectedChannelId = this.liffChannelId.trim();
-    if (!expectedChannelId) throw new Error('LIFF_CHANNEL_ID is required');
-
-    const verificationResponse = await this.fetcher(
-      `${LINE_VERIFY_URL}?access_token=${encodeURIComponent(token)}`,
-    );
-    if (providerUnavailable(verificationResponse.status)) {
-      return { status: 'LINE_VERIFICATION_UNAVAILABLE' };
-    }
-    if (!verificationResponse.ok) return { status: 'INVALID_USER_TOKEN' };
-    const verification = (await verificationResponse.json()) as TokenVerification;
-    if (verification.client_id !== expectedChannelId) return { status: 'WRONG_LIFF_CHANNEL' };
-    if (typeof verification.expires_in !== 'number' || verification.expires_in <= 0) {
-      return { status: 'INVALID_USER_TOKEN' };
-    }
+    const verified = await resolveVerifiedLineUser({
+      authorizationHeader,
+      liffChannelId: this.liffChannelId,
+      fetcher: this.fetcher,
+    });
+    if (verified.status !== 'AUTHORIZED') return verified;
 
     const lineGroupId = boundedLineId(lineGroupIdInput, 'lineGroupId');
-    const profileResponse = await this.fetcher(LINE_PROFILE_URL, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (providerUnavailable(profileResponse.status)) {
-      return { status: 'LINE_VERIFICATION_UNAVAILABLE' };
-    }
-    if (!profileResponse.ok) return { status: 'INVALID_USER_TOKEN' };
-
-    const profile = (await profileResponse.json()) as LineProfile;
-    if (typeof profile.userId !== 'string') return { status: 'INVALID_USER_TOKEN' };
-    const lineUserId = boundedLineId(profile.userId, 'lineUserId');
-
     const groupResult = await this.db.execute(sql`
       SELECT id::text AS id, status
       FROM line_groups
@@ -115,7 +157,7 @@ export class LineLiffGroupSessionVerifier {
     if (group.status !== 'ACTIVE') return { status: 'GROUP_INACTIVE' };
 
     const membershipResponse = await this.fetcher(
-      `https://api.line.me/v2/bot/group/${encodeURIComponent(lineGroupId)}/member/${encodeURIComponent(lineUserId)}`,
+      `https://api.line.me/v2/bot/group/${encodeURIComponent(lineGroupId)}/member/${encodeURIComponent(verified.session.lineUserId)}`,
       {
         headers: { Authorization: `Bearer ${this.channelAccessToken}` },
       },
@@ -128,7 +170,7 @@ export class LineLiffGroupSessionVerifier {
       session: {
         groupId: Number(group.id),
         lineGroupId,
-        lineUserId,
+        lineUserId: verified.session.lineUserId,
       },
     };
   }
