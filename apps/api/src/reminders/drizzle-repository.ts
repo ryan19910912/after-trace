@@ -44,6 +44,11 @@ function sameInstant(value: Date | string, expected: Date): boolean {
   return new Date(value).getTime() === expected.getTime();
 }
 
+/**
+ * Reminder state and PAID credit settlement intentionally share the same SQL statement.
+ * This keeps the reminder row, credit operation/reservation, account mutation and audit log
+ * in one PostgreSQL transaction boundary instead of relying on a crash-prone service saga.
+ */
 export class DrizzleReminderRepository implements ReminderRepository {
   constructor(private readonly db: Database) {}
 
@@ -269,7 +274,7 @@ export class DrizzleReminderRepository implements ReminderRepository {
       LIMIT 1
     `);
     const existing = result.rows[0] as ExistingReminderRow | undefined;
-    if (!existing) return { status: 'ALREADY_CREATED', reminderId: null };
+    if (!existing) return { status: 'REFERENCE_CONFLICT', reminderId: null };
 
     const conflict =
       existing.message !== command.message ||
@@ -415,7 +420,6 @@ export class DrizzleReminderRepository implements ReminderRepository {
           WHEN EXISTS (SELECT 1 FROM locked_reminder WHERE status = 'CANCELLED') THEN 'ALREADY_CANCELLED'
           WHEN EXISTS (SELECT 1 FROM locked_reminder WHERE status = 'DELIVERED') THEN 'ALREADY_DELIVERED'
           WHEN EXISTS (SELECT 1 FROM reminder_mutation) THEN 'CANCELLED'
-          WHEN EXISTS (SELECT 1 FROM existing_operation) THEN 'ALREADY_CANCELLED'
           ELSE 'REFERENCE_CONFLICT'
         END AS status,
         (SELECT id::text FROM locked_reminder LIMIT 1) AS reminder_id
@@ -566,7 +570,6 @@ export class DrizzleReminderRepository implements ReminderRepository {
           ) THEN 'ALREADY_DELIVERED'
           WHEN EXISTS (SELECT 1 FROM locked_reminder WHERE status = 'DELIVERED') THEN 'REFERENCE_CONFLICT'
           WHEN EXISTS (SELECT 1 FROM reminder_mutation) THEN 'DELIVERED'
-          WHEN EXISTS (SELECT 1 FROM existing_operation) THEN 'ALREADY_DELIVERED'
           ELSE 'REFERENCE_CONFLICT'
         END AS status,
         (SELECT id::text FROM locked_reminder LIMIT 1) AS reminder_id
