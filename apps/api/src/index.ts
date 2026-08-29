@@ -31,8 +31,14 @@ export type Bindings = ProductConfigEnv & {
   LIFF_CHANNEL_ID: string;
   LIFF_APP_URL?: string;
   GEMINI_API_KEY: string;
+  GEMINI_MODEL?: string;
+  GEMINI_INPUT_USD_PER_MILLION_TOKENS?: string;
+  GEMINI_OUTPUT_USD_PER_MILLION_TOKENS?: string;
+  USD_TWD_RATE?: string;
+  GLOBAL_FREE_AI_BUDGET_COST_TWD?: string;
+  ENERGY_UNITS_PER_TWD?: string;
   LIFF_WEB_ORIGIN?: string;
-  REMINDER_RESERVATION_COST_TWD?: string;
+  REMINDER_RESERVATION_ENERGY?: string;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
