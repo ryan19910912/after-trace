@@ -1,3 +1,4 @@
+import { calculateAiCost } from '../ai/cost';
 import { DrizzleEnergyAiUsageRepository } from '../ai/energy-usage';
 import { resolveAiRuntimeConfig, type AiRuntimeEnv } from '../ai/runtime-config';
 import { UserEnergyAiBillingService } from '../ai/user-energy-billing';
@@ -11,8 +12,9 @@ import { UserEnergyLedgerService } from '../energy/ledger';
 import { DrizzlePlatformAiBudgetReservationRepository } from '../energy/platform-budget';
 import { ExtractionBatchInputService } from '../extraction/input';
 import { DrizzleExtractionInputRepository } from '../extraction/drizzle-input-repository';
-import { MemoryClassificationInputService } from './classification-input';
+import { MemoryClassificationInputService, type MemoryClassificationInput } from './classification-input';
 import { parseMemoryClassifierOutput } from './classifier-contract';
+import { buildMemoryClassifierPrompt } from './classifier-prompt';
 import { MemoryClassifierResultService } from './classifier-result';
 import { DrizzleMemoryClassifierResultRepository } from './drizzle-classifier-result-repository';
 import { DrizzleMemorySourceMessageRepository } from './drizzle-classification-input-repository';
@@ -32,6 +34,7 @@ import { MemoryWorkCoordinator, type ClaimedMemoryRequest } from './work';
 
 export type MemoryAiRuntimeEnv = AiRuntimeEnv & AiEnergyMeterEnv & {
   GEMINI_API_KEY?: string;
+  GEMINI_MEMORY_MAX_OUTPUT_TOKENS?: string;
   MEMORY_REQUEST_LEASE_SECONDS?: string;
   BACKGROUND_AI_MAX_SUBSIDY_COST_TWD?: string;
 };
@@ -53,6 +56,13 @@ function requiredPositiveNumber(name: string, value: string | undefined): number
   return parsed;
 }
 
+function requiredPositiveInteger(name: string, value: string | undefined): number {
+  if (!value?.trim()) throw new Error(`${name} is required`);
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`${name} must be a positive integer`);
+  return parsed;
+}
+
 function leaseSeconds(value: string | undefined): number {
   if (!value?.trim()) return 120;
   const parsed = Number(value);
@@ -71,6 +81,7 @@ export class UserEnergyMemoryAiRuntime {
   private readonly budget: DrizzlePlatformAiBudgetReservationRepository;
   private readonly runtime;
   private readonly maxBackgroundSubsidyCostTwd: number;
+  private readonly maxMemoryOutputTokens: number;
 
   constructor(database: Database, env: MemoryAiRuntimeEnv) {
     this.runtime = resolveAiRuntimeConfig(env);
@@ -89,9 +100,14 @@ export class UserEnergyMemoryAiRuntime {
       this.candidates,
       eligibleSubjects,
     );
+    this.maxMemoryOutputTokens = requiredPositiveInteger(
+      'GEMINI_MEMORY_MAX_OUTPUT_TOKENS',
+      env.GEMINI_MEMORY_MAX_OUTPUT_TOKENS,
+    );
     this.classifier = new GeminiMemoryClassifier({
       apiKey: env.GEMINI_API_KEY?.trim() ?? '',
       model: this.runtime.model,
+      maxOutputTokens: this.maxMemoryOutputTokens,
     });
     this.results = new MemoryClassifierResultService(
       new DrizzleMemoryClassifierResultRepository(database),
@@ -126,16 +142,32 @@ export class UserEnergyMemoryAiRuntime {
 
     try {
       if (!durable) {
-        const funding = await this.reserveBeforeProvider(request, now);
-        if (funding === 'NO_CREDIT') {
-          return this.deferWait(request, now, 'AI_INSUFFICIENT_CREDIT', 'WAITING_FOR_CREDIT');
+        // Explicit work checks the caller before loading group context. Automatic work
+        // already has an eligible-subject snapshot, but still needs the concrete prompt
+        // to compute a conservative provider-cost upper bound before Gemini.
+        if (request.origin === 'EXPLICIT') {
+          const explicitFunding = await this.preflightExplicitCaller(request, now);
+          if (!explicitFunding) {
+            return this.deferWait(request, now, 'AI_INSUFFICIENT_CREDIT', 'WAITING_FOR_CREDIT');
+          }
         }
-        if (funding === 'FREE_BUDGET_EXHAUSTED') {
-          return this.deferWait(request, now, 'AI_FREE_BUDGET_EXHAUSTED', 'WAITING_FOR_FREE_BUDGET');
-        }
-        budgetReservedThisAttempt = funding === 'BACKGROUND_RESERVED';
 
         const classificationInput = await this.inputs.load(request);
+        if (request.origin === 'AUTOMATIC') {
+          const budgetStatus = await this.reserveAutomaticProviderRisk(request, classificationInput, now);
+          if (budgetStatus !== 'RESERVED') {
+            return this.deferWait(
+              request,
+              now,
+              budgetStatus === 'RISK_CAP_EXCEEDED'
+                ? 'AI_BACKGROUND_RISK_CAP_EXCEEDED'
+                : 'AI_FREE_BUDGET_EXHAUSTED',
+              'WAITING_FOR_FREE_BUDGET',
+            );
+          }
+          budgetReservedThisAttempt = true;
+        }
+
         const response = await this.classifier.classify(classificationInput);
         const stored = await this.results.validateAndStore({
           request,
@@ -220,25 +252,48 @@ export class UserEnergyMemoryAiRuntime {
     }
   }
 
-  private async reserveBeforeProvider(
+  private async preflightExplicitCaller(request: ClaimedMemoryRequest, at: Date): Promise<boolean> {
+    if (!request.actorLineUserId) return false;
+    const caller = await this.access.findCaller(request.actorLineUserId, at);
+    return Boolean(caller && caller.usableUnits > 0n);
+  }
+
+  private async reserveAutomaticProviderRisk(
     request: ClaimedMemoryRequest,
+    input: MemoryClassificationInput,
     at: Date,
-  ): Promise<'READY' | 'NO_CREDIT' | 'BACKGROUND_RESERVED' | 'FREE_BUDGET_EXHAUSTED'> {
-    if (request.origin === 'EXPLICIT') {
-      if (!request.actorLineUserId) return 'NO_CREDIT';
-      const caller = await this.access.findCaller(request.actorLineUserId, at);
-      return caller && caller.usableUnits > 0n ? 'READY' : 'NO_CREDIT';
+  ): Promise<'RESERVED' | 'RISK_CAP_EXCEEDED' | 'FREE_BUDGET_EXHAUSTED'> {
+    const prompt = buildMemoryClassifierPrompt(input);
+    const encoder = new TextEncoder();
+    const inputUpperBoundTokens =
+      encoder.encode(prompt.systemInstruction).byteLength
+      + encoder.encode(prompt.userPrompt).byteLength;
+    const worstCase = calculateAiCost(
+      {
+        inputTokens: inputUpperBoundTokens,
+        outputTokens: this.maxMemoryOutputTokens,
+      },
+      this.runtime.pricing,
+    );
+
+    // The configured per-call cap is an operator safety ceiling, never a substitute
+    // for the computed risk. If the concrete request can exceed it, Gemini is not called.
+    if (worstCase.costTwd > this.maxBackgroundSubsidyCostTwd) {
+      return 'RISK_CAP_EXCEEDED';
     }
 
+    // Worst case assumes the platform may need to subsidize the entire provider call.
+    // Reserving the full computed provider cost makes the global free-AI ceiling a true
+    // pre-invocation hard gate even if eligible users exhaust their Energy before settle.
     const reservation = await this.budget.reserve({
       requestId: request.id,
       groupId: request.groupId,
-      maxSubsidyCostTwd: this.maxBackgroundSubsidyCostTwd,
+      maxSubsidyCostTwd: worstCase.costTwd,
       globalBudgetCostTwd: this.runtime.globalFreeAiBudgetCostTwd,
       at,
     });
     return reservation.status === 'RESERVED' || reservation.status === 'ALREADY_RESERVED'
-      ? 'BACKGROUND_RESERVED'
+      ? 'RESERVED'
       : 'FREE_BUDGET_EXHAUSTED';
   }
 
@@ -274,6 +329,7 @@ export function memoryAiRuntimeDisabledReason(env: MemoryAiRuntimeEnv): string |
     'GEMINI_API_KEY',
     'GEMINI_INPUT_USD_PER_MILLION_TOKENS',
     'GEMINI_OUTPUT_USD_PER_MILLION_TOKENS',
+    'GEMINI_MEMORY_MAX_OUTPUT_TOKENS',
     'USD_TWD_RATE',
     'GLOBAL_FREE_AI_BUDGET_COST_TWD',
     'ENERGY_UNITS_PER_TWD',
