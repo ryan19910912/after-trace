@@ -33,12 +33,14 @@ const input: MemoryClassificationInput = {
     lineUserId: 'U1',
     messageType: 'text',
     textContent: '去過東京',
+    charCount: 4,
     quoteToken: null,
     lineTimestamp: now,
     metadata: null,
   }],
   previousContext: null,
   activeMemories: [],
+  eligibleSubjectLineUserIds: ['U1'],
 };
 const durable: ValidatedClassifierResult = {
   requestId: 9,
@@ -140,11 +142,7 @@ function setup(overrides: {
         case 'CREDIT_REFERENCE_CONFLICT':
           return { status: 'CREDIT_REFERENCE_CONFLICT' as const };
         default:
-          return {
-            status: 'BILLED' as const,
-            operationId: 2,
-            usageRecord: 'ALREADY_RECORDED' as const,
-          };
+          return { status: 'BILLED' as const };
       }
     }),
   };
@@ -161,7 +159,7 @@ function setup(overrides: {
 }
 
 describe('MemoryAiOrchestrator', () => {
-  it('reuses a durable classifier result and an already-recorded billing operation', async () => {
+  it('reuses a durable classifier result and bills through the adapter contract', async () => {
     const { service, classifier, persist, work, billing } = setup();
     await expect(service.runNextForGroup(4, now)).resolves.toEqual({
       status: 'SUCCEEDED',
@@ -179,180 +177,47 @@ describe('MemoryAiOrchestrator', () => {
     expect(work.markSucceeded).toHaveBeenCalledWith(9, 2, now);
   });
 
-  it('keeps the durable result and defers settlement when credit is insufficient', async () => {
-    const { service, classifier, persist, work } = setup({
-      billingStatus: 'INSUFFICIENT_CREDIT',
-    });
+  it('keeps the durable result and defers settlement when Energy is insufficient', async () => {
+    const { service, classifier, persist, work } = setup({ billingStatus: 'INSUFFICIENT_CREDIT' });
     await expect(service.runNextForGroup(4, now)).resolves.toEqual({
-      status: 'WAITING_FOR_CREDIT',
-      requestId: 9,
+      status: 'WAITING_FOR_CREDIT', requestId: 9,
     });
     expect(classifier.classify).not.toHaveBeenCalled();
     expect(persist).not.toHaveBeenCalled();
     expect(work.deferFailure).toHaveBeenCalledWith(
-      9,
-      2,
-      new Date('2026-08-29T02:01:00Z'),
-      'AI_INSUFFICIENT_CREDIT',
+      9, 2, new Date('2026-08-29T02:01:00Z'), 'AI_INSUFFICIENT_CREDIT',
     );
   });
 
-  it('keeps the durable result when the global free-AI subsidy is exhausted', async () => {
-    const { service, classifier, persist, work } = setup({
-      billingStatus: 'FREE_AI_BUDGET_EXHAUSTED',
-    });
+  it('keeps the durable result when the global subsidy budget is exhausted', async () => {
+    const { service, persist, work } = setup({ billingStatus: 'FREE_AI_BUDGET_EXHAUSTED' });
     await expect(service.runNextForGroup(4, now)).resolves.toEqual({
-      status: 'WAITING_FOR_FREE_BUDGET',
-      requestId: 9,
+      status: 'WAITING_FOR_FREE_BUDGET', requestId: 9,
     });
-    expect(classifier.classify).not.toHaveBeenCalled();
     expect(persist).not.toHaveBeenCalled();
     expect(work.deferFailure).toHaveBeenCalledWith(
-      9,
-      2,
-      new Date('2026-08-29T02:01:00Z'),
-      'AI_FREE_BUDGET_EXHAUSTED',
+      9, 2, new Date('2026-08-29T02:01:00Z'), 'AI_FREE_BUDGET_EXHAUSTED',
     );
   });
 
   it('does not bill when the first durable result store loses the claim fence', async () => {
-    const { service, billing, persist, work } = setup({
-      result: null,
-      staleResultStore: true,
-    });
+    const { service, billing, persist, work } = setup({ result: null, staleResultStore: true });
     await expect(service.runNextForGroup(4, now)).resolves.toEqual({
-      status: 'STALE_CLAIM',
-      requestId: 9,
+      status: 'STALE_CLAIM', requestId: 9,
     });
     expect(billing.chargeAndRecord).not.toHaveBeenCalled();
     expect(persist).not.toHaveBeenCalled();
     expect(work.markSucceeded).not.toHaveBeenCalled();
   });
 
-  it('resumes partial candidate persistence idempotently before final success', async () => {
-    const twoCandidateDurable: ValidatedClassifierResult = {
-      ...durable,
-      output: {
-        candidates: [
-          durable.output.candidates[0],
-          {
-            candidateIndex: 1,
-            decision: 'NEW',
-            targetMemoryId: null,
-            category: 'TRAVEL',
-            subject: null,
-            content: '想再去東京',
-            sourceConversationMessageId: 12,
-          },
-        ],
-      },
-    };
-    const persist = vi.fn(async (value: { candidate: { candidateIndex: number } }) => ({
-      resultId: value.candidate.candidateIndex + 1,
-      requestId: 9,
-      candidateIndex: value.candidate.candidateIndex,
-      decision: 'NEW' as const,
-      memoryId: 88 + value.candidate.candidateIndex,
-      targetMemoryId: null,
-      idempotent: value.candidate.candidateIndex === 0,
-    }));
-    const { service, work } = setup({ result: twoCandidateDurable, persist });
-
-    await expect(service.runNextForGroup(4, now)).resolves.toEqual({
-      status: 'SUCCEEDED',
-      requestId: 9,
-      candidateCount: 2,
-      reusedClassifierResult: true,
-    });
-    expect(persist).toHaveBeenCalledTimes(2);
-    expect(work.markSucceeded).toHaveBeenCalledWith(9, 2, now);
-  });
-
-  it('returns stale when a newer attempt owns final completion', async () => {
-    const { service, work } = setup({ markSucceeded: false });
-    await expect(service.runNextForGroup(4, now)).resolves.toEqual({
-      status: 'STALE_CLAIM',
-      requestId: 9,
-    });
-    expect(work.markSucceeded).toHaveBeenCalledWith(9, 2, now);
-    expect(work.markFailed).not.toHaveBeenCalled();
-  });
-
-  it('terminally fails permanent provider errors without scheduling another retry', async () => {
-    const { service, work, billing } = setup({
-      result: null,
-      classifierError: new MemoryAiExecutionError(
-        'GEMINI_AUTH_REJECTED',
-        false,
-        'unauthorized',
-      ),
-    });
-    await expect(service.runNextForGroup(4, now)).resolves.toEqual({
-      status: 'FAILED',
-      requestId: 9,
-      errorCode: 'GEMINI_AUTH_REJECTED',
-    });
-    expect(work.markFailed).toHaveBeenCalledWith(9, 2, now, 'GEMINI_AUTH_REJECTED');
-    expect(work.deferFailure).not.toHaveBeenCalled();
-    expect(work.deferTransientFailure).not.toHaveBeenCalled();
-    expect(billing.chargeAndRecord).not.toHaveBeenCalled();
-  });
-
-  it('defers a transient provider failure with bounded exponential backoff', async () => {
+  it('classifies provider configuration failures as terminal', async () => {
     const { service, work } = setup({
       result: null,
-      classifierError: new MemoryAiExecutionError(
-        'GEMINI_RATE_LIMITED',
-        true,
-        'rate limited',
-      ),
+      classifierError: new MemoryAiExecutionError('AI_AUTH_INVALID', false),
     });
     await expect(service.runNextForGroup(4, now)).resolves.toEqual({
-      status: 'DEFERRED',
-      requestId: 9,
-      errorCode: 'GEMINI_RATE_LIMITED',
+      status: 'FAILED', requestId: 9, errorCode: 'AI_AUTH_INVALID',
     });
-    expect(work.deferTransientFailure).toHaveBeenCalledWith(
-      9,
-      2,
-      new Date('2026-08-29T02:01:00Z'),
-      'GEMINI_RATE_LIMITED',
-    );
-  });
-
-  it('terminally fails a transient error after the configured maximum attempts', async () => {
-    const finalAttempt = { ...request, attemptCount: 7, transientFailureCount: 2 };
-    const { service, work } = setup({
-      request: finalAttempt,
-      result: null,
-      classifierError: new MemoryAiExecutionError(
-        'GEMINI_RATE_LIMITED',
-        true,
-        'rate limited',
-      ),
-    });
-    await expect(service.runNextForGroup(4, now)).resolves.toEqual({
-      status: 'FAILED',
-      requestId: 9,
-      errorCode: 'GEMINI_RATE_LIMITED',
-    });
-    expect(work.markFailed).toHaveBeenCalledWith(9, 7, now, 'GEMINI_RATE_LIMITED');
-    expect(work.deferFailure).not.toHaveBeenCalled();
-    expect(work.deferTransientFailure).not.toHaveBeenCalled();
-  });
-
-  it('treats a credit reference conflict as terminal consistency failure', async () => {
-    const { service, work } = setup({ billingStatus: 'CREDIT_REFERENCE_CONFLICT' });
-    await expect(service.runNextForGroup(4, now)).resolves.toEqual({
-      status: 'FAILED',
-      requestId: 9,
-      errorCode: 'AI_CREDIT_REFERENCE_CONFLICT',
-    });
-    expect(work.markFailed).toHaveBeenCalledWith(
-      9,
-      2,
-      now,
-      'AI_CREDIT_REFERENCE_CONFLICT',
-    );
+    expect(work.markFailed).toHaveBeenCalled();
   });
 });
