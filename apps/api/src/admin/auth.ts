@@ -14,10 +14,11 @@ type JwtPayload = {
   nbf?: unknown;
   iss?: unknown;
 };
-type AccessCerts = { keys?: JsonWebKey[] };
+type AccessJwk = JsonWebKey & { kid?: string };
+type AccessCerts = { keys?: AccessJwk[] };
 
 const encoder = new TextEncoder();
-const keyCache = new Map<string, { expiresAt: number; keys: JsonWebKey[] }>();
+const keyCache = new Map<string, { expiresAt: number; keys: AccessJwk[] }>();
 const CERT_CACHE_MS = 10 * 60 * 1000;
 
 export async function verifyAdminAccess(
@@ -82,7 +83,7 @@ export async function verifyAdminAccess(
   return valid ? { email: allowedEmail } : null;
 }
 
-async function accessKeys(teamDomain: string, nowMs: number): Promise<JsonWebKey[]> {
+async function accessKeys(teamDomain: string, nowMs: number): Promise<AccessJwk[]> {
   const cached = keyCache.get(teamDomain);
   if (cached && cached.expiresAt > nowMs) return cached.keys;
   const response = await fetch(`https://${teamDomain}/cdn-cgi/access/certs`);
