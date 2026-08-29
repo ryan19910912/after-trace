@@ -1,5 +1,5 @@
 import type { ProductConfig } from '../config/product';
-import type { BufferedGroupMessage } from '../line/events';
+import type { BufferedGroupMessage, GroupLifecycleEvent } from '../line/events';
 import {
   evaluateExtractionThreshold,
   type ExtractionThresholdDecision,
@@ -17,6 +17,7 @@ export interface ConversationRepository {
   activateGroup(lineGroupId: string): Promise<GroupRecord>;
   markGroupInactive(lineGroupId: string, inactiveAt: Date): Promise<void>;
   touchGroupMember(groupId: number, lineUserId: string, seenAt: Date): Promise<void>;
+  markGroupMembersInactive(groupId: number, lineUserIds: readonly string[], at: Date): Promise<void>;
   insertMessage(groupId: number, message: BufferedGroupMessage): Promise<boolean>;
   incrementPending(groupId: number, charCount: number): Promise<PendingCounters>;
   getPending(groupId: number): Promise<PendingCounters>;
@@ -39,9 +40,7 @@ export class ConversationIngestionService {
 
   async ingest(message: BufferedGroupMessage): Promise<ConversationIngestionResult> {
     const group = await this.repository.ensureGroup(message.lineGroupId);
-    if (group.status === 'INACTIVE') {
-      return { status: 'IGNORED_INACTIVE' };
-    }
+    if (group.status === 'INACTIVE') return { status: 'IGNORED_INACTIVE' };
 
     if (message.lineUserId) {
       await this.repository.touchGroupMember(group.id, message.lineUserId, message.lineTimestamp);
@@ -60,11 +59,28 @@ export class ConversationIngestionService {
     };
   }
 
-  async handleLifecycle(lineGroupId: string, type: 'JOIN' | 'LEAVE', at: Date): Promise<void> {
-    if (type === 'JOIN') {
-      await this.repository.activateGroup(lineGroupId);
+  async handleLifecycle(event: GroupLifecycleEvent): Promise<void> {
+    if (event.type === 'JOIN') {
+      await this.repository.activateGroup(event.lineGroupId);
       return;
     }
-    await this.repository.markGroupInactive(lineGroupId, at);
+    if (event.type === 'LEAVE') {
+      await this.repository.markGroupInactive(event.lineGroupId, event.lineTimestamp);
+      return;
+    }
+
+    const group = await this.repository.ensureGroup(event.lineGroupId);
+    if (group.status !== 'ACTIVE') return;
+    if (event.type === 'MEMBER_JOINED') {
+      for (const lineUserId of event.lineUserIds) {
+        await this.repository.touchGroupMember(group.id, lineUserId, event.lineTimestamp);
+      }
+      return;
+    }
+    await this.repository.markGroupMembersInactive(
+      group.id,
+      event.lineUserIds,
+      event.lineTimestamp,
+    );
   }
 }
