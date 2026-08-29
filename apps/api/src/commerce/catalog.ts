@@ -32,6 +32,10 @@ function optionalPrice(value: string | undefined): string | null {
   return normalized;
 }
 
+/**
+ * Checkout intentionally remains disabled until a concrete payment adapter is implemented.
+ * Merely setting COMMERCE_PROVIDER must never create a fake/unsafe payment button.
+ */
 export function resolveCommerceCatalog(env: CommerceCatalogEnv): CommerceCatalog {
   const product = resolveProductConfig(env);
   const provider = env.COMMERCE_PROVIDER?.trim() || null;
@@ -53,7 +57,7 @@ export function resolveCommerceCatalog(env: CommerceCatalogEnv): CommerceCatalog
   });
   return {
     provider,
-    checkoutEnabled: provider !== null,
+    checkoutEnabled: false,
     subscription,
     paidPacks,
   };
