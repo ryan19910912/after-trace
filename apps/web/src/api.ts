@@ -20,10 +20,7 @@ export type ManagedReminder = {
 export type Overview = {
   buckets: Record<'WELCOME' | 'AD' | 'PAID', { hasAvailable: boolean; hasReserved: boolean }>;
   aiUsageCount: number;
-  rewardedAd: {
-    grantCountToday: number;
-    lastAcceptedAt: string | null;
-  };
+  rewardedAd: { grantCountToday: number; lastAcceptedAt: string | null };
 };
 
 export type EnergyBucket = 'FREE' | 'SUBSCRIPTION' | 'AD' | 'PAID';
@@ -41,10 +38,41 @@ export type PrivateEnergyOverview = {
     expiresAt: string | null;
     sourceType: string;
   }>;
+  subscription: null | {
+    provider: string;
+    status: string;
+    currentPeriodEnd: string | null;
+    cancelAtPeriodEnd: boolean;
+  };
   proactive: {
     subscriptionUsable: boolean;
     paidUsable: boolean;
     enabled: boolean;
+  };
+};
+
+export type CommerceCatalog = {
+  provider: string | null;
+  checkoutEnabled: boolean;
+  subscription: null | {
+    code: 'SUBSCRIPTION_V1';
+    energyUnits: string;
+    priceTwd: string | null;
+  };
+  paidPacks: Array<{
+    code: 'SMALL' | 'MEDIUM' | 'LARGE';
+    energyUnits: string;
+    priceTwd: string | null;
+  }>;
+};
+
+export type EnergyCatalogResponse = {
+  catalog: CommerceCatalog;
+  rewardedAd: {
+    enabled: boolean;
+    energyUnits: string | null;
+    dailyLimit: number;
+    cooldownMinutes: number;
   };
 };
 
@@ -84,15 +112,12 @@ export class ManagementApi {
     headers.set('Authorization', `Bearer ${this.accessToken}`);
     headers.set('X-Line-Group-Id', this.lineGroupId);
     if (init?.body) headers.set('Content-Type', 'application/json');
-
     const response = await fetch(`${this.baseUrl.replace(/\/$/, '')}/api/v1/management${path}`, {
       ...init,
       headers,
     });
     const body = (await response.json()) as { ok?: boolean; error?: string } & T;
-    if (!response.ok) {
-      throw new Error(body.error || `API request failed: ${response.status}`);
-    }
+    if (!response.ok) throw new Error(body.error || `API request failed: ${response.status}`);
     return body;
   }
 
@@ -105,9 +130,7 @@ export class ManagementApi {
       headers,
     });
     const body = (await response.json()) as { ok?: boolean; error?: string } & T;
-    if (!response.ok) {
-      throw new Error(body.error || `Energy API request failed: ${response.status}`);
-    }
+    if (!response.ok) throw new Error(body.error || `Energy API request failed: ${response.status}`);
     return body;
   }
 
@@ -118,6 +141,10 @@ export class ManagementApi {
   async energy(): Promise<PrivateEnergyOverview> {
     const body = await this.userEnergyRequest<{ energy: PrivateEnergyOverview }>('/me');
     return body.energy;
+  }
+
+  async catalog(): Promise<EnergyCatalogResponse> {
+    return this.userEnergyRequest<EnergyCatalogResponse>('/catalog');
   }
 
   async rewardedAdNonce(): Promise<RewardedAdNonce> {
@@ -139,10 +166,7 @@ export class ManagementApi {
     return body.memories;
   }
 
-  async updateMemory(
-    id: number,
-    input: { category: string; subject: string | null; content: string },
-  ): Promise<void> {
+  async updateMemory(id: number, input: { category: string; subject: string | null; content: string }): Promise<void> {
     await this.managementRequest(`/memories/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(input),
@@ -158,11 +182,7 @@ export class ManagementApi {
     return body.reminders;
   }
 
-  async createReminder(input: {
-    requestKey: string;
-    message: string;
-    scheduledFor: string;
-  }): Promise<void> {
+  async createReminder(input: { requestKey: string; message: string; scheduledFor: string }): Promise<void> {
     await this.managementRequest('/reminders', {
       method: 'POST',
       body: JSON.stringify(input),
