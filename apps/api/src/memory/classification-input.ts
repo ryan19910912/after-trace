@@ -1,4 +1,5 @@
 import type { ExtractionBatchInputService, ExtractionInputMessage } from '../extraction/input';
+import type { EligibleMemorySubjectService } from './eligible-subjects';
 import type { ActiveMemory, MemoryCandidatePipeline } from './pipeline';
 import type { ClaimedMemoryRequest, MemoryRequestOrigin } from './work';
 
@@ -14,6 +15,7 @@ export type MemoryClassificationInput = {
     messages: ExtractionInputMessage[];
   };
   activeMemories: ActiveMemory[];
+  eligibleSubjectLineUserIds: string[];
 };
 
 export interface MemorySourceMessageRepository {
@@ -25,6 +27,7 @@ export class MemoryClassificationInputService {
     private readonly extractionInput: ExtractionBatchInputService,
     private readonly sourceMessages: MemorySourceMessageRepository,
     private readonly candidates: MemoryCandidatePipeline,
+    private readonly eligibleSubjects?: Pick<EligibleMemorySubjectService, 'listForRequest'>,
   ) {}
 
   async load(request: ClaimedMemoryRequest): Promise<MemoryClassificationInput> {
@@ -38,9 +41,7 @@ export class MemoryClassificationInputService {
         request.groupId,
         request.sourceConversationMessageId,
       );
-      if (!source) {
-        throw new Error('explicit memory request source is no longer available');
-      }
+      if (!source) throw new Error('explicit memory request source is no longer available');
       return {
         requestId: request.id,
         groupId: request.groupId,
@@ -50,6 +51,7 @@ export class MemoryClassificationInputService {
         currentMessages: [source],
         previousContext: null,
         activeMemories,
+        eligibleSubjectLineUserIds: request.actorLineUserId ? [request.actorLineUserId] : [],
       };
     }
 
@@ -57,11 +59,16 @@ export class MemoryClassificationInputService {
       throw new Error('automatic memory request is missing its extraction batch');
     }
     const batch = await this.extractionInput.load(request.extractionBatchId);
-    if (!batch) {
-      throw new Error('automatic memory request extraction batch was not found');
-    }
+    if (!batch) throw new Error('automatic memory request extraction batch was not found');
     if (batch.groupId !== request.groupId) {
       throw new Error('automatic memory request extraction batch belongs to another group');
+    }
+    if (!this.eligibleSubjects) {
+      throw new Error('automatic memory request requires eligible subject snapshot repository');
+    }
+    const subjects = await this.eligibleSubjects.listForRequest(request.id);
+    if (subjects.length === 0) {
+      throw new Error('automatic memory request has no eligible subject snapshot');
     }
 
     return {
@@ -73,6 +80,7 @@ export class MemoryClassificationInputService {
       currentMessages: batch.currentMessages,
       previousContext: batch.previousContext,
       activeMemories,
+      eligibleSubjectLineUserIds: subjects.map((subject) => subject.lineUserId),
     };
   }
 }
