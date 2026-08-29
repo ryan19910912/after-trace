@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
 import { conversationMessages, groupMembers, lineGroups, lineUsers } from '../db/schema';
 import type { BufferedGroupMessage } from '../line/events';
@@ -12,16 +12,8 @@ export class DrizzleConversationRepository implements ConversationRepository {
     const [group] = await this.db
       .insert(lineGroups)
       .values({ lineGroupId })
-      .onConflictDoUpdate({
-        target: lineGroups.lineGroupId,
-        set: { updatedAt: new Date() },
-      })
-      .returning({
-        id: lineGroups.id,
-        lineGroupId: lineGroups.lineGroupId,
-        status: lineGroups.status,
-      });
-
+      .onConflictDoUpdate({ target: lineGroups.lineGroupId, set: { updatedAt: new Date() } })
+      .returning({ id: lineGroups.id, lineGroupId: lineGroups.lineGroupId, status: lineGroups.status });
     if (!group) throw new Error('Failed to ensure LINE group');
     return group;
   }
@@ -32,18 +24,9 @@ export class DrizzleConversationRepository implements ConversationRepository {
       .values({ lineGroupId, status: 'ACTIVE', inactiveAt: null })
       .onConflictDoUpdate({
         target: lineGroups.lineGroupId,
-        set: {
-          status: 'ACTIVE',
-          inactiveAt: null,
-          updatedAt: new Date(),
-        },
+        set: { status: 'ACTIVE', inactiveAt: null, updatedAt: new Date() },
       })
-      .returning({
-        id: lineGroups.id,
-        lineGroupId: lineGroups.lineGroupId,
-        status: lineGroups.status,
-      });
-
+      .returning({ id: lineGroups.id, lineGroupId: lineGroups.lineGroupId, status: lineGroups.status });
     if (!group) throw new Error('Failed to activate LINE group');
     return group;
   }
@@ -54,11 +37,7 @@ export class DrizzleConversationRepository implements ConversationRepository {
       .values({ lineGroupId, status: 'INACTIVE', inactiveAt })
       .onConflictDoUpdate({
         target: lineGroups.lineGroupId,
-        set: {
-          status: 'INACTIVE',
-          inactiveAt,
-          updatedAt: new Date(),
-        },
+        set: { status: 'INACTIVE', inactiveAt, updatedAt: new Date() },
       });
   }
 
@@ -66,10 +45,7 @@ export class DrizzleConversationRepository implements ConversationRepository {
     await this.db
       .insert(lineUsers)
       .values({ lineUserId, updatedAt: new Date() })
-      .onConflictDoUpdate({
-        target: lineUsers.lineUserId,
-        set: { updatedAt: new Date() },
-      });
+      .onConflictDoUpdate({ target: lineUsers.lineUserId, set: { updatedAt: new Date() } });
 
     await this.db
       .insert(groupMembers)
@@ -90,6 +66,25 @@ export class DrizzleConversationRepository implements ConversationRepository {
       });
   }
 
+  async markGroupMembersInactive(
+    groupId: number,
+    lineUserIds: readonly string[],
+    at: Date,
+  ): Promise<void> {
+    if (lineUserIds.length === 0) return;
+    await this.db
+      .update(groupMembers)
+      .set({
+        isActive: false,
+        lastSeenAt: sql`GREATEST(${groupMembers.lastSeenAt}, ${at})`,
+        updatedAt: at,
+      })
+      .where(and(
+        eq(groupMembers.groupId, groupId),
+        inArray(groupMembers.lineUserId, [...lineUserIds]),
+      ));
+  }
+
   async insertMessage(groupId: number, message: BufferedGroupMessage): Promise<boolean> {
     const inserted = await this.db
       .insert(conversationMessages)
@@ -108,7 +103,6 @@ export class DrizzleConversationRepository implements ConversationRepository {
       })
       .onConflictDoNothing({ target: conversationMessages.lineMessageId })
       .returning({ id: conversationMessages.id });
-
     return inserted.length > 0;
   }
 
@@ -121,25 +115,17 @@ export class DrizzleConversationRepository implements ConversationRepository {
         updatedAt: new Date(),
       })
       .where(eq(lineGroups.id, groupId))
-      .returning({
-        messageCount: lineGroups.pendingMessageCount,
-        charCount: lineGroups.pendingCharCount,
-      });
-
+      .returning({ messageCount: lineGroups.pendingMessageCount, charCount: lineGroups.pendingCharCount });
     if (!updated) throw new Error('Failed to update pending conversation counters');
     return updated;
   }
 
   async getPending(groupId: number): Promise<PendingCounters> {
     const [group] = await this.db
-      .select({
-        messageCount: lineGroups.pendingMessageCount,
-        charCount: lineGroups.pendingCharCount,
-      })
+      .select({ messageCount: lineGroups.pendingMessageCount, charCount: lineGroups.pendingCharCount })
       .from(lineGroups)
       .where(eq(lineGroups.id, groupId))
       .limit(1);
-
     if (!group) throw new Error('LINE group not found while reading pending counters');
     return group;
   }
