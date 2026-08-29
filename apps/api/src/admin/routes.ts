@@ -33,7 +33,6 @@ export function createAdminRoutes() {
       return c.json({ ok: false, error: 'ADMIN_ACCESS_UNAVAILABLE' }, 503);
     }
     if (!identity) return c.json({ ok: false, error: 'ADMIN_UNAUTHORIZED' }, 401);
-    c.set('adminEmail' as never, identity.email as never);
     await next();
     c.header('Cache-Control', 'no-store');
     if (origin && origin === allowedOrigin) {
