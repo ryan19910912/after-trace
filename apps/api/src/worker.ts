@@ -1,4 +1,5 @@
 import app, { type Bindings } from './index';
+import { createAdminRoutes } from './admin/routes';
 import { createDatabase } from './db/client';
 import { LineMessagingPushClient } from './line/push';
 import { DrizzleProactiveRepository } from './proactive/drizzle-repository';
@@ -13,6 +14,7 @@ type ScheduledControllerLike = { scheduledTime: number };
 type ExecutionContextLike = { waitUntil(promise: Promise<unknown>): void };
 
 const proactiveRoutes = createProactiveRoutes();
+const adminRoutes = createAdminRoutes();
 
 async function runReminderSchedule(controller: ScheduledControllerLike, env: Bindings): Promise<void> {
   const database = createDatabase(env.DATABASE_URL);
@@ -54,6 +56,15 @@ export default {
       const rewritten = new URL(request.url);
       rewritten.pathname = '/';
       return proactiveRoutes.fetch(
+        new Request(rewritten, request),
+        env as never,
+        executionContext as never,
+      );
+    }
+    if (url.pathname === '/api/v1/admin' || url.pathname.startsWith('/api/v1/admin/')) {
+      const rewritten = new URL(request.url);
+      rewritten.pathname = url.pathname.slice('/api/v1/admin'.length) || '/';
+      return adminRoutes.fetch(
         new Request(rewritten, request),
         env as never,
         executionContext as never,
