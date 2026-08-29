@@ -37,3 +37,6 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      - name: Drizzle schema
+        run: pnpm db:schema:check
