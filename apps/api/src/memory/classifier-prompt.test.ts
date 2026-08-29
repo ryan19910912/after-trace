@@ -2,7 +2,7 @@ import { expect, it } from 'vitest';
 import type { MemoryClassificationInput } from './classification-input';
 import { buildMemoryClassifierPrompt } from './classifier-prompt';
 
-it('marks previous context as context-only and exposes only current source ids', () => {
+it('marks previous context as context-only, exposes only current source ids, and pseudonymizes speakers', () => {
   const input: MemoryClassificationInput = {
     requestId: 1,
     groupId: 2,
@@ -46,10 +46,14 @@ it('marks previous context as context-only and exposes only current source ids',
   const prompt = buildMemoryClassifierPrompt(input);
   const body = JSON.parse(prompt.userPrompt) as {
     request: { allowedSourceConversationMessageIds: number[] };
-    previousContext: { messages: Array<{ id: number }> };
+    currentMessages: Array<{ speaker: string | null }>;
+    previousContext: { messages: Array<{ id: number; speaker: string | null }> };
   };
 
   expect(prompt.systemInstruction).toContain('previousContext is context only');
   expect(body.request.allowedSourceConversationMessageIds).toEqual([11]);
+  expect(body.currentMessages[0]?.speaker).toBe('speaker-1');
   expect(body.previousContext.messages[0]?.id).toBe(10);
+  expect(body.previousContext.messages[0]?.speaker).toBe('speaker-1');
+  expect(prompt.userPrompt).not.toContain('"u1"');
 });
