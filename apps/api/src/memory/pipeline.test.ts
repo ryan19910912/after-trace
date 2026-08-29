@@ -53,14 +53,14 @@ describe('MemoryCandidatePipeline', () => {
 
   it.each(['DUPLICATE', 'UPDATE', 'CONTRADICT'] as const)(
     '%s requires an active target memory id',
-    async (decision: 'DUPLICATE' | 'UPDATE' | 'CONTRADICT') => {
+    (decision: 'DUPLICATE' | 'UPDATE' | 'CONTRADICT') => {
       const repository: MemoryCandidateRepository = {
         listActiveMemories: vi.fn(async () => []),
         persistClassifiedCandidate: vi.fn(),
       };
       const pipeline = new MemoryCandidatePipeline(repository);
 
-      await expect(
+      expect(() =>
         pipeline.persist({
           requestId: 5,
           groupId: 2,
@@ -76,18 +76,18 @@ describe('MemoryCandidatePipeline', () => {
             sourceConversationMessageId: 33,
           },
         }),
-      ).rejects.toThrow('must target an active memory');
+      ).toThrow('must target an active memory');
     },
   );
 
-  it('rejects a NEW candidate that points at an existing memory', async () => {
+  it('rejects a NEW candidate that points at an existing memory', () => {
     const repository: MemoryCandidateRepository = {
       listActiveMemories: vi.fn(async () => []),
       persistClassifiedCandidate: vi.fn(),
     };
     const pipeline = new MemoryCandidatePipeline(repository);
 
-    await expect(
+    expect(() =>
       pipeline.persist({
         requestId: 5,
         groupId: 2,
@@ -103,6 +103,6 @@ describe('MemoryCandidatePipeline', () => {
           sourceConversationMessageId: 33,
         },
       }),
-    ).rejects.toThrow('must not target');
+    ).toThrow('must not target');
   });
 });
