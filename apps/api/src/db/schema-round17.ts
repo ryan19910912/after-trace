@@ -95,7 +95,44 @@ export const userReminderOwnership = pgTable(
     energyReservationId: bigint('energy_reservation_id', { mode: 'number' }).notNull().unique(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
+  (table) => [index('user_reminder_owner_group_idx').on(table.userId, table.groupId)],
+);
+
+export const userRewardedAdNonces = pgTable(
+  'user_rewarded_ad_nonces',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    userId: bigint('user_id', { mode: 'number' }).notNull(),
+    nonceHash: varchar('nonce_hash', { length: 64 }).notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    consumedAt: timestamp('consumed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
   (table) => [
-    index('user_reminder_owner_group_idx').on(table.userId, table.groupId),
+    uniqueIndex('user_rewarded_ad_nonce_hash_uq').on(table.nonceHash),
+    index('user_rewarded_ad_nonce_user_expiry_idx').on(table.userId, table.expiresAt),
+  ],
+);
+
+export const userRewardedAdClaims = pgTable(
+  'user_rewarded_ad_claims',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    userId: bigint('user_id', { mode: 'number' }).notNull(),
+    nonceId: bigint('nonce_id', { mode: 'number' }).notNull().unique(),
+    provider: varchar('provider', { length: 32 }).notNull(),
+    providerEventId: varchar('provider_event_id', { length: 160 }).notNull(),
+    policyDay: varchar('policy_day', { length: 10 }).notNull(),
+    status: varchar('status', { length: 32 }).default('PENDING').notNull(),
+    grantOperationId: bigint('grant_operation_id', { mode: 'number' }),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }).notNull(),
+    grantedAt: timestamp('granted_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('user_rewarded_ad_provider_event_uq').on(table.provider, table.providerEventId),
+    index('user_rewarded_ad_user_day_status_idx').on(table.userId, table.policyDay, table.status),
+    index('user_rewarded_ad_user_accepted_idx').on(table.userId, table.acceptedAt),
   ],
 );
