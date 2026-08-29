@@ -13,6 +13,7 @@ export default defineConfig({
     './apps/api/src/db/schema-round9.ts',
     './apps/api/src/db/schema-round11.ts',
     './apps/api/src/db/schema-round16.ts',
+    './apps/api/src/db/schema-round17.ts',
   ],
   out: './drizzle',
   dialect: 'postgresql',
