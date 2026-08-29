@@ -1,4 +1,4 @@
-import type { AiBillingResult, AiBillingService, UnchargedAiUsage } from '../ai/billing';
+import type { UnchargedAiUsage } from '../ai/billing';
 import type { AiFundingEligibilityService } from '../ai/funding-eligibility';
 import type { AiRuntimeConfig } from '../ai/runtime-config';
 import type { MemoryClassificationInputService } from './classification-input';
@@ -24,6 +24,20 @@ export type MemoryAiRunResult =
   | { status: 'FAILED'; requestId: number; errorCode: string }
   | { status: 'STALE_CLAIM'; requestId: number };
 
+type MemoryBillingResult =
+  | { status: 'BILLED'; [key: string]: unknown }
+  | { status: 'INSUFFICIENT_CREDIT' }
+  | { status: 'FREE_AI_BUDGET_EXHAUSTED' }
+  | { status: 'CREDIT_REFERENCE_CONFLICT' };
+
+type MemoryBillingPort = {
+  chargeAndRecord(
+    usage: UnchargedAiUsage,
+    reference: { type: string; id: string },
+    chargeAt?: Date,
+  ): Promise<MemoryBillingResult>;
+};
+
 type WorkPort = Pick<
   MemoryWorkCoordinator,
   'claimNextForGroup' | 'markSucceeded' | 'markFailed' | 'deferFailure' | 'deferTransientFailure'
@@ -31,7 +45,6 @@ type WorkPort = Pick<
 type InputPort = Pick<MemoryClassificationInputService, 'load'>;
 type EligibilityPort = Pick<AiFundingEligibilityService, 'check'>;
 type ResultPort = Pick<MemoryClassifierResultService, 'find' | 'validateAndStore'>;
-type BillingPort = Pick<AiBillingService, 'chargeAndRecord'>;
 type CandidatePort = Pick<MemoryCandidatePipeline, 'persist'>;
 
 export class MemoryAiOrchestrator {
@@ -43,7 +56,7 @@ export class MemoryAiOrchestrator {
     private readonly inputs: InputPort,
     private readonly classifier: MemoryClassifierPort,
     private readonly results: ResultPort,
-    private readonly billing: BillingPort,
+    private readonly billing: MemoryBillingPort,
     private readonly candidates: CandidatePort,
     private readonly runtime: AiRuntimeConfig,
     retryPolicy: MemoryAiRetryPolicy = defaultMemoryAiRetryPolicy,
@@ -155,10 +168,7 @@ export class MemoryAiOrchestrator {
     } catch (error) {
       const failure = classifyMemoryAiFailure(error);
       const nextTransientFailureCount = request.transientFailureCount + 1;
-      if (
-        !failure.retryable ||
-        nextTransientFailureCount >= this.retryPolicy.maxTransientAttempts
-      ) {
+      if (!failure.retryable || nextTransientFailureCount >= this.retryPolicy.maxTransientAttempts) {
         return this.fail(request.id, request.attemptCount, now, failure.code);
       }
       return this.deferTransient(
@@ -176,7 +186,7 @@ export class MemoryAiOrchestrator {
     lineUserId: string | null,
     origin: 'EXPLICIT' | 'AUTOMATIC',
     chargeAt: Date,
-  ): Promise<AiBillingResult> {
+  ): Promise<MemoryBillingResult> {
     const usage: UnchargedAiUsage = {
       groupId,
       lineUserId,
@@ -214,9 +224,7 @@ export class MemoryAiOrchestrator {
       waitingMemoryAiRetryAt(now, this.retryPolicy),
       errorCode,
     );
-    return deferred
-      ? { status, requestId }
-      : { status: 'STALE_CLAIM', requestId };
+    return deferred ? { status, requestId } : { status: 'STALE_CLAIM', requestId };
   }
 
   private async deferTransient(
