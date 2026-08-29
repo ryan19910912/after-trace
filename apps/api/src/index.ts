@@ -12,6 +12,7 @@ import { ConversationExtractionCoordinator } from './extraction/service';
 import { detectExplicitMemoryCommand } from './line/commands';
 import { parseLineWebhook } from './line/events';
 import { verifyLineSignature } from './line/signature';
+import { createManagementRoutes } from './management/routes';
 import { DrizzleMemoryRequestRepository } from './memory/drizzle-request-repository';
 import { ExplicitMemoryRequestService } from './memory/requests';
 import { AutomaticMemoryRequestService } from './memory/work';
@@ -20,10 +21,14 @@ export type Bindings = ProductConfigEnv & {
   DATABASE_URL: string;
   LINE_CHANNEL_SECRET: string;
   LINE_CHANNEL_ACCESS_TOKEN: string;
+  LIFF_CHANNEL_ID: string;
   GEMINI_API_KEY: string;
+  LIFF_WEB_ORIGIN?: string;
+  REMINDER_RESERVATION_COST_TWD?: string;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
+app.route('/api/v1/management', createManagementRoutes());
 
 app.get('/health', (c) =>
   c.json({
@@ -139,9 +144,6 @@ app.post('/webhooks/line', async (c) => {
       extractionCandidates += 1;
     }
 
-    // Claim on every active message, not only on a newly-crossed threshold. This lets a
-    // redelivery or later message reclaim an expired batch after a worker failure while
-    // the repository still decides atomically whether a brand-new batch is actually due.
     const claim = await extractionCoordinator.claimDueBatch(result.groupId);
     if (claim) {
       extractionClaims += 1;
