@@ -61,12 +61,7 @@ export class DrizzleBackgroundAiSettlementRepository
         RETURNING spent_cost_twd
       ),
       locked_lots AS MATERIALIZED (
-        SELECT
-          lot.id,
-          lot.user_id,
-          lot.bucket,
-          lot.available_units,
-          lot.expires_at
+        SELECT lot.id, lot.user_id, lot.bucket, lot.available_units, lot.expires_at
         FROM user_energy_lots lot
         JOIN requested_normalized requested ON requested.user_id = lot.user_id
         WHERE lot.available_units > 0
@@ -112,9 +107,12 @@ export class DrizzleBackgroundAiSettlementRepository
         SELECT
           NOT EXISTS (SELECT 1 FROM existing)
           AND NOT EXISTS (SELECT 1 FROM existing_mismatch)
-          AND (SELECT spent_cost_twd FROM budget_lock)
-              + (SELECT cost_twd FROM subsidy_cost)
-              <= CAST(${input.globalFreeAiBudgetCostTwd} AS numeric) AS ok
+          AND (
+            (SELECT cost_twd FROM subsidy_cost) = 0
+            OR (SELECT spent_cost_twd FROM budget_lock)
+                + (SELECT cost_twd FROM subsidy_cost)
+                <= CAST(${input.globalFreeAiBudgetCostTwd} AS numeric)
+          ) AS ok
       ),
       inserted_operations AS (
         INSERT INTO user_energy_operations (
@@ -159,10 +157,7 @@ export class DrizzleBackgroundAiSettlementRepository
           lot.id,
           lot.user_id,
           lot.bucket,
-          LEAST(
-            lot.available_units,
-            GREATEST(lot.charged_units - lot.before_units, 0)
-          )::bigint AS units
+          LEAST(lot.available_units, GREATEST(lot.charged_units - lot.before_units, 0))::bigint AS units
         FROM ordered_lots lot
       ),
       updated_lots AS (
@@ -180,13 +175,8 @@ export class DrizzleBackgroundAiSettlementRepository
           operation_id, user_id, lot_id, bucket, type, units, created_at
         )
         SELECT
-          operation.id,
-          updated.user_id,
-          updated.id,
-          updated.bucket,
-          'CONSUME',
-          updated.units,
-          ${input.at}
+          operation.id, updated.user_id, updated.id, updated.bucket,
+          'CONSUME', updated.units, ${input.at}
         FROM updated_lots updated
         JOIN inserted_operations operation ON operation.user_id = updated.user_id
         ON CONFLICT DO NOTHING
@@ -199,15 +189,9 @@ export class DrizzleBackgroundAiSettlementRepository
           charge_operation_id, created_at
         )
         SELECT
-          ${input.requestId},
-          ${input.groupId},
-          desired.user_id,
-          desired.line_user_id,
-          desired.allocated_units,
-          desired.charged_units,
-          desired.subsidy_units,
-          operation.id,
-          ${input.at}
+          ${input.requestId}, ${input.groupId}, desired.user_id, desired.line_user_id,
+          desired.allocated_units, desired.charged_units, desired.subsidy_units,
+          operation.id, ${input.at}
         FROM desired
         LEFT JOIN inserted_operations operation ON operation.user_id = desired.user_id
         WHERE (SELECT ok FROM budget_ok)
@@ -218,12 +202,7 @@ export class DrizzleBackgroundAiSettlementRepository
         INSERT INTO platform_ai_subsidy_operations (
           request_id, user_id, units, budget_key, created_at
         )
-        SELECT
-          ${input.requestId},
-          desired.user_id,
-          desired.subsidy_units,
-          ${BUDGET_KEY},
-          ${input.at}
+        SELECT ${input.requestId}, desired.user_id, desired.subsidy_units, ${BUDGET_KEY}, ${input.at}
         FROM desired
         WHERE desired.subsidy_units > 0
           AND (SELECT ok FROM budget_ok)
@@ -249,13 +228,11 @@ export class DrizzleBackgroundAiSettlementRepository
       END AS status,
       COALESCE(
         (SELECT SUM(charged_units)::text FROM inserted_allocations),
-        (SELECT SUM(charged_units)::text FROM existing),
-        '0'
+        (SELECT SUM(charged_units)::text FROM existing), '0'
       ) AS user_charged_units,
       COALESCE(
         (SELECT SUM(platform_subsidy_units)::text FROM inserted_allocations),
-        (SELECT SUM(platform_subsidy_units)::text FROM existing),
-        '0'
+        (SELECT SUM(platform_subsidy_units)::text FROM existing), '0'
       ) AS platform_subsidy_units
     `);
 
