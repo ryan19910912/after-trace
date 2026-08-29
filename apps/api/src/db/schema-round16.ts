@@ -41,7 +41,7 @@ export const userEnergyLots = pgTable(
     bucket: energyBucketEnum('bucket').notNull(),
     originalUnits: bigint('original_units', { mode: 'bigint' }).notNull(),
     availableUnits: bigint('available_units', { mode: 'bigint' }).notNull(),
-    reservedUnits: bigint('reserved_units', { mode: 'bigint' }).default(0n).notNull(),
+    reservedUnits: bigint('reserved_units', { mode: 'bigint' }).default(0).notNull(),
     sourceType: varchar('source_type', { length: 64 }).notNull(),
     sourceId: varchar('source_id', { length: 160 }).notNull(),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
