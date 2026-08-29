@@ -91,12 +91,22 @@ export class DrizzleMemoryRequestRepository
   async createAutomatic(
     input: Parameters<AutomaticMemoryRequestRepository['createAutomatic']>[0],
   ): Promise<AutomaticMemoryRequest> {
+    const subjectJson = JSON.stringify(
+      input.eligibleSubjects.map((subject) => ({
+        userId: subject.userId,
+        lineUserId: subject.lineUserId,
+        normalizedCharCount: subject.normalizedCharCount,
+        preflightAvailableUnits: subject.preflightAvailableUnits.toString(),
+      })),
+    );
+
     const result = await this.db.execute(sql`
       WITH extraction_batch AS MATERIALIZED (
         SELECT id, group_id
         FROM conversation_extraction_batches
         WHERE id = ${input.extractionBatchId}
           AND group_id = ${input.groupId}
+          AND status = 'CLAIMED'
         FOR UPDATE
       ),
       existing_key AS (
@@ -140,6 +150,40 @@ export class DrizzleMemoryRequestRepository
         FROM inserted_request request
         RETURNING request_id
       ),
+      subjects AS (
+        SELECT *
+        FROM jsonb_to_recordset(${subjectJson}::jsonb) AS subject(
+          "userId" bigint,
+          "lineUserId" text,
+          "normalizedCharCount" integer,
+          "preflightAvailableUnits" text
+        )
+      ),
+      inserted_subjects AS (
+        INSERT INTO automatic_memory_eligible_subjects (
+          request_id,
+          extraction_batch_id,
+          group_id,
+          user_id,
+          line_user_id,
+          normalized_char_count,
+          preflight_available_units,
+          created_at
+        )
+        SELECT
+          request.id,
+          request.extraction_batch_id,
+          request.group_id,
+          subject."userId",
+          subject."lineUserId",
+          subject."normalizedCharCount",
+          subject."preflightAvailableUnits"::bigint,
+          ${input.createdAt}
+        FROM inserted_request request
+        CROSS JOIN subjects subject
+        ON CONFLICT DO NOTHING
+        RETURNING id
+      ),
       selected_request AS (
         SELECT request.id, request.group_id, request.extraction_batch_id, request.status, FALSE AS created
         FROM memory_candidate_requests request
@@ -148,6 +192,7 @@ export class DrizzleMemoryRequestRepository
         SELECT request.id, request.group_id, request.extraction_batch_id, request.status, TRUE AS created
         FROM inserted_request request
         JOIN inserted_key key ON key.request_id = request.id
+        WHERE (SELECT COUNT(*) FROM inserted_subjects) = ${input.eligibleSubjects.length}
       )
       SELECT
         id::text AS id,
@@ -161,7 +206,7 @@ export class DrizzleMemoryRequestRepository
 
     const row = result.rows[0] as AutomaticRequestRow | undefined;
     if (!row) {
-      throw new Error('automatic memory request could not be persisted for the extraction batch');
+      throw new Error('automatic memory request and eligible subjects could not be persisted atomically');
     }
     return {
       id: Number(row.id),
