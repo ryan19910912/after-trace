@@ -22,6 +22,7 @@ import { verifyLineSignature } from './line/signature';
 import { createManagementRoutes } from './management/routes';
 import { DrizzleMemoryRequestRepository } from './memory/drizzle-request-repository';
 import { ExplicitMemoryRequestService } from './memory/requests';
+import { memoryAiRuntimeDisabledReason, UserEnergyMemoryAiRuntime } from './memory/runtime';
 import { AutomaticMemoryRequestService } from './memory/work';
 
 export type Bindings = ProductConfigEnv & {
@@ -36,9 +37,14 @@ export type Bindings = ProductConfigEnv & {
   GEMINI_OUTPUT_USD_PER_MILLION_TOKENS?: string;
   USD_TWD_RATE?: string;
   GLOBAL_FREE_AI_BUDGET_COST_TWD?: string;
+  BACKGROUND_AI_MAX_SUBSIDY_COST_TWD?: string;
   ENERGY_UNITS_PER_TWD?: string;
   LIFF_WEB_ORIGIN?: string;
   REMINDER_RESERVATION_ENERGY?: string;
+  GOOGLE_AD_MANAGER_NETWORK_CODE?: string;
+  GOOGLE_AD_MANAGER_REWARDED_AD_UNIT_PATH?: string;
+  COMMERCE_WEBHOOK_SECRET?: string;
+  COMMERCE_PROVIDER?: string;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -46,10 +52,7 @@ app.route('/api/v1/management', createManagementRoutes());
 app.route('/api/v1/energy', createEnergyRoutes());
 
 app.get('/health', (c) =>
-  c.json({
-    service: 'after-trace-api',
-    status: 'ok',
-  }),
+  c.json({ service: 'after-trace-api', status: 'ok' }),
 );
 
 app.post('/webhooks/line', async (c) => {
@@ -83,15 +86,20 @@ app.post('/webhooks/line', async (c) => {
       extractionCandidates: 0,
       extractionClaims: 0,
       extractionNoEligibleSkips: 0,
+      aiRuntime: 'NO_WORK',
     });
   }
 
   const config = resolveProductConfig(c.env);
   const database = createDatabase(c.env.DATABASE_URL);
-  const conversationRepository = new DrizzleConversationRepository(database);
-  const conversationService = new ConversationIngestionService(conversationRepository, config);
-  const extractionRepository = new DrizzleExtractionClaimRepository(database);
-  const extractionCoordinator = new ConversationExtractionCoordinator(extractionRepository, config);
+  const conversationService = new ConversationIngestionService(
+    new DrizzleConversationRepository(database),
+    config,
+  );
+  const extractionCoordinator = new ConversationExtractionCoordinator(
+    new DrizzleExtractionClaimRepository(database),
+    config,
+  );
   const energyRepository = new DrizzleUserEnergyRepository(database);
   const backgroundEnergyRepository = new DrizzleBackgroundEnergyRepository(database);
   const energyAccessService = c.env.LIFF_APP_URL?.trim()
@@ -104,6 +112,9 @@ app.post('/webhooks/line', async (c) => {
   const memoryRequestRepository = new DrizzleMemoryRequestRepository(database);
   const explicitMemoryRequestService = new ExplicitMemoryRequestService(memoryRequestRepository);
   const automaticMemoryRequestService = new AutomaticMemoryRequestService(memoryRequestRepository);
+  const aiDisabledReason = memoryAiRuntimeDisabledReason(c.env);
+  const aiRuntime = aiDisabledReason ? null : new UserEnergyMemoryAiRuntime(database, c.env);
+  const groupsWithAiWork = new Set<number>();
 
   let lifecycleEvents = 0;
   let storedMessages = 0;
@@ -121,8 +132,11 @@ app.post('/webhooks/line', async (c) => {
 
   for (const parsedEvent of parsed.events) {
     if (parsedEvent.kind === 'LIFECYCLE') {
-      const event = parsedEvent.event;
-      await conversationService.handleLifecycle(event.lineGroupId, event.type, event.lineTimestamp);
+      await conversationService.handleLifecycle(
+        parsedEvent.event.lineGroupId,
+        parsedEvent.event.type,
+        parsedEvent.event.lineTimestamp,
+      );
       lifecycleEvents += 1;
       continue;
     }
@@ -133,7 +147,6 @@ app.post('/webhooks/line', async (c) => {
       ignoredInactiveMessages += 1;
       continue;
     }
-
     if (result.status === 'DUPLICATE') duplicateMessages += 1;
     else storedMessages += 1;
 
@@ -149,12 +162,7 @@ app.post('/webhooks/line', async (c) => {
     }
 
     const deterministicCommand = detectDeterministicAiCommand(message);
-    if (
-      deterministicCommand &&
-      message.lineUserId &&
-      message.replyToken &&
-      energyAccessService
-    ) {
+    if (deterministicCommand && message.lineUserId && message.replyToken && energyAccessService) {
       let reply: string;
       if (deterministicCommand.kind === 'ENERGY_STATUS') {
         reply = await energyAccessService.energyStatus({
@@ -164,21 +172,18 @@ app.post('/webhooks/line', async (c) => {
         });
       } else if (deterministicCommand.kind === 'HELP') {
         reply = [
-          'AFTERTRACE｜幫助',
-          '',
+          'AFTERTRACE｜幫助', '',
           '@AI 額度：查看群組成員是否還可使用 Energy（不顯示他人數字）',
           '@AI 記住 ...：明確要求 AFTERTRACE 記住資訊',
           '@AI 方案：查看目前 V1 Energy 取得方式',
         ].join('\n');
       } else {
         reply = [
-          'AFTERTRACE｜V1 Energy',
-          '',
+          'AFTERTRACE｜V1 Energy', '',
           'FREE：每位使用者一生一次',
           'SUBSCRIPTION：每個 billing cycle 發放，到 period_end 過期',
           'AD：Rewarded Ad，取得後 7 天過期',
-          'PAID：一次性 Energy Pack，不過期',
-          '',
+          'PAID：一次性 Energy Pack，不過期', '',
           '實際 Energy 數量與價格以 AFTERTRACE LIFF 顯示為準。',
           c.env.LIFF_APP_URL,
         ].join('\n');
@@ -188,12 +193,7 @@ app.post('/webhooks/line', async (c) => {
       continue;
     }
 
-    if (
-      isAiMention(message) &&
-      message.lineUserId &&
-      message.replyToken &&
-      energyAccessService
-    ) {
+    if (isAiMention(message) && message.lineUserId && message.replyToken && energyAccessService) {
       const preflight = await energyAccessService.preflightExplicitAi({
         groupId: result.groupId,
         callerLineUserId: message.lineUserId,
@@ -213,75 +213,76 @@ app.post('/webhooks/line', async (c) => {
         message,
         explicitMemoryCommand,
       );
-      if (request.status === 'PENDING') explicitMemoryRequests += 1;
-      else blockedMemoryRequests += 1;
+      if (request.status === 'PENDING') {
+        explicitMemoryRequests += 1;
+        groupsWithAiWork.add(result.groupId);
+      } else {
+        blockedMemoryRequests += 1;
+      }
     }
 
     if (result.threshold.extractionDue) extractionCandidates += 1;
-
     const claim = await extractionCoordinator.claimDueBatch(result.groupId, message.lineTimestamp);
-    if (claim) {
-      extractionClaims += 1;
-      const participants = await backgroundEnergyRepository.listBatchParticipants(
-        result.groupId,
+    if (!claim) continue;
+
+    extractionClaims += 1;
+    const participants = await backgroundEnergyRepository.listBatchParticipants(
+      result.groupId,
+      claim.id,
+      message.lineTimestamp,
+    );
+    const preflight = backgroundPreflight(participants);
+    if (preflight.status === 'SKIP_NO_ELIGIBLE_PARTICIPANT') {
+      const closed = await extractionCoordinator.markNoEligibleParticipant(
         claim.id,
         message.lineTimestamp,
       );
-      const preflight = backgroundPreflight(participants);
-      if (preflight.status === 'SKIP_NO_ELIGIBLE_PARTICIPANT') {
-        const closed = await extractionCoordinator.markNoEligibleParticipant(
-          claim.id,
-          message.lineTimestamp,
-        );
-        if (!closed) throw new Error('Failed to terminally close no-eligible extraction batch');
-        extractionNoEligibleSkips += 1;
-        console.log(
-          JSON.stringify({
-            event: 'conversation_extraction_skipped_no_eligible_energy',
-            extractionBatchId: claim.id,
-            messageCount: claim.messageCount,
-            charCount: claim.charCount,
-          }),
-        );
-        continue;
-      }
+      if (!closed) throw new Error('Failed to terminally close no-eligible extraction batch');
+      extractionNoEligibleSkips += 1;
+      continue;
+    }
 
-      const eligibleByLineId = new Map(
-        participants
-          .filter((participant) => participant.availableEnergyUnits > 0n && participant.normalizedCharCount > 0)
-          .map((participant) => [participant.lineUserId, participant]),
-      );
-      const eligibleSubjects = preflight.participants.map((participant) => {
-        const snapshot = eligibleByLineId.get(participant.lineUserId);
-        if (!snapshot) throw new Error('eligible background participant snapshot disappeared');
-        return {
-          userId: snapshot.userId,
-          lineUserId: snapshot.lineUserId,
-          normalizedCharCount: snapshot.normalizedCharCount,
-          preflightAvailableUnits: snapshot.availableEnergyUnits,
-        };
-      });
+    const eligibleByLineId = new Map(
+      participants
+        .filter((participant) => participant.availableEnergyUnits > 0n && participant.normalizedCharCount > 0)
+        .map((participant) => [participant.lineUserId, participant]),
+    );
+    const eligibleSubjects = preflight.participants.map((participant) => {
+      const snapshot = eligibleByLineId.get(participant.lineUserId);
+      if (!snapshot) throw new Error('eligible background participant snapshot disappeared');
+      return {
+        userId: snapshot.userId,
+        lineUserId: snapshot.lineUserId,
+        normalizedCharCount: snapshot.normalizedCharCount,
+        preflightAvailableUnits: snapshot.availableEnergyUnits,
+      };
+    });
 
-      const automaticRequest = await automaticMemoryRequestService.ensureForExtractionBatch(
-        result.groupId,
-        claim.id,
-        eligibleSubjects,
-        message.lineTimestamp,
-      );
-      if (automaticRequest.created) automaticMemoryRequests += 1;
+    const automaticRequest = await automaticMemoryRequestService.ensureForExtractionBatch(
+      result.groupId,
+      claim.id,
+      eligibleSubjects,
+      message.lineTimestamp,
+    );
+    if (automaticRequest.created) automaticMemoryRequests += 1;
+    groupsWithAiWork.add(result.groupId);
+  }
 
-      console.log(
-        JSON.stringify({
-          event: 'conversation_extraction_claimed',
-          extractionBatchId: claim.id,
-          memoryRequestId: automaticRequest.id,
-          memoryRequestCreated: automaticRequest.created,
-          eligibleParticipantCount: eligibleSubjects.length,
-          messageCount: claim.messageCount,
-          charCount: claim.charCount,
-          attemptCount: claim.attemptCount,
-        }),
-      );
+  if (aiRuntime) {
+    for (const groupId of groupsWithAiWork) {
+      c.executionCtx.waitUntil((async () => {
+        for (let i = 0; i < 5; i += 1) {
+          const aiResult = await aiRuntime.runNextForGroup(groupId);
+          console.log(JSON.stringify({ event: 'memory_ai_runtime', groupId, ...aiResult }));
+          if (aiResult.status === 'NO_WORK' || aiResult.status === 'WAITING_FOR_CREDIT' || aiResult.status === 'WAITING_FOR_FREE_BUDGET') break;
+        }
+      })().catch((error) => {
+        console.error(JSON.stringify({
+          event: 'memory_ai_runtime_crash',
+          groupId,
+          message: error instanceof Error ? error.message : 'unknown error',
+        }));
+      }));
     }
   }
 
@@ -300,6 +301,7 @@ app.post('/webhooks/line', async (c) => {
     extractionCandidates,
     extractionClaims,
     extractionNoEligibleSkips,
+    aiRuntime: aiRuntime ? 'SCHEDULED' : `DISABLED: ${aiDisabledReason}`,
   });
 });
 
