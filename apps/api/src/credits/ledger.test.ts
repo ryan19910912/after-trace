@@ -50,13 +50,13 @@ describe('CreditLedgerService', () => {
     );
   });
 
-  it('rejects zero-value mutations before they reach the repository', async () => {
+  it('rejects zero-value mutations before they reach the repository', () => {
     const repo = repository();
     const service = new CreditLedgerService(repo);
 
-    await expect(
+    expect(() =>
       service.grant(1, 'WELCOME', 0n, { type: 'WELCOME', id: 'g-1' }),
-    ).rejects.toThrow('credit amount');
+    ).toThrow('credit amount');
     expect(repo.grant).not.toHaveBeenCalled();
   });
 
