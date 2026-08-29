@@ -1,23 +1,42 @@
-import { parseTwdCostUnits } from '../credits/allocation';
-import type { CreditLedgerMutation, CreditReference } from '../credits/ledger';
+import { numberToTwdCostUnits, parseTwdCostUnits } from '../credits/allocation';
+import type {
+  CreditConsumeConstraints,
+  CreditLedgerMutation,
+  CreditReference,
+} from '../credits/ledger';
 import type { AiUsageRepository, BillableAiUsage } from './usage';
 
 export type UnchargedAiUsage = Omit<BillableAiUsage, 'chargeOperationId'>;
 
 export interface AiBillingCreditPort {
-  consume(groupId: number, amountUnits: bigint, reference: CreditReference, at?: Date): Promise<CreditLedgerMutation>;
+  consume(
+    groupId: number,
+    amountUnits: bigint,
+    reference: CreditReference,
+    at?: Date,
+    constraints?: CreditConsumeConstraints,
+  ): Promise<CreditLedgerMutation>;
 }
 
 export type AiBillingResult =
   | { status: 'BILLED'; operationId: number; usageRecord: 'RECORDED' | 'ALREADY_RECORDED' }
   | { status: 'INSUFFICIENT_CREDIT' }
+  | { status: 'FREE_AI_BUDGET_EXHAUSTED' }
   | { status: 'CREDIT_REFERENCE_CONFLICT' };
 
 export class AiBillingService {
+  private readonly globalFreeAiBudgetUnits: bigint;
+
   constructor(
     private readonly credits: AiBillingCreditPort,
     private readonly usageRepository: AiUsageRepository,
-  ) {}
+    globalFreeAiBudgetCostTwd: number,
+  ) {
+    this.globalFreeAiBudgetUnits = numberToTwdCostUnits(globalFreeAiBudgetCostTwd);
+    if (this.globalFreeAiBudgetUnits <= 0n) {
+      throw new Error('globalFreeAiBudgetCostTwd must be greater than zero');
+    }
+  }
 
   async chargeAndRecord(
     usage: UnchargedAiUsage,
@@ -29,8 +48,12 @@ export class AiBillingService {
       parseTwdCostUnits(usage.chargedCostTwd),
       reference,
       chargeAt,
+      { globalFreeAiBudgetUnits: this.globalFreeAiBudgetUnits },
     );
     if (charge.status === 'INSUFFICIENT') return { status: 'INSUFFICIENT_CREDIT' };
+    if (charge.status === 'FREE_BUDGET_EXHAUSTED') {
+      return { status: 'FREE_AI_BUDGET_EXHAUSTED' };
+    }
     if (charge.status === 'REFERENCE_CONFLICT') return { status: 'CREDIT_REFERENCE_CONFLICT' };
     if (charge.status !== 'APPLIED' && charge.status !== 'ALREADY_APPLIED') {
       throw new Error(`unexpected credit status for AI usage: ${charge.status}`);

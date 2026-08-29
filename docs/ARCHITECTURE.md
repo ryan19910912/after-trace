@@ -24,12 +24,14 @@ Cloudflare Worker / Hono
    |-- extraction batch claim / lease
    |-- explicit @AI memory requests
    |-- automatic memory requests
-   |-- memory request claim / lease
+   |-- memory request claim / lease + retry policy
    |-- grounded classifier input + structured validation
+   |-- durable classifier result
+   |-- global free-AI gate + credit/usage settlement
    |-- memory candidate classification + persistence
    |
    +--> Neon PostgreSQL
-   +--> Gemini API (kept disabled until billing/orchestration is complete)
+   +--> Gemini API (kept disabled from webhook composition until verification/runtime safety is complete)
    +--> LINE Messaging API
 
 LIFF React Web
@@ -66,13 +68,15 @@ Explicit `@AI 記住...` / reply commands and automatic extraction work share `m
 
 Every extraction batch maps to exactly one AUTOMATIC memory request. `automatic_memory_request_keys` uses extraction batch identity as the idempotency boundary; creation is serialized by locking the extraction batch row so concurrent retries cannot create two requests.
 
-Processing ownership is separate from request identity. `memory_request_work_states` stores a monotonic attempt count and a bounded lease. Claiming uses `FOR UPDATE SKIP LOCKED`; an expired claim can be reclaimed, but every downstream memory mutation must present the current attempt count as a fencing token. A stale Worker therefore cannot mutate memories or mark a newer attempt complete.
+Processing ownership is separate from request identity. `memory_request_work_states.attempt_count` is a monotonic ownership/fencing token. Claiming uses `FOR UPDATE SKIP LOCKED`; an expired claim can be reclaimed, but downstream mutations must present the current attempt count. A stale Worker therefore cannot store the first durable model result, mutate memories, terminally fail the request, or mark a newer attempt complete.
 
-When an AUTOMATIC request is successfully completed, its request state and the owning `conversation_extraction_batches` row are completed in the same PostgreSQL statement. This prevents a crash gap where memory persistence succeeds but the extraction batch remains claimable.
+Retry accounting is deliberately separate from fencing. `transient_failure_count` increments only when the AI execution path classifies a failure as retryable. Credit and free-budget waits do not consume that allowance.
+
+When an AUTOMATIC request is successfully completed, its request state and owning `conversation_extraction_batches` row are completed in the same PostgreSQL statement. A terminal AUTOMATIC failure likewise closes the extraction batch and releases its active claim key while retaining the error code for diagnosis.
 
 ## Memory classifier grounding
 
-Both request origins now build the same `MemoryClassificationInput` envelope before a model can be called.
+Both request origins build the same `MemoryClassificationInput` envelope before a model can be called.
 
 - EXPLICIT requests contain the resolved source conversation row, the user's instruction, and current Group-scoped active memories.
 - AUTOMATIC requests contain the claimed extraction batch, the previous successful batch as context, and the same Group-scoped active memories.
@@ -82,9 +86,11 @@ Both request origins now build the same `MemoryClassificationInput` envelope bef
 
 The model-facing prompt does not expose raw LINE user ids. Per-request ephemeral aliases (`speaker-1`, `speaker-2`, ...) preserve speaker continuity across current and previous context while avoiding unnecessary stable platform identifiers in the provider payload.
 
-The classifier contract is strict Zod structured output. Unknown fields, invalid decisions, invalid target shapes, hallucinated source ids, hallucinated active-memory ids, and unstable candidate indexes are rejected before memory mutation.
+The classifier contract is strict Zod structured output. Unknown fields, invalid decisions, invalid target shapes, hallucinated source ids, hallucinated active-memory ids and unstable candidate indexes are rejected before memory mutation.
 
-## Memory candidate persistence
+## Durable model result and memory persistence
+
+A provider result is first validated/grounded and stored in `memory_classifier_results`. The first store is protected by the current attempt fence. Later retries reuse that result, including its provider/model, token usage, latency, pricing/FX snapshot and calculated cost; they do not recompute the old call under newer prices or intentionally repeat the Gemini request.
 
 The classifier is allowed to emit only `NEW`, `DUPLICATE`, `UPDATE`, or `CONTRADICT`.
 
@@ -99,11 +105,9 @@ Candidate persistence validates that both the source conversation row and any ta
 
 Every candidate outcome writes an audit event: `MEMORY_CREATED`, `MEMORY_DUPLICATE_SKIPPED`, `MEMORY_UPDATED`, or `MEMORY_CONTRADICTED`.
 
-Gemini remains downstream of this ownership/persistence boundary. It must not be enabled until the structured classifier adapter, durable validated model-result reuse, runtime pricing/FX inputs, credit charge and AI usage persistence are wired into one retry-safe orchestration path.
-
 ## Credit and AI-cost safety
 
-Credit accounting uses exact TWD internal-cost units with 8 decimal places. Consumption order is `WELCOME -> AD -> PAID`; paid reminder reservations use `PAID` only. Business services must never silently overdraw a bucket.
+Credit accounting uses exact TWD internal-cost units with 8 decimal places. Normal consumption order is `WELCOME -> AD -> PAID`; paid reminder reservations use `PAID` only. Business services must never silently overdraw a bucket.
 
 Logical credit idempotency lives at the operation level. `credit_operations` owns one reconciliation key for `(group, operation type, reference type, reference id)`. One CONSUME operation may fan out into WELCOME/AD/PAID ledger rows without allowing a retry to consume a different bucket again.
 
@@ -116,6 +120,22 @@ A successful PAID grant marks the Group `hasPaid=true`, which later drives reten
 Every billable AI usage event records provider/model, token counts, input/output USD-per-million-token pricing snapshot, USD/TWD conversion snapshot, USD cost, TWD cost and actual charged TWD. AI billing is retry-safe by tying usage persistence to the logical credit operation id.
 
 Provider token prices and USD/TWD FX are runtime configuration, not memory-domain constants. Billable AI remains disabled when these snapshots are missing, preventing silent use of stale hard-coded pricing.
+
+### Global free-AI budget
+
+The V1 global free-AI safety ceiling is also a required runtime input. It caps cumulative actual AI cost funded from WELCOME/AD across the service; no reset cadence is invented by code.
+
+Guarded AI consumption takes a transaction-scoped global advisory lock, reads the free-budget state, allocates WELCOME then AD only up to the remaining allowance, then falls back to PAID. If paid value can cover the subsidy shortfall, the request proceeds. Otherwise a raw-credit-covered request that would exceed the global free allowance returns `FREE_BUDGET_EXHAUSTED` without creating a new logical charge.
+
+`global_free_ai_budget_operations` reconciles one free-budget contribution per credit operation, so idempotent charge retries cannot count subsidy twice. Paid-only Reminder reservations are outside this free-AI gate.
+
+## Memory AI retry policy
+
+Provider/configuration failures are classified before retry. Invalid credentials, rejected request configuration and missing model/endpoint are terminal for the current request. Network errors, timeout, rate limit and upstream failures use bounded exponential retry. Malformed provider outputs are retryable only within the same bound.
+
+`attempt_count` remains purely the ownership fence; `transient_failure_count` is the retry counter. Default code policy permits three transient failures with exponential delays starting at 60 seconds and capped at 15 minutes. Credit/budget waits are uncounted because they are settlement conditions rather than provider instability.
+
+See `docs/AI_SAFETY.md` for the activation and safety invariants.
 
 ## Portability and scale
 

@@ -39,12 +39,15 @@ describe('MemoryWorkCoordinator', () => {
       sourceConversationMessageId: 10,
       instruction: '記住這個',
       attemptCount: 2,
+      transientFailureCount: 0,
       leaseExpiresAt: leaseUntil,
     }));
     const repository: MemoryWorkRepository = {
       claimNextForGroup,
       markSucceeded: vi.fn(async () => true),
+      markFailed: vi.fn(async () => true),
       deferFailure: vi.fn(async () => true),
+      deferTransientFailure: vi.fn(async () => true),
     };
     const coordinator = new MemoryWorkCoordinator(repository, 90);
 
@@ -63,7 +66,9 @@ describe('MemoryWorkCoordinator', () => {
     const repository: MemoryWorkRepository = {
       claimNextForGroup: vi.fn(async () => null),
       markSucceeded: vi.fn(async () => true),
+      markFailed: vi.fn(async () => true),
       deferFailure,
+      deferTransientFailure: vi.fn(async () => true),
     };
     const coordinator = new MemoryWorkCoordinator(repository, 30);
     const retryAt = new Date('2026-08-29T00:02:00Z');
@@ -71,5 +76,49 @@ describe('MemoryWorkCoordinator', () => {
     await coordinator.deferFailure(7, 3, retryAt, '  GEMINI_TEMPORARY  ');
 
     expect(deferFailure).toHaveBeenCalledWith(7, 3, retryAt, 'GEMINI_TEMPORARY');
+  });
+
+  it('uses a distinct repository path for counted transient retries', async () => {
+    const deferTransientFailure = vi.fn(async () => true);
+    const repository: MemoryWorkRepository = {
+      claimNextForGroup: vi.fn(async () => null),
+      markSucceeded: vi.fn(async () => true),
+      markFailed: vi.fn(async () => true),
+      deferFailure: vi.fn(async () => true),
+      deferTransientFailure,
+    };
+    const coordinator = new MemoryWorkCoordinator(repository, 30);
+    const retryAt = new Date('2026-08-29T00:02:00Z');
+
+    await coordinator.deferTransientFailure(7, 3, retryAt, '  GEMINI_RATE_LIMITED  ');
+
+    expect(deferTransientFailure).toHaveBeenCalledWith(
+      7,
+      3,
+      retryAt,
+      'GEMINI_RATE_LIMITED',
+    );
+  });
+
+  it('terminally fails only under the current claim fence', async () => {
+    const markFailed = vi.fn(async () => true);
+    const repository: MemoryWorkRepository = {
+      claimNextForGroup: vi.fn(async () => null),
+      markSucceeded: vi.fn(async () => true),
+      markFailed,
+      deferFailure: vi.fn(async () => true),
+      deferTransientFailure: vi.fn(async () => true),
+    };
+    const coordinator = new MemoryWorkCoordinator(repository, 30);
+    const failedAt = new Date('2026-08-29T00:03:00Z');
+
+    await coordinator.markFailed(7, 3, failedAt, '  GEMINI_AUTH_REJECTED  ');
+
+    expect(markFailed).toHaveBeenCalledWith(
+      7,
+      3,
+      failedAt,
+      'GEMINI_AUTH_REJECTED',
+    );
   });
 });

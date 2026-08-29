@@ -26,6 +26,7 @@ packages/
 docs/
   PRODUCT_V1.md
   ARCHITECTURE.md
+  AI_SAFETY.md
   DEVELOPMENT_PROGRESS.md
 drizzle/    generated migrations
 ```
@@ -42,7 +43,7 @@ pnpm test
 pnpm build
 ```
 
-Cloudflare Worker secrets must be configured separately for deployment; never commit production credentials.
+Cloudflare Worker secrets must be configured separately for deployment; never commit production credentials. Billable AI additionally requires explicit provider pricing/FX and a global free-AI budget ceiling; see `docs/AI_SAFETY.md`.
 
 ## Development status
 

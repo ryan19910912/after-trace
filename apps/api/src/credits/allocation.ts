@@ -21,6 +21,11 @@ export type CreditAllocationResult = {
   shortfallUnits: bigint;
 };
 
+export type AiCreditAllocationResult = CreditAllocationResult & {
+  freeUnits: bigint;
+  budgetLimited: boolean;
+};
+
 export function parseTwdCostUnits(value: string): bigint {
   const normalized = value.trim();
   if (!/^\d+(?:\.\d{1,8})?$/.test(normalized)) {
@@ -71,6 +76,57 @@ export function allocateConsumption(
   };
 }
 
+export function allocateAiConsumption(
+  balances: CreditBalances,
+  requiredUnits: bigint,
+  remainingGlobalFreeBudgetUnits: bigint,
+): AiCreditAllocationResult {
+  if (requiredUnits < 0n) throw new Error('requiredUnits must be non-negative');
+  if (remainingGlobalFreeBudgetUnits < 0n) {
+    throw new Error('remainingGlobalFreeBudgetUnits must be non-negative');
+  }
+
+  let remaining = requiredUnits;
+  let remainingFree = remainingGlobalFreeBudgetUnits;
+  const allocations: CreditAllocation[] = [];
+  let freeUnits = 0n;
+
+  for (const bucket of ['WELCOME', 'AD'] as const) {
+    if (remaining === 0n || remainingFree === 0n) break;
+    const available = balances[bucket].availableUnits;
+    if (available <= 0n) continue;
+
+    const units = minBigInt(available, remaining, remainingFree);
+    if (units > 0n) {
+      allocations.push({ bucket, units });
+      remaining -= units;
+      remainingFree -= units;
+      freeUnits += units;
+    }
+  }
+
+  if (remaining > 0n && balances.PAID.availableUnits > 0n) {
+    const units = minBigInt(balances.PAID.availableUnits, remaining);
+    if (units > 0n) {
+      allocations.push({ bucket: 'PAID', units });
+      remaining -= units;
+    }
+  }
+
+  const normal = allocateConsumption(balances, requiredUnits);
+  return {
+    allocations,
+    covered: remaining === 0n,
+    shortfallUnits: remaining,
+    freeUnits,
+    budgetLimited:
+      remainingGlobalFreeBudgetUnits <
+      normal.allocations
+        .filter((allocation) => allocation.bucket !== 'PAID')
+        .reduce((total, allocation) => total + allocation.units, 0n),
+  };
+}
+
 export function allocatePaidReservation(
   paidBalance: CreditBalance,
   requiredUnits: bigint,
@@ -86,4 +142,9 @@ export function allocatePaidReservation(
     covered: remaining === 0n,
     shortfallUnits: remaining,
   };
+}
+
+function minBigInt(...values: bigint[]): bigint {
+  if (values.length === 0) throw new Error('minBigInt requires at least one value');
+  return values.reduce((minimum, value) => value < minimum ? value : minimum);
 }

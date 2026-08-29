@@ -22,12 +22,11 @@ const usage: UnchargedAiUsage = {
 
 describe('AiBillingService', () => {
   it('reuses the idempotent credit operation as the usage persistence key', async () => {
-    const credits: AiBillingCreditPort = {
-      consume: vi.fn(async () => ({ status: 'ALREADY_APPLIED', operationId: 77 })),
-    };
+    const consume = vi.fn(async () => ({ status: 'ALREADY_APPLIED' as const, operationId: 77 }));
+    const credits: AiBillingCreditPort = { consume };
     const record = vi.fn(async () => 'ALREADY_RECORDED' as const);
     const usageRepository: AiUsageRepository = { record };
-    const service = new AiBillingService(credits, usageRepository);
+    const service = new AiBillingService(credits, usageRepository, 100);
 
     await expect(
       service.chargeAndRecord(usage, { type: 'AI_USAGE', id: 'gemini-response-1' }),
@@ -36,20 +35,41 @@ describe('AiBillingService', () => {
       operationId: 77,
       usageRecord: 'ALREADY_RECORDED',
     });
+    expect(consume).toHaveBeenCalledWith(
+      3,
+      9_600n,
+      { type: 'AI_USAGE', id: 'gemini-response-1' },
+      usage.createdAt,
+      { globalFreeAiBudgetUnits: 10_000_000_000n },
+    );
     expect(record).toHaveBeenCalledWith(expect.objectContaining({ chargeOperationId: 77 }));
   });
 
   it('does not persist usage when credit is insufficient', async () => {
     const credits: AiBillingCreditPort = {
-      consume: vi.fn(async () => ({ status: 'INSUFFICIENT', operationId: null })),
+      consume: vi.fn(async () => ({ status: 'INSUFFICIENT' as const, operationId: null })),
     };
     const record = vi.fn(async () => 'RECORDED' as const);
     const usageRepository: AiUsageRepository = { record };
-    const service = new AiBillingService(credits, usageRepository);
+    const service = new AiBillingService(credits, usageRepository, 100);
 
     await expect(
       service.chargeAndRecord(usage, { type: 'AI_USAGE', id: 'gemini-response-2' }),
     ).resolves.toEqual({ status: 'INSUFFICIENT_CREDIT' });
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it('does not persist usage when the global free-AI subsidy is exhausted', async () => {
+    const credits: AiBillingCreditPort = {
+      consume: vi.fn(async () => ({ status: 'FREE_BUDGET_EXHAUSTED' as const, operationId: null })),
+    };
+    const record = vi.fn(async () => 'RECORDED' as const);
+    const usageRepository: AiUsageRepository = { record };
+    const service = new AiBillingService(credits, usageRepository, 100);
+
+    await expect(
+      service.chargeAndRecord(usage, { type: 'AI_USAGE', id: 'gemini-response-3' }),
+    ).resolves.toEqual({ status: 'FREE_AI_BUDGET_EXHAUSTED' });
     expect(record).not.toHaveBeenCalled();
   });
 });

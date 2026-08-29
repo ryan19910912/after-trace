@@ -8,12 +8,23 @@ describe('resolveAiRuntimeConfig', () => {
     );
   });
 
+  it('requires an explicit global free-AI budget before billable AI can be enabled', () => {
+    expect(() =>
+      resolveAiRuntimeConfig({
+        GEMINI_INPUT_USD_PER_MILLION_TOKENS: '0.10',
+        GEMINI_OUTPUT_USD_PER_MILLION_TOKENS: '0.40',
+        USD_TWD_RATE: '31.5',
+      }),
+    ).toThrow('GLOBAL_FREE_AI_BUDGET_COST_TWD is required');
+  });
+
   it('resolves the confirmed model baseline with runtime cost inputs', () => {
     expect(
       resolveAiRuntimeConfig({
         GEMINI_INPUT_USD_PER_MILLION_TOKENS: '0.10',
         GEMINI_OUTPUT_USD_PER_MILLION_TOKENS: '0.40',
         USD_TWD_RATE: '31.5',
+        GLOBAL_FREE_AI_BUDGET_COST_TWD: '100',
       }),
     ).toEqual({
       provider: 'GOOGLE',
@@ -23,6 +34,7 @@ describe('resolveAiRuntimeConfig', () => {
         outputUsdPerMillionTokens: 0.4,
         usdTwdRate: 31.5,
       },
+      globalFreeAiBudgetCostTwd: 100,
     });
   });
 });

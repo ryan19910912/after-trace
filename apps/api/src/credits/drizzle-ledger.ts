@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
 import { formatTwdCostUnits, type CreditBucket } from './allocation';
 import type {
+  CreditConsumeConstraints,
   CreditLedgerMutation,
   CreditLedgerMutationStatus,
   CreditLedgerRepository,
@@ -19,6 +20,8 @@ type OperationRow = {
   requested_amount_cost_twd: string;
   scope_bucket: CreditBucket | null;
 };
+
+const GLOBAL_FREE_AI_BUDGET_KEY = 'V1_FREE_AI';
 
 function mutationFromRow(row: MutationRow | undefined): CreditLedgerMutation {
   if (!row) throw new Error('credit ledger mutation returned no result');
@@ -64,7 +67,10 @@ export class DrizzleCreditLedgerRepository implements CreditLedgerRepository {
     const existing = await this.findOperation(groupId, type, reference);
     if (!existing) return mutation;
 
-    if (amountUnits !== undefined && existing.requested_amount_cost_twd !== formatTwdCostUnits(amountUnits)) {
+    if (
+      amountUnits !== undefined &&
+      existing.requested_amount_cost_twd !== formatTwdCostUnits(amountUnits)
+    ) {
       return { status: 'REFERENCE_CONFLICT', operationId: Number(existing.id) };
     }
     if (scopeBucket !== undefined && existing.scope_bucket !== scopeBucket) {
@@ -163,8 +169,14 @@ export class DrizzleCreditLedgerRepository implements CreditLedgerRepository {
     amountUnits: bigint,
     reference: CreditReference,
     at: Date,
+    constraints?: CreditConsumeConstraints,
   ): Promise<CreditLedgerMutation> {
     const amount = formatTwdCostUnits(amountUnits);
+    const budgetLimit =
+      constraints?.globalFreeAiBudgetUnits === undefined
+        ? null
+        : formatTwdCostUnits(constraints.globalFreeAiBudgetUnits);
+
     const result = await this.db.execute(sql`
       WITH existing_operation AS MATERIALIZED (
         SELECT id, requested_amount_cost_twd, scope_bucket
@@ -184,6 +196,23 @@ export class DrizzleCreditLedgerRepository implements CreditLedgerRepository {
         ORDER BY bucket
         FOR UPDATE
       ),
+      budget_lock AS MATERIALIZED (
+        SELECT pg_advisory_xact_lock(hashtext(${GLOBAL_FREE_AI_BUDGET_KEY})) AS locked
+        WHERE ${budgetLimit} IS NOT NULL
+      ),
+      budget_snapshot AS MATERIALIZED (
+        SELECT
+          CASE
+            WHEN ${budgetLimit} IS NULL THEN NULL::numeric
+            ELSE COALESCE((
+              SELECT state.spent_cost_twd
+              FROM global_free_ai_budget_state state
+              WHERE state.budget_key = ${GLOBAL_FREE_AI_BUDGET_KEY}
+                AND EXISTS (SELECT 1 FROM budget_lock)
+              LIMIT 1
+            ), 0)
+          END AS spent_cost_twd
+      ),
       balances AS (
         SELECT
           COALESCE(MAX(available_cost_twd) FILTER (WHERE bucket = 'WELCOME'), 0)::numeric AS welcome,
@@ -191,21 +220,67 @@ export class DrizzleCreditLedgerRepository implements CreditLedgerRepository {
           COALESCE(MAX(available_cost_twd) FILTER (WHERE bucket = 'PAID'), 0)::numeric AS paid
         FROM locked_accounts
       ),
+      allocation_base AS (
+        SELECT
+          balances.*,
+          CASE
+            WHEN ${budgetLimit} IS NULL THEN NULL::numeric
+            ELSE GREATEST(
+              CAST(${budgetLimit} AS numeric)
+                - COALESCE((SELECT spent_cost_twd FROM budget_snapshot LIMIT 1), 0),
+              0
+            )
+          END AS budget_remaining
+        FROM balances
+      ),
+      free_limit AS (
+        SELECT
+          allocation_base.*,
+          CASE
+            WHEN budget_remaining IS NULL THEN welcome + ad
+            ELSE LEAST(welcome + ad, budget_remaining)
+          END AS usable_free,
+          welcome + ad + paid >= CAST(${amount} AS numeric) AS raw_covered
+        FROM allocation_base
+      ),
+      welcome_allocation AS (
+        SELECT
+          free_limit.*,
+          LEAST(welcome, CAST(${amount} AS numeric), usable_free) AS welcome_amount
+        FROM free_limit
+      ),
+      ad_allocation AS (
+        SELECT
+          welcome_allocation.*,
+          LEAST(
+            ad,
+            GREATEST(CAST(${amount} AS numeric) - welcome_amount, 0),
+            GREATEST(usable_free - welcome_amount, 0)
+          ) AS ad_amount
+        FROM welcome_allocation
+      ),
       calculated AS (
         SELECT
-          LEAST(welcome, CAST(${amount} AS numeric)) AS welcome_amount,
-          LEAST(ad, GREATEST(CAST(${amount} AS numeric) - LEAST(welcome, CAST(${amount} AS numeric)), 0)) AS ad_amount,
+          ad_allocation.*,
           LEAST(
             paid,
             GREATEST(
-              CAST(${amount} AS numeric)
-              - LEAST(welcome, CAST(${amount} AS numeric))
-              - LEAST(ad, GREATEST(CAST(${amount} AS numeric) - LEAST(welcome, CAST(${amount} AS numeric)), 0)),
+              CAST(${amount} AS numeric) - welcome_amount - ad_amount,
               0
             )
-          ) AS paid_amount,
-          welcome + ad + paid >= CAST(${amount} AS numeric) AS covered
-        FROM balances
+          ) AS paid_amount
+        FROM ad_allocation
+      ),
+      final_allocation AS (
+        SELECT
+          calculated.*,
+          welcome_amount + ad_amount AS free_amount,
+          welcome_amount + ad_amount + paid_amount >= CAST(${amount} AS numeric) AS covered,
+          (
+            budget_remaining IS NOT NULL
+            AND usable_free < LEAST(welcome + ad, CAST(${amount} AS numeric))
+          ) AS budget_limited
+        FROM calculated
       ),
       new_operation AS (
         INSERT INTO credit_operations (
@@ -215,18 +290,52 @@ export class DrizzleCreditLedgerRepository implements CreditLedgerRepository {
         SELECT
           ${groupId}, 'CONSUME', NULL, CAST(${amount} AS numeric),
           ${reference.type}, ${reference.id}, ${at}
-        FROM calculated
+        FROM final_allocation
         WHERE covered
           AND NOT EXISTS (SELECT 1 FROM existing_operation)
         ON CONFLICT DO NOTHING
         RETURNING id
       ),
+      budget_operation AS (
+        INSERT INTO global_free_ai_budget_operations (
+          credit_operation_id, budget_key, free_cost_twd, created_at
+        )
+        SELECT
+          operation.id,
+          ${GLOBAL_FREE_AI_BUDGET_KEY},
+          allocation.free_amount,
+          ${at}
+        FROM new_operation operation
+        CROSS JOIN final_allocation allocation
+        WHERE ${budgetLimit} IS NOT NULL
+          AND allocation.free_amount > 0
+        ON CONFLICT DO NOTHING
+        RETURNING free_cost_twd
+      ),
+      budget_mutation AS (
+        INSERT INTO global_free_ai_budget_state (
+          budget_key, spent_cost_twd, updated_at
+        )
+        SELECT
+          ${GLOBAL_FREE_AI_BUDGET_KEY},
+          operation.free_cost_twd,
+          ${at}
+        FROM budget_operation operation
+        ON CONFLICT (budget_key) DO UPDATE
+        SET spent_cost_twd =
+              global_free_ai_budget_state.spent_cost_twd + EXCLUDED.spent_cost_twd,
+            updated_at = EXCLUDED.updated_at
+        RETURNING spent_cost_twd
+      ),
       allocations AS (
-        SELECT 'WELCOME'::credit_bucket AS bucket, welcome_amount AS amount FROM calculated
+        SELECT 'WELCOME'::credit_bucket AS bucket, welcome_amount AS amount
+        FROM final_allocation
         UNION ALL
-        SELECT 'AD'::credit_bucket, ad_amount FROM calculated
+        SELECT 'AD'::credit_bucket, ad_amount
+        FROM final_allocation
         UNION ALL
-        SELECT 'PAID'::credit_bucket, paid_amount FROM calculated
+        SELECT 'PAID'::credit_bucket, paid_amount
+        FROM final_allocation
       ),
       ledger AS (
         INSERT INTO credit_transactions (
@@ -236,6 +345,11 @@ export class DrizzleCreditLedgerRepository implements CreditLedgerRepository {
         FROM new_operation AS operation
         CROSS JOIN allocations AS allocation
         WHERE allocation.amount > 0
+          AND (
+            ${budgetLimit} IS NULL
+            OR (SELECT free_amount FROM final_allocation) = 0
+            OR EXISTS (SELECT 1 FROM budget_mutation)
+          )
         ON CONFLICT DO NOTHING
         RETURNING operation_id, bucket, amount_cost_twd
       ),
@@ -257,7 +371,11 @@ export class DrizzleCreditLedgerRepository implements CreditLedgerRepository {
           ) THEN 'REFERENCE_CONFLICT'
           WHEN EXISTS (SELECT 1 FROM existing_operation) THEN 'ALREADY_APPLIED'
           WHEN EXISTS (SELECT 1 FROM new_operation) THEN 'APPLIED'
-          WHEN (SELECT covered FROM calculated) THEN 'ALREADY_APPLIED'
+          WHEN (
+            SELECT raw_covered AND NOT covered AND budget_limited
+            FROM final_allocation
+          ) THEN 'FREE_BUDGET_EXHAUSTED'
+          WHEN (SELECT raw_covered FROM final_allocation) THEN 'ALREADY_APPLIED'
           ELSE 'INSUFFICIENT'
         END AS status,
         COALESCE(

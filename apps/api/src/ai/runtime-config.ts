@@ -5,12 +5,14 @@ export type AiRuntimeEnv = {
   GEMINI_INPUT_USD_PER_MILLION_TOKENS?: string;
   GEMINI_OUTPUT_USD_PER_MILLION_TOKENS?: string;
   USD_TWD_RATE?: string;
+  GLOBAL_FREE_AI_BUDGET_COST_TWD?: string;
 };
 
 export type AiRuntimeConfig = {
   provider: 'GOOGLE';
   model: string;
   pricing: AiPricingSnapshot;
+  globalFreeAiBudgetCostTwd: number;
 };
 
 export function resolveAiRuntimeConfig(env: AiRuntimeEnv): AiRuntimeConfig {
@@ -28,6 +30,10 @@ export function resolveAiRuntimeConfig(env: AiRuntimeEnv): AiRuntimeConfig {
       ),
       usdTwdRate: requiredPositiveNumber('USD_TWD_RATE', env.USD_TWD_RATE),
     },
+    globalFreeAiBudgetCostTwd: requiredPositiveNumber(
+      'GLOBAL_FREE_AI_BUDGET_COST_TWD',
+      env.GLOBAL_FREE_AI_BUDGET_COST_TWD,
+    ),
   };
 }
 

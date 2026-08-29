@@ -25,6 +25,7 @@ export type ClaimedMemoryRequest = {
   sourceConversationMessageId: number | null;
   instruction: string | null;
   attemptCount: number;
+  transientFailureCount: number;
   leaseExpiresAt: Date;
 };
 
@@ -39,7 +40,19 @@ export interface MemoryWorkRepository {
     attemptCount: number,
     completedAt: Date,
   ): Promise<boolean>;
+  markFailed(
+    requestId: number,
+    attemptCount: number,
+    failedAt: Date,
+    errorCode: string,
+  ): Promise<boolean>;
   deferFailure(
+    requestId: number,
+    attemptCount: number,
+    retryAt: Date,
+    errorCode: string,
+  ): Promise<boolean>;
+  deferTransientFailure(
     requestId: number,
     attemptCount: number,
     retryAt: Date,
@@ -86,6 +99,21 @@ export class MemoryWorkCoordinator {
     return this.repository.markSucceeded(requestId, attemptCount, completedAt);
   }
 
+  markFailed(
+    requestId: number,
+    attemptCount: number,
+    failedAt: Date,
+    errorCode: string,
+  ): Promise<boolean> {
+    assertClaimFence(requestId, attemptCount);
+    return this.repository.markFailed(
+      requestId,
+      attemptCount,
+      failedAt,
+      normalizeErrorCode(errorCode),
+    );
+  }
+
   deferFailure(
     requestId: number,
     attemptCount: number,
@@ -93,9 +121,32 @@ export class MemoryWorkCoordinator {
     errorCode: string,
   ): Promise<boolean> {
     assertClaimFence(requestId, attemptCount);
-    const normalized = errorCode.trim().slice(0, 128) || 'UNKNOWN';
-    return this.repository.deferFailure(requestId, attemptCount, retryAt, normalized);
+    return this.repository.deferFailure(
+      requestId,
+      attemptCount,
+      retryAt,
+      normalizeErrorCode(errorCode),
+    );
   }
+
+  deferTransientFailure(
+    requestId: number,
+    attemptCount: number,
+    retryAt: Date,
+    errorCode: string,
+  ): Promise<boolean> {
+    assertClaimFence(requestId, attemptCount);
+    return this.repository.deferTransientFailure(
+      requestId,
+      attemptCount,
+      retryAt,
+      normalizeErrorCode(errorCode),
+    );
+  }
+}
+
+function normalizeErrorCode(errorCode: string): string {
+  return errorCode.trim().slice(0, 128) || 'UNKNOWN';
 }
 
 function assertClaimFence(requestId: number, attemptCount: number): void {

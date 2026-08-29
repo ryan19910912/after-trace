@@ -30,6 +30,7 @@ function claim(overrides: Partial<ClaimedMemoryRequest>): ClaimedMemoryRequest {
     sourceConversationMessageId: 11,
     instruction: '記住我們想去花蓮',
     attemptCount: 1,
+    transientFailureCount: 0,
     leaseExpiresAt: new Date('2026-08-29T00:02:00Z'),
     ...overrides,
   };

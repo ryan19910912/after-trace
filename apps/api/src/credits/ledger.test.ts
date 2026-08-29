@@ -28,6 +28,28 @@ describe('CreditLedgerService', () => {
     );
   });
 
+  it('passes a positive global free-AI constraint only for guarded AI consumption', async () => {
+    const repo = repository();
+    const service = new CreditLedgerService(repo);
+    const at = new Date('2026-08-29T00:00:00Z');
+
+    await service.consume(
+      9,
+      12n,
+      { type: 'AI_USAGE', id: 'request-2' },
+      at,
+      { globalFreeAiBudgetUnits: 10_000n },
+    );
+
+    expect(repo.consume).toHaveBeenCalledWith(
+      9,
+      12n,
+      { type: 'AI_USAGE', id: 'request-2' },
+      at,
+      { globalFreeAiBudgetUnits: 10_000n },
+    );
+  });
+
   it('rejects zero-value mutations before they reach the repository', async () => {
     const repo = repository();
     const service = new CreditLedgerService(repo);

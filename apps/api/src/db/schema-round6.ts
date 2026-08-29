@@ -37,6 +37,7 @@ export const memoryRequestWorkStates = pgTable(
   {
     requestId: bigint('request_id', { mode: 'number' }).primaryKey(),
     attemptCount: integer('attempt_count').default(0).notNull(),
+    transientFailureCount: integer('transient_failure_count').default(0).notNull(),
     claimedAt: timestamp('claimed_at', { withTimezone: true }),
     leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
     completedAt: timestamp('completed_at', { withTimezone: true }),

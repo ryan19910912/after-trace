@@ -5,13 +5,18 @@ import type { MemoryClassifierResultRepository } from './classifier-result';
 import { MemoryClassifierResultService } from './classifier-result';
 import type { ClaimedMemoryRequest } from './work';
 
-const request: ClaimedMemoryRequest = { id: 10, groupId: 2, origin: 'AUTOMATIC', extractionBatchId: 8, actorLineUserId: null, sourceConversationMessageId: null, instruction: null, attemptCount: 3, leaseExpiresAt: new Date('2026-08-29T01:10:00Z') };
+const request: ClaimedMemoryRequest = { id: 10, groupId: 2, origin: 'AUTOMATIC', extractionBatchId: 8, actorLineUserId: null, sourceConversationMessageId: null, instruction: null, attemptCount: 3, transientFailureCount: 0, leaseExpiresAt: new Date('2026-08-29T01:10:00Z') };
 const classificationInput: MemoryClassificationInput = {
   requestId: 10, groupId: 2, origin: 'AUTOMATIC', actorLineUserId: null, instruction: null,
   currentMessages: [{ id: 41, lineMessageId: 'm41', quotedLineMessageId: null, lineUserId: 'U1', messageType: 'text', textContent: '我喜歡拉麵', quoteToken: null, lineTimestamp: new Date('2026-08-29T01:00:00Z'), metadata: null }],
   previousContext: null, activeMemories: [],
 };
-const runtime: AiRuntimeConfig = { provider: 'GOOGLE', model: 'gemini-2.5-flash-lite', pricing: { inputUsdPerMillionTokens: 0.1, outputUsdPerMillionTokens: 0.4, usdTwdRate: 32 } };
+const runtime: AiRuntimeConfig = {
+  provider: 'GOOGLE',
+  model: 'gemini-2.5-flash-lite',
+  pricing: { inputUsdPerMillionTokens: 0.1, outputUsdPerMillionTokens: 0.4, usdTwdRate: 32 },
+  globalFreeAiBudgetCostTwd: 100,
+};
 
 describe('MemoryClassifierResultService', () => {
   it('persists a grounded result with a reproducible pricing snapshot', async () => {

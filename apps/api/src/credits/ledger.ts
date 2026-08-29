@@ -7,10 +7,15 @@ export type CreditReference = {
   id: string;
 };
 
+export type CreditConsumeConstraints = {
+  globalFreeAiBudgetUnits?: bigint;
+};
+
 export type CreditLedgerMutationStatus =
   | 'APPLIED'
   | 'ALREADY_APPLIED'
   | 'INSUFFICIENT'
+  | 'FREE_BUDGET_EXHAUSTED'
   | 'NOT_FOUND'
   | 'ALREADY_SETTLED'
   | 'REFERENCE_CONFLICT';
@@ -33,6 +38,7 @@ export interface CreditLedgerRepository {
     amountUnits: bigint,
     reference: CreditReference,
     at: Date,
+    constraints?: CreditConsumeConstraints,
   ): Promise<CreditLedgerMutation>;
   reservePaid(
     groupId: number,
@@ -69,6 +75,16 @@ function positiveUnits(units: bigint): bigint {
   return units;
 }
 
+function normalizeConsumeConstraints(
+  constraints: CreditConsumeConstraints | undefined,
+): CreditConsumeConstraints | undefined {
+  if (constraints?.globalFreeAiBudgetUnits === undefined) return undefined;
+  if (constraints.globalFreeAiBudgetUnits <= 0n) {
+    throw new Error('global free AI budget must be greater than zero');
+  }
+  return { globalFreeAiBudgetUnits: constraints.globalFreeAiBudgetUnits };
+}
+
 function positiveGroupId(groupId: number): number {
   if (!Number.isSafeInteger(groupId) || groupId <= 0) {
     throw new Error('groupId must be a positive safe integer');
@@ -100,13 +116,26 @@ export class CreditLedgerService {
     amountUnits: bigint,
     reference: CreditReference,
     at = new Date(),
+    constraints?: CreditConsumeConstraints,
   ): Promise<CreditLedgerMutation> {
-    return this.repository.consume(
-      positiveGroupId(groupId),
-      positiveUnits(amountUnits),
-      normalizeReference(reference),
-      at,
-    );
+    const normalizedGroupId = positiveGroupId(groupId);
+    const normalizedAmount = positiveUnits(amountUnits);
+    const normalizedReference = normalizeReference(reference);
+    const normalizedConstraints = normalizeConsumeConstraints(constraints);
+    return normalizedConstraints
+      ? this.repository.consume(
+          normalizedGroupId,
+          normalizedAmount,
+          normalizedReference,
+          at,
+          normalizedConstraints,
+        )
+      : this.repository.consume(
+          normalizedGroupId,
+          normalizedAmount,
+          normalizedReference,
+          at,
+        );
   }
 
   reservePaid(

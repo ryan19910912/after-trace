@@ -11,6 +11,7 @@ type ClaimRow = {
   source_conversation_message_id: string | null;
   instruction: string | null;
   attempt_count: number;
+  transient_failure_count: number;
   lease_expires_at: Date;
 };
 
@@ -40,13 +41,14 @@ export class DrizzleMemoryWorkRepository implements MemoryWorkRepository {
         INSERT INTO memory_request_work_states (
           request_id,
           attempt_count,
+          transient_failure_count,
           claimed_at,
           lease_expires_at,
           completed_at,
           last_error_code,
           updated_at
         )
-        SELECT candidate.id, 1, ${now}, ${leaseUntil}, NULL, NULL, ${now}
+        SELECT candidate.id, 1, 0, ${now}, ${leaseUntil}, NULL, NULL, ${now}
         FROM candidate
         ON CONFLICT (request_id) DO UPDATE
         SET attempt_count = memory_request_work_states.attempt_count + 1,
@@ -55,7 +57,7 @@ export class DrizzleMemoryWorkRepository implements MemoryWorkRepository {
             completed_at = NULL,
             last_error_code = NULL,
             updated_at = EXCLUDED.updated_at
-        RETURNING request_id, attempt_count, lease_expires_at
+        RETURNING request_id, attempt_count, transient_failure_count, lease_expires_at
       )
       UPDATE memory_candidate_requests request
       SET status = 'CLAIMED',
@@ -72,6 +74,7 @@ export class DrizzleMemoryWorkRepository implements MemoryWorkRepository {
         request.source_conversation_message_id::text AS source_conversation_message_id,
         request.instruction,
         work_state.attempt_count,
+        work_state.transient_failure_count,
         work_state.lease_expires_at
     `);
 
@@ -135,6 +138,62 @@ export class DrizzleMemoryWorkRepository implements MemoryWorkRepository {
     return result.rows.length === 1;
   }
 
+  async markFailed(
+    requestId: number,
+    attemptCount: number,
+    failedAt: Date,
+    errorCode: string,
+  ): Promise<boolean> {
+    const result = await this.db.execute(sql`
+      WITH owned AS MATERIALIZED (
+        SELECT request.id, request.origin, request.extraction_batch_id
+        FROM memory_candidate_requests request
+        JOIN memory_request_work_states work ON work.request_id = request.id
+        WHERE request.id = ${requestId}
+          AND request.status = 'CLAIMED'
+          AND work.attempt_count = ${attemptCount}
+        FOR UPDATE OF request, work
+      ),
+      failed_work AS (
+        UPDATE memory_request_work_states work
+        SET completed_at = ${failedAt},
+            lease_expires_at = NULL,
+            last_error_code = ${errorCode},
+            updated_at = ${failedAt}
+        FROM owned
+        WHERE work.request_id = owned.id
+        RETURNING work.request_id
+      ),
+      failed_request AS (
+        UPDATE memory_candidate_requests request
+        SET status = 'FAILED',
+            last_error_code = ${errorCode},
+            updated_at = ${failedAt}
+        FROM failed_work, owned
+        WHERE request.id = failed_work.request_id
+          AND request.id = owned.id
+        RETURNING request.id, request.origin, request.extraction_batch_id
+      ),
+      failed_batch AS (
+        UPDATE conversation_extraction_batches batch
+        SET status = 'FAILED',
+            active_claim_key = NULL,
+            completed_at = ${failedAt},
+            lease_expires_at = ${failedAt},
+            last_error_code = ${errorCode},
+            updated_at = ${failedAt}
+        FROM failed_request request
+        WHERE request.origin = 'AUTOMATIC'
+          AND request.extraction_batch_id IS NOT NULL
+          AND batch.id = request.extraction_batch_id
+          AND batch.status = 'CLAIMED'
+        RETURNING batch.id
+      )
+      SELECT id FROM failed_request
+    `);
+    return result.rows.length === 1;
+  }
+
   async deferFailure(
     requestId: number,
     attemptCount: number,
@@ -170,6 +229,43 @@ export class DrizzleMemoryWorkRepository implements MemoryWorkRepository {
     `);
     return result.rows.length === 1;
   }
+
+  async deferTransientFailure(
+    requestId: number,
+    attemptCount: number,
+    retryAt: Date,
+    errorCode: string,
+  ): Promise<boolean> {
+    const result = await this.db.execute(sql`
+      WITH owned AS MATERIALIZED (
+        SELECT request.id
+        FROM memory_candidate_requests request
+        JOIN memory_request_work_states work ON work.request_id = request.id
+        WHERE request.id = ${requestId}
+          AND request.status = 'CLAIMED'
+          AND work.attempt_count = ${attemptCount}
+        FOR UPDATE OF request, work
+      ),
+      deferred_work AS (
+        UPDATE memory_request_work_states work
+        SET transient_failure_count = work.transient_failure_count + 1,
+            lease_expires_at = ${retryAt},
+            last_error_code = ${errorCode},
+            updated_at = NOW()
+        FROM owned
+        WHERE work.request_id = owned.id
+        RETURNING work.request_id
+      )
+      UPDATE memory_candidate_requests request
+      SET status = 'PENDING',
+          last_error_code = ${errorCode},
+          updated_at = NOW()
+      FROM deferred_work
+      WHERE request.id = deferred_work.request_id
+      RETURNING request.id
+    `);
+    return result.rows.length === 1;
+  }
 }
 
 function mapClaim(row: ClaimRow): ClaimedMemoryRequest {
@@ -183,6 +279,7 @@ function mapClaim(row: ClaimRow): ClaimedMemoryRequest {
       row.source_conversation_message_id === null ? null : Number(row.source_conversation_message_id),
     instruction: row.instruction,
     attemptCount: row.attempt_count,
+    transientFailureCount: row.transient_failure_count,
     leaseExpiresAt: new Date(row.lease_expires_at),
   };
 }

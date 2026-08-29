@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  allocateAiConsumption,
   allocateConsumption,
   allocatePaidReservation,
   formatTwdCostUnits,
@@ -32,6 +33,36 @@ describe('credit allocation', () => {
 
     expect(result.covered).toBe(false);
     expect(formatTwdCostUnits(result.shortfallUnits)).toBe('9.49000000');
+  });
+
+  it('limits WELCOME/AD subsidy globally and falls back to PAID when available', () => {
+    const result = allocateAiConsumption(
+      balances(),
+      parseTwdCostUnits('0.51500000'),
+      parseTwdCostUnits('0.10000000'),
+    );
+
+    expect(result.covered).toBe(true);
+    expect(result.budgetLimited).toBe(true);
+    expect(formatTwdCostUnits(result.freeUnits)).toBe('0.10000000');
+    expect(result.allocations.map((item) => [item.bucket, formatTwdCostUnits(item.units)])).toEqual([
+      ['WELCOME', '0.10000000'],
+      ['PAID', '0.41500000'],
+    ]);
+  });
+
+  it('reports a free-budget shortfall when paid value cannot replace exhausted subsidy', () => {
+    const noPaid = balances();
+    noPaid.PAID.availableUnits = 0n;
+    const result = allocateAiConsumption(
+      noPaid,
+      parseTwdCostUnits('0.51500000'),
+      parseTwdCostUnits('0.10000000'),
+    );
+
+    expect(result.covered).toBe(false);
+    expect(result.budgetLimited).toBe(true);
+    expect(formatTwdCostUnits(result.shortfallUnits)).toBe('0.41500000');
   });
 
   it('reserves reminders from PAID only', () => {

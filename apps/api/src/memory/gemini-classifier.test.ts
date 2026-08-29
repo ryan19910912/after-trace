@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { MemoryClassificationInput } from './classification-input';
 import { GeminiMemoryClassifier } from './gemini-classifier';
+import { MemoryAiExecutionError } from './retry-policy';
 
 const input: MemoryClassificationInput = {
   requestId: 1, groupId: 1, origin: 'EXPLICIT', actorLineUserId: 'U-actor', instruction: '記住',
@@ -24,5 +25,29 @@ describe('GeminiMemoryClassifier', () => {
     const result = await classifier.classify(input);
     expect(result.providerResponseId).toBe('r-1');
     expect(result.tokenUsage).toEqual({ inputTokens: 20, outputTokens: 10 });
+  });
+
+  it('marks invalid credentials as a permanent provider failure', async () => {
+    const classifier = new GeminiMemoryClassifier({
+      apiKey: 'bad-key',
+      model: 'gemini-2.5-flash-lite',
+      fetchFn: vi.fn(async () => new Response('unauthorized', { status: 401 })) as typeof fetch,
+    });
+
+    const error = await classifier.classify(input).catch((value: unknown) => value);
+    expect(error).toBeInstanceOf(MemoryAiExecutionError);
+    expect(error).toMatchObject({ code: 'GEMINI_AUTH_REJECTED', retryable: false });
+  });
+
+  it('marks throttling as retryable for the bounded orchestrator policy', async () => {
+    const classifier = new GeminiMemoryClassifier({
+      apiKey: 'test-key',
+      model: 'gemini-2.5-flash-lite',
+      fetchFn: vi.fn(async () => new Response('slow down', { status: 429 })) as typeof fetch,
+    });
+
+    const error = await classifier.classify(input).catch((value: unknown) => value);
+    expect(error).toBeInstanceOf(MemoryAiExecutionError);
+    expect(error).toMatchObject({ code: 'GEMINI_RATE_LIMITED', retryable: true });
   });
 });
