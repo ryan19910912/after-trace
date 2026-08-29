@@ -87,6 +87,16 @@ export type RewardedAdClaim = {
   units: string;
 };
 
+export type CheckoutProductCode = 'SUBSCRIPTION_V1' | 'PAID_SMALL' | 'PAID_MEDIUM' | 'PAID_LARGE';
+
+export type CheckoutSession = {
+  status: 'READY' | 'ALREADY_READY';
+  checkoutUrl: string;
+  provider: string;
+  providerCheckoutId: string;
+  expiresAt: string | null;
+};
+
 export class ManagementApi {
   constructor(
     private readonly baseUrl: string,
@@ -128,6 +138,14 @@ export class ManagementApi {
 
   async catalog(): Promise<EnergyCatalogResponse> {
     return this.userEnergyRequest<EnergyCatalogResponse>('/catalog');
+  }
+
+  async checkout(productCode: CheckoutProductCode): Promise<CheckoutSession> {
+    const body = await this.userEnergyRequest<{ checkout: CheckoutSession }>('/checkout', {
+      method: 'POST',
+      body: JSON.stringify({ productCode, requestKey: crypto.randomUUID() }),
+    });
+    return body.checkout;
   }
 
   async rewardedAdNonce(): Promise<RewardedAdNonce> {
