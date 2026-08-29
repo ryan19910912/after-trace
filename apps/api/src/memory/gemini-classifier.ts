@@ -57,6 +57,35 @@ const responseJsonSchema = {
   required: ['candidates'],
 } as const;
 
+export function buildGeminiMemoryRequestBody(
+  input: MemoryClassificationInput,
+  maxOutputTokens: number,
+) {
+  const prompt = buildMemoryClassifierPrompt(input);
+  return {
+    systemInstruction: { parts: [{ text: prompt.systemInstruction }] },
+    contents: [{ role: 'user', parts: [{ text: prompt.userPrompt }] }],
+    generationConfig: {
+      responseMimeType: 'application/json',
+      responseJsonSchema,
+      temperature: 0.1,
+      maxOutputTokens,
+    },
+  };
+}
+
+export function memoryClassifierInputTokenUpperBound(
+  input: MemoryClassificationInput,
+  maxOutputTokens: number,
+): number {
+  // The exact serialized provider request includes system instruction, user prompt,
+  // structured response schema and request metadata. UTF-8 byte count is a conservative
+  // upper bound for the number of text tokens represented by those bytes.
+  return new TextEncoder().encode(
+    JSON.stringify(buildGeminiMemoryRequestBody(input, maxOutputTokens)),
+  ).byteLength;
+}
+
 export class GeminiMemoryClassifier implements MemoryClassifierPort {
   private readonly fetchFn: typeof fetch;
   private readonly endpoint: string;
@@ -80,7 +109,7 @@ export class GeminiMemoryClassifier implements MemoryClassifierPort {
   }
 
   async classify(input: MemoryClassificationInput): Promise<MemoryClassifierResponse> {
-    const prompt = buildMemoryClassifierPrompt(input);
+    const requestBody = buildGeminiMemoryRequestBody(input, this.options.maxOutputTokens);
     const startedAt = Date.now();
     let response: Response;
     try {
@@ -92,16 +121,7 @@ export class GeminiMemoryClassifier implements MemoryClassifierPort {
             'content-type': 'application/json',
             'x-goog-api-key': this.options.apiKey,
           },
-          body: JSON.stringify({
-            systemInstruction: { parts: [{ text: prompt.systemInstruction }] },
-            contents: [{ role: 'user', parts: [{ text: prompt.userPrompt }] }],
-            generationConfig: {
-              responseMimeType: 'application/json',
-              responseJsonSchema,
-              temperature: 0.1,
-              maxOutputTokens: this.options.maxOutputTokens,
-            },
-          }),
+          body: JSON.stringify(requestBody),
         },
       );
     } catch {
@@ -178,6 +198,13 @@ export class GeminiMemoryClassifier implements MemoryClassifierPort {
         'GEMINI_INVALID_RESPONSE',
         true,
         'Gemini response is missing valid output token usage',
+      );
+    }
+    if (inputTokens > memoryClassifierInputTokenUpperBound(input, this.options.maxOutputTokens)) {
+      throw new MemoryAiExecutionError(
+        'GEMINI_INVALID_RESPONSE',
+        true,
+        'Gemini reported input usage above conservative request-byte bound',
       );
     }
     if (outputTokens > this.options.maxOutputTokens) {
