@@ -196,6 +196,22 @@ export class DrizzleExtractionClaimRepository implements ExtractionClaimReposito
     return result.rows.length > 0;
   }
 
+  async markTerminalSkipped(batchId: number, completedAt: Date, errorCode: string): Promise<boolean> {
+    const result = await this.db.execute(sql`
+      UPDATE conversation_extraction_batches
+      SET status = 'FAILED',
+          active_claim_key = NULL,
+          completed_at = ${completedAt},
+          updated_at = ${completedAt},
+          last_error_code = ${errorCode}
+      WHERE id = ${batchId}
+        AND status = 'CLAIMED'
+        AND active_claim_key = 'OPEN'
+      RETURNING id
+    `);
+    return result.rows.length > 0;
+  }
+
   async deferFailure(batchId: number, retryAt: Date, errorCode: string): Promise<boolean> {
     const result = await this.db.execute(sql`
       UPDATE conversation_extraction_batches
