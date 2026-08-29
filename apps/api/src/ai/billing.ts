@@ -1,19 +1,11 @@
 import { parseTwdCostUnits } from '../credits/allocation';
-import type {
-  CreditLedgerMutation,
-  CreditReference,
-} from '../credits/ledger';
+import type { CreditLedgerMutation, CreditReference } from '../credits/ledger';
 import type { AiUsageRepository, BillableAiUsage } from './usage';
 
 export type UnchargedAiUsage = Omit<BillableAiUsage, 'chargeOperationId'>;
 
 export interface AiBillingCreditPort {
-  consume(
-    groupId: number,
-    amountUnits: bigint,
-    reference: CreditReference,
-    at?: Date,
-  ): Promise<CreditLedgerMutation>;
+  consume(groupId: number, amountUnits: bigint, reference: CreditReference, at?: Date): Promise<CreditLedgerMutation>;
 }
 
 export type AiBillingResult =
@@ -30,36 +22,22 @@ export class AiBillingService {
   async chargeAndRecord(
     usage: UnchargedAiUsage,
     reference: CreditReference,
+    chargeAt = usage.createdAt,
   ): Promise<AiBillingResult> {
     const charge = await this.credits.consume(
       usage.groupId,
       parseTwdCostUnits(usage.chargedCostTwd),
       reference,
-      usage.createdAt,
+      chargeAt,
     );
-
-    if (charge.status === 'INSUFFICIENT') {
-      return { status: 'INSUFFICIENT_CREDIT' };
-    }
-    if (charge.status === 'REFERENCE_CONFLICT') {
-      return { status: 'CREDIT_REFERENCE_CONFLICT' };
-    }
+    if (charge.status === 'INSUFFICIENT') return { status: 'INSUFFICIENT_CREDIT' };
+    if (charge.status === 'REFERENCE_CONFLICT') return { status: 'CREDIT_REFERENCE_CONFLICT' };
     if (charge.status !== 'APPLIED' && charge.status !== 'ALREADY_APPLIED') {
       throw new Error(`unexpected credit status for AI usage: ${charge.status}`);
     }
-    if (charge.operationId === null) {
-      throw new Error('credit operation id is required before AI usage persistence');
-    }
+    if (charge.operationId === null) throw new Error('credit operation id is required before AI usage persistence');
 
-    const usageRecord = await this.usageRepository.record({
-      ...usage,
-      chargeOperationId: charge.operationId,
-    });
-
-    return {
-      status: 'BILLED',
-      operationId: charge.operationId,
-      usageRecord,
-    };
+    const usageRecord = await this.usageRepository.record({ ...usage, chargeOperationId: charge.operationId });
+    return { status: 'BILLED', operationId: charge.operationId, usageRecord };
   }
 }
