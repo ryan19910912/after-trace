@@ -18,8 +18,7 @@ export class DrizzleAdminRepository {
   constructor(private readonly db: Database) {}
 
   async overview(at = new Date()): Promise<AdminOverview> {
-    const dayStart = new Date(at);
-    dayStart.setUTCHours(0, 0, 0, 0);
+    const dayStart = taipeiDayStart(at);
     const result = await this.db.execute(sql`
       SELECT
         (SELECT COUNT(*) FROM line_users)::text AS users,
@@ -222,4 +221,10 @@ export class DrizzleAdminRepository {
     `);
     return result.rows.length === 1;
   }
+}
+
+function taipeiDayStart(at: Date): Date {
+  const shifted = new Date(at.getTime() + 8 * 60 * 60 * 1000);
+  shifted.setUTCHours(0, 0, 0, 0);
+  return new Date(shifted.getTime() - 8 * 60 * 60 * 1000);
 }
