@@ -211,9 +211,7 @@ app.post('/webhooks/line', async (c) => {
       else blockedMemoryRequests += 1;
     }
 
-    if (result.threshold.extractionDue) {
-      extractionCandidates += 1;
-    }
+    if (result.threshold.extractionDue) extractionCandidates += 1;
 
     const claim = await extractionCoordinator.claimDueBatch(result.groupId, message.lineTimestamp);
     if (claim) {
@@ -229,9 +227,7 @@ app.post('/webhooks/line', async (c) => {
           claim.id,
           message.lineTimestamp,
         );
-        if (!closed) {
-          throw new Error('Failed to terminally close no-eligible extraction batch');
-        }
+        if (!closed) throw new Error('Failed to terminally close no-eligible extraction batch');
         extractionNoEligibleSkips += 1;
         console.log(
           JSON.stringify({
@@ -244,9 +240,26 @@ app.post('/webhooks/line', async (c) => {
         continue;
       }
 
+      const eligibleByLineId = new Map(
+        participants
+          .filter((participant) => participant.availableEnergyUnits > 0n && participant.normalizedCharCount > 0)
+          .map((participant) => [participant.lineUserId, participant]),
+      );
+      const eligibleSubjects = preflight.participants.map((participant) => {
+        const snapshot = eligibleByLineId.get(participant.lineUserId);
+        if (!snapshot) throw new Error('eligible background participant snapshot disappeared');
+        return {
+          userId: snapshot.userId,
+          lineUserId: snapshot.lineUserId,
+          normalizedCharCount: snapshot.normalizedCharCount,
+          preflightAvailableUnits: snapshot.availableEnergyUnits,
+        };
+      });
+
       const automaticRequest = await automaticMemoryRequestService.ensureForExtractionBatch(
         result.groupId,
         claim.id,
+        eligibleSubjects,
         message.lineTimestamp,
       );
       if (automaticRequest.created) automaticMemoryRequests += 1;
@@ -257,7 +270,7 @@ app.post('/webhooks/line', async (c) => {
           extractionBatchId: claim.id,
           memoryRequestId: automaticRequest.id,
           memoryRequestCreated: automaticRequest.created,
-          eligibleParticipantCount: preflight.participants.length,
+          eligibleParticipantCount: eligibleSubjects.length,
           messageCount: claim.messageCount,
           charCount: claim.charCount,
           attemptCount: claim.attemptCount,
