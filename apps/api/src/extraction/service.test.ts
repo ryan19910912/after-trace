@@ -13,6 +13,7 @@ class FakeRepository implements ExtractionClaimRepository {
     | { groupId: number; now: Date; leaseUntil: Date; thresholds: ExtractionClaimThresholds }
     | undefined;
   succeeded: number[] = [];
+  skipped: Array<{ batchId: number; completedAt: Date; errorCode: string }> = [];
   deferred: Array<{ batchId: number; retryAt: Date; errorCode: string }> = [];
 
   async claimDueBatch(
@@ -27,6 +28,11 @@ class FakeRepository implements ExtractionClaimRepository {
 
   async markSucceeded(batchId: number): Promise<boolean> {
     this.succeeded.push(batchId);
+    return true;
+  }
+
+  async markTerminalSkipped(batchId: number, completedAt: Date, errorCode: string): Promise<boolean> {
+    this.skipped.push({ batchId, completedAt, errorCode });
     return true;
   }
 
@@ -54,6 +60,20 @@ describe('ConversationExtractionCoordinator', () => {
         largeMessageChars: 2_000,
       },
     });
+  });
+
+  it('terminally closes a batch that has no eligible Energy participant', async () => {
+    const repository = new FakeRepository();
+    const coordinator = new ConversationExtractionCoordinator(repository, defaultProductConfig);
+    const completedAt = new Date('2026-08-29T04:03:00Z');
+
+    await coordinator.markNoEligibleParticipant(8, completedAt);
+
+    expect(repository.skipped).toEqual([{
+      batchId: 8,
+      completedAt,
+      errorCode: 'NO_ELIGIBLE_ENERGY_PARTICIPANT',
+    }]);
   });
 
   it('normalizes failure codes before persistence', async () => {
