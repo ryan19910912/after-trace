@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
 import type { EnergyBucket, EnergyLot } from './model';
-import type { EnergyGrantRequest } from './products';
+import { lifetimeFreeGrant, type EnergyGrantRequest } from './products';
 
 export type EnergyGrantResult = {
   status: 'GRANTED' | 'ALREADY_GRANTED' | 'REFERENCE_CONFLICT' | 'USER_NOT_FOUND';
@@ -30,6 +30,29 @@ function dateValue(value: string | Date | null): Date | null {
 
 export class DrizzleUserEnergyRepository {
   constructor(private readonly db: Database) {}
+
+  async findUserId(lineUserId: string): Promise<number | null> {
+    const normalized = lineUserId.trim();
+    if (!normalized) return null;
+    const result = await this.db.execute(sql`
+      SELECT id::text AS id
+      FROM line_users
+      WHERE line_user_id = ${normalized}
+      LIMIT 1
+    `);
+    const id = (result.rows[0] as { id?: string } | undefined)?.id;
+    return id ? Number(id) : null;
+  }
+
+  async ensureLifetimeFreeForLineUser(
+    lineUserId: string,
+    units: bigint | null,
+  ): Promise<EnergyGrantResult | { status: 'DISABLED'; lotId: null; operationId: null }> {
+    if (units === null) return { status: 'DISABLED', lotId: null, operationId: null };
+    const userId = await this.findUserId(lineUserId);
+    if (userId === null) return { status: 'USER_NOT_FOUND', lotId: null, operationId: null };
+    return this.grant(lifetimeFreeGrant(userId, units));
+  }
 
   async listUsableLots(userId: number, at: Date): Promise<EnergyLot[]> {
     const result = await this.db.execute(sql`
