@@ -213,7 +213,7 @@ describe('MemoryAiOrchestrator', () => {
   it('classifies provider configuration failures as terminal', async () => {
     const { service, work } = setup({
       result: null,
-      classifierError: new MemoryAiExecutionError('AI_AUTH_INVALID', false),
+      classifierError: new MemoryAiExecutionError('AI_AUTH_INVALID', false, 'auth invalid'),
     });
     await expect(service.runNextForGroup(4, now)).resolves.toEqual({
       status: 'FAILED', requestId: 9, errorCode: 'AI_AUTH_INVALID',
