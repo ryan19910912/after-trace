@@ -58,6 +58,16 @@ function createService(
     new ExtractionBatchInputService(extraction),
     sources,
     new MemoryCandidatePipeline(candidateRepository),
+    {
+      listForRequest: vi.fn(async () => [
+        {
+          userId: 1,
+          lineUserId: 'user-1',
+          normalizedCharCount: 8,
+          preflightAvailableUnits: 100n,
+        },
+      ]),
+    },
   );
 }
 
@@ -72,9 +82,10 @@ describe('MemoryClassificationInputService', () => {
     expect(input.currentMessages).toEqual([sourceMessage]);
     expect(input.previousContext).toBeNull();
     expect(input.activeMemories.map((memory) => memory.id)).toEqual([90]);
+    expect(input.eligibleSubjectLineUserIds).toEqual(['user-1']);
   });
 
-  it('loads current + previous extraction context for an automatic request', async () => {
+  it('loads current + previous extraction context and snapshotted eligible subjects', async () => {
     const previous = { ...sourceMessage, id: 10, lineMessageId: 'line-10' };
     const input = await createService(
       {
@@ -99,6 +110,7 @@ describe('MemoryClassificationInputService', () => {
     expect(input.origin).toBe('AUTOMATIC');
     expect(input.currentMessages).toEqual([sourceMessage]);
     expect(input.previousContext?.messages).toEqual([previous]);
+    expect(input.eligibleSubjectLineUserIds).toEqual(['user-1']);
   });
 
   it('rejects an extraction batch from another group', async () => {
