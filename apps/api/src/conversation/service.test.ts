@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { defaultProductConfig } from '../config/product';
-import type { BufferedGroupMessage } from '../line/events';
+import type { BufferedGroupMessage, GroupLifecycleEvent } from '../line/events';
 import {
   ConversationIngestionService,
   type ConversationRepository,
@@ -32,6 +32,8 @@ class FakeConversationRepository implements ConversationRepository {
   async touchGroupMember(_groupId: number, lineUserId: string, seenAt: Date): Promise<void> {
     this.seenMembers.push({ lineUserId, seenAt });
   }
+
+  async markGroupMembersInactive(): Promise<void> {}
 
   async insertMessage(_groupId: number, message: BufferedGroupMessage): Promise<boolean> {
     if (this.insertedMessageIds.has(message.lineMessageId)) return false;
@@ -65,6 +67,16 @@ function message(id = 'msg-1'): BufferedGroupMessage {
     quoteToken: null,
     lineTimestamp: new Date('2026-08-29T00:00:00Z'),
     metadata: null,
+  };
+}
+
+function lifecycle(type: GroupLifecycleEvent['type']): GroupLifecycleEvent {
+  return {
+    webhookEventId: 'evt-lifecycle',
+    lineGroupId: 'group-1',
+    type,
+    lineUserIds: [],
+    lineTimestamp: new Date('2026-08-29T00:00:00Z'),
   };
 }
 
@@ -102,7 +114,7 @@ describe('ConversationIngestionService', () => {
     const repository = new FakeConversationRepository();
     const service = new ConversationIngestionService(repository, defaultProductConfig);
 
-    await service.handleLifecycle('group-1', 'LEAVE', new Date());
+    await service.handleLifecycle(lifecycle('LEAVE'));
     const result = await service.ingest(message('late-message'));
 
     expect(result).toEqual({ status: 'IGNORED_INACTIVE' });
@@ -115,10 +127,10 @@ describe('ConversationIngestionService', () => {
     const repository = new FakeConversationRepository();
     const service = new ConversationIngestionService(repository, defaultProductConfig);
 
-    await service.handleLifecycle('group-1', 'LEAVE', new Date());
+    await service.handleLifecycle(lifecycle('LEAVE'));
     expect(repository.group.status).toBe('INACTIVE');
 
-    await service.handleLifecycle('group-1', 'JOIN', new Date());
+    await service.handleLifecycle(lifecycle('JOIN'));
     expect(repository.group.status).toBe('ACTIVE');
   });
 });
