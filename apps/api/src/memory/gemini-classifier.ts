@@ -12,6 +12,7 @@ import { MemoryAiExecutionError } from './retry-policy';
 export type GeminiClassifierOptions = {
   apiKey: string;
   model: string;
+  maxOutputTokens: number;
   endpoint?: string;
   fetchFn?: typeof fetch;
 };
@@ -62,17 +63,16 @@ export class GeminiMemoryClassifier implements MemoryClassifierPort {
 
   constructor(private readonly options: GeminiClassifierOptions) {
     if (!options.apiKey.trim()) {
-      throw new MemoryAiExecutionError(
-        'GEMINI_CONFIG_INVALID',
-        false,
-        'Gemini API key is required',
-      );
+      throw new MemoryAiExecutionError('GEMINI_CONFIG_INVALID', false, 'Gemini API key is required');
     }
     if (!options.model.trim()) {
+      throw new MemoryAiExecutionError('GEMINI_CONFIG_INVALID', false, 'Gemini model is required');
+    }
+    if (!Number.isSafeInteger(options.maxOutputTokens) || options.maxOutputTokens <= 0) {
       throw new MemoryAiExecutionError(
         'GEMINI_CONFIG_INVALID',
         false,
-        'Gemini model is required',
+        'Gemini Memory maxOutputTokens must be a positive safe integer',
       );
     }
     this.fetchFn = options.fetchFn ?? fetch;
@@ -99,6 +99,7 @@ export class GeminiMemoryClassifier implements MemoryClassifierPort {
               responseMimeType: 'application/json',
               responseJsonSchema,
               temperature: 0.1,
+              maxOutputTokens: this.options.maxOutputTokens,
             },
           }),
         },
@@ -177,6 +178,13 @@ export class GeminiMemoryClassifier implements MemoryClassifierPort {
         'GEMINI_INVALID_RESPONSE',
         true,
         'Gemini response is missing valid output token usage',
+      );
+    }
+    if (outputTokens > this.options.maxOutputTokens) {
+      throw new MemoryAiExecutionError(
+        'GEMINI_INVALID_RESPONSE',
+        true,
+        'Gemini reported output usage above configured Memory maxOutputTokens',
       );
     }
 
