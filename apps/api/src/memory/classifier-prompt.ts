@@ -7,6 +7,7 @@ export type MemoryClassifierPrompt = {
 
 export function buildMemoryClassifierPrompt(input: MemoryClassificationInput): MemoryClassifierPrompt {
   const currentSourceIds = input.currentMessages.map((message) => message.id);
+  const speakerAliases = buildSpeakerAliases(input);
 
   const systemInstruction = [
     'You are AFTERTRACE memory classification for one LINE group.',
@@ -27,11 +28,15 @@ export function buildMemoryClassifierPrompt(input: MemoryClassificationInput): M
       instruction: input.instruction,
       allowedSourceConversationMessageIds: currentSourceIds,
     },
-    currentMessages: input.currentMessages.map(toPromptMessage),
+    currentMessages: input.currentMessages.map((message) =>
+      toPromptMessage(message, speakerAliases),
+    ),
     previousContext: input.previousContext
       ? {
           batchId: input.previousContext.batchId,
-          messages: input.previousContext.messages.map(toPromptMessage),
+          messages: input.previousContext.messages.map((message) =>
+            toPromptMessage(message, speakerAliases),
+          ),
         }
       : null,
     activeMemories: input.activeMemories.map((memory) => ({
@@ -45,10 +50,26 @@ export function buildMemoryClassifierPrompt(input: MemoryClassificationInput): M
   return { systemInstruction, userPrompt: JSON.stringify(payload) };
 }
 
-function toPromptMessage(message: MemoryClassificationInput['currentMessages'][number]) {
+function buildSpeakerAliases(input: MemoryClassificationInput): Map<string, string> {
+  const aliases = new Map<string, string>();
+  const messages = [
+    ...input.currentMessages,
+    ...(input.previousContext?.messages ?? []),
+  ];
+  for (const message of messages) {
+    if (!message.lineUserId || aliases.has(message.lineUserId)) continue;
+    aliases.set(message.lineUserId, `speaker-${aliases.size + 1}`);
+  }
+  return aliases;
+}
+
+function toPromptMessage(
+  message: MemoryClassificationInput['currentMessages'][number],
+  speakerAliases: Map<string, string>,
+) {
   return {
     id: message.id,
-    lineUserId: message.lineUserId,
+    speaker: message.lineUserId ? (speakerAliases.get(message.lineUserId) ?? null) : null,
     messageType: message.messageType,
     textContent: message.textContent,
     quotedLineMessageId: message.quotedLineMessageId,
