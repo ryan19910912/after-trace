@@ -17,12 +17,6 @@ export type ManagedReminder = {
   status: 'SCHEDULED' | 'DISPATCHING' | 'CANCELLED' | 'DELIVERED';
 };
 
-export type Overview = {
-  buckets: Record<'WELCOME' | 'AD' | 'PAID', { hasAvailable: boolean; hasReserved: boolean }>;
-  aiUsageCount: number;
-  rewardedAd: { grantCountToday: number; lastAcceptedAt: string | null };
-};
-
 export type EnergyBucket = 'FREE' | 'SUBSCRIPTION' | 'AD' | 'PAID';
 
 export type PrivateEnergyOverview = {
@@ -93,13 +87,6 @@ export type RewardedAdClaim = {
   units: string;
 };
 
-export type Capabilities = {
-  rewardedAdClaimEnabled: boolean;
-  rewardedAdDailyLimit: number;
-  rewardedAdCooldownMinutes: number;
-  reminderCreationEnabled: boolean;
-};
-
 export class ManagementApi {
   constructor(
     private readonly baseUrl: string,
@@ -132,10 +119,6 @@ export class ManagementApi {
     const body = (await response.json()) as { ok?: boolean; error?: string } & T;
     if (!response.ok) throw new Error(body.error || `Energy API request failed: ${response.status}`);
     return body;
-  }
-
-  async overview(): Promise<{ overview: Overview; capabilities: Capabilities }> {
-    return this.managementRequest('/overview');
   }
 
   async energy(): Promise<PrivateEnergyOverview> {
