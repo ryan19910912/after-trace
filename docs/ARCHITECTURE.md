@@ -25,6 +25,7 @@ Cloudflare Worker / Hono
    |-- explicit @AI memory requests
    |-- automatic memory requests
    |-- memory request claim / lease
+   |-- grounded classifier input + structured validation
    |-- memory candidate classification + persistence
    |
    +--> Neon PostgreSQL
@@ -69,6 +70,20 @@ Processing ownership is separate from request identity. `memory_request_work_sta
 
 When an AUTOMATIC request is successfully completed, its request state and the owning `conversation_extraction_batches` row are completed in the same PostgreSQL statement. This prevents a crash gap where memory persistence succeeds but the extraction batch remains claimable.
 
+## Memory classifier grounding
+
+Both request origins now build the same `MemoryClassificationInput` envelope before a model can be called.
+
+- EXPLICIT requests contain the resolved source conversation row, the user's instruction, and current Group-scoped active memories.
+- AUTOMATIC requests contain the claimed extraction batch, the previous successful batch as context, and the same Group-scoped active memories.
+- Previous-batch rows are context only. They are never valid `sourceConversationMessageId` values for newly emitted candidates.
+- Classifier output may target only ids from the Group's current ACTIVE memories.
+- Candidate indexes must be stable (`candidateIndex === array index`) because `(request_id, candidate_index)` is the persistence idempotency key.
+
+The model-facing prompt does not expose raw LINE user ids. Per-request ephemeral aliases (`speaker-1`, `speaker-2`, ...) preserve speaker continuity across current and previous context while avoiding unnecessary stable platform identifiers in the provider payload.
+
+The classifier contract is strict Zod structured output. Unknown fields, invalid decisions, invalid target shapes, hallucinated source ids, hallucinated active-memory ids, and unstable candidate indexes are rejected before memory mutation.
+
 ## Memory candidate persistence
 
 The classifier is allowed to emit only `NEW`, `DUPLICATE`, `UPDATE`, or `CONTRADICT`.
@@ -84,7 +99,7 @@ Candidate persistence validates that both the source conversation row and any ta
 
 Every candidate outcome writes an audit event: `MEMORY_CREATED`, `MEMORY_DUPLICATE_SKIPPED`, `MEMORY_UPDATED`, or `MEMORY_CONTRADICTED`.
 
-Gemini remains downstream of this ownership/persistence boundary. It must not be enabled until the structured classifier adapter, runtime pricing/FX inputs, credit charge and AI usage persistence are wired into one retry-safe orchestration path.
+Gemini remains downstream of this ownership/persistence boundary. It must not be enabled until the structured classifier adapter, durable validated model-result reuse, runtime pricing/FX inputs, credit charge and AI usage persistence are wired into one retry-safe orchestration path.
 
 ## Credit and AI-cost safety
 
@@ -99,6 +114,8 @@ Reminder reservations use `RESERVED -> CONSUMED` on successful delivery or `RESE
 A successful PAID grant marks the Group `hasPaid=true`, which later drives retention policy.
 
 Every billable AI usage event records provider/model, token counts, input/output USD-per-million-token pricing snapshot, USD/TWD conversion snapshot, USD cost, TWD cost and actual charged TWD. AI billing is retry-safe by tying usage persistence to the logical credit operation id.
+
+Provider token prices and USD/TWD FX are runtime configuration, not memory-domain constants. Billable AI remains disabled when these snapshots are missing, preventing silent use of stale hard-coded pricing.
 
 ## Portability and scale
 
