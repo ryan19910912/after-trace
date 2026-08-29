@@ -5,13 +5,17 @@ The Admin is intentionally a single-operator internal ops console. It is not a c
 ## What it includes
 
 - Overview: User/Group counts, today's AI calls/cost, Platform Subsidy, failed AI work, active Reminder/Proactive counts.
-- Users: search by numeric id or LINE user id; inspect private Energy lots, subscription, PAID purchases, Rewarded Ad claims, AI usage and Reminder history.
-- Groups: search by numeric id or LINE group id; inspect current members, active memories, extraction batches, Reminder and Proactive state.
+- Users: inspect private Energy lots, subscription, PAID purchases, Rewarded Ad claims, AI usage and Reminder history.
+- Groups: inspect members, active memories, extraction batches, Reminder and Proactive state.
 - Failures: failed Memory requests, explicit chat failures and Proactive failures.
-- Audit: recent `audit_logs` rows.
-- Mutations are intentionally narrow: retry a FAILED Memory request and cancel a still-SCHEDULED Proactive Push.
+- Settings: edit mutable operational product configuration stored in Neon.
+- Audit: recent domain audit rows. Setting changes additionally persist immutable before/after history in `operational_setting_changes`.
 
-No Admin endpoint directly edits Energy lots, subscription state or payment status.
+Settings covers AI model/pricing/token bounds, FX, Energy conversion and FREE amount, subscription/PAID amounts and prices, Rewarded Ad amount/limits, AI safety budgets and retention timing. Updates are validated server-side and become authoritative for subsequent Worker requests without a deployment.
+
+Infrastructure and credentials are intentionally NOT editable from Admin: `DATABASE_URL`, LINE secrets/tokens, `GEMINI_API_KEY`, payment/webhook secrets, Cloudflare Access configuration, provider endpoint URLs and other trust-boundary values remain Cloudflare variables/secrets.
+
+Completed purchase/cycle/AI usage records continue to keep their transaction/pricing snapshots; changing current Settings never rewrites historical financial records.
 
 ## Architecture
 
@@ -22,64 +26,41 @@ Browser
   -> same-origin Pages Function /api/v1/admin/*
   -> AFTERTRACE Worker /api/v1/admin/*
   -> verify Cloudflare Access JWT again
-  -> Neon
+  -> Neon operational_settings + product data
 ```
 
-The frontend contains no Admin secret. The Pages Function forwards the signed `Cf-Access-Jwt-Assertion` supplied by Cloudflare Access. The Worker validates:
-
-- RS256 signature against the Cloudflare Access JWK set;
-- issuer / team domain;
-- Access application audience;
-- expiration/not-before;
-- exact `ADMIN_ALLOWED_EMAIL`.
+The frontend contains no Admin secret. The Pages Function forwards the signed `Cf-Access-Jwt-Assertion` supplied by Cloudflare Access. The Worker validates RS256 signature, issuer/team domain, Access application audience, time validity and exact `ADMIN_ALLOWED_EMAIL`.
 
 ## Cloudflare Pages setup
 
 Create a separate Pages project pointing at this repository.
 
-Recommended build configuration:
-
 - Root directory: repository root
 - Build command: `pnpm install --no-frozen-lockfile && pnpm --filter @aftertrace/admin build`
 - Build output directory: `apps/admin/dist`
-
-Pages runtime environment variable:
-
-- `ADMIN_API_ORIGIN=https://<your-aftertrace-worker-host>`
+- Pages runtime variable: `ADMIN_API_ORIGIN=https://<your-aftertrace-worker-host>`
 
 `ADMIN_API_ORIGIN` is read only by the Pages Function and must use HTTPS.
 
 ## Cloudflare Access setup
 
-Protect the Admin Pages custom hostname with a Cloudflare Access self-hosted application.
-
-Policy: allow only the operator account/email intended for AFTERTRACE Admin.
-
-Record the Access application AUD tag and configure the Worker:
+Protect the Admin Pages hostname with a Cloudflare Access self-hosted application. Allow only the intended operator account/email, then configure Worker:
 
 - `CLOUDFLARE_ACCESS_TEAM_DOMAIN=<team>.cloudflareaccess.com`
 - `CLOUDFLARE_ACCESS_AUD=<Access application AUD tag>`
 - `ADMIN_ALLOWED_EMAIL=<your admin email>`
 - `ADMIN_WEB_ORIGIN=https://<admin-pages-host>`
 
-The Worker Admin API remains cryptographically protected even if its route is called directly; the Pages proxy is for a simple same-origin browser experience, not the sole security boundary.
+The Worker Admin API remains cryptographically protected even if its route is called directly.
 
 ## Local development
 
-The production Admin requires a real Cloudflare Access JWT, so local calls to the protected Worker Admin API are intentionally not bypassed by a development password.
-
-For UI-only work, run:
-
-```bash
-pnpm dev:admin
-```
-
-For end-to-end Admin testing, use a non-production Pages/Access environment with its own Access application AUD and test operator email.
+For UI-only work run `pnpm dev:admin`. Production Admin requires a real Cloudflare Access JWT; there is intentionally no development password bypass.
 
 ## Security rules
 
-- Do not add a hard-coded Admin token to Vite environment variables; Vite variables are browser-visible.
-- Do not expose Energy mutation or subscription/payment mutation endpoints just for convenience.
-- Any future write action must use an existing domain service/ledger and leave an audit trail.
-- Keep the Admin Pages hostname behind Access and `noindex`.
+- Never put Admin secrets in Vite variables.
+- Settings may change product economics but cannot directly mutate User Energy lots, subscription state or payment status.
+- Every Settings write records before/after value and operator identity.
+- Keep Admin Pages behind Access and `noindex`.
 - Keep `ADMIN_API_ORIGIN` on HTTPS.
