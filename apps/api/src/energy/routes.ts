@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
-import { resolveProductConfig, type ProductConfigEnv } from '../config/product';
+import { resolveCommerceCatalog, type CommerceCatalogEnv } from '../commerce/catalog';
+import { resolveProductConfig } from '../config/product';
 import { createDatabase } from '../db/client';
 import { LineLiffUserSessionVerifier } from '../management/session';
 import { DrizzlePrivateEnergyOverviewRepository, serializePrivateEnergyOverview } from './private-overview';
@@ -10,7 +11,7 @@ import {
   UserRewardedAdService,
 } from './rewarded-ad';
 
-export type EnergyRouteBindings = ProductConfigEnv & {
+export type EnergyRouteBindings = CommerceCatalogEnv & {
   DATABASE_URL: string;
   LIFF_CHANNEL_ID: string;
   LIFF_WEB_ORIGIN?: string;
@@ -26,12 +27,8 @@ export function createEnergyRoutes() {
   app.use('*', async (c, next) => {
     const origin = c.req.header('origin');
     const allowedOrigin = c.env.LIFF_WEB_ORIGIN?.trim();
-    if (origin && !allowedOrigin) {
-      return c.json({ ok: false, error: 'LIFF_WEB_ORIGIN_NOT_CONFIGURED' }, 503);
-    }
-    if (origin && origin !== allowedOrigin) {
-      return c.json({ ok: false, error: 'ORIGIN_NOT_ALLOWED' }, 403);
-    }
+    if (origin && !allowedOrigin) return c.json({ ok: false, error: 'LIFF_WEB_ORIGIN_NOT_CONFIGURED' }, 503);
+    if (origin && origin !== allowedOrigin) return c.json({ ok: false, error: 'ORIGIN_NOT_ALLOWED' }, 403);
     await next();
     if (origin && origin === allowedOrigin) {
       c.header('Access-Control-Allow-Origin', origin);
@@ -54,13 +51,26 @@ export function createEnergyRoutes() {
   app.get('/me', async (c) => {
     const user = await authorizeUser(c.env.LIFF_CHANNEL_ID, c.req.header('authorization'));
     if ('error' in user) return c.json({ ok: false, error: user.error }, user.status);
-
-    const repository = new DrizzlePrivateEnergyOverviewRepository(
+    const overview = await new DrizzlePrivateEnergyOverviewRepository(
       createDatabase(c.env.DATABASE_URL),
-    );
-    const overview = await repository.load(user.lineUserId, new Date());
+    ).load(user.lineUserId, new Date());
     if (!overview) return c.json({ ok: false, error: 'ENERGY_USER_NOT_FOUND' }, 404);
     return c.json({ ok: true, energy: serializePrivateEnergyOverview(overview) });
+  });
+
+  app.get('/catalog', async (c) => {
+    const user = await authorizeUser(c.env.LIFF_CHANNEL_ID, c.req.header('authorization'));
+    if ('error' in user) return c.json({ ok: false, error: user.error }, user.status);
+    return c.json({
+      ok: true,
+      catalog: resolveCommerceCatalog(c.env),
+      rewardedAd: {
+        enabled: rewardedAdService(c.env) !== null,
+        energyUnits: resolveProductConfig(c.env).energy.rewardedAdUnits?.toString() ?? null,
+        dailyLimit: resolveProductConfig(c.env).credits.rewardedAdDailyLimit,
+        cooldownMinutes: resolveProductConfig(c.env).credits.rewardedAdCooldownMinutes,
+      },
+    });
   });
 
   app.post('/rewarded-ad/nonce', async (c) => {
@@ -89,9 +99,7 @@ export function createEnergyRoutes() {
     } catch {
       return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
     }
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      return c.json({ ok: false, error: 'INVALID_REQUEST' }, 400);
-    }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return c.json({ ok: false, error: 'INVALID_REQUEST' }, 400);
     const record = body as Record<string, unknown>;
     if (typeof record.nonce !== 'string' || typeof record.providerEventId !== 'string') {
       return c.json({ ok: false, error: 'INVALID_REQUEST' }, 400);
@@ -106,13 +114,7 @@ export function createEnergyRoutes() {
     if (result.status === 'POLICY_REJECTED') return c.json({ ok: false, result }, 429);
     if (result.status === 'REFERENCE_CONFLICT') return c.json({ ok: false, result }, 409);
     if (result.status === 'USER_NOT_FOUND') return c.json({ ok: false, result }, 404);
-    return c.json({
-      ok: true,
-      result: {
-        ...result,
-        units: result.units.toString(),
-      },
-    });
+    return c.json({ ok: true, result: { ...result, units: result.units.toString() } });
   });
 
   return app;
@@ -139,8 +141,7 @@ async function authorizeUser(
   liffChannelId: string,
   authorizationHeader: string | undefined,
 ): Promise<AuthorizedUser | { error: string; status: 401 | 503 }> {
-  const verifier = new LineLiffUserSessionVerifier(liffChannelId);
-  const session = await verifier.verify(authorizationHeader);
+  const session = await new LineLiffUserSessionVerifier(liffChannelId).verify(authorizationHeader);
   if (session.status === 'AUTHORIZED') return { lineUserId: session.session.lineUserId };
   return {
     error: session.status,
