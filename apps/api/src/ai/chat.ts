@@ -68,6 +68,7 @@ export class ExplicitAiChatService {
 
     const context = await this.loadContext(input.groupId, input.lineMessageId);
     const providerPayload = buildPrompt(prompt, context.messages, context.memories);
+    // UTF-8 bytes are a deliberately conservative upper bound for provider input tokens.
     const inputUpperBoundTokens = new TextEncoder().encode(providerPayload).byteLength;
     const maxCost = calculateAiCost(
       { inputTokens: inputUpperBoundTokens, outputTokens: this.maxOutputTokens },
@@ -83,6 +84,7 @@ export class ExplicitAiChatService {
     if (hold.status === 'INSUFFICIENT_ENERGY') return { status: 'INSUFFICIENT_ENERGY' };
     if (hold.status === 'REFERENCE_CONFLICT') return { status: 'FAILED', code: 'AI_CHAT_HOLD_CONFLICT' };
 
+    const providerStartedAt = Date.now();
     try {
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.runtime.model)}:generateContent`,
@@ -106,6 +108,7 @@ export class ExplicitAiChatService {
           }),
         },
       );
+      const latencyMs = Date.now() - providerStartedAt;
       if (!response.ok) {
         throw new Error(`GEMINI_HTTP_${response.status}`);
       }
@@ -139,6 +142,11 @@ export class ExplicitAiChatService {
         answer: answer.slice(0, 10_000),
         inputTokens: inputTokens!,
         outputTokens: outputTokens!,
+        latencyMs,
+        inputUsdPerMillionTokens: this.runtime.pricing.inputUsdPerMillionTokens.toFixed(10),
+        outputUsdPerMillionTokens: this.runtime.pricing.outputUsdPerMillionTokens.toFixed(10),
+        usdTwdRate: this.runtime.pricing.usdTwdRate.toFixed(6),
+        costUsd: actual.costUsd.toFixed(10),
         costTwd: actual.costTwd.toFixed(8),
         energyUnits: actualUnits,
         at: new Date(),
@@ -229,6 +237,11 @@ export class ExplicitAiChatService {
     answer: string;
     inputTokens: number;
     outputTokens: number;
+    latencyMs: number;
+    inputUsdPerMillionTokens: string;
+    outputUsdPerMillionTokens: string;
+    usdTwdRate: string;
+    costUsd: string;
     costTwd: string;
     energyUnits: bigint;
     at: Date;
@@ -237,10 +250,16 @@ export class ExplicitAiChatService {
       UPDATE explicit_ai_chat_requests
       SET status = 'SUCCEEDED',
           response_text = ${input.answer},
+          usage_type = 'EXPLICIT_CHAT',
           provider = 'GOOGLE',
           model = ${this.runtime.model},
           input_tokens = ${input.inputTokens},
           output_tokens = ${input.outputTokens},
+          latency_ms = ${input.latencyMs},
+          input_usd_per_million_tokens = CAST(${input.inputUsdPerMillionTokens} AS numeric),
+          output_usd_per_million_tokens = CAST(${input.outputUsdPerMillionTokens} AS numeric),
+          usd_twd_rate = CAST(${input.usdTwdRate} AS numeric),
+          cost_usd = CAST(${input.costUsd} AS numeric),
           cost_twd = CAST(${input.costTwd} AS numeric),
           energy_units = ${input.energyUnits.toString()}::bigint,
           last_error_code = NULL,
