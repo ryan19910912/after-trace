@@ -20,21 +20,22 @@ export class DrizzlePlatformAiBudgetReservationRepository {
     const max = input.maxSubsidyCostTwd.toFixed(8);
     const budget = input.globalBudgetCostTwd.toFixed(8);
     const result = await this.db.execute(sql`
-      SELECT pg_advisory_xact_lock(hashtext(${BUDGET_KEY}));
-      INSERT INTO global_free_ai_budget_state (budget_key, spent_cost_twd, updated_at)
-      VALUES (${BUDGET_KEY}, 0, ${input.at})
-      ON CONFLICT (budget_key) DO NOTHING;
-    `);
-    void result;
-
-    const state = await this.db.execute(sql`
-      WITH existing AS MATERIALIZED (
+      WITH budget_lock AS MATERIALIZED (
+        SELECT pg_advisory_xact_lock(hashtext(${BUDGET_KEY})) AS locked
+      ), budget_state AS MATERIALIZED (
+        INSERT INTO global_free_ai_budget_state (budget_key, spent_cost_twd, updated_at)
+        SELECT ${BUDGET_KEY}, 0, ${input.at}
+        FROM budget_lock
+        ON CONFLICT (budget_key) DO UPDATE
+        SET updated_at = global_free_ai_budget_state.updated_at
+        RETURNING spent_cost_twd
+      ), existing AS MATERIALIZED (
         SELECT request_id, group_id, reserved_cost_twd, status
         FROM platform_ai_budget_reservations
         WHERE request_id = ${input.requestId}
-      ), totals AS (
+      ), totals AS MATERIALIZED (
         SELECT
-          COALESCE((SELECT spent_cost_twd FROM global_free_ai_budget_state WHERE budget_key = ${BUDGET_KEY}), 0) AS spent,
+          (SELECT spent_cost_twd FROM budget_state) AS spent,
           COALESCE(SUM(reserved_cost_twd), 0) AS reserved
         FROM platform_ai_budget_reservations
         WHERE budget_key = ${BUDGET_KEY}
@@ -44,7 +45,9 @@ export class DrizzlePlatformAiBudgetReservationRepository {
         INSERT INTO platform_ai_budget_reservations (
           request_id, group_id, budget_key, reserved_cost_twd, status, created_at, updated_at
         )
-        SELECT ${input.requestId}, ${input.groupId}, ${BUDGET_KEY}, CAST(${max} AS numeric), 'RESERVED', ${input.at}, ${input.at}
+        SELECT
+          ${input.requestId}, ${input.groupId}, ${BUDGET_KEY}, CAST(${max} AS numeric),
+          'RESERVED', ${input.at}, ${input.at}
         FROM totals
         WHERE NOT EXISTS (SELECT 1 FROM existing)
           AND spent + reserved + CAST(${max} AS numeric) <= CAST(${budget} AS numeric)
@@ -63,7 +66,7 @@ export class DrizzlePlatformAiBudgetReservationRepository {
         ELSE 'BUDGET_EXHAUSTED'
       END AS status
     `);
-    const status = String((state.rows[0] as { status?: string } | undefined)?.status ?? 'REFERENCE_CONFLICT');
+    const status = String((result.rows[0] as { status?: string } | undefined)?.status ?? 'REFERENCE_CONFLICT');
     return { status: status as PlatformBudgetReservationResult['status'] } as PlatformBudgetReservationResult;
   }
 
@@ -76,14 +79,21 @@ export class DrizzlePlatformAiBudgetReservationRepository {
     `);
   }
 
-  async settle(requestId: number, actualSubsidyCostTwd: string, at = new Date()): Promise<'SETTLED' | 'ALREADY_SETTLED' | 'REFERENCE_CONFLICT'> {
+  async settle(
+    requestId: number,
+    actualSubsidyCostTwd: string,
+    at = new Date(),
+  ): Promise<'SETTLED' | 'ALREADY_SETTLED' | 'REFERENCE_CONFLICT'> {
     const result = await this.db.execute(sql`
-      SELECT pg_advisory_xact_lock(hashtext(${BUDGET_KEY}));
-      WITH reservation AS MATERIALIZED (
-        SELECT request_id, reserved_cost_twd, status, actual_subsidy_cost_twd
-        FROM platform_ai_budget_reservations
-        WHERE request_id = ${requestId}
-        FOR UPDATE
+      WITH budget_lock AS MATERIALIZED (
+        SELECT pg_advisory_xact_lock(hashtext(${BUDGET_KEY})) AS locked
+      ), reservation AS MATERIALIZED (
+        SELECT reservation.request_id, reservation.reserved_cost_twd,
+               reservation.status, reservation.actual_subsidy_cost_twd
+        FROM platform_ai_budget_reservations reservation
+        CROSS JOIN budget_lock
+        WHERE reservation.request_id = ${requestId}
+        FOR UPDATE OF reservation
       ), valid AS (
         SELECT * FROM reservation
         WHERE status = 'RESERVED'
@@ -125,8 +135,12 @@ export class PlatformAiBudgetGate {
     private readonly maxSubsidyCostTwd: number,
     private readonly globalBudgetCostTwd: number,
   ) {
-    if (!Number.isFinite(maxSubsidyCostTwd) || maxSubsidyCostTwd <= 0) throw new Error('BACKGROUND_AI_MAX_SUBSIDY_COST_TWD must be positive');
-    if (!Number.isFinite(globalBudgetCostTwd) || globalBudgetCostTwd <= 0) throw new Error('GLOBAL_FREE_AI_BUDGET_COST_TWD must be positive');
+    if (!Number.isFinite(maxSubsidyCostTwd) || maxSubsidyCostTwd <= 0) {
+      throw new Error('BACKGROUND_AI_MAX_SUBSIDY_COST_TWD must be positive');
+    }
+    if (!Number.isFinite(globalBudgetCostTwd) || globalBudgetCostTwd <= 0) {
+      throw new Error('GLOBAL_FREE_AI_BUDGET_COST_TWD must be positive');
+    }
   }
 
   reserve(requestId: number, groupId: number, at = new Date()): Promise<PlatformBudgetReservationResult> {
