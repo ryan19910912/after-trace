@@ -17,15 +17,6 @@ export type ManagedReminder = {
   status: 'SCHEDULED' | 'DISPATCHING' | 'CANCELLED' | 'DELIVERED';
 };
 
-export type ManagementOverview = {
-  buckets: Record<'WELCOME' | 'AD' | 'PAID', { hasAvailable: boolean; hasReserved: boolean }>;
-  aiUsageCount: number;
-  rewardedAd: {
-    grantCountToday: number;
-    lastAcceptedAt: string | null;
-  };
-};
-
 export type MemoryUpdateInput = {
   category: string;
   subject: string | null;
@@ -47,7 +38,6 @@ export interface ManagementRepository {
     actorLineUserId: string,
     at: Date,
   ): Promise<'DELETED' | 'NOT_FOUND'>;
-  overview(groupId: number, policyDay: string): Promise<ManagementOverview>;
   listReminders(groupId: number, limit: number): Promise<ManagedReminder[]>;
 }
 
@@ -113,13 +103,6 @@ export class ManagementService {
       positiveSafeInteger(memoryId, 'memoryId'),
       bounded(actorLineUserId, 'actorLineUserId', 64),
       at,
-    );
-  }
-
-  overview(groupId: number, policyDay: string): Promise<ManagementOverview> {
-    return this.repository.overview(
-      positiveSafeInteger(groupId, 'groupId'),
-      bounded(policyDay, 'policyDay', 10),
     );
   }
 
