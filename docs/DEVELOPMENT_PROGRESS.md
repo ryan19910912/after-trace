@@ -2,9 +2,9 @@
 
 ## Current status
 
-Round 9 is complete on `main`. The memory AI safety boundary now includes the required global free-AI budget gate, bounded permanent/transient failure handling, a retry counter separate from ownership fencing, and explicit crash-boundary tests. Real Gemini invocation remains intentionally disconnected from the LINE webhook/runtime composition until dependency-aware verification and all required runtime inputs are available.
+Round 10 is complete on `main`. Terminal memory work now has an explicit attempt-fenced operator recovery path, and the memory AI pipeline has a pre-invocation funding eligibility check that avoids obviously unfunded Gemini calls before private conversation context is loaded. A schema contract mismatch discovered during this round was also corrected: extraction batches can now represent the `FAILED` state already used by the Round 9 terminal-failure SQL.
 
-GitHub Actions is still an external verification blocker as of the Round 8 HEAD run (`33225602374`, commit `8d6a591`). Its `verify` job failed in roughly three seconds with no executable steps/log URL; previously inspected jobs reported `steps=[]` and `runner_id=0`. The workflow file itself still contains the expected checkout -> pnpm -> Node -> install -> typecheck -> lint -> test -> build sequence.
+Real Gemini invocation remains intentionally disconnected from the LINE webhook/runtime composition. Dependency-aware verification is still unavailable because GitHub Actions fails before a runner executes any step, and production activation also still requires explicit Gemini credentials/pricing, USD/TWD FX and the global free-AI ceiling.
 
 ## Confirmed V1 baseline
 
@@ -28,61 +28,66 @@ GitHub Actions is still an external verification blocker as of the Round 8 HEAD 
 6. Shared memory request leases/fencing plus idempotent NEW/DUPLICATE/UPDATE/CONTRADICT persistence/audit.
 7. Unified grounded classifier input, strict Zod output contract, pseudonymized prompt and runtime pricing/FX boundary.
 8. Durable validated Gemini result reuse, REST classifier adapter and retry-safe billing/candidate/request orchestration.
-9. Global free-AI budget hard gate, bounded provider retry policy and remaining crash-boundary tests.
+9. Global free-AI budget hard gate, bounded provider retry policy and crash-boundary coverage.
+10. Attempt-fenced terminal recovery, pre-invocation funding eligibility and extraction FAILED-schema correction.
 
-## Round 9 — completed
+## Round 10 — completed
 
-### Global free-AI hard gate
+### Terminal memory recovery
 
-- Added required `GLOBAL_FREE_AI_BUDGET_COST_TWD` runtime configuration. No default amount and no reset cadence were invented because PRODUCT_V1 specifies the safety boundary but not those operating values.
-- Added exact `allocateAiConsumption`: WELCOME then AD may be subsidized only up to remaining global budget; PAID then covers any remainder when available.
-- Added `FREE_BUDGET_EXHAUSTED` as a distinct ledger/billing outcome. A request with insufficient paid fallback waits without persisting AI usage or creating a new logical charge.
-- Added `global_free_ai_budget_state` and `global_free_ai_budget_operations`. The latter is keyed by credit operation id, making free-budget accounting retry-safe.
-- Guarded Drizzle AI consume serializes the global free-budget snapshot/mutation with a transaction-scoped advisory lock while retaining per-Group credit-account row locks. The same logical charge cannot increment global subsidy twice.
-- Paid-only Reminder reservation paths remain outside the global free-AI budget.
+- Added `MemoryRecoveryService` and a PostgreSQL/Drizzle recovery repository.
+- Recovery is explicit rather than another automatic retry. It requires `requestId`, exact `expectedAttemptCount`, an operator reference and a reason.
+- The database transaction only requeues a request that is currently `FAILED` and still matches the supplied attempt fence. A stale operator action therefore cannot reopen newer work.
+- Recovery clears terminal work timestamps/error state, resets `transient_failure_count` to zero, and returns the request to `PENDING` without changing the ownership fence until a later normal claim.
+- Recovery writes `MEMORY_REQUEST_REQUEUED` audit context containing the prior attempt/error state plus the normalized operator reference and reason.
+- AUTOMATIC recovery reopens the associated failed extraction batch in the same transaction. The batch returns to `CLAIMED` with `active_claim_key = NULL`: the original assigned messages remain attached, while the recovered old batch does not conflict with a newer Group extraction batch using the `OPEN` uniqueness key.
+- Durable classifier results are deliberately preserved. If the failed request already has a validated Gemini result, recovery resumes settlement from that durable result and must not pay for another provider call.
+- No public recovery route was added because an operator/admin authentication strategy has not yet been defined; exposing this mutation unauthenticated would be unsafe.
 
-### Retry and terminal-failure safety
+### Pre-invocation AI funding eligibility
 
-- Kept `attempt_count` strictly as an ownership fencing token. Added `transient_failure_count` because credit waits/Worker recovery can increase attempt count and therefore cannot safely represent provider retry count.
-- Added separate uncounted defer (credit/free-budget waits), counted transient defer, and terminal `markFailed`, all protected by the current attempt fence.
-- A terminal AUTOMATIC request also terminally closes its extraction batch and releases the active claim key while retaining the error code.
-- Added typed `MemoryAiExecutionError` and bounded retry policy. Default code policy is three transient failures, 60-second initial delay, exponential backoff capped at 15 minutes.
-- Gemini classification maps authentication/authorization, invalid request and missing model/endpoint to permanent failures. Network/timeouts/rate-limit/upstream failures are transient. Malformed provider responses are transient only within the bound.
-- Credit reference conflicts are terminal consistency failures rather than infinite retries.
+- Added `AiFundingEligibilityService` and `DrizzleAiFundingSnapshotRepository`.
+- The snapshot reads current WELCOME, AD and PAID available balances plus cumulative global free-AI spend.
+- The advisory gate runs only when a request does not yet have a durable classifier result.
+- No usable Group credit returns `NO_CREDIT`; the orchestrator defers with `AI_INSUFFICIENT_CREDIT` before loading private classification context or calling Gemini.
+- Free/ad balance with zero remaining global subsidy and no PAID balance returns `FREE_BUDGET_EXHAUSTED`; the orchestrator defers with `AI_FREE_BUDGET_EXHAUSTED` before the provider call.
+- PAID balance keeps a request eligible even when free subsidy is exhausted.
+- Existing durable results bypass the advisory preflight because the provider cost is already sunk and exact idempotent settlement is the correct next action.
+- This gate is intentionally advisory and non-locking. Exact actual-cost billing after the provider result remains the authoritative atomic credit/global-budget boundary.
 
-### Crash-boundary coverage
+### Schema consistency fix
 
-- Added orchestrator tests proving a stale first classifier-result store cannot bill or persist candidates.
-- Added an already-billed/durable retry path that reuses the logical credit operation/usage record and skips another provider call.
-- Added partial candidate-resume coverage: an already-idempotent candidate plus a later candidate can both be replayed before fenced success.
-- Added a stale final fence case that cannot mark a newer attempt successful.
-- Added permanent-provider, transient-provider, max-transient-attempt and global-budget-wait coverage.
-- Added pure allocation, billing, runtime config, Gemini error classification, retry-policy and work-coordinator tests for the new safety rules.
+- Round 9 terminal SQL writes `conversation_extraction_batches.status = 'FAILED'`, but the original Drizzle enum still listed only `CLAIMED` and `SUCCEEDED`.
+- Updated `extraction_batch_status` in `schema.ts` to include `FAILED`, matching the implemented terminal/recovery lifecycle.
+- No migration was generated or applied while dependency-aware Drizzle verification is unavailable.
 
-### Documentation / configuration
+### Tests / static validation
 
-- Added `docs/AI_SAFETY.md` as the durable source for provider activation, global budget and retry/fencing invariants.
-- Added Round 9 Drizzle schema to `drizzle.config.ts`; no migration was generated/applied while dependency-aware verification is unavailable.
-- Updated `.env.example` with the global budget variable left blank intentionally. No provider prices, FX, API keys or operator budget amount were guessed.
+Added focused tests for:
 
-### Validation
+- free allowance remaining under the global cap;
+- global free budget exhausted;
+- PAID fallback after free-budget exhaustion;
+- true no-credit state;
+- preflight defer before context loading/Gemini invocation;
+- durable classifier result bypassing the advisory preflight;
+- recovery normalization, expected-attempt fencing and rejected missing operator attribution.
 
-- Re-read PRODUCT_V1, ARCHITECTURE, DEVELOPMENT_PROGRESS, recent commits and the existing memory/credit/AI code before implementation.
-- Used the available TypeScript 5.8.3 compiler with lightweight external-module declarations to strict-check the changed production modules; the changed test sources were also type-checked against lightweight Vitest declarations.
-- Ran lightweight compiled Node checks for exact global-budget allocation, retry classification/backoff and orchestrator permanent/transient/budget-wait paths.
-- Full dependency-aware `pnpm install -> typecheck -> lint -> test -> Wrangler build -> Vite build -> Drizzle generate` still cannot be claimed while GitHub Actions fails before runner steps and this runtime lacks the repository's installed dependencies.
-- PostgreSQL/Drizzle SQL was reviewed statically but not executed against Neon. No migration or production credential was used.
+The changed production modules and tests pass the available local TypeScript 5.8.3 strict lightweight check using declarations for unavailable external dependencies. The recovery SQL and funding snapshot SQL were statically reviewed, but were not executed against Neon.
 
-## Round 10 — highest priority
+Full dependency-aware `pnpm install -> typecheck -> lint -> test -> Wrangler build -> Vite build -> Drizzle generate` still cannot be claimed. GitHub Actions run `33230607212` for Round 10 commit `1c02681` failed in roughly two seconds; job `99042649989` reports `steps=[]`, `runner_id=0` and an empty runner name, so Checkout and every repository command were never executed. This is the same external runner/environment failure seen in previous rounds, not a program test failure.
 
-1. Re-check the new main CI. If a GitHub runner actually executes, fix every real install/typecheck/lint/test/build/Drizzle error before adding behavior.
-2. Add an explicit, attempt-fenced operator recovery/requeue path for terminal memory requests/extraction batches so invalid credentials can be repaired and work intentionally resumed without inventing automatic infinite retry.
-3. After dependency-aware verification, compose `MemoryAiOrchestrator` into the event-driven request path. Keep real Gemini disabled unless API key, pricing, FX and global free-AI ceiling are all explicitly configured.
-4. Add pre-invocation eligibility checks where safely knowable so obviously unfundable/exhausted requests can avoid making a provider call before a durable result exists; do not compromise exact post-call billing.
-5. Implement Paid-only Reminder lifecycle: create/reserve, cancel/release, delivered/consume, with idempotent audit/usage semantics.
-6. Implement inactive Group retention cleanup: 30 days never-paid, 1 year paid, while preserving required financial/audit records.
-7. Generate the initial Drizzle migration only after dependency-aware verification is available and the V1 schema is stable enough to stop rewriting the baseline schema files.
+No Neon/LINE/Cloudflare/Gemini production credential, provider price, FX rate or free-budget amount was guessed or used.
+
+## Round 11 — highest priority
+
+1. Re-check the newest `main` CI. If GitHub actually assigns a runner, fix every real install/typecheck/lint/test/build/Drizzle issue before adding behavior.
+2. Once dependency-aware verification is available, compose `MemoryAiOrchestrator` plus the funding eligibility adapter into the event-driven LINE path. Real provider invocation must remain disabled unless `GEMINI_API_KEY`, pricing, FX and global free-AI ceiling are explicitly configured.
+3. Define an authenticated operator/admin boundary before exposing `MemoryRecoveryService`; do not create an unauthenticated recovery endpoint merely for convenience.
+4. Implement Paid-only Reminder lifecycle: create + PAID reserve, cancel + release, successful delivery + consume, with idempotent audit/settlement semantics and low-paid-balance handling consistent with PRODUCT_V1.
+5. Implement inactive Group retention cleanup: 30 days for never-paid, 1 year for paid, while preserving financial/audit records required for reconciliation.
+6. Consolidate the baseline Drizzle schema and generate the initial migration only after dependency-aware verification is available and the schema is stable enough to stop rewriting the pre-migration files.
 
 ## Process note
 
-Never bypass durable result reuse, billing idempotency, source grounding, global free-AI limits, candidate idempotency or request fencing merely to make Gemini appear connected sooner. Always update this file before the next handoff.
+Never bypass durable result reuse, billing idempotency, source grounding, global free-AI limits, candidate idempotency, request fencing, explicit recovery fencing or exact post-call settlement merely to make Gemini appear connected sooner. Always update this file before the next handoff.
