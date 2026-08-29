@@ -40,11 +40,11 @@ describe('ReminderService', () => {
     });
   });
 
-  it('requires a positive explicit reservation cost instead of inventing reminder pricing', async () => {
+  it('requires a positive explicit reservation cost instead of inventing reminder pricing', () => {
     const repo = repository();
     const service = new ReminderService(repo);
 
-    await expect(
+    expect(() =>
       service.create({
         groupId: 1,
         requestKey: 'r-1',
@@ -53,7 +53,7 @@ describe('ReminderService', () => {
         reservedCostUnits: 0n,
         actorLineUserId: 'U1',
       }),
-    ).rejects.toThrow('reservedCostUnits');
+    ).toThrow('reservedCostUnits');
     expect(repo.create).not.toHaveBeenCalled();
   });
 
@@ -72,13 +72,13 @@ describe('ReminderService', () => {
     });
   });
 
-  it('requires a delivery reference before consuming a paid reservation', async () => {
+  it('requires a delivery reference before consuming a paid reservation', () => {
     const repo = repository();
     const service = new ReminderService(repo);
 
-    await expect(
-      service.settleSuccessfulDelivery(8, 21, '   '),
-    ).rejects.toThrow('deliveryReference');
+    expect(() => service.settleSuccessfulDelivery(8, 21, '   ')).toThrow(
+      'deliveryReference',
+    );
     expect(repo.settleSuccessfulDelivery).not.toHaveBeenCalled();
   });
 });
