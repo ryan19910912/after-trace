@@ -11,12 +11,20 @@ export type PrivateEnergyLot = {
   sourceType: string;
 };
 
+export type PrivateSubscriptionState = null | {
+  provider: string;
+  status: string;
+  currentPeriodEnd: Date | null;
+  cancelAtPeriodEnd: boolean;
+};
+
 export type PrivateEnergyOverview = {
   userId: number;
   usableUnits: bigint;
   reservedUnits: bigint;
   buckets: Record<EnergyBucket, { usableUnits: bigint; reservedUnits: bigint }>;
   lots: PrivateEnergyLot[];
+  subscription: PrivateSubscriptionState;
   proactive: {
     subscriptionUsable: boolean;
     paidUsable: boolean;
@@ -44,28 +52,36 @@ export class DrizzlePrivateEnergyOverviewRepository {
     if (!userIdValue) return null;
     const userId = Number(userIdValue);
 
-    const result = await this.db.execute(sql`
-      SELECT
-        id::text AS id,
-        bucket,
-        available_units::text AS available_units,
-        reserved_units::text AS reserved_units,
-        expires_at,
-        source_type
-      FROM user_energy_lots
-      WHERE user_id = ${userId}
-        AND (available_units > 0 OR reserved_units > 0)
-        AND (expires_at IS NULL OR expires_at > ${at} OR reserved_units > 0)
-      ORDER BY
-        CASE WHEN expires_at IS NULL THEN 1 ELSE 0 END,
-        expires_at ASC NULLS LAST,
-        CASE bucket WHEN 'FREE' THEN 0 WHEN 'PAID' THEN 1 ELSE 0 END,
-        id ASC
-    `);
+    const [lotResult, subscriptionResult] = await Promise.all([
+      this.db.execute(sql`
+        SELECT
+          id::text AS id,
+          bucket,
+          available_units::text AS available_units,
+          reserved_units::text AS reserved_units,
+          expires_at,
+          source_type
+        FROM user_energy_lots
+        WHERE user_id = ${userId}
+          AND (available_units > 0 OR reserved_units > 0)
+          AND (expires_at IS NULL OR expires_at > ${at} OR reserved_units > 0)
+        ORDER BY
+          CASE WHEN expires_at IS NULL THEN 1 ELSE 0 END,
+          expires_at ASC NULLS LAST,
+          CASE bucket WHEN 'FREE' THEN 0 WHEN 'PAID' THEN 1 ELSE 0 END,
+          id ASC
+      `),
+      this.db.execute(sql`
+        SELECT provider, status, current_period_end, cancel_at_period_end
+        FROM user_subscription_state
+        WHERE user_id = ${userId}
+        LIMIT 1
+      `),
+    ]);
 
     const buckets = emptyBuckets();
     const lots: PrivateEnergyLot[] = [];
-    for (const raw of result.rows) {
+    for (const raw of lotResult.rows) {
       const row = raw as {
         id: string;
         bucket: EnergyBucket;
@@ -94,6 +110,25 @@ export class DrizzlePrivateEnergyOverviewRepository {
       });
     }
 
+    const rawSubscription = subscriptionResult.rows[0] as {
+      provider?: string;
+      status?: string;
+      current_period_end?: Date | string | null;
+      cancel_at_period_end?: string;
+    } | undefined;
+    const subscription: PrivateSubscriptionState = rawSubscription?.provider && rawSubscription.status
+      ? {
+          provider: rawSubscription.provider,
+          status: rawSubscription.status,
+          currentPeriodEnd: rawSubscription.current_period_end == null
+            ? null
+            : rawSubscription.current_period_end instanceof Date
+              ? rawSubscription.current_period_end
+              : new Date(rawSubscription.current_period_end),
+          cancelAtPeriodEnd: rawSubscription.cancel_at_period_end === 'true',
+        }
+      : null;
+
     const usableUnits = Object.values(buckets).reduce((sum, item) => sum + item.usableUnits, 0n);
     const reservedUnits = Object.values(buckets).reduce((sum, item) => sum + item.reservedUnits, 0n);
     const subscriptionUsable = buckets.SUBSCRIPTION.usableUnits > 0n;
@@ -104,6 +139,7 @@ export class DrizzlePrivateEnergyOverviewRepository {
       reservedUnits,
       buckets,
       lots,
+      subscription,
       proactive: {
         subscriptionUsable,
         paidUsable,
@@ -130,5 +166,11 @@ export function serializePrivateEnergyOverview(overview: PrivateEnergyOverview) 
       reservedUnits: lot.reservedUnits.toString(),
       expiresAt: lot.expiresAt?.toISOString() ?? null,
     })),
+    subscription: overview.subscription
+      ? {
+          ...overview.subscription,
+          currentPeriodEnd: overview.subscription.currentPeriodEnd?.toISOString() ?? null,
+        }
+      : null,
   };
 }
