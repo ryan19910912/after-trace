@@ -16,12 +16,19 @@ describe('AutomaticMemoryRequestService', () => {
     }));
     const service = new AutomaticMemoryRequestService({ createAutomatic });
     const at = new Date('2026-08-29T00:00:00Z');
+    const eligibleSubjects = [{
+      userId: 5,
+      lineUserId: 'U1',
+      normalizedCharCount: 12,
+      preflightAvailableUnits: 100n,
+    }];
 
-    await service.ensureForExtractionBatch(3, 21, at);
+    await service.ensureForExtractionBatch(3, 21, eligibleSubjects, at);
 
     expect(createAutomatic).toHaveBeenCalledWith({
       groupId: 3,
       extractionBatchId: 21,
+      eligibleSubjects,
       createdAt: at,
     });
   });
