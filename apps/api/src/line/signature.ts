@@ -1,9 +1,9 @@
 const encoder = new TextEncoder();
 
-function decodeBase64(value: string): Uint8Array | null {
+function decodeBase64(value: string): Uint8Array<ArrayBuffer> | null {
   try {
     const decoded = atob(value);
-    const bytes = new Uint8Array(decoded.length);
+    const bytes = new Uint8Array(new ArrayBuffer(decoded.length));
     for (let i = 0; i < decoded.length; i += 1) {
       bytes[i] = decoded.charCodeAt(i);
     }
@@ -23,9 +23,10 @@ export async function verifyLineSignature(
   const signatureBytes = decodeBase64(signature);
   if (!signatureBytes) return false;
 
+  const keyData = new Uint8Array(encoder.encode(channelSecret));
   const key = await crypto.subtle.importKey(
     'raw',
-    encoder.encode(channelSecret),
+    keyData,
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['verify'],
@@ -35,6 +36,6 @@ export async function verifyLineSignature(
     'HMAC',
     key,
     signatureBytes,
-    encoder.encode(rawBody),
+    new Uint8Array(encoder.encode(rawBody)),
   );
 }
