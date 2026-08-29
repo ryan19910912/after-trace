@@ -1,5 +1,12 @@
 export type MemoryRequestOrigin = 'EXPLICIT' | 'AUTOMATIC';
 
+export type AutomaticEligibleSubject = {
+  userId: number;
+  lineUserId: string;
+  normalizedCharCount: number;
+  preflightAvailableUnits: bigint;
+};
+
 export type AutomaticMemoryRequest = {
   id: number;
   groupId: number;
@@ -12,6 +19,7 @@ export interface AutomaticMemoryRequestRepository {
   createAutomatic(input: {
     groupId: number;
     extractionBatchId: number;
+    eligibleSubjects: readonly AutomaticEligibleSubject[];
     createdAt: Date;
   }): Promise<AutomaticMemoryRequest>;
 }
@@ -66,11 +74,34 @@ export class AutomaticMemoryRequestService {
   ensureForExtractionBatch(
     groupId: number,
     extractionBatchId: number,
+    eligibleSubjects: readonly AutomaticEligibleSubject[],
     createdAt = new Date(),
   ): Promise<AutomaticMemoryRequest> {
     assertPositiveSafeInteger(groupId, 'groupId');
     assertPositiveSafeInteger(extractionBatchId, 'extractionBatchId');
-    return this.repository.createAutomatic({ groupId, extractionBatchId, createdAt });
+    if (eligibleSubjects.length === 0) {
+      throw new Error('automatic memory request requires at least one eligible subject');
+    }
+    const normalized = eligibleSubjects.map((subject) => {
+      assertPositiveSafeInteger(subject.userId, 'eligibleSubject.userId');
+      if (!subject.lineUserId.trim()) throw new Error('eligibleSubject.lineUserId is required');
+      if (!Number.isSafeInteger(subject.normalizedCharCount) || subject.normalizedCharCount <= 0) {
+        throw new Error('eligibleSubject.normalizedCharCount must be a positive safe integer');
+      }
+      if (subject.preflightAvailableUnits <= 0n) {
+        throw new Error('eligibleSubject.preflightAvailableUnits must be positive');
+      }
+      return {
+        ...subject,
+        lineUserId: subject.lineUserId.trim(),
+      };
+    });
+    return this.repository.createAutomatic({
+      groupId,
+      extractionBatchId,
+      eligibleSubjects: normalized,
+      createdAt,
+    });
   }
 }
 
@@ -90,11 +121,7 @@ export class MemoryWorkCoordinator {
     return this.repository.claimNextForGroup(groupId, now, leaseUntil);
   }
 
-  markSucceeded(
-    requestId: number,
-    attemptCount: number,
-    completedAt = new Date(),
-  ): Promise<boolean> {
+  markSucceeded(requestId: number, attemptCount: number, completedAt = new Date()): Promise<boolean> {
     assertClaimFence(requestId, attemptCount);
     return this.repository.markSucceeded(requestId, attemptCount, completedAt);
   }
@@ -106,12 +133,7 @@ export class MemoryWorkCoordinator {
     errorCode: string,
   ): Promise<boolean> {
     assertClaimFence(requestId, attemptCount);
-    return this.repository.markFailed(
-      requestId,
-      attemptCount,
-      failedAt,
-      normalizeErrorCode(errorCode),
-    );
+    return this.repository.markFailed(requestId, attemptCount, failedAt, normalizeErrorCode(errorCode));
   }
 
   deferFailure(
@@ -121,12 +143,7 @@ export class MemoryWorkCoordinator {
     errorCode: string,
   ): Promise<boolean> {
     assertClaimFence(requestId, attemptCount);
-    return this.repository.deferFailure(
-      requestId,
-      attemptCount,
-      retryAt,
-      normalizeErrorCode(errorCode),
-    );
+    return this.repository.deferFailure(requestId, attemptCount, retryAt, normalizeErrorCode(errorCode));
   }
 
   deferTransientFailure(
