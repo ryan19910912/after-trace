@@ -8,6 +8,18 @@ export type MemoryClassifierPrompt = {
 export function buildMemoryClassifierPrompt(input: MemoryClassificationInput): MemoryClassifierPrompt {
   const currentSourceIds = input.currentMessages.map((message) => message.id);
   const speakerAliases = buildSpeakerAliases(input);
+  const eligibleAliases = input.eligibleSubjectLineUserIds
+    .map((lineUserId) => speakerAliases.get(lineUserId))
+    .filter((value): value is string => Boolean(value));
+
+  const automaticBoundary = input.origin === 'AUTOMATIC'
+    ? [
+        'For AUTOMATIC requests, the complete group conversation may be used as context.',
+        'However, durable memory candidates may only be about eligibleSubjectSpeakers.',
+        'Every AUTOMATIC candidate sourceConversationMessageId must be authored by an eligibleSubjectSpeaker.',
+        'Messages from other speakers are context only and must not create, update, or contradict durable facts about them.',
+      ].join(' ')
+    : 'For EXPLICIT requests, follow the caller instruction and the resolved source message.';
 
   const systemInstruction = [
     'You are AFTERTRACE memory classification for one LINE group.',
@@ -19,6 +31,7 @@ export function buildMemoryClassifierPrompt(input: MemoryClassificationInput): M
     'NEW must use targetMemoryId=null.',
     'candidateIndex must start at 0 and equal the candidate array position.',
     'Do not infer sensitive facts that are not stated in the supplied conversation.',
+    automaticBoundary,
   ].join(' ');
 
   const payload = {
@@ -27,6 +40,7 @@ export function buildMemoryClassifierPrompt(input: MemoryClassificationInput): M
       origin: input.origin,
       instruction: input.instruction,
       allowedSourceConversationMessageIds: currentSourceIds,
+      eligibleSubjectSpeakers: eligibleAliases,
     },
     currentMessages: input.currentMessages.map((message) =>
       toPromptMessage(message, speakerAliases),
