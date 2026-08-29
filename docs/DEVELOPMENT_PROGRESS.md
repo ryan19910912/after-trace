@@ -2,114 +2,58 @@
 
 ## Current status
 
-Round 14 is complete on `main`. The V1 LIFF management surface now has a real authenticated Group boundary plus memory search/edit/delete, safe credit/usage status, and paid Reminder management. The frontend is no longer a landing-page placeholder.
+Round 15 starts the confirmed monetization/ownership redesign. Round 14 LIFF management remains landed, but the old Group-scoped WELCOME/AD/PAID ledger is now explicitly legacy and must not be extended for new V1 work.
 
-The LIFF API does not trust browser-supplied user identity. It verifies the LIFF access token and channel with LINE, resolves the user from LINE, then verifies current Group membership with the Messaging API before exposing Group-scoped data. Cross-origin access is restricted to an explicit `LIFF_WEB_ORIGIN`.
+## Confirmed V1 ownership and Energy model
 
-Rewarded Ad grant minting is intentionally still disabled from LIFF because no Web rewarded-ad provider / server-verifiable completion contract has been confirmed. The UI exposes policy/status only. Real Gemini invocation also remains intentionally disconnected from the LINE webhook/runtime composition while dependency-aware CI cannot execute repository steps and production AI inputs remain unset.
+- Conversation, memories, sources and destinations remain Group-scoped.
+- Energy, subscription, rewarded-ad rewards and one-time purchases are User-scoped and follow the LINE user across groups.
+- FREE: one lifetime user grant, non-expiring.
+- SUBSCRIPTION: one plan, billing-cycle Energy expires at provider `period_end`, no rollover.
+- AD: Google Ad Manager Web Rewarded, Energy expires after 7 days.
+- PAID: three one-time packs, non-expiring.
+- Consumption: earliest-expiring Energy first, then FREE, then PAID.
+- @AI: caller pays only; no fallback to another member.
+- Background extraction: only speaking participants with positive Energy are eligible memory subjects. Full Group text may remain context. If no eligible speaker exists, stop before Gemini.
+- Background actual cost is allocated among eligible speakers by normalized text-character contribution. A participant's final shortfall consumes their remaining Energy to zero and the one-time remainder is platform subsidy; never shift it to another member.
+- `@AI 額度` is deterministic: no Gemini and no Energy charge. Group replies show only each member's usable/exhausted status and the configured LIFF URL; detailed numeric balances are private to the authenticated user in LIFF.
+- FREE/AD support normal AI and background memory. SUBSCRIPTION/usable PAID additionally unlock proactive Push and Reminder.
 
-## Confirmed V1 baseline
+## Round 15 — completed foundation
 
-- TypeScript + pnpm monorepo; Hono on Cloudflare Workers; React/Vite LIFF on Cloudflare Pages.
-- PostgreSQL on Neon + Drizzle; Gemini 2.5 Flash-Lite Standard.
-- V1 has no Redis/Object Storage.
-- LINE Group is the isolation boundary for conversation context, memories, reminders, usage and credits.
-- Conversation extraction is event-driven; explicit and automatic memory work share one pipeline.
-- Memory decisions are NEW / DUPLICATE / UPDATE / CONTRADICT with source attribution and audit history.
-- Credit order is Welcome -> Ad -> Paid; paid value does not expire; Reminder is paid-only.
-- User-facing UI must not expose raw Gemini/internal TWD cost as if it were product Energy.
-- Global free-AI budget is a hard safety boundary; operator amount/reset policy must not be guessed.
-- Never-paid inactive Groups retain recoverable product data 30 days; paid Groups one year.
+- Replaced `docs/PRODUCT_V1.md` with the confirmed User-wallet/background-allocation specification from the product discussion.
+- Added `energy/model.ts` with expiring-first/FREE/PAID allocation, 7-day AD expiry and proactive-capability rules.
+- Added `energy/background.ts` with no-eligible preflight, eligible-only character normalization, proportional allocation and final-shortfall subsidy calculation.
+- Added focused tests for Energy ordering, expiry, proactive eligibility, no-speaker/no-Energy skip, eligible-only allocation and shortfall subsidy.
+- Extended LINE command parsing with deterministic `@AI 額度`, help and plans recognition plus generic @AI mention detection.
+- Added a deterministic Group Energy reply formatter that exposes only usable/exhausted state and requires `LIFF_APP_URL`.
+- Updated `.env.example` with placeholders/comments for LIFF URL, FREE/SUBSCRIPTION/three PAID packs, Google Ad Manager and Rewarded Energy. No production value was guessed.
 
-## Completed rounds
+## Important migration boundary
 
-1. Repository/product/architecture bootstrap, Worker/LIFF skeletons, Neon/Drizzle foundation and CI.
-2. LINE signature/events, conversation buffer/idempotency, group lifecycle, source metadata and extraction thresholds.
-3. Extraction batch leases, members, fixed-point credits, AI cost snapshots and explicit memory command detection.
-4. Webhook extraction claims, logical credit operation idempotency, reservations and AI usage/credit coupling.
-5. Welcome credit, Rewarded Ad primitives, explicit memory requests and extraction context loading.
-6. Shared memory request leases/fencing plus idempotent NEW/DUPLICATE/UPDATE/CONTRADICT persistence/audit.
-7. Unified grounded classifier input, strict Zod output contract, pseudonymized prompt and runtime pricing/FX boundary.
-8. Durable validated Gemini result reuse, REST classifier adapter and retry-safe billing/candidate/request orchestration.
-9. Global free-AI budget hard gate, bounded provider retry policy and crash-boundary coverage.
-10. Attempt-fenced terminal recovery, pre-invocation funding eligibility and extraction FAILED-schema correction.
-11. Paid-only Reminder create/reserve, cancel/release and successful-delivery/consume lifecycle with atomic audit/settlement fencing.
-12. Due Reminder claim/lease, LINE retry-key duplicate-send protection, dispatch fencing, Cloudflare scheduled boundary and accepted-delivery settlement.
-13. Inactive Group retention cleanup, non-expiring PAID anchor protection and safe same-retry-key Reminder recovery boundary.
-14. Authenticated LIFF Group management API/UI for memories, safe credit/usage status and paid Reminder management.
+The current database schema and existing credit/reminder repositories are still Group-scoped (`credit_accounts.group_id`, WELCOME/AD/PAID enum). They are not yet safe to use as the final V1 User Energy implementation. Round 15 deliberately introduced the new domain model first rather than partially rewriting financial SQL without dependency-aware verification.
 
-## Round 14 — completed
-
-### LIFF authentication and Group authorization
-
-- Added `management/session.ts`.
-- Browser sends the LIFF access token plus `liff.getContext().groupId`; browser never sends a trusted user id.
-- Server verifies the token through LINE `/oauth2/v2.1/verify`, requires returned `client_id === LIFF_CHANNEL_ID`, checks positive remaining expiry, then resolves the user through `/v2/profile`.
-- Server verifies current membership through Messaging API `/v2/bot/group/{groupId}/member/{userId}` before returning Group product data.
-- A true member 404 is distinguished from LINE 429/5xx; provider instability returns `LINE_VERIFICATION_UNAVAILABLE` instead of falsely claiming the user left the Group.
-- Inactive/unknown Groups are rejected.
-- Management CORS uses exact `LIFF_WEB_ORIGIN`; wildcard origin is not allowed.
-
-### Memory management
-
-- Added `ManagementService` and `DrizzleManagementRepository`.
-- `GET /api/v1/management/memories?q=` lists only ACTIVE memories and returns stored source metadata.
-- `PATCH /memories/:id` edits category/subject/content inside the authenticated Group boundary and writes actor-attributed `MEMORY_EDITED` before/after audit.
-- `DELETE /memories/:id` takes a before snapshot into `MEMORY_DELETED` audit and removes the product memory row. This intentionally does not blacklist the fact; later conversation may create it again.
-- No new unverified Drizzle enum/migration was introduced merely to represent deletion.
-
-### Safe Energy / credit / usage management
-
-- `GET /overview` exposes WELCOME/AD/PAID availability/reservation state and AI usage call count.
-- Raw internal TWD/Gemini costs are intentionally not returned as user-facing Energy because V1 has not confirmed an Energy conversion rule.
-- Rewarded Ad status includes today's accepted grant count and configured policy limit/cooldown.
-- `rewardedAdClaimEnabled` remains false until a Web ad provider with a trustworthy server-verifiable completion boundary is selected.
-- Existing `RewardedAdService.grantVerifiedReward()` is deliberately not exposed directly to LIFF, because a browser-supplied reward event id would permit fraudulent AD-credit minting.
-
-### Paid Reminder management
-
-- `GET /reminders` provides Group Reminder state.
-- `DELETE /reminders/:id` reuses the existing atomic cancellation/release lifecycle and actor attribution.
-- `POST /reminders` never accepts a reservation amount from the browser. The server uses `REMINDER_RESERVATION_COST_TWD` only when the operator explicitly configures it.
-- Missing Reminder price returns `REMINDER_PRICING_NOT_CONFIGURED`; the UI keeps creation disabled while existing Reminder management remains available.
-- `DISPATCHING` Reminder is not presented as normally cancellable because delivery has crossed the external-send boundary.
-
-### React/Vite LIFF UI
-
-- `apps/web` now initializes `@line/liff`, requires a Group context and uses `liff.getAccessToken()` for server authentication.
-- Added memory search, source display, edit modal and delete flow.
-- Added Energy/Credit state cards without exposing raw internal costs.
-- Added Rewarded Ad policy/status entry with a disabled reward button until provider verification exists.
-- Added Reminder create/list/cancel UI with server capability gating.
-- Added explicit startup failures when `VITE_LIFF_ID`, `VITE_API_BASE_URL`, login or Group context is unavailable.
-
-### Tests / documentation
-
-- Added `management/service.test.ts` for search/edit validation/normalization.
-- Added `management/session.test.ts` for channel verification, server-resolved user identity, current membership and provider-rate-limit classification.
-- Added `docs/LIFF_MANAGEMENT.md` and documented `LIFF_CHANNEL_ID`, `LIFF_WEB_ORIGIN`, and the optional server-controlled Reminder reservation price in `.env.example`.
-- LINE's current official LIFF guidance was checked before implementing server-side access-token verification; it recommends sending the LIFF token to the server, validating the access token/channel and resolving profile data from LINE rather than trusting profile data sent by the browser.
+The next implementation must migrate financial ownership atomically to a stable user owner (prefer `line_users.id` with LINE id retained for external identity), add lot-level expiry so multiple subscription/ad grants can coexist safely, and then migrate AI usage/allocation and Reminder reservations to the user owner. Existing reconciliation/audit history must remain readable.
 
 ## Verification status
 
-Round 14 implementation commit: `d98a848b827ead3730306415d312c9ee14226258`.
+GitHub Actions remains an external blocker if its `verify` job receives no runner/steps. The available environment previously had Node 22 + TypeScript 5.8.3 but no pnpm. New Round 15 domain modules are dependency-light; focused Vitest tests are committed for the first dependency-aware run.
 
-The pre-Round-14 CI was still blocked before repository execution: run `33233657314` for `763d326c` had an empty `verify` step list. A fresh main-branch CI run must be checked after this handoff commit; only a run that actually starts Checkout/repository commands can count as dependency-aware verification.
+Do not claim the legacy Group credit SQL implements the new product model until the user-wallet migration lands and dependency-aware checks run.
 
-The available local environment provides Node `v22.16.0` and TypeScript `5.8.3`, but no `pnpm`. Full `pnpm install -> typecheck -> lint -> test -> Wrangler build -> Vite build -> Drizzle generate` cannot be claimed until dependencies are available or GitHub Actions actually assigns a runner. The Round 14 changes received a static review for Hono binding boundaries, CORS, LIFF token/channel/member verification, Group scoping, memory audit ordering, Reminder server-side pricing, and browser cost/reward abuse paths.
+## Round 16 — highest priority
 
-No Neon/LINE/Cloudflare/Gemini secret, production LIFF/channel id, production origin, Reminder price, ad provider event, provider price, FX rate or global free-budget amount was guessed.
-
-## Round 15 — highest priority
-
-1. Re-check CI on the latest `main`. If repository steps finally execute, fix every real install/typecheck/lint/test/build/Drizzle issue before further product work.
-2. Choose/confirm a Web-capable Rewarded Ad provider and implement server-verifiable completion before enabling LIFF AD-credit minting. Do not accept a browser-generated reward id as proof of ad completion.
-3. Define the product Energy/Credit conversion/display rule; only then expose user-facing numeric Energy balances.
-4. Define authenticated operator/admin authorization, then expose the existing fenced Memory/Reminder recovery primitives through that boundary.
-5. Once dependency-aware verification is available, compose `MemoryAiOrchestrator` + funding eligibility into the event-driven LINE path. Real Gemini stays disabled unless API key, provider pricing, FX and global free-AI ceiling are configured.
-6. Consolidate the pre-migration Drizzle schema and generate the initial migration only after dependency-aware verification is available and schema/runtime composition is stable.
-7. Complete deployment/runbook documentation for Neon, LINE webhook + LIFF, Cloudflare Worker/Pages/Cron and Gemini activation inputs without embedding secrets.
+1. Re-check CI first. If repository steps execute, fix all real typecheck/lint/test/build issues immediately.
+2. Implement User Energy persistence: user-owned Energy lots with FREE/SUBSCRIPTION/AD/PAID, expiry, reservation, immutable operations/transactions and idempotent references.
+3. Replace first-group/later-group Welcome grants with one lifetime FREE grant per LINE user.
+4. Implement user-level subscription entitlement/cycle grant primitives and three configurable PAID pack purchase primitives behind payment-provider-neutral interfaces; external provider values remain env placeholders.
+5. Migrate explicit @AI funding preflight/settlement so caller-only Energy is used. Add deterministic exhausted reply + Group Energy status path without Gemini.
+6. Implement background participant query from extraction messages + user wallets; skip before Gemini when no eligible speaking user; pass eligible subjects into classifier and persist only those subjects; settle proportional actual cost + platform shortfall subsidy atomically.
+7. Migrate Reminder ownership/reservation from Group PAID-only to user SUBSCRIPTION/PAID eligibility and prevent delivery after owner leaves destination Group.
+8. Implement Google Ad Manager provider abstraction/nonce claim boundary and 7-day AD Energy grant. Keep actual ad account/unit config blank until supplied.
+9. Update LIFF from Group credit overview to authenticated user's private Energy details, subscription/pack placeholders and rewarded-ad entry.
+10. Revisit retention SQL after user-wallet migration so Group cleanup cannot delete user-owned value.
 
 ## Process note
 
-Never bypass durable-result reuse, credit/usage idempotency, source grounding, global free-AI limits, request fencing, Reminder PAID reservation atomicity, dispatch fencing, LINE retry-key reuse, retention reconciliation preservation, LIFF token/channel/member verification or verified Rewarded Ad completion merely to make connectivity appear complete sooner.
+External account/key/ad/payment settings are configuration tasks, not feature-development blockers. Leave documented env placeholders and continue all code paths that can be implemented safely without credentials. Never invent pricing, Energy amounts, provider secrets or production URLs.
