@@ -4,8 +4,7 @@ import { AdminApi } from './api';
 import { App } from './App';
 import './styles.css';
 
-const baseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
-if (!baseUrl) throw new Error('VITE_API_BASE_URL is required');
+const baseUrl = import.meta.env.VITE_API_BASE_URL?.trim() || window.location.origin;
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
