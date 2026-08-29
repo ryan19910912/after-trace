@@ -131,9 +131,7 @@ export class UserRewardedAdService {
       acceptedAt: at,
     });
 
-    if (claim.status === 'NONCE_INVALID' || claim.status === 'USER_NOT_FOUND' || claim.status === 'REFERENCE_CONFLICT') {
-      return { status: claim.status };
-    }
+    if (!('id' in claim)) return { status: claim.status };
     if (claim.status === 'REJECTED_POLICY') return { status: 'POLICY_REJECTED' };
     if (claim.status === 'GRANTED' && claim.grantOperationId !== null) {
       return {
@@ -180,7 +178,7 @@ export function policyDay(at: Date, timeZone: string): string {
 }
 
 async function sha256Hex(value: string): Promise<string> {
-  const bytes = new TextEncoder().encode(value);
+  const bytes = new Uint8Array(new TextEncoder().encode(value));
   const digest = await crypto.subtle.digest('SHA-256', bytes);
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
