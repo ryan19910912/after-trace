@@ -24,10 +24,14 @@ export type CheckoutResult =
 type IntentState = {
   id: number;
   userId: number;
-  status: string;
+  state: string;
   provider: string | null;
   providerCheckoutId: string | null;
 };
+
+type BeginIntentResult =
+  | { status: 'READY'; intent: IntentState }
+  | { status: 'USER_NOT_FOUND' | 'REFERENCE_CONFLICT' };
 
 export class DrizzleCheckoutIntentRepository {
   constructor(private readonly db: Database) {}
@@ -37,7 +41,7 @@ export class DrizzleCheckoutIntentRepository {
     requestKey: string;
     productCode: CommerceProductCode;
     at: Date;
-  }): Promise<IntentState | { status: 'USER_NOT_FOUND' | 'REFERENCE_CONFLICT' }> {
+  }): Promise<BeginIntentResult> {
     const result = await this.db.execute(sql`
       WITH target_user AS (
         SELECT id FROM line_users WHERE line_user_id = ${input.lineUserId} LIMIT 1
@@ -69,7 +73,7 @@ export class DrizzleCheckoutIntentRepository {
         END AS result_status,
         selected.id::text AS id,
         selected.user_id::text AS user_id,
-        selected.status,
+        selected.status AS intent_status,
         selected.provider,
         selected.provider_checkout_id
       FROM selected
@@ -80,19 +84,24 @@ export class DrizzleCheckoutIntentRepository {
       result_status?: string;
       id?: string | null;
       user_id?: string | null;
-      status?: string | null;
+      intent_status?: string | null;
       provider?: string | null;
       provider_checkout_id?: string | null;
     } | undefined;
     if (row?.result_status === 'USER_NOT_FOUND') return { status: 'USER_NOT_FOUND' };
     if (row?.result_status === 'REFERENCE_CONFLICT') return { status: 'REFERENCE_CONFLICT' };
-    if (!row?.id || !row.user_id || !row.status) throw new Error('checkout intent persistence returned no intent');
+    if (!row?.id || !row.user_id || !row.intent_status) {
+      throw new Error('checkout intent persistence returned no intent');
+    }
     return {
-      id: Number(row.id),
-      userId: Number(row.user_id),
-      status: row.status,
-      provider: row.provider ?? null,
-      providerCheckoutId: row.provider_checkout_id ?? null,
+      status: 'READY',
+      intent: {
+        id: Number(row.id),
+        userId: Number(row.user_id),
+        state: row.intent_status,
+        provider: row.provider ?? null,
+        providerCheckoutId: row.provider_checkout_id ?? null,
+      },
     };
   }
 
@@ -220,10 +229,9 @@ export class CommerceCheckoutService {
       return { status: 'PRODUCT_NOT_CONFIGURED' };
     }
 
-    const intent = await this.repository.begin({ lineUserId, requestKey, productCode, at });
-    if ('status' in intent && (intent.status === 'USER_NOT_FOUND' || intent.status === 'REFERENCE_CONFLICT')) {
-      return intent;
-    }
+    const begun = await this.repository.begin({ lineUserId, requestKey, productCode, at });
+    if (begun.status !== 'READY') return begun;
+    const intent = begun.intent;
 
     // Provider adapters must use requestKey as their own idempotency key. If AFTERTRACE
     // retries after an uncertain network response, the adapter must return the same checkout.
