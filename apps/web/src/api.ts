@@ -26,6 +26,28 @@ export type Overview = {
   };
 };
 
+export type EnergyBucket = 'FREE' | 'SUBSCRIPTION' | 'AD' | 'PAID';
+
+export type PrivateEnergyOverview = {
+  userId: number;
+  usableUnits: string;
+  reservedUnits: string;
+  buckets: Record<EnergyBucket, { usableUnits: string; reservedUnits: string }>;
+  lots: Array<{
+    id: number;
+    bucket: EnergyBucket;
+    availableUnits: string;
+    reservedUnits: string;
+    expiresAt: string | null;
+    sourceType: string;
+  }>;
+  proactive: {
+    subscriptionUsable: boolean;
+    paidUsable: boolean;
+    enabled: boolean;
+  };
+};
+
 export type Capabilities = {
   rewardedAdClaimEnabled: boolean;
   rewardedAdDailyLimit: number;
@@ -40,7 +62,7 @@ export class ManagementApi {
     private readonly lineGroupId: string,
   ) {}
 
-  private async request<T>(path: string, init?: RequestInit): Promise<T> {
+  private async managementRequest<T>(path: string, init?: RequestInit): Promise<T> {
     const headers = new Headers(init?.headers);
     headers.set('Authorization', `Bearer ${this.accessToken}`);
     headers.set('X-Line-Group-Id', this.lineGroupId);
@@ -57,12 +79,28 @@ export class ManagementApi {
     return body;
   }
 
+  private async userEnergyRequest<T>(path: string): Promise<T> {
+    const response = await fetch(`${this.baseUrl.replace(/\/$/, '')}/api/v1/energy${path}`, {
+      headers: { Authorization: `Bearer ${this.accessToken}` },
+    });
+    const body = (await response.json()) as { ok?: boolean; error?: string } & T;
+    if (!response.ok) {
+      throw new Error(body.error || `Energy API request failed: ${response.status}`);
+    }
+    return body;
+  }
+
   async overview(): Promise<{ overview: Overview; capabilities: Capabilities }> {
-    return this.request('/overview');
+    return this.managementRequest('/overview');
+  }
+
+  async energy(): Promise<PrivateEnergyOverview> {
+    const body = await this.userEnergyRequest<{ energy: PrivateEnergyOverview }>('/me');
+    return body.energy;
   }
 
   async memories(query = ''): Promise<ManagedMemory[]> {
-    const body = await this.request<{ memories: ManagedMemory[] }>(
+    const body = await this.managementRequest<{ memories: ManagedMemory[] }>(
       `/memories${query.trim() ? `?q=${encodeURIComponent(query.trim())}` : ''}`,
     );
     return body.memories;
@@ -72,18 +110,18 @@ export class ManagementApi {
     id: number,
     input: { category: string; subject: string | null; content: string },
   ): Promise<void> {
-    await this.request(`/memories/${id}`, {
+    await this.managementRequest(`/memories/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(input),
     });
   }
 
   async deleteMemory(id: number): Promise<void> {
-    await this.request(`/memories/${id}`, { method: 'DELETE' });
+    await this.managementRequest(`/memories/${id}`, { method: 'DELETE' });
   }
 
   async reminders(): Promise<ManagedReminder[]> {
-    const body = await this.request<{ reminders: ManagedReminder[] }>('/reminders');
+    const body = await this.managementRequest<{ reminders: ManagedReminder[] }>('/reminders');
     return body.reminders;
   }
 
@@ -92,13 +130,13 @@ export class ManagementApi {
     message: string;
     scheduledFor: string;
   }): Promise<void> {
-    await this.request('/reminders', {
+    await this.managementRequest('/reminders', {
       method: 'POST',
       body: JSON.stringify(input),
     });
   }
 
   async cancelReminder(id: number): Promise<void> {
-    await this.request(`/reminders/${id}`, { method: 'DELETE' });
+    await this.managementRequest(`/reminders/${id}`, { method: 'DELETE' });
   }
 }
