@@ -2,6 +2,7 @@ import app, { type Bindings } from './index';
 import { createDatabase } from './db/client';
 import { LineMessagingPushClient } from './line/push';
 import { DrizzleProactiveRepository } from './proactive/drizzle-repository';
+import { createProactiveRoutes } from './proactive/routes';
 import { ProactiveDeliveryService } from './proactive/service';
 import { ReminderDeliveryService } from './reminders/delivery';
 import { DrizzleUserReminderDeliveryRepository } from './reminders/drizzle-user-delivery-repository';
@@ -10,6 +11,8 @@ import { GroupRetentionService } from './retention/service';
 
 type ScheduledControllerLike = { scheduledTime: number };
 type ExecutionContextLike = { waitUntil(promise: Promise<unknown>): void };
+
+const proactiveRoutes = createProactiveRoutes();
 
 async function runReminderSchedule(controller: ScheduledControllerLike, env: Bindings): Promise<void> {
   const database = createDatabase(env.DATABASE_URL);
@@ -46,6 +49,16 @@ async function runRetentionSchedule(controller: ScheduledControllerLike, env: Bi
 
 export default {
   fetch(request: Request, env: Bindings, executionContext: ExecutionContextLike) {
+    const url = new URL(request.url);
+    if (url.pathname === '/api/v1/internal/proactive') {
+      const rewritten = new URL(request.url);
+      rewritten.pathname = '/';
+      return proactiveRoutes.fetch(
+        new Request(rewritten, request),
+        env as never,
+        executionContext as never,
+      );
+    }
     return app.fetch(request, env, executionContext as never);
   },
   scheduled(controller: ScheduledControllerLike, env: Bindings, executionContext: ExecutionContextLike) {
