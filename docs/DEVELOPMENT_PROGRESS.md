@@ -2,11 +2,11 @@
 
 ## Current status
 
-Round 13 is complete once the implementation commit lands. The largest remaining V1 data-safety gap is now closed: inactive Group retention applies the confirmed 30-day never-paid / one-calendar-year paid policy, preserves reconciliation data, blocks destructive cleanup around unresolved PAID Reminders, and retains the minimum Group identity required when non-expiring PAID value still exists.
+Round 13 is complete on `main`. Inactive Group retention now enforces the confirmed 30-day never-paid / one-calendar-year paid policy, preserves financial/audit reconciliation state, blocks destructive cleanup around unresolved PAID Reminders, and retains the minimum Group identity required while non-expiring PAID value still exists.
 
-Reminder delivery also gains an internal, attempt-fenced operator recovery primitive for unresolved `DISPATCHING` work while the original LINE retry key is still valid. It never invents a new retry key or exposes an unauthenticated mutation route.
+Reminder delivery also has an internal attempt-fenced recovery primitive for unresolved `DISPATCHING` work while the original LINE retry key remains valid. It never invents a replacement retry key and is not exposed through an unauthenticated route.
 
-Real Gemini invocation remains intentionally disconnected from the LINE webhook/runtime composition. Dependency-aware verification is still blocked because GitHub Actions is failing before repository steps execute. Production activation still requires explicit Neon/LINE/Cloudflare/Gemini configuration, AI pricing/FX/global free-AI ceiling and a Cloudflare Cron Trigger cadence.
+Real Gemini invocation remains intentionally disconnected from the LINE webhook/runtime composition. Dependency-aware verification is still blocked because GitHub Actions fails before repository steps execute. Production activation also still requires explicit Neon/LINE/Cloudflare/Gemini settings, AI pricing/FX/global free-AI ceiling and a Cloudflare Cron Trigger cadence.
 
 ## Confirmed V1 baseline
 
@@ -36,93 +36,59 @@ Real Gemini invocation remains intentionally disconnected from the LINE webhook/
 12. Due Reminder claim/lease, LINE retry-key duplicate-send protection, dispatch fencing, Cloudflare scheduled boundary and accepted-delivery settlement.
 13. Inactive Group retention cleanup, non-expiring PAID anchor protection and safe same-retry-key Reminder recovery boundary.
 
-## Round 12 summary
-
-- Due Reminder work uses PostgreSQL `FOR UPDATE SKIP LOCKED`, attempt fencing and leases.
-- Dispatch authorization immediately before LINE Push moves `SCHEDULED -> DISPATCHING`; cancellation can still win before that boundary.
-- LINE Push uses one persisted `X-Line-Retry-Key`; 2xx and same-key 409 count as accepted.
-- Retryable network/429/5xx failures reuse the same key only inside the stored safety window.
-- LINE acceptance is followed by atomic `DELIVERED` + `RESERVED -> CONSUMED` + PAID/audit settlement.
-- Permanent/unconfirmed delivery does not guess refund/consume semantics.
-- Worker entry supports HTTP fetch plus Cloudflare scheduled execution; Cron cadence remains external configuration.
-
 ## Round 13 — completed
 
-### Inactive Group retention service
+### Inactive Group retention
 
 - Added `GroupRetentionService`, `DrizzleRetentionRepository` and focused tests.
-- Never-paid cutoff is exactly 30 days before the scheduled timestamp.
-- Paid cutoff uses one calendar year rather than treating the product requirement as an arbitrary shorter duration.
-- Due Groups must be `INACTIVE` with `inactive_at` beyond the appropriate cutoff.
+- Never-paid cutoff is 30 days before the scheduled timestamp; paid cutoff is one calendar year.
 - PostgreSQL candidate selection uses `FOR UPDATE SKIP LOCKED`, so overlapping scheduled Workers do not purge the same Group concurrently.
+- Destructive purge is blocked if a Reminder is `SCHEDULED` / `DISPATCHING` or its Reminder credit reservation is still `RESERVED`.
+- The scheduled run reports how many retention-due Groups are blocked by unresolved Reminder state.
 
-### Destructive-cleanup safety
+### Product data purge / reconciliation preservation
 
-- A due Group is excluded from purge if any Reminder is still `SCHEDULED` / `DISPATCHING` or any Reminder credit reservation remains `RESERVED`.
-- The job reports the number of retention-due Groups blocked by unresolved Reminder state.
-- Retention never silently releases or consumes a Reminder reservation.
+A successful purge removes recoverable/private Group-scoped state atomically: conversation rows/extraction batches, memories, memory requests/work/classifier/candidate results, automatic request keys, member snapshots, Rewarded-Ad policy counters and terminal Reminder product rows.
 
-### Product data removed
-
-A successful purge removes recoverable/private Group-scoped state atomically, including:
-
-- conversation messages and extraction batches;
-- memories;
-- memory candidate requests, work state, classifier results and candidate results;
-- automatic memory request keys;
-- Group member snapshots;
-- Rewarded-Ad policy counters;
-- terminal Reminder product rows.
-
-### Reconciliation state preserved
-
-Retention intentionally preserves:
-
-- audit logs;
-- credit accounts, operations, reservations and transactions;
-- AI usage events and global free-AI budget reconciliation;
-- Welcome/Rewarded-Ad grant attribution/history.
-
-A `GROUP_PRODUCT_DATA_PURGED` audit event records inactivity timestamp, paid-history flag, retention policy and whether a minimal paid anchor was retained.
+It intentionally preserves audit logs, credit accounts/operations/reservations/transactions, AI usage/global free-AI reconciliation and Welcome/Rewarded-Ad grant attribution/history. A `GROUP_PRODUCT_DATA_PURGED` audit event records the inactivity timestamp, policy and whether a paid anchor remains.
 
 ### Non-expiring PAID protection
 
-- `PRODUCT_V1` says PAID does not expire. Therefore retention cannot delete the last stable LINE Group mapping while PAID available/reserved value is still non-zero.
-- If non-zero PAID exists after product data expiry, the Group row is retained as a minimal inactive anchor and pending counters are reset.
-- If no non-zero PAID remains, the expired Group row itself may be removed; historical numeric group ids remain available in preserved audit/financial rows.
-- Repeated purge does not need a new schema column: an audit purge marker created at/after the current `inactive_at` excludes that inactivity period. If the retained paid anchor rejoins and later leaves again, its newer `inactive_at` naturally makes it eligible for a future retention cycle.
+- PAID does not expire, so retention cannot delete the final stable LINE Group mapping while PAID available/reserved value remains non-zero.
+- Such a Group keeps a minimal inactive `line_groups` anchor; pending counters are reset while private product rows are removed.
+- If no non-zero PAID remains, the expired Group row itself may be removed while numeric historical group ids remain in preserved reconciliation rows.
+- No extra schema marker was added. A purge audit created at/after the current `inactive_at` marks that inactivity period complete. If a retained paid anchor rejoins and later leaves again, its newer `inactive_at` naturally becomes independently eligible later.
 
-### Reminder recovery boundary
+### Reminder recovery
 
-- Added `ReminderRecoveryService` and `DrizzleReminderRecoveryRepository` with focused tests.
-- Recovery is explicit and operator-attributed (`operatorRef`, `reason`).
-- It only requeues current `DISPATCHING` work when reminder/group/attempt/retry-key all match, the old dispatch lease is no longer active and the original retry key has not expired.
-- Requeue returns the Reminder to `SCHEDULED` while preserving the exact retry key; no new key is invented.
-- Expired key, active lease, stale attempt/key, terminal state and missing reminder are explicit non-success outcomes.
-- `REMINDER_DELIVERY_REQUEUED` audit records the recovery context.
-- No public recovery route was added because authenticated operator/admin authorization is still undefined.
+- Added `ReminderRecoveryService`, `DrizzleReminderRecoveryRepository` and focused tests.
+- Recovery requires exact group/reminder/attempt/retry-key fencing plus explicit `operatorRef` and `reason`.
+- It only requeues current `DISPATCHING` work after its prior dispatch lease is no longer active and while the original retry key is still valid.
+- Requeue returns to `SCHEDULED` with the exact same retry key; expired key, active lease, stale fence, terminal state or missing Reminder are explicit non-success outcomes.
+- `REMINDER_DELIVERY_REQUEUED` audit records recovery context.
+- No public route was added because authenticated operator/admin authorization remains undefined.
 
 ### Scheduled runtime
 
-- The existing Worker `scheduled` boundary now starts both Reminder delivery and Group retention.
-- Reminder delivery requires ACTIVE Groups while retention requires INACTIVE Groups, so their eligibility domains are disjoint.
-- No Cron frequency is hard-coded; deployment must configure the trigger explicitly.
+The existing Cloudflare scheduled boundary now starts both Reminder delivery and Group retention. Reminder delivery only targets ACTIVE Groups; retention only targets INACTIVE Groups, so the eligibility domains are disjoint. Cron cadence remains an external deployment setting because V1 does not define scheduler resolution.
 
 ## Verification status
 
-Before Round 13, latest `main` GitHub Actions run `33233355916` for `b96da92e` failed in job `99049920287` with `steps=[]`, `runner_id=0` and an empty runner name. Checkout and every repository command were skipped. This is the same external runner/environment blocker, not evidence of a compile/test failure.
+Round 13 implementation commit: `af0899c994513b4385e8bd9d6f6fcf4bdd691c2d`.
 
-Round 13 adds focused unit tests for retention cutoff/count aggregation and Reminder recovery validation/fence propagation. The repository SQL and domain modules were statically reviewed for deletion ordering, reconciliation preservation, paid-anchor safety, retry-key reuse and stale-worker/operator fencing. Full dependency-aware `pnpm install -> typecheck -> lint -> test -> Wrangler build -> Vite build -> Drizzle generate` must still be rerun when GitHub assigns a runner.
+GitHub Actions run `33233618400` for that exact commit completed as failure, but job `99050633567` again has `steps=[]`, `runner_id=0` and an empty runner name. Checkout and every repository command were skipped. This is the same runner/environment blocker, not evidence of a repository compile/test failure.
 
-No Neon/LINE/Cloudflare/Gemini credential, Cron cadence, Reminder price, low-balance threshold, provider price, FX rate or global free-budget amount was guessed.
+Available local TypeScript is 5.8.3. The new pure domain modules `retention/service.ts` and `reminders/recovery.ts` were reproduced exactly enough for a strict `tsc --noEmit --strict --target ES2022 --module ESNext` check and passed with no compiler output. The new PostgreSQL repositories and Worker composition were statically reviewed for deletion ordering, reconciliation preservation, paid-anchor safety, retry-key reuse and stale-worker/operator fencing.
+
+Full dependency-aware `pnpm install -> typecheck -> lint -> test -> Wrangler build -> Vite build -> Drizzle generate` still cannot be claimed until a GitHub runner actually executes repository steps. No Neon/LINE/Cloudflare/Gemini credential, Cron cadence, Reminder price, low-balance threshold, provider price, FX rate or global free-budget amount was guessed.
 
 ## Round 14 — highest priority
 
-1. Re-check CI on the Round 13 commit. If repository steps execute, fix every real install/typecheck/lint/test/build/Drizzle problem before new features.
-2. Finish V1 runtime composition without weakening safety: wire `MemoryAiOrchestrator` + funding eligibility into event-driven memory work only after dependency-aware verification is available; real Gemini must remain disabled unless API key, pricing, FX and free-budget ceiling are explicitly configured.
-3. Define an authenticated operator/admin boundary, then expose only the already-fenced Memory/Reminder recovery operations through that boundary.
-4. Build LIFF V1 management/search surfaces required by product scope: Group memories with source visibility/edit/delete, credit/usage status, Rewarded Ad entry and paid Reminder management. Do not invent product pricing/UI policies that are absent from requirements.
-5. Consolidate the pre-migration Drizzle schema and generate the initial migration only after dependency-aware verification is available and schema is stable.
+1. Re-check CI on the latest `main`; if repository steps execute, fix every real install/typecheck/lint/test/build/Drizzle issue before adding features.
+2. Complete V1 LIFF management/search surfaces: Group memories with source visibility/edit/delete, credit/usage status, Rewarded Ad entry and paid Reminder management, without inventing absent pricing/UI policies.
+3. Define an authenticated operator/admin boundary, then expose only the already-fenced Memory/Reminder recovery mutations through it.
+4. Once dependency-aware verification is available, compose `MemoryAiOrchestrator` + funding eligibility into the event-driven LINE path. Real Gemini stays disabled unless API key, provider pricing, FX and global free-AI ceiling are configured.
+5. Consolidate the pre-migration Drizzle schema and generate the initial migration only after dependency-aware verification is available and the schema is stable.
 6. Add deployment/runbook documentation for Neon, LINE webhook, Cloudflare Worker/Pages/Cron and Gemini activation inputs without embedding secrets.
 
 ## Process note
