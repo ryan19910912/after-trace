@@ -17,7 +17,7 @@ const claim: ReminderDispatchClaim = {
 };
 
 describe('ReminderDeliveryService', () => {
-  it('settles PAID only after LINE accepts the push', async () => {
+  it('settles reserved User Energy only after LINE accepts the push', async () => {
     const repository: ReminderDeliveryRepository = {
       claimDue: vi.fn().mockResolvedValueOnce(claim).mockResolvedValueOnce(null),
       authorizeDispatch: vi.fn().mockResolvedValue('AUTHORIZED'),
@@ -37,6 +37,7 @@ describe('ReminderDeliveryService', () => {
     );
 
     expect(result.delivered).toBe(1);
+    expect(result.ownerLeftCancelled).toBe(0);
     expect(repository.settleAccepted).toHaveBeenCalledOnce();
     expect(repository.releaseForRetry).not.toHaveBeenCalled();
   });
@@ -57,6 +58,26 @@ describe('ReminderDeliveryService', () => {
 
     expect(result.deferred).toBe(1);
     expect(line.push).not.toHaveBeenCalled();
+  });
+
+  it('counts owner-left terminal cancellation and never calls LINE', async () => {
+    const repository: ReminderDeliveryRepository = {
+      claimDue: vi.fn().mockResolvedValueOnce(claim).mockResolvedValueOnce(null),
+      authorizeDispatch: vi.fn().mockResolvedValue('OWNER_LEFT'),
+      releaseForRetry: vi.fn(),
+      settleAccepted: vi.fn(),
+    };
+    const line = { push: vi.fn() };
+
+    const result = await new ReminderDeliveryService(repository, line).deliverDue(
+      new Date('2026-08-29T01:00:00Z'),
+      2,
+    );
+
+    expect(result.ownerLeftCancelled).toBe(1);
+    expect(result.deferred).toBe(0);
+    expect(line.push).not.toHaveBeenCalled();
+    expect(repository.settleAccepted).not.toHaveBeenCalled();
   });
 });
 
