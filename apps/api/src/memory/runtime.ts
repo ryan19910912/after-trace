@@ -14,7 +14,6 @@ import { ExtractionBatchInputService } from '../extraction/input';
 import { DrizzleExtractionInputRepository } from '../extraction/drizzle-input-repository';
 import { MemoryClassificationInputService, type MemoryClassificationInput } from './classification-input';
 import { parseMemoryClassifierOutput } from './classifier-contract';
-import { buildMemoryClassifierPrompt } from './classifier-prompt';
 import { MemoryClassifierResultService } from './classifier-result';
 import { DrizzleMemoryClassifierResultRepository } from './drizzle-classifier-result-repository';
 import { DrizzleMemorySourceMessageRepository } from './drizzle-classification-input-repository';
@@ -22,7 +21,7 @@ import { DrizzleEligibleMemorySubjectRepository } from './drizzle-eligible-subje
 import { DrizzleMemoryCandidateRepository } from './drizzle-pipeline-repository';
 import { DrizzleMemoryWorkRepository } from './drizzle-work-repository';
 import { EligibleMemorySubjectService } from './eligible-subjects';
-import { GeminiMemoryClassifier } from './gemini-classifier';
+import { GeminiMemoryClassifier, memoryClassifierInputTokenUpperBound } from './gemini-classifier';
 import { MemoryCandidatePipeline } from './pipeline';
 import {
   classifyMemoryAiFailure,
@@ -142,9 +141,6 @@ export class UserEnergyMemoryAiRuntime {
 
     try {
       if (!durable) {
-        // Explicit work checks the caller before loading group context. Automatic work
-        // already has an eligible-subject snapshot, but still needs the concrete prompt
-        // to compute a conservative provider-cost upper bound before Gemini.
         if (request.origin === 'EXPLICIT') {
           const explicitFunding = await this.preflightExplicitCaller(request, now);
           if (!explicitFunding) {
@@ -263,31 +259,23 @@ export class UserEnergyMemoryAiRuntime {
     input: MemoryClassificationInput,
     at: Date,
   ): Promise<'RESERVED' | 'RISK_CAP_EXCEEDED' | 'FREE_BUDGET_EXHAUSTED'> {
-    const prompt = buildMemoryClassifierPrompt(input);
-    const encoder = new TextEncoder();
-    const inputUpperBoundTokens =
-      encoder.encode(prompt.systemInstruction).byteLength
-      + encoder.encode(prompt.userPrompt).byteLength;
+    const inputUpperBoundTokens = memoryClassifierInputTokenUpperBound(
+      input,
+      this.maxMemoryOutputTokens,
+    );
     const worstCase = calculateAiCost(
-      {
-        inputTokens: inputUpperBoundTokens,
-        outputTokens: this.maxMemoryOutputTokens,
-      },
+      { inputTokens: inputUpperBoundTokens, outputTokens: this.maxMemoryOutputTokens },
       this.runtime.pricing,
     );
 
-    // The configured per-call cap is an operator safety ceiling, never a substitute
-    // for the computed risk. If the concrete request can exceed it, Gemini is not called.
     if (worstCase.costTwd > this.maxBackgroundSubsidyCostTwd) {
       return 'RISK_CAP_EXCEEDED';
     }
 
-    // Worst case assumes the platform may need to subsidize the entire provider call.
-    // Reserving the full computed provider cost makes the global free-AI ceiling a true
-    // pre-invocation hard gate even if eligible users exhaust their Energy before settle.
     const reservation = await this.budget.reserve({
       requestId: request.id,
       groupId: request.groupId,
+      // Worst case assumes the platform may need to subsidize the entire provider call.
       maxSubsidyCostTwd: worstCase.costTwd,
       globalBudgetCostTwd: this.runtime.globalFreeAiBudgetCostTwd,
       at,
