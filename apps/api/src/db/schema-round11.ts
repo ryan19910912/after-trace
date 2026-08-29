@@ -2,6 +2,7 @@ import {
   bigint,
   bigserial,
   index,
+  integer,
   numeric,
   pgEnum,
   pgTable,
@@ -13,6 +14,7 @@ import {
 
 export const reminderStatusEnum = pgEnum('reminder_status', [
   'SCHEDULED',
+  'DISPATCHING',
   'CANCELLED',
   'DELIVERED',
 ]);
@@ -31,6 +33,10 @@ export const reminders = pgTable(
     createdByLineUserId: varchar('created_by_line_user_id', { length: 64 }).notNull(),
     cancelledByLineUserId: varchar('cancelled_by_line_user_id', { length: 64 }),
     deliveryReference: varchar('delivery_reference', { length: 128 }),
+    deliveryAttemptCount: integer('delivery_attempt_count').default(0).notNull(),
+    deliveryRetryKey: varchar('delivery_retry_key', { length: 36 }),
+    deliveryRetryExpiresAt: timestamp('delivery_retry_expires_at', { withTimezone: true }),
+    deliveryLeaseExpiresAt: timestamp('delivery_lease_expires_at', { withTimezone: true }),
     cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
     deliveredAt: timestamp('delivered_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -43,6 +49,6 @@ export const reminders = pgTable(
       table.status,
       table.scheduledFor,
     ),
-    index('reminder_due_idx').on(table.status, table.scheduledFor),
+    index('reminder_due_idx').on(table.status, table.scheduledFor, table.deliveryLeaseExpiresAt),
   ],
 );

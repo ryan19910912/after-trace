@@ -1,5 +1,5 @@
 name = "after-trace-api"
-main = "src/index.ts"
+main = "src/worker.ts"
 compatibility_date = "2026-08-29"
 compatibility_flags = ["nodejs_compat"]
 
