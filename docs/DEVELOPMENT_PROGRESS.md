@@ -2,9 +2,11 @@
 
 ## Current status
 
-Round 10 is complete on `main`. Terminal memory work now has an explicit attempt-fenced operator recovery path, and the memory AI pipeline has a pre-invocation funding eligibility check that avoids obviously unfunded Gemini calls before private conversation context is loaded. A schema contract mismatch discovered during this round was also corrected: extraction batches can now represent the `FAILED` state already used by the Round 9 terminal-failure SQL.
+Round 11 is complete on `main`. The paid-only Reminder financial/state lifecycle now has an explicit domain service, Drizzle/PostgreSQL repository, schema and focused tests. Reminder creation atomically reserves PAID value; cancellation atomically releases the reservation; successful-delivery settlement atomically consumes it. The same statements also mutate reminder state and append audit records, so Worker crashes cannot leave a normal service-level half-settlement. No Reminder price or proactive low-balance threshold was invented.
 
-Real Gemini invocation remains intentionally disconnected from the LINE webhook/runtime composition. Dependency-aware verification is still unavailable because GitHub Actions fails before a runner executes any step, and production activation also still requires explicit Gemini credentials/pricing, USD/TWD FX and the global free-AI ceiling.
+Reminder is not yet end-to-end delivered: due-reminder claim/lease, duplicate-send prevention, Cloudflare scheduled execution and LINE Push composition are still pending. The reservation settlement method is intentionally called only after an external delivery succeeds.
+
+Real Gemini invocation also remains intentionally disconnected from the LINE webhook/runtime composition. Dependency-aware verification is still unavailable because GitHub Actions continues to fail before a runner executes any step, and production AI activation still requires explicit Gemini credentials/pricing, USD/TWD FX and the global free-AI ceiling.
 
 ## Confirmed V1 baseline
 
@@ -30,6 +32,7 @@ Real Gemini invocation remains intentionally disconnected from the LINE webhook/
 8. Durable validated Gemini result reuse, REST classifier adapter and retry-safe billing/candidate/request orchestration.
 9. Global free-AI budget hard gate, bounded provider retry policy and crash-boundary coverage.
 10. Attempt-fenced terminal recovery, pre-invocation funding eligibility and extraction FAILED-schema correction.
+11. Paid-only Reminder create/reserve, cancel/release and successful-delivery/consume lifecycle with atomic audit/settlement fencing.
 
 ## Round 10 — completed
 
@@ -47,7 +50,7 @@ Real Gemini invocation remains intentionally disconnected from the LINE webhook/
 ### Pre-invocation AI funding eligibility
 
 - Added `AiFundingEligibilityService` and `DrizzleAiFundingSnapshotRepository`.
-- The snapshot reads current WELCOME, AD and PAID available balances plus cumulative global free-AI spend.
+- The snapshot reads current unexpired WELCOME, AD and PAID available balances plus cumulative global free-AI spend.
 - The advisory gate runs only when a request does not yet have a durable classifier result.
 - No usable Group credit returns `NO_CREDIT`; the orchestrator defers with `AI_INSUFFICIENT_CREDIT` before loading private classification context or calling Gemini.
 - Free/ad balance with zero remaining global subsidy and no PAID balance returns `FREE_BUDGET_EXHAUSTED`; the orchestrator defers with `AI_FREE_BUDGET_EXHAUSTED` before the provider call.
@@ -61,33 +64,55 @@ Real Gemini invocation remains intentionally disconnected from the LINE webhook/
 - Updated `extraction_batch_status` in `schema.ts` to include `FAILED`, matching the implemented terminal/recovery lifecycle.
 - No migration was generated or applied while dependency-aware Drizzle verification is unavailable.
 
+## Round 11 — completed
+
+### Paid-only Reminder domain and schema
+
+- Added `apps/api/src/reminders/service.ts` with validated create, cancel and successful-delivery-settlement commands.
+- Reminder creation requires a caller-supplied positive `reservedCostUnits`; no Reminder price is hard-coded or inferred.
+- A stable Group-scoped `requestKey` is the creation idempotency key. The same key with different message, schedule, reservation amount or actor is a reference conflict rather than a second Reminder.
+- Added `schema-round11.ts` with `reminder_status = SCHEDULED / CANCELLED / DELIVERED` and the `reminders` table. Stored fields include the reservation operation, creator/canceller attribution, delivery reference and terminal timestamps.
+- Added the Round 11 schema file to `drizzle.config.ts`. No migration was generated or applied because dependency-aware Drizzle verification is still blocked.
+
+### Atomic PAID reservation lifecycle
+
+- `DrizzleReminderRepository.create` keeps Reminder creation and PAID reservation in one PostgreSQL statement: active Group check -> PAID account lock -> RESERVE operation -> credit reservation/transaction -> available-to-reserved account move -> `SCHEDULED` Reminder -> `REMINDER_CREATED` audit.
+- WELCOME and AD are never read as eligible Reminder funding. If current PAID value cannot cover the explicit reservation amount, creation returns `INSUFFICIENT_PAID` without creating Reminder state.
+- `cancel` locks the Reminder and reservation, transitions `RESERVED -> RELEASED`, returns the amount to PAID available balance, marks the Reminder `CANCELLED`, stores the cancelling actor and writes `REMINDER_CANCELLED` audit in the same statement.
+- `settleSuccessfulDelivery` requires a stable delivery reference, transitions `RESERVED -> CONSUMED`, removes PAID reserved value, marks the Reminder `DELIVERED` and writes `REMINDER_DELIVERED` audit in the same statement. It is deliberately a post-delivery settlement boundary; it does not claim that LINE Push itself has happened.
+- Exact terminal retries are idempotent. A different delivery reference after delivery, or inconsistent pre-existing settlement operation while Reminder state is still scheduled, returns `REFERENCE_CONFLICT` instead of pretending success.
+- An already-created Reminder remains funded by its reservation even if unrelated WELCOME/AD value or the global free-AI subsidy is later exhausted.
+- No proactive low-PAID warning threshold was introduced because PRODUCT_V1 does not define one. Low PAID at creation is represented by `INSUFFICIENT_PAID`; proactive warnings for existing Reminder service remain runtime/UI work once an explicit policy exists.
+
 ### Tests / static validation
 
-Added focused tests for:
+Added focused Reminder service coverage for:
 
-- free allowance remaining under the global cap;
-- global free budget exhausted;
-- PAID fallback after free-budget exhaustion;
-- true no-credit state;
-- preflight defer before context loading/Gemini invocation;
-- durable classifier result bypassing the advisory preflight;
-- recovery normalization, expected-attempt fencing and rejected missing operator attribution.
+- creation identity/message normalization while preserving exact schedule and fixed-point reservation amount;
+- rejection of zero reservation amount so the domain cannot silently invent pricing;
+- cancellation actor attribution;
+- rejection of successful-delivery settlement without a delivery reference.
 
-The changed production modules and tests pass the available local TypeScript 5.8.3 strict lightweight check using declarations for unavailable external dependencies. The recovery SQL and funding snapshot SQL were statically reviewed, but were not executed against Neon.
+The changed Reminder service/repository/schema modules pass the available local TypeScript 5.8.3 strict lightweight check using declarations for unavailable external dependencies. A direct Node runtime check of the service validation/normalization paths also passed. The Reminder SQL was statically reviewed, including a follow-up fencing pass that tightened concurrent create and inconsistent settlement handling.
 
-Full dependency-aware `pnpm install -> typecheck -> lint -> test -> Wrangler build -> Vite build -> Drizzle generate` still cannot be claimed. GitHub Actions run `33230607212` for Round 10 commit `1c02681` failed in roughly two seconds; job `99042649989` reports `steps=[]`, `runner_id=0` and an empty runner name, so Checkout and every repository command were never executed. This is the same external runner/environment failure seen in previous rounds, not a program test failure.
+Full dependency-aware `pnpm install -> typecheck -> lint -> test -> Wrangler build -> Vite build -> Drizzle generate` still cannot be claimed. GitHub Actions run `33232934974` for commit `f1095047` completed as failure, but job `99048796121` again exposes no executed steps (`steps=null`); Checkout and repository commands never ran. This remains the same external runner/environment blocker rather than evidence of a repository compile/test failure.
 
-No Neon/LINE/Cloudflare/Gemini production credential, provider price, FX rate or free-budget amount was guessed or used.
+No Reminder migration was generated, and the SQL has not been executed against Neon. No Neon/LINE/Cloudflare/Gemini production credential, provider price, FX rate, global free-budget amount, Reminder price or low-balance threshold was guessed or used.
 
-## Round 11 — highest priority
+Round 11 implementation commits:
 
-1. Re-check the newest `main` CI. If GitHub actually assigns a runner, fix every real install/typecheck/lint/test/build/Drizzle issue before adding behavior.
-2. Once dependency-aware verification is available, compose `MemoryAiOrchestrator` plus the funding eligibility adapter into the event-driven LINE path. Real provider invocation must remain disabled unless `GEMINI_API_KEY`, pricing, FX and global free-AI ceiling are explicitly configured.
-3. Define an authenticated operator/admin boundary before exposing `MemoryRecoveryService`; do not create an unauthenticated recovery endpoint merely for convenience.
-4. Implement Paid-only Reminder lifecycle: create + PAID reserve, cancel + release, successful delivery + consume, with idempotent audit/settlement semantics and low-paid-balance handling consistent with PRODUCT_V1.
-5. Implement inactive Group retention cleanup: 30 days for never-paid, 1 year for paid, while preserving financial/audit records required for reconciliation.
+- `a81c96cf312c59dc1302dbb9cf70292f6830cda4` — paid-only Reminder lifecycle foundation.
+- `f1095047b99f5ee1bcc5ce762d83a9a42d12cdbb` — tightened settlement/reference fencing after manual review.
+
+## Round 12 — highest priority
+
+1. Re-check the newest `main` CI. If GitHub actually assigns a runner, stop feature work long enough to fix every real install/typecheck/lint/test/build/Drizzle issue revealed by dependency-aware verification.
+2. Complete Reminder runtime delivery as one crash-safe batch: due-reminder claim/lease with fencing and duplicate-send protection, Cloudflare scheduled execution boundary, LINE Push adapter, then call `settleSuccessfulDelivery` only after confirmed delivery. Cancellation must remain able to win safely against work that has not yet been delivered.
+3. Implement inactive Group retention cleanup: 30 days for never-paid and 1 year for paid Groups. Preserve financial/audit records needed for reconciliation, and do not guess how unresolved PAID Reminder reservations should be disposed of; resolve that boundary explicitly in code/tests before deleting recoverable product rows.
+4. Once dependency-aware verification is available, compose `MemoryAiOrchestrator` plus funding eligibility into the event-driven LINE path. Real provider invocation must remain disabled unless `GEMINI_API_KEY`, pricing, FX and global free-AI ceiling are explicitly configured.
+5. Define an authenticated operator/admin boundary before exposing `MemoryRecoveryService`; do not create an unauthenticated recovery endpoint merely for convenience.
 6. Consolidate the baseline Drizzle schema and generate the initial migration only after dependency-aware verification is available and the schema is stable enough to stop rewriting the pre-migration files.
 
 ## Process note
 
-Never bypass durable result reuse, billing idempotency, source grounding, global free-AI limits, candidate idempotency, request fencing, explicit recovery fencing or exact post-call settlement merely to make Gemini appear connected sooner. Always update this file before the next handoff.
+Never bypass durable result reuse, billing idempotency, source grounding, global free-AI limits, candidate idempotency, request fencing, explicit recovery fencing, Reminder reservation atomicity or exact post-call/post-delivery settlement merely to make Gemini or Reminder delivery appear connected sooner. Always update this file before the next handoff.
