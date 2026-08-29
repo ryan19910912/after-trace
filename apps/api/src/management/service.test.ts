@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import type {
   ManagedMemory,
   ManagedReminder,
-  ManagementOverview,
   ManagementRepository,
   MemoryUpdateInput,
 } from './service';
@@ -29,18 +28,6 @@ class FakeRepository implements ManagementRepository {
 
   async deleteMemory(): Promise<'DELETED'> {
     return 'DELETED';
-  }
-
-  async overview(): Promise<ManagementOverview> {
-    return {
-      buckets: {
-        WELCOME: { hasAvailable: false, hasReserved: false },
-        AD: { hasAvailable: false, hasReserved: false },
-        PAID: { hasAvailable: false, hasReserved: false },
-      },
-      aiUsageCount: 0,
-      rewardedAd: { grantCountToday: 0, lastAcceptedAt: null },
-    };
   }
 
   async listReminders(): Promise<ManagedReminder[]> {
