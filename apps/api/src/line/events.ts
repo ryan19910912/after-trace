@@ -1,5 +1,6 @@
 export type BufferedGroupMessage = {
   webhookEventId: string | null;
+  replyToken: string | null;
   lineGroupId: string;
   lineMessageId: string;
   quotedLineMessageId: string | null;
@@ -14,6 +15,7 @@ export type BufferedGroupMessage = {
 
 export type GroupLifecycleEvent = {
   webhookEventId: string | null;
+  replyToken: string | null;
   lineGroupId: string;
   type: 'JOIN' | 'LEAVE';
   lineTimestamp: Date;
@@ -129,6 +131,7 @@ export function parseLineWebhook(payload: unknown): ParsedLineWebhook {
     const timestampValue = asNumber(rawEvent.timestamp);
     const lineTimestamp = new Date(timestampValue ?? Date.now());
     const webhookEventId = asString(rawEvent.webhookEventId);
+    const replyToken = asString(rawEvent.replyToken);
     const eventType = asString(rawEvent.type);
 
     if (eventType === 'join' || eventType === 'leave') {
@@ -136,6 +139,7 @@ export function parseLineWebhook(payload: unknown): ParsedLineWebhook {
         kind: 'LIFECYCLE',
         event: {
           webhookEventId,
+          replyToken,
           lineGroupId,
           type: eventType === 'join' ? 'JOIN' : 'LEAVE',
           lineTimestamp,
@@ -156,6 +160,7 @@ export function parseLineWebhook(payload: unknown): ParsedLineWebhook {
       kind: 'MESSAGE',
       message: {
         webhookEventId,
+        replyToken,
         lineGroupId,
         lineMessageId,
         quotedLineMessageId: asString(message.quotedMessageId),
