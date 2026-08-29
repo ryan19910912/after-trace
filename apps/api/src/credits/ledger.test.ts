@@ -4,11 +4,11 @@ import { CreditLedgerService } from './ledger';
 
 function repository(): CreditLedgerRepository {
   return {
-    grant: vi.fn(async () => ({ status: 'APPLIED', operationId: 1 })),
-    consume: vi.fn(async () => ({ status: 'APPLIED', operationId: 2 })),
-    reservePaid: vi.fn(async () => ({ status: 'APPLIED', operationId: 3 })),
-    releasePaidReservation: vi.fn(async () => ({ status: 'APPLIED', operationId: 4 })),
-    consumePaidReservation: vi.fn(async () => ({ status: 'APPLIED', operationId: 5 })),
+    grant: vi.fn(async () => ({ status: 'APPLIED' as const, operationId: 1 })),
+    consume: vi.fn(async () => ({ status: 'APPLIED' as const, operationId: 2 })),
+    reservePaid: vi.fn(async () => ({ status: 'APPLIED' as const, operationId: 3 })),
+    releasePaidReservation: vi.fn(async () => ({ status: 'APPLIED' as const, operationId: 4 })),
+    consumePaidReservation: vi.fn(async () => ({ status: 'APPLIED' as const, operationId: 5 })),
   };
 }
 
