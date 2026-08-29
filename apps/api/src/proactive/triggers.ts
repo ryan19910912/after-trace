@@ -1,8 +1,9 @@
-import type { ProactiveService, ProactiveEnqueueResult } from './service';
+import type { ProactivePushService, ProactiveEnqueueResult } from './service';
 
 export type ApprovedProactiveTrigger = {
   ownerLineUserId: string;
-  groupId: number;
+  lineGroupId: string;
+  requestKey: string;
   sourceType: string;
   sourceId: string;
   message: string;
@@ -20,7 +21,7 @@ export interface ProactiveTriggerProducer<TEvent> {
 }
 
 export class ProactiveTriggerDispatcher {
-  constructor(private readonly proactive: Pick<ProactiveService, 'enqueue'>) {}
+  constructor(private readonly proactive: Pick<ProactivePushService, 'enqueue'>) {}
 
   async dispatch<TEvent>(
     producer: ProactiveTriggerProducer<TEvent>,
@@ -31,7 +32,8 @@ export class ProactiveTriggerDispatcher {
     if (!trigger) return { status: 'NO_TRIGGER' };
     return this.proactive.enqueue({
       ownerLineUserId: trigger.ownerLineUserId,
-      groupId: trigger.groupId,
+      lineGroupId: trigger.lineGroupId,
+      requestKey: trigger.requestKey,
       sourceType: trigger.sourceType,
       sourceId: trigger.sourceId,
       message: trigger.message,
