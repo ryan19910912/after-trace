@@ -10,23 +10,9 @@ export type ExplicitAiChatEnv = AiRuntimeEnv & AiEnergyMeterEnv & {
   GEMINI_CHAT_MAX_OUTPUT_TOKENS?: string;
 };
 
-type ChatRequest = {
-  id: number;
-  userId: number;
-  status: string;
-  responseText: string | null;
-};
-
-type ContextMessage = {
-  lineUserId: string | null;
-  text: string;
-};
-
-type ActiveMemory = {
-  category: string;
-  subject: string | null;
-  content: string;
-};
+type ChatRequest = { id: number; userId: number; status: string; responseText: string | null };
+type ContextMessage = { lineUserId: string | null; text: string };
+type ActiveMemory = { category: string; subject: string | null; content: string };
 
 export type ExplicitAiChatResult =
   | { status: 'ANSWERED' | 'ALREADY_ANSWERED'; text: string }
@@ -34,16 +20,16 @@ export type ExplicitAiChatResult =
   | { status: 'DISABLED'; reason: string }
   | { status: 'FAILED'; code: string };
 
+const CHAT_SYSTEM_INSTRUCTION =
+  'You are AFTERTRACE, a concise assistant inside one LINE group. Answer the user using supplied recent group context and durable memories when relevant. Do not claim facts not grounded in the supplied context. Never expose internal LINE user ids, billing internals, or hidden identifiers. Reply in the language used by the caller.';
+
 export class ExplicitAiChatService {
   private readonly runtime;
   private readonly meter;
   private readonly maxOutputTokens: number;
   private readonly holds: DrizzleExplicitAiEnergyHoldRepository;
 
-  constructor(
-    private readonly db: Database,
-    private readonly env: ExplicitAiChatEnv,
-  ) {
+  constructor(private readonly db: Database, private readonly env: ExplicitAiChatEnv) {
     this.runtime = resolveAiRuntimeConfig(env);
     this.meter = resolveAiEnergyMeter(env);
     this.maxOutputTokens = configuredMaxOutputTokens(env.GEMINI_CHAT_MAX_OUTPUT_TOKENS);
@@ -68,8 +54,12 @@ export class ExplicitAiChatService {
 
     const context = await this.loadContext(input.groupId, input.lineMessageId);
     const providerPayload = buildPrompt(prompt, context.messages, context.memories);
-    // UTF-8 bytes are a deliberately conservative upper bound for provider input tokens.
-    const inputUpperBoundTokens = new TextEncoder().encode(providerPayload).byteLength;
+    const requestBody = buildGeminiChatRequestBody(providerPayload, this.maxOutputTokens);
+    const serializedRequestBody = JSON.stringify(requestBody);
+    // A Gemini text token consumes at least one UTF-8 byte. Counting the complete
+    // serialized request body therefore overestimates all textual/schema/request input
+    // rather than omitting system instruction or request metadata.
+    const inputUpperBoundTokens = new TextEncoder().encode(serializedRequestBody).byteLength;
     const maxCost = calculateAiCost(
       { inputTokens: inputUpperBoundTokens, outputTokens: this.maxOutputTokens },
       this.runtime.pricing,
@@ -94,24 +84,11 @@ export class ExplicitAiChatService {
             'content-type': 'application/json',
             'x-goog-api-key': this.env.GEMINI_API_KEY!.trim(),
           },
-          body: JSON.stringify({
-            systemInstruction: {
-              parts: [{
-                text: 'You are AFTERTRACE, a concise assistant inside one LINE group. Answer the user using supplied recent group context and durable memories when relevant. Do not claim facts not grounded in the supplied context. Never expose internal LINE user ids, billing internals, or hidden identifiers. Reply in the language used by the caller.',
-              }],
-            },
-            contents: [{ role: 'user', parts: [{ text: providerPayload }] }],
-            generationConfig: {
-              temperature: 0.2,
-              maxOutputTokens: this.maxOutputTokens,
-            },
-          }),
+          body: serializedRequestBody,
         },
       );
       const latencyMs = Date.now() - providerStartedAt;
-      if (!response.ok) {
-        throw new Error(`GEMINI_HTTP_${response.status}`);
-      }
+      if (!response.ok) throw new Error(`GEMINI_HTTP_${response.status}`);
       const body = await response.json() as {
         candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
         usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
@@ -121,6 +98,9 @@ export class ExplicitAiChatService {
       const outputTokens = body.usageMetadata?.candidatesTokenCount;
       if (!answer || !Number.isSafeInteger(inputTokens) || !Number.isSafeInteger(outputTokens)) {
         throw new Error('GEMINI_INVALID_CHAT_RESPONSE');
+      }
+      if (inputTokens! > inputUpperBoundTokens || outputTokens! > this.maxOutputTokens) {
+        throw new Error('AI_CHAT_USAGE_EXCEEDED_CONFIGURED_BOUND');
       }
       const actual = calculateAiCost(
         { inputTokens: inputTokens!, outputTokens: outputTokens! },
@@ -191,12 +171,7 @@ export class ExplicitAiChatService {
     `);
     const row = result.rows[0] as { id?: string; user_id?: string; status?: string; response_text?: string | null } | undefined;
     if (!row?.id || !row.user_id || !row.status) return null;
-    return {
-      id: Number(row.id),
-      userId: Number(row.user_id),
-      status: row.status,
-      responseText: row.response_text ?? null,
-    };
+    return { id: Number(row.id), userId: Number(row.user_id), status: row.status, responseText: row.response_text ?? null };
   }
 
   private async loadContext(groupId: number, currentLineMessageId: string): Promise<{
@@ -313,9 +288,13 @@ function buildPrompt(question: string, messages: ContextMessage[], memories: Act
     }
     return { speaker, text: message.text };
   });
-  return JSON.stringify({
-    question,
-    recentGroupMessages: promptMessages,
-    activeMemories: memories,
-  });
+  return JSON.stringify({ question, recentGroupMessages: promptMessages, activeMemories: memories });
+}
+
+function buildGeminiChatRequestBody(providerPayload: string, maxOutputTokens: number) {
+  return {
+    systemInstruction: { parts: [{ text: CHAT_SYSTEM_INSTRUCTION }] },
+    contents: [{ role: 'user', parts: [{ text: providerPayload }] }],
+    generationConfig: { temperature: 0.2, maxOutputTokens },
+  };
 }
