@@ -26,11 +26,14 @@ const input: MemoryClassificationInput = {
   eligibleSubjectLineUserIds: ['U-actor'],
 };
 
+const maxOutputTokens = 512;
+
 describe('GeminiMemoryClassifier', () => {
   it('uses structured JSON output and validates grounding', async () => {
     const fetchFn = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
       expect(body.generationConfig.responseMimeType).toBe('application/json');
+      expect(body.generationConfig.maxOutputTokens).toBe(maxOutputTokens);
       expect(JSON.stringify(body)).not.toContain('U-secret');
       expect(JSON.stringify(body)).not.toContain('U-actor');
       return new Response(JSON.stringify({
@@ -39,7 +42,12 @@ describe('GeminiMemoryClassifier', () => {
         usageMetadata: { promptTokenCount: 20, candidatesTokenCount: 10 },
       }), { status: 200, headers: { 'content-type': 'application/json' } });
     });
-    const classifier = new GeminiMemoryClassifier({ apiKey: 'test-key', model: 'gemini-2.5-flash-lite', fetchFn: fetchFn as typeof fetch });
+    const classifier = new GeminiMemoryClassifier({
+      apiKey: 'test-key',
+      model: 'gemini-2.5-flash-lite',
+      maxOutputTokens,
+      fetchFn: fetchFn as typeof fetch,
+    });
     const result = await classifier.classify(input);
     expect(result.providerResponseId).toBe('r-1');
     expect(result.tokenUsage).toEqual({ inputTokens: 20, outputTokens: 10 });
@@ -49,6 +57,7 @@ describe('GeminiMemoryClassifier', () => {
     const classifier = new GeminiMemoryClassifier({
       apiKey: 'bad-key',
       model: 'gemini-2.5-flash-lite',
+      maxOutputTokens,
       fetchFn: vi.fn(async () => new Response('unauthorized', { status: 401 })) as typeof fetch,
     });
 
@@ -61,6 +70,7 @@ describe('GeminiMemoryClassifier', () => {
     const classifier = new GeminiMemoryClassifier({
       apiKey: 'test-key',
       model: 'gemini-2.5-flash-lite',
+      maxOutputTokens,
       fetchFn: vi.fn(async () => new Response('slow down', { status: 429 })) as typeof fetch,
     });
 
