@@ -42,9 +42,7 @@ const definitions = new Map(operationalSettingDefinitions.map((item) => [item.ke
 export async function loadOperationalRuntimeEnv(db: Database): Promise<Record<string, string>> {
   const result = await db.execute(sql`SELECT key, value FROM operational_settings`);
   const values: Record<string, string> = {};
-  for (const definition of operationalSettingDefinitions) {
-    if (definition.defaultValue !== undefined) values[definition.key] = definition.defaultValue;
-  }
+  for (const definition of operationalSettingDefinitions) if (definition.defaultValue !== undefined) values[definition.key] = definition.defaultValue;
   for (const row of result.rows as Array<{ key: string; value: unknown }>) {
     if (!definitions.has(row.key) || row.value === null || row.value === undefined) continue;
     values[row.key] = String(row.value);
@@ -57,13 +55,7 @@ export async function listOperationalSettings(db: Database) {
   const current = new Map((result.rows as Array<{ key: string; value: unknown; updated_by: string; updated_at: Date }>).map((row) => [row.key, row]));
   return operationalSettingDefinitions.map((definition) => {
     const row = current.get(definition.key);
-    return {
-      ...definition,
-      value: row?.value === null || row?.value === undefined ? definition.defaultValue ?? null : String(row.value),
-      source: row ? 'DATABASE' : definition.defaultValue !== undefined ? 'DEFAULT' : 'UNCONFIGURED',
-      updatedBy: row?.updated_by ?? null,
-      updatedAt: row?.updated_at ?? null,
-    };
+    return { ...definition, value: row?.value === null || row?.value === undefined ? definition.defaultValue ?? null : String(row.value), source: row ? 'DATABASE' : definition.defaultValue !== undefined ? 'DEFAULT' : 'UNCONFIGURED', updatedBy: row?.updated_by ?? null, updatedAt: row?.updated_at ?? null };
   });
 }
 
@@ -71,20 +63,20 @@ export async function updateOperationalSetting(db: Database, key: string, rawVal
   const definition = definitions.get(key);
   if (!definition) throw new Error('UNKNOWN_SETTING');
   const value = validate(definition, rawValue);
-  return db.transaction(async (tx) => {
-    const previous = await tx.execute(sql`SELECT value FROM operational_settings WHERE key = ${key} FOR UPDATE`);
-    const before = (previous.rows[0] as { value?: unknown } | undefined)?.value ?? null;
-    await tx.execute(sql`
+  await db.execute(sql`
+    WITH previous AS (
+      SELECT value FROM operational_settings WHERE key = ${key}
+    ), upserted AS (
       INSERT INTO operational_settings (key, value, updated_by)
       VALUES (${key}, ${JSON.stringify(value)}::jsonb, ${actor})
-      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()
-    `);
-    await tx.execute(sql`
-      INSERT INTO operational_setting_changes (key, before_value, after_value, changed_by)
-      VALUES (${key}, ${JSON.stringify(before)}::jsonb, ${JSON.stringify(value)}::jsonb, ${actor})
-    `);
-    return { key, value };
-  });
+      ON CONFLICT (key) DO UPDATE
+        SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = NOW()
+      RETURNING value
+    )
+    INSERT INTO operational_setting_changes (key, before_value, after_value, changed_by)
+    SELECT ${key}, (SELECT value FROM previous), (SELECT value FROM upserted), ${actor}
+  `);
+  return { key, value };
 }
 
 function validate(definition: OperationalSettingDefinition, raw: unknown): string {
