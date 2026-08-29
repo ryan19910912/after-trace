@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { ExplicitAiChatService, explicitAiChatDisabledReason } from './ai/chat';
 import { createCommerceRoutes } from './commerce/routes';
 import { resolveProductConfig, type ProductConfigEnv } from './config/product';
 import { DrizzleConversationRepository } from './conversation/drizzle-repository';
@@ -36,6 +37,7 @@ export type Bindings = ProductConfigEnv & {
   GEMINI_MODEL?: string;
   GEMINI_INPUT_USD_PER_MILLION_TOKENS?: string;
   GEMINI_OUTPUT_USD_PER_MILLION_TOKENS?: string;
+  GEMINI_CHAT_MAX_OUTPUT_TOKENS?: string;
   USD_TWD_RATE?: string;
   GLOBAL_FREE_AI_BUDGET_COST_TWD?: string;
   BACKGROUND_AI_MAX_SUBSIDY_COST_TWD?: string;
@@ -79,6 +81,7 @@ app.post('/webhooks/line', async (c) => {
       ignoredInactiveMessages: 0,
       lifetimeFreeGrants: 0,
       deterministicReplies: 0,
+      explicitAiReplies: 0,
       energyBlockedAiRequests: 0,
       explicitMemoryRequests: 0,
       blockedMemoryRequests: 0,
@@ -103,10 +106,7 @@ app.post('/webhooks/line', async (c) => {
   const energyRepository = new DrizzleUserEnergyRepository(database);
   const backgroundEnergyRepository = new DrizzleBackgroundEnergyRepository(database);
   const energyAccessService = c.env.LIFF_APP_URL?.trim()
-    ? new UserEnergyAccessService(
-        new DrizzleUserEnergyAccessRepository(database),
-        c.env.LIFF_APP_URL,
-      )
+    ? new UserEnergyAccessService(new DrizzleUserEnergyAccessRepository(database), c.env.LIFF_APP_URL)
     : null;
   const lineReplyClient = new LineMessagingReplyClient(c.env.LINE_CHANNEL_ACCESS_TOKEN);
   const memoryRequestRepository = new DrizzleMemoryRequestRepository(database);
@@ -114,6 +114,8 @@ app.post('/webhooks/line', async (c) => {
   const automaticMemoryRequestService = new AutomaticMemoryRequestService(memoryRequestRepository);
   const aiDisabledReason = memoryAiRuntimeDisabledReason(c.env);
   const aiRuntime = aiDisabledReason ? null : new UserEnergyMemoryAiRuntime(database, c.env);
+  const chatDisabledReason = explicitAiChatDisabledReason(c.env);
+  const chatService = chatDisabledReason ? null : new ExplicitAiChatService(database, c.env);
   const groupsWithAiWork = new Set<number>();
 
   let lifecycleEvents = 0;
@@ -122,6 +124,7 @@ app.post('/webhooks/line', async (c) => {
   let ignoredInactiveMessages = 0;
   let lifetimeFreeGrants = 0;
   let deterministicReplies = 0;
+  let explicitAiReplies = 0;
   let energyBlockedAiRequests = 0;
   let explicitMemoryRequests = 0;
   let blockedMemoryRequests = 0;
@@ -160,6 +163,8 @@ app.post('/webhooks/line', async (c) => {
     }
 
     const deterministicCommand = detectDeterministicAiCommand(message);
+    const explicitMemoryCommand = detectExplicitMemoryCommand(message);
+
     if (deterministicCommand && message.lineUserId && message.replyToken && energyAccessService) {
       let reply: string;
       if (deterministicCommand.kind === 'ENERGY_STATUS') {
@@ -171,6 +176,7 @@ app.post('/webhooks/line', async (c) => {
       } else if (deterministicCommand.kind === 'HELP') {
         reply = [
           'AFTERTRACE｜幫助', '',
+          '@AI <問題>：用群組近期對話與記憶回答',
           '@AI 額度：查看群組成員是否還可使用 Energy（不顯示他人數字）',
           '@AI 記住 ...：明確要求 AFTERTRACE 記住資訊',
           '@AI 方案：查看目前 V1 Energy 取得方式',
@@ -191,20 +197,50 @@ app.post('/webhooks/line', async (c) => {
       continue;
     }
 
-    if (isAiMention(message) && message.lineUserId && message.replyToken && energyAccessService) {
-      const preflight = await energyAccessService.preflightExplicitAi({
-        groupId: result.groupId,
-        callerLineUserId: message.lineUserId,
-        at: message.lineTimestamp,
-      });
-      if (preflight.status !== 'READY') {
-        await lineReplyClient.reply(message.replyToken, preflight.reply);
-        energyBlockedAiRequests += 1;
-        continue;
+    const genericAiQuestion = isAiMention(message) && !explicitMemoryCommand;
+    if (genericAiQuestion && message.lineUserId && message.replyToken) {
+      if (energyAccessService) {
+        const preflight = await energyAccessService.preflightExplicitAi({
+          groupId: result.groupId,
+          callerLineUserId: message.lineUserId,
+          at: message.lineTimestamp,
+        });
+        if (preflight.status !== 'READY') {
+          await lineReplyClient.reply(message.replyToken, preflight.reply);
+          energyBlockedAiRequests += 1;
+          continue;
+        }
       }
+
+      if (!chatService) {
+        await lineReplyClient.reply(
+          message.replyToken,
+          `AFTERTRACE AI 目前尚未啟用。${c.env.LIFF_APP_URL ? `\n${c.env.LIFF_APP_URL}` : ''}`,
+        );
+      } else {
+        const chat = await chatService.answer({
+          groupId: result.groupId,
+          lineUserId: message.lineUserId,
+          lineMessageId: message.lineMessageId,
+          text: message.textContent ?? '',
+          at: message.lineTimestamp,
+        });
+        if (chat.status === 'ANSWERED' || chat.status === 'ALREADY_ANSWERED') {
+          await lineReplyClient.reply(message.replyToken, chat.text);
+          explicitAiReplies += 1;
+        } else if (chat.status === 'INSUFFICIENT_ENERGY') {
+          await lineReplyClient.reply(
+            message.replyToken,
+            `你的 Energy 不足以安全完成這次 AI 請求。${c.env.LIFF_APP_URL ? `\n可到 AFTERTRACE 查看或補充 Energy：\n${c.env.LIFF_APP_URL}` : ''}`,
+          );
+          energyBlockedAiRequests += 1;
+        } else {
+          await lineReplyClient.reply(message.replyToken, 'AFTERTRACE AI 暫時無法完成這次請求，請稍後再試。');
+        }
+      }
+      continue;
     }
 
-    const explicitMemoryCommand = detectExplicitMemoryCommand(message);
     if (explicitMemoryCommand) {
       const request = await explicitMemoryRequestService.enqueue(result.groupId, message, explicitMemoryCommand);
       if (request.status === 'PENDING') {
@@ -287,6 +323,7 @@ app.post('/webhooks/line', async (c) => {
     ignoredInactiveMessages,
     lifetimeFreeGrants,
     deterministicReplies,
+    explicitAiReplies,
     energyBlockedAiRequests,
     explicitMemoryRequests,
     blockedMemoryRequests,
