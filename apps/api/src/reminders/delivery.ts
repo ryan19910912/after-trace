@@ -10,7 +10,12 @@ export type ReminderDispatchClaim = {
   retryKeyExpiresAt: Date;
 };
 
-export type ReminderDispatchAuthorization = 'AUTHORIZED' | 'STALE' | 'CANCELLED' | 'INACTIVE';
+export type ReminderDispatchAuthorization =
+  | 'AUTHORIZED'
+  | 'STALE'
+  | 'CANCELLED'
+  | 'INACTIVE'
+  | 'OWNER_LEFT';
 
 export interface ReminderDeliveryRepository {
   claimDue(at: Date, leaseExpiresAt: Date, retryKey: string): Promise<ReminderDispatchClaim | null>;
@@ -36,6 +41,7 @@ export type ReminderDeliveryRunResult = {
   claimed: number;
   delivered: number;
   deferred: number;
+  ownerLeftCancelled: number;
   permanentFailures: number;
 };
 
@@ -57,6 +63,7 @@ export class ReminderDeliveryService {
       claimed: 0,
       delivered: 0,
       deferred: 0,
+      ownerLeftCancelled: 0,
       permanentFailures: 0,
     };
 
@@ -71,6 +78,10 @@ export class ReminderDeliveryService {
       result.claimed += 1;
 
       const authorization = await this.repository.authorizeDispatch(claim, at);
+      if (authorization === 'OWNER_LEFT') {
+        result.ownerLeftCancelled += 1;
+        continue;
+      }
       if (authorization !== 'AUTHORIZED') {
         result.deferred += 1;
         continue;
@@ -91,14 +102,17 @@ export class ReminderDeliveryService {
         continue;
       }
 
-      if (push.status === 'RETRYABLE_FAILURE' && new Date().getTime() < claim.retryKeyExpiresAt.getTime()) {
+      if (
+        push.status === 'RETRYABLE_FAILURE' &&
+        new Date().getTime() < claim.retryKeyExpiresAt.getTime()
+      ) {
         await this.repository.releaseForRetry(claim, new Date());
         result.deferred += 1;
         continue;
       }
 
-      // Do not silently release the PAID reservation after an unconfirmed/permanent delivery failure.
-      // Keeping DISPATCHING + reservation is safer than guessing refund/consume semantics.
+      // Keep DISPATCHING + reservation after ambiguous/permanent delivery failure.
+      // A later operator/recovery path must decide refund vs retry; never guess consumption.
       result.permanentFailures += 1;
     }
 
