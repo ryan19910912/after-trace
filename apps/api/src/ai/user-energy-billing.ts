@@ -35,7 +35,7 @@ export class UserEnergyAiBillingService {
     }
     const energyUnits = aiCostTwdToEnergyUnits(usage.costTwd, this.meter);
 
-    if (usage.usageType === 'MEMORY_EXTRACTION') {
+    if (energyUnits > 0n && usage.usageType === 'MEMORY_EXTRACTION') {
       const subjects = await this.eligibleSubjects.listForRequest(requestId);
       const settlement = await this.backgroundSettlement.settle({
         requestId,
@@ -52,7 +52,7 @@ export class UserEnergyAiBillingService {
       if (settlement.status === 'REFERENCE_CONFLICT') {
         return { status: 'CREDIT_REFERENCE_CONFLICT' };
       }
-    } else {
+    } else if (energyUnits > 0n) {
       if (!usage.lineUserId) return { status: 'CREDIT_REFERENCE_CONFLICT' };
       const caller = await this.access.findCaller(usage.lineUserId, chargeAt);
       if (!caller) return { status: 'INSUFFICIENT_CREDIT' };
