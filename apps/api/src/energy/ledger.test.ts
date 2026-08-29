@@ -3,10 +3,10 @@ import { UserEnergyLedgerService, type UserEnergyMutationRepository } from './le
 
 function repository(): UserEnergyMutationRepository {
   return {
-    consume: vi.fn(async () => ({ status: 'APPLIED', operationId: 1 })),
-    reserve: vi.fn(async () => ({ status: 'APPLIED', operationId: 2, reservationId: 3 })),
-    releaseReservation: vi.fn(async () => ({ status: 'APPLIED', operationId: 4, reservationId: 3 })),
-    consumeReservation: vi.fn(async () => ({ status: 'APPLIED', operationId: 5, reservationId: 3 })),
+    consume: vi.fn(async () => ({ status: 'APPLIED' as const, operationId: 1 })),
+    reserve: vi.fn(async () => ({ status: 'APPLIED' as const, operationId: 2, reservationId: 3 })),
+    releaseReservation: vi.fn(async () => ({ status: 'APPLIED' as const, operationId: 4, reservationId: 3 })),
+    consumeReservation: vi.fn(async () => ({ status: 'APPLIED' as const, operationId: 5, reservationId: 3 })),
   };
 }
 
