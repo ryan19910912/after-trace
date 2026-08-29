@@ -17,7 +17,8 @@ export type GroupLifecycleEvent = {
   webhookEventId: string | null;
   replyToken?: string | null;
   lineGroupId: string;
-  type: 'JOIN' | 'LEAVE';
+  type: 'JOIN' | 'LEAVE' | 'MEMBER_JOINED' | 'MEMBER_LEFT';
+  lineUserIds: string[];
   lineTimestamp: Date;
 };
 
@@ -25,9 +26,7 @@ export type ParsedLineEvent =
   | { kind: 'MESSAGE'; message: BufferedGroupMessage }
   | { kind: 'LIFECYCLE'; event: GroupLifecycleEvent };
 
-export type ParsedLineWebhook = {
-  events: ParsedLineEvent[];
-};
+export type ParsedLineWebhook = { events: ParsedLineEvent[] };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -41,14 +40,21 @@ function asNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+function lineMemberIds(value: unknown): string[] {
+  if (!isRecord(value) || !Array.isArray(value.members)) return [];
+  return value.members.flatMap((member) => {
+    if (!isRecord(member) || member.type !== 'user') return [];
+    const id = asString(member.userId);
+    return id ? [id] : [];
+  });
+}
+
 function messageTextAndMetadata(message: Record<string, unknown>): {
   textContent: string | null;
   metadata: Record<string, unknown> | null;
 } {
   const type = asString(message.type);
-  if (type === 'text') {
-    return { textContent: asString(message.text), metadata: null };
-  }
+  if (type === 'text') return { textContent: asString(message.text), metadata: null };
 
   if (type === 'location') {
     const title = asString(message.title);
@@ -101,19 +107,10 @@ function messageTextAndMetadata(message: Record<string, unknown>): {
       metadata: providerType ? { contentProviderType: providerType } : null,
     };
   }
-
   return { textContent: null, metadata: null };
 }
 
-const supportedMessageTypes = new Set([
-  'text',
-  'image',
-  'video',
-  'audio',
-  'file',
-  'location',
-  'sticker',
-]);
+const supportedMessageTypes = new Set(['text', 'image', 'video', 'audio', 'file', 'location', 'sticker']);
 
 export function parseLineWebhook(payload: unknown): ParsedLineWebhook {
   const result: ParsedLineWebhook = { events: [] };
@@ -121,10 +118,8 @@ export function parseLineWebhook(payload: unknown): ParsedLineWebhook {
 
   for (const rawEvent of payload.events) {
     if (!isRecord(rawEvent)) continue;
-
     const source = isRecord(rawEvent.source) ? rawEvent.source : null;
     if (!source || source.type !== 'group') continue;
-
     const lineGroupId = asString(source.groupId);
     if (!lineGroupId) continue;
 
@@ -142,14 +137,34 @@ export function parseLineWebhook(payload: unknown): ParsedLineWebhook {
           replyToken,
           lineGroupId,
           type: eventType === 'join' ? 'JOIN' : 'LEAVE',
+          lineUserIds: [],
           lineTimestamp,
         },
       });
       continue;
     }
 
-    if (eventType !== 'message' || !isRecord(rawEvent.message)) continue;
+    if (eventType === 'memberJoined' || eventType === 'memberLeft') {
+      const lineUserIds = lineMemberIds(
+        eventType === 'memberJoined' ? rawEvent.joined : rawEvent.left,
+      );
+      if (lineUserIds.length > 0) {
+        result.events.push({
+          kind: 'LIFECYCLE',
+          event: {
+            webhookEventId,
+            replyToken,
+            lineGroupId,
+            type: eventType === 'memberJoined' ? 'MEMBER_JOINED' : 'MEMBER_LEFT',
+            lineUserIds,
+            lineTimestamp,
+          },
+        });
+      }
+      continue;
+    }
 
+    if (eventType !== 'message' || !isRecord(rawEvent.message)) continue;
     const message = rawEvent.message;
     const messageType = asString(message.type);
     const lineMessageId = asString(message.id);
