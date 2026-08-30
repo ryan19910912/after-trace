@@ -1,19 +1,31 @@
 import { Hono } from 'hono';
 import { createDatabase } from '../db/client';
 import { issueGroupContextToken } from '../management/group-context';
+import { issueLineLoginState, verifyLineLoginState } from './oauth-state';
 import { DrizzleWebAuthRepository } from './repository';
 import { WebAuthService } from './service';
-import { verifyWebSessionToken } from './token';
+import { issueWebSessionToken, verifyWebSessionToken } from './token';
 
 export type WebAuthBindings = {
   DATABASE_URL: string;
   LINE_CHANNEL_ACCESS_TOKEN: string;
   LINE_CHANNEL_SECRET: string;
   WEB_AUTH_SECRET?: string;
+  WEB_APP_URL?: string;
   WEB_APP_ORIGIN?: string;
+  LINE_LOGIN_CHANNEL_ID?: string;
+  LINE_LOGIN_CHANNEL_SECRET?: string;
 };
 
 type AuthEnv = { Bindings: WebAuthBindings };
+
+type LineTokenResponse = {
+  access_token?: unknown;
+};
+
+type LineProfile = {
+  userId?: unknown;
+};
 
 function authSecret(env: WebAuthBindings): string | null {
   const value = env.WEB_AUTH_SECRET?.trim();
@@ -26,6 +38,13 @@ function bearerToken(header: string | undefined): string | null {
   if (!match) return null;
   const token = match[1]?.trim() ?? '';
   return token && token.length <= 8192 ? token : null;
+}
+
+function lineLoginConfig(env: WebAuthBindings): { channelId: string; channelSecret: string; webAppUrl: string } | null {
+  const channelId = env.LINE_LOGIN_CHANNEL_ID?.trim();
+  const channelSecret = env.LINE_LOGIN_CHANNEL_SECRET?.trim();
+  const webAppUrl = env.WEB_APP_URL?.trim();
+  return channelId && channelSecret && webAppUrl ? { channelId, channelSecret, webAppUrl } : null;
 }
 
 export function createWebAuthRoutes() {
@@ -54,6 +73,64 @@ export function createWebAuthRoutes() {
     c.header('Access-Control-Max-Age', '600');
     c.header('Vary', 'Origin');
     return c.body(null, 204);
+  });
+
+  app.get('/line/start', async (c) => {
+    const secret = authSecret(c.env);
+    const config = lineLoginConfig(c.env);
+    if (!secret || !config) return c.json({ ok: false, error: 'LINE_LOGIN_NOT_CONFIGURED' }, 503);
+    const redirectUri = new URL('/api/v1/auth/line/callback', c.req.url).toString();
+    const authorizeUrl = new URL('https://access.line.me/oauth2/v2.1/authorize');
+    authorizeUrl.searchParams.set('response_type', 'code');
+    authorizeUrl.searchParams.set('client_id', config.channelId);
+    authorizeUrl.searchParams.set('redirect_uri', redirectUri);
+    authorizeUrl.searchParams.set('state', await issueLineLoginState(secret));
+    authorizeUrl.searchParams.set('scope', 'profile openid');
+    return c.redirect(authorizeUrl.toString(), 302);
+  });
+
+  app.get('/line/callback', async (c) => {
+    const secret = authSecret(c.env);
+    const config = lineLoginConfig(c.env);
+    if (!secret || !config) return c.json({ ok: false, error: 'LINE_LOGIN_NOT_CONFIGURED' }, 503);
+    const code = c.req.query('code')?.trim();
+    const state = c.req.query('state')?.trim();
+    if (!code || !state || !(await verifyLineLoginState(state, secret))) {
+      return c.json({ ok: false, error: 'INVALID_LINE_LOGIN_CALLBACK' }, 400);
+    }
+
+    const redirectUri = new URL('/api/v1/auth/line/callback', c.req.url).toString();
+    const tokenResponse = await fetch('https://api.line.me/oauth2/v2.1/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: redirectUri,
+        client_id: config.channelId,
+        client_secret: config.channelSecret,
+      }),
+    });
+    if (!tokenResponse.ok) return c.json({ ok: false, error: 'LINE_LOGIN_EXCHANGE_FAILED' }, 502);
+    const tokenBody = (await tokenResponse.json()) as LineTokenResponse;
+    if (typeof tokenBody.access_token !== 'string' || !tokenBody.access_token) {
+      return c.json({ ok: false, error: 'LINE_LOGIN_EXCHANGE_FAILED' }, 502);
+    }
+
+    const profileResponse = await fetch('https://api.line.me/v2/profile', {
+      headers: { Authorization: `Bearer ${tokenBody.access_token}` },
+    });
+    if (!profileResponse.ok) return c.json({ ok: false, error: 'LINE_PROFILE_FAILED' }, 502);
+    const profile = (await profileResponse.json()) as LineProfile;
+    if (typeof profile.userId !== 'string') return c.json({ ok: false, error: 'LINE_PROFILE_FAILED' }, 502);
+
+    const sessionToken = await issueWebSessionToken({
+      lineUserId: profile.userId,
+      secret,
+    });
+    const webUrl = new URL(config.webAppUrl);
+    webUrl.hash = new URLSearchParams({ session: sessionToken }).toString();
+    return c.redirect(webUrl.toString(), 302);
   });
 
   app.post('/entry/exchange', async (c) => {
