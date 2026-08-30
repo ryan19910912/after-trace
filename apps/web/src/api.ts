@@ -97,6 +97,20 @@ export type CheckoutSession = {
   expiresAt: string | null;
 };
 
+export type WebAuthExchange = {
+  sessionToken: string;
+  lineUserId: string;
+  lineGroupId: string;
+  groupContextToken: string;
+};
+
+export type ManagedGroup = {
+  id: number;
+  lineGroupId: string;
+  name: string;
+  groupContextToken: string;
+};
+
 async function responseBody<T>(response: Response, fallback: string): Promise<{ ok?: boolean; error?: string } & T> {
   const raw = await response.text();
   if (!raw) {
@@ -107,6 +121,38 @@ async function responseBody<T>(response: Response, fallback: string): Promise<{ 
     return JSON.parse(raw) as { ok?: boolean; error?: string } & T;
   } catch {
     throw new Error(`${fallback}: ${response.status}${raw.trim() ? ` - ${raw.trim().slice(0, 160)}` : ''}`);
+  }
+}
+
+export class WebAuthApi {
+  constructor(private readonly baseUrl: string) {}
+
+  private url(path: string): string {
+    return `${this.baseUrl.replace(/\/$/, '')}/api/v1/auth${path}`;
+  }
+
+  lineLoginUrl(): string {
+    return this.url('/line/start');
+  }
+
+  async exchangeEntry(token: string): Promise<WebAuthExchange> {
+    const response = await fetch(this.url('/entry/exchange'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+    const body = await responseBody<WebAuthExchange>(response, '登入連結驗證失敗');
+    if (!response.ok) throw new Error(body.error || `登入連結驗證失敗: ${response.status}`);
+    return body;
+  }
+
+  async groups(sessionToken: string): Promise<ManagedGroup[]> {
+    const response = await fetch(this.url('/groups'), {
+      headers: { Authorization: `Bearer ${sessionToken}` },
+    });
+    const body = await responseBody<{ groups: ManagedGroup[] }>(response, '群組載入失敗');
+    if (!response.ok) throw new Error(body.error || `群組載入失敗: ${response.status}`);
+    return body.groups;
   }
 }
 
