@@ -5,6 +5,7 @@ import type { AvailabilitySyncRepository, PollTargetContext } from './sync-repos
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const DEFAULT_POLL_INTERVAL_SECONDS = 300;
 const MAX_SYNC_WINDOW_DAYS = 31;
+const DEFAULT_LAUNCH_SPORT_CODES = ['badminton'] as const;
 
 export type MetadataSyncResult = {
   sourceCode: string;
@@ -22,11 +23,16 @@ export type PollSyncResult = {
 };
 
 export class SourceSynchronizationService {
+  private readonly enabledSportCodes: ReadonlySet<string>;
+
   constructor(
     private readonly repository: AvailabilitySyncRepository,
     private readonly registry: SourceAdapterRegistry,
     private readonly now: () => Date = () => new Date(),
-  ) {}
+    enabledSportCodes: readonly string[] = DEFAULT_LAUNCH_SPORT_CODES,
+  ) {
+    this.enabledSportCodes = new Set(enabledSportCodes);
+  }
 
   async syncMetadata(sourceCode: string): Promise<MetadataSyncResult> {
     const adapter = this.registry.get(sourceCode);
@@ -44,7 +50,8 @@ export class SourceSynchronizationService {
     for (const sourceVenue of sourceVenues) {
       externalVenueIds.push(sourceVenue.externalVenueId);
       const venueId = await this.repository.upsertVenue(sourceId, sourceVenue);
-      const sourceSports = await adapter.listSports(sourceVenue.externalVenueId);
+      const sourceSports = (await adapter.listSports(sourceVenue.externalVenueId))
+        .filter((sport) => this.enabledSportCodes.has(sport.code));
       const activeSportIds: number[] = [];
 
       for (const sourceSport of sourceSports) {
