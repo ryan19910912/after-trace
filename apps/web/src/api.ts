@@ -20,7 +20,6 @@ export type AvailabilitySlot = {
   status: 'AVAILABLE' | 'UNAVAILABLE' | 'UNKNOWN';
   price: string | null;
   bookingUrl: string | null;
-  externalBookingRef: string | null;
   lastSeenAt: string;
 };
 
