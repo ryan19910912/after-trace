@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { createDatabase } from '../db/client';
+import { issueGroupContextToken } from '../management/group-context';
 import { DrizzleWebAuthRepository } from './repository';
 import { WebAuthService } from './service';
 import { verifyWebSessionToken } from './token';
@@ -7,8 +8,9 @@ import { verifyWebSessionToken } from './token';
 export type WebAuthBindings = {
   DATABASE_URL: string;
   LINE_CHANNEL_ACCESS_TOKEN: string;
+  LINE_CHANNEL_SECRET: string;
   WEB_AUTH_SECRET?: string;
-  WEB_WEB_ORIGIN?: string;
+  WEB_APP_ORIGIN?: string;
 };
 
 type AuthEnv = { Bindings: WebAuthBindings };
@@ -31,7 +33,7 @@ export function createWebAuthRoutes() {
 
   app.use('*', async (c, next) => {
     const origin = c.req.header('origin');
-    const allowedOrigin = c.env.WEB_WEB_ORIGIN?.trim();
+    const allowedOrigin = c.env.WEB_APP_ORIGIN?.trim();
     if (origin && (!allowedOrigin || origin !== allowedOrigin)) {
       return c.json({ ok: false, error: 'ORIGIN_NOT_ALLOWED' }, 403);
     }
@@ -44,7 +46,7 @@ export function createWebAuthRoutes() {
 
   app.options('*', (c) => {
     const origin = c.req.header('origin');
-    const allowedOrigin = c.env.WEB_WEB_ORIGIN?.trim();
+    const allowedOrigin = c.env.WEB_APP_ORIGIN?.trim();
     if (!origin || !allowedOrigin || origin !== allowedOrigin) return c.body(null, 403);
     c.header('Access-Control-Allow-Origin', origin);
     c.header('Access-Control-Allow-Headers', 'Authorization, Content-Type');
@@ -82,6 +84,7 @@ export function createWebAuthRoutes() {
       sessionToken: result.sessionToken,
       lineUserId: result.lineUserId,
       lineGroupId: result.lineGroupId,
+      groupContextToken: await issueGroupContextToken(result.lineGroupId, c.env.LINE_CHANNEL_SECRET),
     });
   });
 
@@ -98,7 +101,14 @@ export function createWebAuthRoutes() {
         c.env.LINE_CHANNEL_ACCESS_TOKEN,
         secret,
       );
-      return c.json({ ok: true, groups: await service.listGroups(session.lineUserId) });
+      const groups = await service.listGroups(session.lineUserId);
+      return c.json({
+        ok: true,
+        groups: await Promise.all(groups.map(async (group) => ({
+          ...group,
+          groupContextToken: await issueGroupContextToken(group.lineGroupId, c.env.LINE_CHANNEL_SECRET),
+        }))),
+      });
     } catch (error) {
       if (error instanceof Error && error.message === 'LINE_GROUP_SUMMARY_UNAVAILABLE') {
         return c.json({ ok: false, error: error.message }, 503);
