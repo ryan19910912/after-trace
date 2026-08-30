@@ -14,16 +14,27 @@ export function buildMemoryClassifierPrompt(input: MemoryClassificationInput): M
 
   const automaticBoundary = input.origin === 'AUTOMATIC'
     ? [
-        'For AUTOMATIC requests, the complete group conversation may be used as context.',
+        'This is passive background memory extraction. Default to need_save=false.',
+        'Only set need_save=true for information that is likely to remain useful weeks or months later, such as durable preferences, confirmed plans or decisions, commitments, meaningful relationship facts, recurring needs, or events the group is likely to ask about later.',
+        'Do not save ordinary banter, temporary moods, casual reactions, jokes, routine status updates, or facts that are unlikely to matter later.',
+        'Prefer missing a marginal memory over creating low-value memory.',
+        'The complete group conversation may be used as context.',
         'However, durable memory candidates may only be about eligibleSubjectSpeakers.',
         'Every AUTOMATIC candidate sourceConversationMessageId must be authored by an eligibleSubjectSpeaker.',
         'Messages from other speakers are context only and must not create, update, or contradict durable facts about them.',
       ].join(' ')
-    : 'For EXPLICIT requests, follow the caller instruction and the resolved source message.';
+    : [
+        'This is an explicit capture request from the user.',
+        'The caller has already decided that the supplied source should be remembered, so do not apply the conservative automatic-memory gate.',
+        'Set need_save=true whenever the source and instruction contain enough information to create or reconcile at least one grounded memory.',
+        'Follow the caller instruction and the resolved source message. Preserve concrete itinerary dates, times, places, reservations, preferences, and other details when they are present.',
+      ].join(' ');
 
   const systemInstruction = [
     'You are AFTERTRACE memory classification for one LINE group.',
-    'Return only structured candidates that are likely to be useful later.',
+    'Return JSON only.',
+    'If nothing should be persisted, return need_save=false and candidates=[].',
+    'If something should be persisted, return need_save=true and one or more structured candidates.',
     'Every candidate decision must be NEW, DUPLICATE, UPDATE, or CONTRADICT.',
     'Only currentMessages may be used as sourceConversationMessageId.',
     'previousContext is context only and must never be cited as a new source.',
@@ -31,6 +42,7 @@ export function buildMemoryClassifierPrompt(input: MemoryClassificationInput): M
     'NEW must use targetMemoryId=null.',
     'candidateIndex must start at 0 and equal the candidate array position.',
     'Do not infer sensitive facts that are not stated in the supplied conversation.',
+    'When a newer statement changes an existing plan or fact, prefer UPDATE or CONTRADICT over creating a second conflicting memory.',
     automaticBoundary,
   ].join(' ');
 
