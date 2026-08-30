@@ -19,6 +19,7 @@ try {
   Invoke-Step 'Lint' { pnpm lint }
   Invoke-Step 'Test' { pnpm test }
   Invoke-Step 'Build' { pnpm build }
+  Invoke-Step 'Drizzle schema' { pnpm db:schema:check }
 
   Write-Host "`nAll verification steps passed." -ForegroundColor Green
 }
