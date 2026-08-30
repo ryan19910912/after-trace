@@ -84,11 +84,18 @@ export class SourceSynchronizationService {
     pollTargetId: number;
     startDate: string;
     endDate: string;
+    claimedAt?: Date;
   }): Promise<PollSyncResult> {
     const allDates = datesInclusive(input.startDate, input.endDate);
     const polledAt = this.now();
-    const context = await this.repository.getPollTargetContext(input.pollTargetId);
-    if (!context) throw new Error(`Poll target ${input.pollTargetId} is not active or no longer resolvable`);
+    const context = await this.repository.getPollTargetContext(input.pollTargetId, input.claimedAt);
+    if (!context) {
+      throw new Error(
+        input.claimedAt
+          ? `Poll target ${input.pollTargetId} claim is no longer active`
+          : `Poll target ${input.pollTargetId} is not active or no longer resolvable`,
+      );
+    }
     const adapter = this.registry.get(context.sourceCode);
     const intervalSeconds = Math.max(context.intervalSeconds, context.sourceMinPollIntervalSeconds);
 
@@ -141,6 +148,7 @@ export class SourceSynchronizationService {
         pollTargetId: context.pollTargetId,
         polledAt,
         nextPollAt: addSeconds(polledAt, intervalSeconds),
+        expectedClaimedAt: input.claimedAt,
       });
       return {
         pollTargetId: context.pollTargetId,
@@ -155,6 +163,7 @@ export class SourceSynchronizationService {
         polledAt,
         nextPollAt: addSeconds(polledAt, Math.min(intervalSeconds * 2, 3600)),
         errorCode: sourceErrorCode(cause),
+        expectedClaimedAt: input.claimedAt,
       });
       throw cause;
     }
