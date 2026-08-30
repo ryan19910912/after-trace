@@ -4,12 +4,14 @@ import { createDatabase } from '../db/client';
 import { DrizzleUserReminderRepository } from '../reminders/drizzle-user-repository';
 import { UserReminderService } from '../reminders/user-service';
 import { DrizzleManagementRepository } from './drizzle-repository';
+import { verifyGroupContextToken } from './group-context';
 import { LineLiffGroupSessionVerifier, type LiffGroupSession } from './session';
 import { ManagementService } from './service';
 
 export type ManagementBindings = ProductConfigEnv & {
   DATABASE_URL: string;
   LINE_CHANNEL_ACCESS_TOKEN: string;
+  LINE_CHANNEL_SECRET: string;
   LIFF_CHANNEL_ID: string;
   LIFF_WEB_ORIGIN?: string;
   REMINDER_RESERVATION_ENERGY?: string;
@@ -55,8 +57,10 @@ function positivePathId(value: string): number {
 }
 
 async function sessionFor(c: ManagementContext): Promise<LiffGroupSession | Response> {
-  const lineGroupId = c.req.header('x-line-group-id');
-  if (!lineGroupId) return c.json({ ok: false, error: 'LINE_GROUP_CONTEXT_REQUIRED' }, 400);
+  const groupContextToken = c.req.header('x-line-group-context');
+  if (!groupContextToken) return c.json({ ok: false, error: 'LINE_GROUP_CONTEXT_REQUIRED' }, 400);
+  const lineGroupId = await verifyGroupContextToken(groupContextToken, c.env.LINE_CHANNEL_SECRET);
+  if (!lineGroupId) return c.json({ ok: false, error: 'INVALID_LINE_GROUP_CONTEXT' }, 401);
 
   const db = createDatabase(c.env.DATABASE_URL);
   const verifier = new LineLiffGroupSessionVerifier(
@@ -106,7 +110,7 @@ export function createManagementRoutes() {
     const allowedOrigin = c.env.LIFF_WEB_ORIGIN?.trim();
     if (!origin || !allowedOrigin || origin !== allowedOrigin) return c.body(null, 403);
     c.header('Access-Control-Allow-Origin', origin);
-    c.header('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Line-Group-Id');
+    c.header('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Line-Group-Context');
     c.header('Access-Control-Allow-Methods', 'GET, PATCH, POST, DELETE, OPTIONS');
     c.header('Access-Control-Max-Age', '600');
     c.header('Vary', 'Origin');
