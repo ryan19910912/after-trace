@@ -1,4 +1,5 @@
 import type { ExtractionBatchInputService, ExtractionInputMessage } from '../extraction/input';
+import type { InlineMemoryMedia, LineMessageContentResolver } from '../line/content';
 import type { EligibleMemorySubjectService } from './eligible-subjects';
 import type { ActiveMemory, MemoryCandidatePipeline } from './pipeline';
 import type { ClaimedMemoryRequest, MemoryRequestOrigin } from './work';
@@ -16,6 +17,7 @@ export type MemoryClassificationInput = {
   };
   activeMemories: ActiveMemory[];
   eligibleSubjectLineUserIds: string[];
+  inlineMedia: InlineMemoryMedia[];
 };
 
 export interface MemorySourceMessageRepository {
@@ -28,6 +30,7 @@ export class MemoryClassificationInputService {
     private readonly sourceMessages: MemorySourceMessageRepository,
     private readonly candidates: MemoryCandidatePipeline,
     private readonly eligibleSubjects?: Pick<EligibleMemorySubjectService, 'listForRequest'>,
+    private readonly contentResolver?: Pick<LineMessageContentResolver, 'image'>,
   ) {}
 
   async load(request: ClaimedMemoryRequest): Promise<MemoryClassificationInput> {
@@ -42,6 +45,13 @@ export class MemoryClassificationInputService {
         request.sourceConversationMessageId,
       );
       if (!source) throw new Error('explicit memory request source is no longer available');
+
+      const inlineMedia: InlineMemoryMedia[] = [];
+      if (source.messageType === 'image') {
+        if (!this.contentResolver) throw new Error('explicit image memory requires LINE content resolver');
+        inlineMedia.push(await this.contentResolver.image(source.lineMessageId));
+      }
+
       return {
         requestId: request.id,
         groupId: request.groupId,
@@ -52,6 +62,7 @@ export class MemoryClassificationInputService {
         previousContext: null,
         activeMemories,
         eligibleSubjectLineUserIds: request.actorLineUserId ? [request.actorLineUserId] : [],
+        inlineMedia,
       };
     }
 
@@ -81,6 +92,7 @@ export class MemoryClassificationInputService {
       previousContext: batch.previousContext,
       activeMemories,
       eligibleSubjectLineUserIds: subjects.map((subject) => subject.lineUserId),
+      inlineMedia: [],
     };
   }
 }
