@@ -10,6 +10,19 @@ export type ManagedMemory = {
   updatedAt: string;
 };
 
+export type CrossGroupMemory = {
+  id: number;
+  groupId: number;
+  lineGroupId: string;
+  groupName: string;
+  category: string;
+  subject: string | null;
+  content: string;
+  sourceMessageId: string | null;
+  sourceLineTimestamp: string | null;
+  updatedAt: string;
+};
+
 export type ManagedReminder = {
   id: number;
   message: string;
@@ -153,6 +166,16 @@ export class WebAuthApi {
     const body = await responseBody<{ groups: ManagedGroup[] }>(response, '群組載入失敗');
     if (!response.ok) throw new Error(body.error || `群組載入失敗: ${response.status}`);
     return body.groups;
+  }
+
+  async memories(sessionToken: string, query = ''): Promise<CrossGroupMemory[]> {
+    const suffix = query.trim() ? `?q=${encodeURIComponent(query.trim())}` : '';
+    const response = await fetch(this.url(`/memories${suffix}`), {
+      headers: { Authorization: `Bearer ${sessionToken}` },
+    });
+    const body = await responseBody<{ memories: CrossGroupMemory[] }>(response, '跨群組記憶搜尋失敗');
+    if (!response.ok) throw new Error(body.error || `跨群組記憶搜尋失敗: ${response.status}`);
+    return body.memories;
   }
 }
 
