@@ -26,9 +26,26 @@ export const memoryClassifierCandidateSchema = z
   });
 
 export const memoryClassifierOutputSchema = z
-  .object({ candidates: z.array(memoryClassifierCandidateSchema).max(20) })
+  .object({
+    need_save: z.boolean(),
+    candidates: z.array(memoryClassifierCandidateSchema).max(20),
+  })
   .strict()
   .superRefine((output, context) => {
+    if (!output.need_save && output.candidates.length > 0) {
+      context.addIssue({
+        code: 'custom',
+        path: ['candidates'],
+        message: 'need_save=false requires an empty candidates array',
+      });
+    }
+    if (output.need_save && output.candidates.length === 0) {
+      context.addIssue({
+        code: 'custom',
+        path: ['candidates'],
+        message: 'need_save=true requires at least one candidate',
+      });
+    }
     output.candidates.forEach((candidate, index) => {
       if (candidate.candidateIndex !== index) {
         context.addIssue({ code: 'custom', path: ['candidates', index, 'candidateIndex'], message: 'candidateIndex must equal its array index' });
@@ -55,6 +72,8 @@ export function parseMemoryClassifierOutput(
   input: MemoryClassificationInput,
 ): ClassifiedMemoryCandidate[] {
   const parsed = memoryClassifierOutputSchema.parse(raw);
+  if (!parsed.need_save) return [];
+
   const sourceMessages = new Map(input.currentMessages.map((message) => [message.id, message]));
   const activeMemoryIds = new Set(input.activeMemories.map((memory) => memory.id));
   const eligibleSubjects = new Set(input.eligibleSubjectLineUserIds);
