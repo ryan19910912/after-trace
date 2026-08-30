@@ -49,6 +49,7 @@ const durable: ValidatedClassifierResult = {
   model: 'gemini-2.5-flash-lite',
   providerResponseId: 'r1',
   output: {
+    need_save: true,
     candidates: [{
       candidateIndex: 0,
       decision: 'NEW',
