@@ -202,12 +202,23 @@ export class DrizzleNotificationRepository {
   }
 
   async settleAccepted(deliveryId: number, claimKey: string, now = new Date()): Promise<boolean> {
-    const runtime = await this.clearClaim(deliveryId, claimKey, now);
-    if (!runtime) return false;
-    await this.database
+    // Update the durable delivery state before clearing the dispatch lease. If
+    // the Worker dies between these writes the SENT row is no longer eligible
+    // for dispatch, so a successfully accepted push cannot be duplicated.
+    const [updated] = await this.database
       .update(notificationDeliveries)
       .set({ status: 'SENT', errorCode: null, sentAt: now, updatedAt: now })
-      .where(and(eq(notificationDeliveries.id, deliveryId), eq(notificationDeliveries.status, 'PENDING')));
+      .where(and(
+        eq(notificationDeliveries.id, deliveryId),
+        eq(notificationDeliveries.status, 'PENDING'),
+        sql`EXISTS (
+          SELECT 1 FROM notification_delivery_runtime r
+          WHERE r.delivery_id = ${deliveryId} AND r.dispatch_claim_key = ${claimKey}
+        )`,
+      ))
+      .returning({ id: notificationDeliveries.id });
+    if (!updated) return false;
+    await this.clearClaim(deliveryId, claimKey, now);
     return true;
   }
 
@@ -229,12 +240,20 @@ export class DrizzleNotificationRepository {
   }
 
   async settleFailed(deliveryId: number, claimKey: string, errorCode: string, now = new Date()) {
-    const runtime = await this.clearClaim(deliveryId, claimKey, now);
-    if (!runtime) return false;
-    await this.database
+    const [updated] = await this.database
       .update(notificationDeliveries)
       .set({ status: 'FAILED', errorCode, updatedAt: now })
-      .where(and(eq(notificationDeliveries.id, deliveryId), eq(notificationDeliveries.status, 'PENDING')));
+      .where(and(
+        eq(notificationDeliveries.id, deliveryId),
+        eq(notificationDeliveries.status, 'PENDING'),
+        sql`EXISTS (
+          SELECT 1 FROM notification_delivery_runtime r
+          WHERE r.delivery_id = ${deliveryId} AND r.dispatch_claim_key = ${claimKey}
+        )`,
+      ))
+      .returning({ id: notificationDeliveries.id });
+    if (!updated) return false;
+    await this.clearClaim(deliveryId, claimKey, now);
     return true;
   }
 
@@ -244,6 +263,33 @@ export class DrizzleNotificationRepository {
     subscriptionId: number,
     now = new Date(),
   ): Promise<boolean> {
+    const [ownedClaim] = await this.database
+      .select({ deliveryId: notificationDeliveryRuntime.deliveryId })
+      .from(notificationDeliveryRuntime)
+      .where(and(
+        eq(notificationDeliveryRuntime.deliveryId, deliveryId),
+        eq(notificationDeliveryRuntime.dispatchClaimKey, claimKey),
+      ))
+      .limit(1);
+    if (!ownedClaim) return false;
+
+    // 404/410 is authoritative for this concrete endpoint. Deactivating it is
+    // safe even if the lease later expires. Only unbind the delivery when it
+    // still points at the same dead subscription, so a newer worker cannot
+    // have its replacement binding erased by an older response.
+    await this.database
+      .update(notificationSubscriptions)
+      .set({ active: false, updatedAt: now })
+      .where(eq(notificationSubscriptions.id, subscriptionId));
+    await this.database
+      .update(notificationDeliveries)
+      .set({ subscriptionId: null, errorCode: 'SUBSCRIPTION_GONE', updatedAt: now })
+      .where(and(
+        eq(notificationDeliveries.id, deliveryId),
+        eq(notificationDeliveries.status, 'PENDING'),
+        eq(notificationDeliveries.subscriptionId, subscriptionId),
+      ));
+
     const [runtime] = await this.database
       .update(notificationDeliveryRuntime)
       .set({
@@ -257,17 +303,7 @@ export class DrizzleNotificationRepository {
         eq(notificationDeliveryRuntime.dispatchClaimKey, claimKey),
       ))
       .returning({ deliveryId: notificationDeliveryRuntime.deliveryId });
-    if (!runtime) return false;
-
-    await this.database
-      .update(notificationSubscriptions)
-      .set({ active: false, updatedAt: now })
-      .where(eq(notificationSubscriptions.id, subscriptionId));
-    await this.database
-      .update(notificationDeliveries)
-      .set({ subscriptionId: null, errorCode: 'SUBSCRIPTION_GONE', updatedAt: now })
-      .where(and(eq(notificationDeliveries.id, deliveryId), eq(notificationDeliveries.status, 'PENDING')));
-    return true;
+    return Boolean(runtime);
   }
 
   async claimPresentation(userId: number, endpoint: string, now = new Date()) {
