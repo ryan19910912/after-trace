@@ -61,6 +61,45 @@ export class GeminiAiIntentRouter {
       'Do not use keyword matching mechanically. Infer the user intent from natural language.',
     ].join(' ');
 
+    const structured = await this.generate(systemInstruction, payload, true);
+    if (structured.ok) return parseRoute(structured.body);
+
+    console.warn(JSON.stringify({
+      event: 'ai_intent_router_structured_retry',
+      model: this.model,
+      status: structured.status,
+      detail: structured.detail,
+    }));
+
+    const fallbackInstruction = [
+      systemInstruction,
+      'Return only one compact JSON object and nothing else.',
+      'The JSON shape must be exactly: {"intent":"REMEMBER|ASK|REMINDER|UNKNOWN","prefer_recent_image":true|false}.',
+    ].join(' ');
+    const fallback = await this.generate(fallbackInstruction, payload, false);
+    if (!fallback.ok) {
+      throw new Error(`AI_INTENT_ROUTER_FAILED_${fallback.status}: ${fallback.detail || 'unknown Gemini error'}`);
+    }
+    return parseRoute(fallback.body);
+  }
+
+  private async generate(
+    systemInstruction: string,
+    payload: unknown,
+    structured: boolean,
+  ): Promise<
+    | { ok: true; body: GeminiResponse }
+    | { ok: false; status: number; detail: string }
+  > {
+    const generationConfig: Record<string, unknown> = {
+      temperature: 0,
+      maxOutputTokens: 128,
+    };
+    if (structured) {
+      generationConfig.responseMimeType = 'application/json';
+      generationConfig.responseJsonSchema = responseJsonSchema;
+    }
+
     const response = await this.fetcher(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.model)}:generateContent`,
       {
@@ -72,25 +111,31 @@ export class GeminiAiIntentRouter {
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: systemInstruction }] },
           contents: [{ role: 'user', parts: [{ text: JSON.stringify(payload) }] }],
-          generationConfig: {
-            responseMimeType: 'application/json',
-            responseJsonSchema,
-            temperature: 0,
-            maxOutputTokens: 64,
-          },
+          generationConfig,
         }),
       },
     );
-    if (!response.ok) throw new Error(`AI_INTENT_ROUTER_FAILED_${response.status}`);
-    const body = (await response.json()) as GeminiResponse;
-    const raw = body.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('').trim();
-    if (!raw) throw new Error('AI_INTENT_ROUTER_EMPTY_RESPONSE');
-    const parsed = routeSchema.parse(JSON.parse(raw));
-    return {
-      intent: parsed.intent,
-      preferRecentImage: parsed.prefer_recent_image,
-    };
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        detail: (await response.text()).slice(0, 800),
+      };
+    }
+    return { ok: true, body: (await response.json()) as GeminiResponse };
   }
+}
+
+function parseRoute(body: GeminiResponse): AiIntentRoute {
+  const raw = body.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('').trim();
+  if (!raw) throw new Error('AI_INTENT_ROUTER_EMPTY_RESPONSE');
+  const cleaned = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/, '').trim();
+  const parsed = routeSchema.parse(JSON.parse(cleaned));
+  return {
+    intent: parsed.intent,
+    preferRecentImage: parsed.prefer_recent_image,
+  };
 }
 
 export function createAiIntentRouter(env: AiIntentRouterEnv): GeminiAiIntentRouter | null {
