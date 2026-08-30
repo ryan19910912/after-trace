@@ -70,10 +70,6 @@ function oauthCookie(value: string, requestUrl: string, maxAge: number): string 
   return `${OAUTH_COOKIE}=${encodeURIComponent(value)}; Path=/api/v1/auth/line; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure}`;
 }
 
-async function authenticatedSession(c: Parameters<ReturnType<typeof createWebAuthRoutes>['get']>[1] extends never ? never : never) {
-  return c;
-}
-
 export function createWebAuthRoutes() {
   const app = new Hono<AuthEnv>();
 
