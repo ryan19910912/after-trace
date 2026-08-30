@@ -19,8 +19,8 @@ function message(text: string, quotedLineMessageId: string | null = null): Buffe
 }
 
 describe('detectExplicitMemoryCommand', () => {
-  it('detects an @AI remember instruction', () => {
-    expect(detectExplicitMemoryCommand(message('@AI 記住 Amy 不吃香菜'))).toEqual({
+  it('detects an @AFTERTRACE remember instruction', () => {
+    expect(detectExplicitMemoryCommand(message('@AFTERTRACE 記住 Amy 不吃香菜'))).toEqual({
       kind: 'REMEMBER',
       quotedLineMessageId: null,
       instruction: 'Amy 不吃香菜',
