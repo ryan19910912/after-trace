@@ -1,17 +1,18 @@
 param(
     [switch]$SkipInstall,
     [switch]$AllowDirty,
-    [switch]$AllowNonMain
+    [switch]$AllowNonMain,
+    [string]$WorkerUrl = 'https://after-trace-api.a0955625660.workers.dev',
+    [string]$PagesUrl = 'https://after-trace.pages.dev',
+    [string]$PagesProject = 'after-trace'
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $RepoRoot = $PSScriptRoot
-$WorkerUrl = 'https://after-trace-api.a0955625660.workers.dev'
-$PagesUrl = 'https://after-trace.pages.dev'
-$PagesProject = 'after-trace'
 $WranglerCmd = Join-Path $RepoRoot 'apps\api\node_modules\.bin\wrangler.cmd'
 $PagesDist = Join-Path $RepoRoot 'apps\web\dist'
+$SmokeScript = Join-Path $RepoRoot 'smoke.ps1'
 
 function Invoke-CommandChecked {
     param([string]$Name, [scriptblock]$Command)
@@ -33,7 +34,7 @@ try {
     Invoke-CommandChecked 'Update main' { git pull --ff-only }
     if (-not $SkipInstall) { Invoke-CommandChecked 'Install dependencies' { pnpm install --frozen-lockfile } }
 
-    $env:VITE_API_BASE_URL = $WorkerUrl
+    $env:VITE_API_BASE_URL = $WorkerUrl.TrimEnd('/')
     Invoke-CommandChecked 'Web typecheck' { pnpm --filter @aftertrace/web typecheck }
     Invoke-CommandChecked 'Web lint' { pnpm --filter @aftertrace/web lint }
     Invoke-CommandChecked 'Web tests' { pnpm --filter @aftertrace/web test }
@@ -42,10 +43,12 @@ try {
         if (-not (Test-Path $WranglerCmd)) { throw "Wrangler executable not found: $WranglerCmd" }
         & $WranglerCmd pages deploy $PagesDist --project-name=$PagesProject --branch=main
     }
+    Invoke-CommandChecked 'Deployed Worker + Pages smoke' {
+        if (-not (Test-Path $SmokeScript)) { throw "Smoke script not found: $SmokeScript" }
+        & $SmokeScript -WorkerUrl $WorkerUrl -PagesUrl $PagesUrl
+    }
 
-    $response = Invoke-WebRequest $PagesUrl -Method Get -UseBasicParsing
-    if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 400) { throw "Pages check failed with HTTP $($response.StatusCode)" }
-    Write-Host "`nPages deployment completed. Verify sport/date/time search and official booking links on mobile." -ForegroundColor Green
+    Write-Host "`nPages deployment completed and passed Worker readiness + Pages smoke checks." -ForegroundColor Green
 }
 finally {
     Pop-Location
