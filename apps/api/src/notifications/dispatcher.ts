@@ -73,7 +73,17 @@ export class WebPushDispatcher {
       if (!claimed) continue;
       summary.claimed += 1;
 
-      await this.repository.bindSubscription(delivery.deliveryId, subscription.id);
+      const bound = await this.repository.bindSubscription(
+        delivery.deliveryId,
+        subscription.id,
+        claimKey,
+        now,
+      );
+      if (!bound) {
+        summary.settlementLost += 1;
+        continue;
+      }
+
       const result = await sendEmptyWebPush(subscription.endpoint, config);
 
       if (result.status === 'ACCEPTED') {
