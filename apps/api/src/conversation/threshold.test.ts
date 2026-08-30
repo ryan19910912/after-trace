@@ -6,7 +6,7 @@ describe('evaluateExtractionThreshold', () => {
   it('triggers at the message threshold', () => {
     expect(
       evaluateExtractionThreshold(
-        { messageCount: 30, charCount: 120 },
+        { messageCount: 80, charCount: 120 },
         5,
         defaultProductConfig,
       ),
@@ -16,7 +16,7 @@ describe('evaluateExtractionThreshold', () => {
   it('triggers at the character threshold and marks a large current message', () => {
     expect(
       evaluateExtractionThreshold(
-        { messageCount: 2, charCount: 5_000 },
+        { messageCount: 2, charCount: 12_000 },
         2_000,
         defaultProductConfig,
       ),
@@ -26,7 +26,7 @@ describe('evaluateExtractionThreshold', () => {
   it('does not trigger before either extraction threshold', () => {
     expect(
       evaluateExtractionThreshold(
-        { messageCount: 29, charCount: 4_999 },
+        { messageCount: 79, charCount: 11_999 },
         100,
         defaultProductConfig,
       ).extractionDue,
