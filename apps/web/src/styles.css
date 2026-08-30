@@ -63,10 +63,16 @@ button.danger { border-color: #6c3434; background: #3b2020; }
 .fatal-shell { display: grid; place-items: center; }
 .fatal-card { width: min(560px, 100%); padding: 22px; }
 
+.web-session-bar { position: sticky; top: 0; z-index: 10; display: flex; justify-content: flex-end; gap: 8px; width: min(980px, 100%); margin: 0 auto; padding: 10px 18px; background: rgb(16 17 20 / 92%); backdrop-filter: blur(12px); }
+.group-card { display: grid; gap: 6px; width: 100%; padding: 16px; text-align: left; border-radius: 16px; background: #17191d; }
+.group-card strong { font-size: 17px; }
+.group-card span { color: #9da3ad; font-size: 13px; }
+
 @media (max-width: 640px) {
   .shell { padding: 18px 14px 36px; }
   .topbar { align-items: flex-start; }
   .metric-grid { grid-template-columns: 1fr; }
   .section-head { align-items: stretch; }
   .search-row { width: 100%; }
+  .web-session-bar { padding-inline: 14px; }
 }
