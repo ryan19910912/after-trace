@@ -12,4 +12,3 @@ LINE_LOGIN_CHANNEL_ID = "2011322889"
 
 [observability]
 enabled = true
-redact_query_string = false
