@@ -14,20 +14,14 @@ function parseDeliveryId(value: string): number | null {
 export function createNotificationRoutes() {
   const app = new Hono<{ Bindings: Bindings }>();
 
-  app.get('/config', (c) => {
-    try {
-      const config = resolveVapidConfig(c.env);
-      return c.json({
-        ok: true,
-        configured: Boolean(config),
-        applicationServerKey: config?.publicKey ?? null,
-      });
-    } catch {
-      return c.json({ ok: true, configured: false, applicationServerKey: null });
-    }
-  });
-
   app.use('*', async (c, next) => {
+    // The browser needs the public VAPID key before it can create a PushSubscription.
+    // No database identity is required for this single read-only endpoint.
+    if (c.req.method === 'GET' && c.req.path.endsWith('/config')) {
+      await next();
+      return;
+    }
+
     if (!c.env.DATABASE_URL?.trim()) {
       return c.json({ ok: false, error: 'DATABASE_NOT_CONFIGURED' }, 503);
     }
@@ -39,6 +33,19 @@ export function createNotificationRoutes() {
     c.set('database', database);
     c.set('userId', userId);
     await next();
+  });
+
+  app.get('/config', (c) => {
+    try {
+      const config = resolveVapidConfig(c.env);
+      return c.json({
+        ok: true,
+        configured: Boolean(config),
+        applicationServerKey: config?.publicKey ?? null,
+      });
+    } catch {
+      return c.json({ ok: true, configured: false, applicationServerKey: null });
+    }
   });
 
   app.post('/subscription', async (c) => {
