@@ -1,9 +1,11 @@
 type FetchLike = typeof fetch;
 
+const defaultFetch: FetchLike = (input, init) => fetch(input, init);
+
 export class LineMessagingReplyClient {
   private readonly channelAccessToken: string;
 
-  constructor(channelAccessToken: string, private readonly fetchImpl: FetchLike = fetch) {
+  constructor(channelAccessToken: string, private readonly fetchImpl: FetchLike = defaultFetch) {
     const token = channelAccessToken.trim();
     if (!token) throw new Error('LINE channel access token must not be empty');
     this.channelAccessToken = token;
