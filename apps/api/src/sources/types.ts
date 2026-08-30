@@ -23,6 +23,7 @@ export type SourceAvailabilitySlot = {
   externalVenueId: string;
   sportCode: string;
   externalCourtId?: string;
+  courtName?: string;
   useDate: string;
   startTime: string;
   endTime: string;
@@ -31,10 +32,22 @@ export type SourceAvailabilitySlot = {
   externalBookingRef?: string;
 };
 
+export type SourceBookableDateQuery = {
+  externalVenueId: string;
+  sportCode: string;
+  externalCategoryId?: string;
+  startDate: string;
+  endDate: string;
+};
+
 export type AvailabilitySourceAdapter = {
   readonly code: string;
+  readonly name: string;
+  readonly baseUrl: string;
+  readonly minPollIntervalSeconds: number;
   listVenues(): Promise<SourceVenue[]>;
   listSports(externalVenueId: string): Promise<SourceSport[]>;
+  listBookableDates?(input: SourceBookableDateQuery): Promise<string[]>;
   listCourts?(externalVenueId: string, sportCode: string): Promise<SourceCourt[]>;
   listAvailability(input: {
     externalVenueId: string;
