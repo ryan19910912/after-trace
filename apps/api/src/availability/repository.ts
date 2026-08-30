@@ -48,7 +48,6 @@ export class DrizzleAvailabilityRepository {
         status: availabilitySlots.status,
         price: availabilitySlots.price,
         bookingUrl: venues.bookingUrl,
-        externalBookingRef: availabilitySlots.externalBookingRef,
         lastSeenAt: availabilitySlots.lastSeenAt,
       })
       .from(availabilitySlots)
