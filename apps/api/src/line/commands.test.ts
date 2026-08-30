@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BufferedGroupMessage } from './events';
-import { detectExplicitMemoryCommand } from './commands';
+import { aiMentionText, detectDeterministicAiCommand, isAiMention } from './commands';
 
 function message(text: string, quotedLineMessageId: string | null = null): BufferedGroupMessage {
   return {
@@ -18,32 +18,23 @@ function message(text: string, quotedLineMessageId: string | null = null): Buffe
   };
 }
 
-describe('detectExplicitMemoryCommand', () => {
-  it('detects an @AFTERTRACE remember instruction', () => {
-    expect(detectExplicitMemoryCommand(message('@AFTERTRACE 記住 Amy 不吃香菜'))).toEqual({
-      kind: 'REMEMBER',
-      quotedLineMessageId: null,
-      instruction: 'Amy 不吃香菜',
-    });
+describe('LINE AI commands', () => {
+  it('keeps zero-ambiguity commands deterministic', () => {
+    expect(detectDeterministicAiCommand(message('@AFTERTRACE 額度'))).toEqual({ kind: 'ENERGY_STATUS' });
+    expect(detectDeterministicAiCommand(message('@AFTERTRACE 幫助'))).toEqual({ kind: 'HELP' });
+    expect(detectDeterministicAiCommand(message('@AFTERTRACE 方案'))).toEqual({ kind: 'PLANS' });
   });
 
-  it('uses a quoted LINE message as the source when the reply only says 記住', () => {
-    expect(detectExplicitMemoryCommand(message('記住', 'quoted-123'))).toEqual({
-      kind: 'REMEMBER',
-      quotedLineMessageId: 'quoted-123',
-      instruction: null,
-    });
+  it('does not classify natural-language intent in code', () => {
+    expect(detectDeterministicAiCommand(message('@AFTERTRACE 幫我記錄一下'))).toBeNull();
+    expect(detectDeterministicAiCommand(message('@AFTERTRACE 明天提醒我看醫生'))).toBeNull();
+    expect(detectDeterministicAiCommand(message('@AFTERTRACE 這間我們去過嗎'))).toBeNull();
   });
 
-  it('accepts 記錄一下 as a reply-based explicit capture command', () => {
-    expect(detectExplicitMemoryCommand(message('@AFTERTRACE 幫我記錄一下', 'quoted-456'))).toEqual({
-      kind: 'REMEMBER',
-      quotedLineMessageId: 'quoted-456',
-      instruction: null,
-    });
-  });
-
-  it('does not treat ordinary group conversation as a command', () => {
-    expect(detectExplicitMemoryCommand(message('記住明天要下雨'))).toBeNull();
+  it('exposes the natural text for the AI router', () => {
+    const input = message('@AFTERTRACE 幫我記錄一下', 'quoted-1');
+    expect(isAiMention(input)).toBe(true);
+    expect(aiMentionText(input)).toBe('幫我記錄一下');
+    expect(isAiMention(message('普通群組聊天'))).toBe(false);
   });
 });
