@@ -15,7 +15,7 @@ if (!process.env.DATABASE_URL) {
 const drizzlePath = (...segments: string[]) => resolve(rootDir, ...segments).replaceAll('\\', '/');
 
 export default defineConfig({
-  schema: drizzlePath('apps/api/src/db/schema.ts'),
+  schema: drizzlePath('apps/api/src/db/schema-all.ts'),
   out: drizzlePath('drizzle'),
   dialect: 'postgresql',
   dbCredentials: {
