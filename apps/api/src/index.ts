@@ -4,6 +4,9 @@ import { createAvailabilityRoutes } from './availability/routes';
 import { createIdentityRoutes } from './auth/routes';
 import { createDatabase } from './db/client';
 import type { Bindings } from './env';
+import { WebPushDispatcher } from './notifications/dispatcher';
+import { DrizzleNotificationRepository } from './notifications/repository';
+import { createNotificationRoutes } from './notifications/routes';
 import { PollingOrchestrator } from './polling/orchestrator';
 import { createDefaultSourceRegistry } from './sources/registry';
 import { DrizzleAvailabilitySyncRepository } from './sources/sync-repository';
@@ -22,6 +25,7 @@ app.get('/health', (c) => c.json({ service: 'after-trace-api', product: 'sports-
 app.route('/api/v1', createAvailabilityRoutes());
 app.route('/api/v1/session', createIdentityRoutes());
 app.route('/api/v1/watch-rules', createWatchRoutes());
+app.route('/api/v1/push', createNotificationRoutes());
 
 async function runScheduledPolling(env: Bindings): Promise<void> {
   const database = createDatabase(env.DATABASE_URL);
@@ -29,7 +33,8 @@ async function runScheduledPolling(env: Bindings): Promise<void> {
   const synchronizer = new SourceSynchronizationService(repository, createDefaultSourceRegistry());
   const polling = await new PollingOrchestrator(repository, synchronizer).run();
   const radar = await new DrizzleRadarMatcher(database).matchPendingAvailableEvents();
-  console.log(JSON.stringify({ event: 'availability_polling_completed', ...polling, radar }));
+  const push = await new WebPushDispatcher(new DrizzleNotificationRepository(database), env).run();
+  console.log(JSON.stringify({ event: 'availability_polling_completed', ...polling, radar, push }));
 }
 
 export type { Bindings } from './env';
