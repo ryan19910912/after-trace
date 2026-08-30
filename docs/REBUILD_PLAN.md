@@ -71,6 +71,8 @@ First supported source remains the Taipei sports-center booking platform manuall
 
 All external systems must implement the `AvailabilitySourceAdapter` boundary and return normalized venue/sport/court/slot records. Product search/watch logic must never depend on one provider's raw response shape.
 
+The first adapter currently uses 11 independently verified booking-system venue IDs and six known category IDs. The public sports-center homepage also lists Nangang, but its booking-system LID has not been independently verified, so the code must not guess one. Badminton remains the launch sport; other known category mappings can be enabled only after per-venue live behavior is verified.
+
 Polling policy:
 
 - Do not poll the entire universe every minute.
@@ -134,14 +136,14 @@ Do not add AI chat, social feeds, team management, booking/payment proxy or unre
 - [x] Add source adapter contract.
 - [x] Add normalized DB-backed sports/venues/availability read API.
 - [x] Add query validation tests.
-- [ ] Implement Taipei sports-center adapter with captured/synthetic fixtures.
-- [ ] Add metadata + availability upsert synchronization service.
-- [ ] Add slot status diff/event creation and source health logging.
+- [x] Implement Taipei sports-center adapter with synthetic fixtures derived from verified public response shapes.
+- [x] Add metadata + availability upsert synchronization service.
+- [x] Add slot status diff/event creation and source health logging.
 
 ### Phase 4 — radar engine
 
 - [ ] Add watch-rule API/auth boundary.
-- [ ] Add scheduled polling orchestration.
+- [ ] Add scheduled polling orchestration with target claiming/lease safety.
 - [ ] Add watch matching/idempotency.
 - [ ] Add Web Push subscription and delivery.
 - [ ] Add adaptive polling/rate-limit behavior.
