@@ -17,7 +17,7 @@ export type ManagementBindings = ProductConfigEnv & {
   DATABASE_URL: string;
   LINE_CHANNEL_ACCESS_TOKEN: string;
   LINE_CHANNEL_SECRET: string;
-  LIFF_CHANNEL_ID: string;
+  LIFF_CHANNEL_ID?: string;
   LIFF_WEB_ORIGIN?: string;
   WEB_AUTH_SECRET?: string;
   WEB_APP_ORIGIN?: string;
@@ -70,19 +70,25 @@ function allowedWebOrigin(c: ManagementContext): string | null {
 async function verifySession(c: ManagementContext, lineGroupId: string): Promise<GroupSessionResult> {
   const db = createDatabase(c.env.DATABASE_URL);
   const webSecret = c.env.WEB_AUTH_SECRET?.trim();
+  let webResult: GroupSessionResult | null = null;
   if (webSecret) {
-    const web = await new LineWebGroupSessionVerifier(
+    webResult = await new LineWebGroupSessionVerifier(
       db,
       c.env.LINE_CHANNEL_ACCESS_TOKEN,
       webSecret,
     ).verify(c.req.header('authorization'), lineGroupId);
-    if (web.status === 'AUTHORIZED') return web;
+    if (webResult.status === 'AUTHORIZED') return webResult;
   }
-  return new LineLiffGroupSessionVerifier(
-    db,
-    c.env.LINE_CHANNEL_ACCESS_TOKEN,
-    c.env.LIFF_CHANNEL_ID,
-  ).verify(c.req.header('authorization'), lineGroupId);
+
+  const liffChannelId = c.env.LIFF_CHANNEL_ID?.trim();
+  if (liffChannelId) {
+    return new LineLiffGroupSessionVerifier(
+      db,
+      c.env.LINE_CHANNEL_ACCESS_TOKEN,
+      liffChannelId,
+    ).verify(c.req.header('authorization'), lineGroupId);
+  }
+  return webResult ?? { status: 'INVALID_USER_TOKEN' };
 }
 
 async function sessionFor(c: ManagementContext): Promise<GroupSession | Response> {
