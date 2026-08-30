@@ -38,7 +38,7 @@ const runtimeFetch: typeof fetch = (input, init) => fetch(input, init);
 export class GeminiAiIntentRouter {
   constructor(
     private readonly apiKey: string,
-    private readonly model = 'gemini-2.5-flash-lite',
+    private readonly model = 'gemini-3.5-flash-lite',
     private readonly fetcher: typeof fetch = runtimeFetch,
   ) {
     if (!apiKey.trim()) throw new Error('GEMINI_API_KEY is required for AI intent routing');
@@ -85,18 +85,11 @@ export class GeminiAiIntentRouter {
     return parseRoute(fallback.body);
   }
 
-  private async generate(
-    systemInstruction: string,
-    payload: unknown,
-    structured: boolean,
-  ): Promise<
+  private async generate(systemInstruction: string, payload: unknown, structured: boolean): Promise<
     | { ok: true; body: GeminiResponse }
     | { ok: false; status: number; detail: string }
   > {
-    const generationConfig: Record<string, unknown> = {
-      temperature: 0,
-      maxOutputTokens: 128,
-    };
+    const generationConfig: Record<string, unknown> = { temperature: 0, maxOutputTokens: 128 };
     if (structured) {
       generationConfig.responseMimeType = 'application/json';
       generationConfig.responseJsonSchema = responseJsonSchema;
@@ -106,10 +99,7 @@ export class GeminiAiIntentRouter {
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.model)}:generateContent`,
       {
         method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-goog-api-key': this.apiKey,
-        },
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': this.apiKey },
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: systemInstruction }] },
           contents: [{ role: 'user', parts: [{ text: JSON.stringify(payload) }] }],
@@ -119,11 +109,7 @@ export class GeminiAiIntentRouter {
     );
 
     if (!response.ok) {
-      return {
-        ok: false,
-        status: response.status,
-        detail: (await response.text()).slice(0, 800),
-      };
+      return { ok: false, status: response.status, detail: (await response.text()).slice(0, 800) };
     }
     return { ok: true, body: (await response.json()) as GeminiResponse };
   }
@@ -134,14 +120,11 @@ function parseRoute(body: GeminiResponse): AiIntentRoute {
   if (!raw) throw new Error('AI_INTENT_ROUTER_EMPTY_RESPONSE');
   const cleaned = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/, '').trim();
   const parsed = routeSchema.parse(JSON.parse(cleaned));
-  return {
-    intent: parsed.intent,
-    preferRecentImage: parsed.prefer_recent_image,
-  };
+  return { intent: parsed.intent, preferRecentImage: parsed.prefer_recent_image };
 }
 
 export function createAiIntentRouter(env: AiIntentRouterEnv): GeminiAiIntentRouter | null {
   const apiKey = env.GEMINI_API_KEY?.trim();
   if (!apiKey) return null;
-  return new GeminiAiIntentRouter(apiKey, env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash-lite');
+  return new GeminiAiIntentRouter(apiKey, env.GEMINI_MODEL?.trim() || 'gemini-3.5-flash-lite');
 }
