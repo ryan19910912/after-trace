@@ -1,4 +1,4 @@
-import { and, eq, notInArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lte, notInArray, sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
 import {
   availabilitySlots,
@@ -12,6 +12,11 @@ import {
 import type { SourceAvailabilitySlot, SourceSport, SourceVenue } from './types';
 
 export type PersistableAvailabilitySlot = Omit<SourceAvailabilitySlot, 'externalVenueId' | 'sportCode'>;
+
+export type PollTargetClaim = {
+  pollTargetId: number;
+  claimedAt: Date;
+};
 
 export type PollTargetContext = {
   pollTargetId: number;
@@ -44,7 +49,13 @@ export type AvailabilitySyncRepository = {
     sportId: number;
     intervalSeconds: number;
   }): Promise<void>;
-  getPollTargetContext(pollTargetId: number): Promise<PollTargetContext | null>;
+  hasEnabledPollTargets(): Promise<boolean>;
+  claimDuePollTargets(input: {
+    claimedAt: Date;
+    leaseSeconds: number;
+    limit: number;
+  }): Promise<PollTargetClaim[]>;
+  getPollTargetContext(pollTargetId: number, expectedClaimedAt?: Date): Promise<PollTargetContext | null>;
   upsertAvailabilitySlot(input: {
     sourceId: number;
     venueId: number;
@@ -60,13 +71,19 @@ export type AvailabilitySyncRepository = {
     seenExternalSlotKeys: string[];
     seenAt: Date;
   }): Promise<number>;
-  markPollTargetSuccess(input: { pollTargetId: number; polledAt: Date; nextPollAt: Date }): Promise<void>;
+  markPollTargetSuccess(input: {
+    pollTargetId: number;
+    polledAt: Date;
+    nextPollAt: Date;
+    expectedClaimedAt?: Date;
+  }): Promise<boolean>;
   markPollTargetFailure(input: {
     pollTargetId: number;
     polledAt: Date;
     nextPollAt: Date;
     errorCode: string;
-  }): Promise<void>;
+    expectedClaimedAt?: Date;
+  }): Promise<boolean>;
 };
 
 export class DrizzleAvailabilitySyncRepository implements AvailabilitySyncRepository {
@@ -196,7 +213,50 @@ export class DrizzleAvailabilitySyncRepository implements AvailabilitySyncReposi
       });
   }
 
-  async getPollTargetContext(pollTargetId: number): Promise<PollTargetContext | null> {
+  async hasEnabledPollTargets(): Promise<boolean> {
+    const [row] = await this.database
+      .select({ id: pollTargets.id })
+      .from(pollTargets)
+      .where(eq(pollTargets.enabled, true))
+      .limit(1);
+    return Boolean(row);
+  }
+
+  async claimDuePollTargets(input: {
+    claimedAt: Date;
+    leaseSeconds: number;
+    limit: number;
+  }): Promise<PollTargetClaim[]> {
+    const limit = Math.max(1, Math.min(20, Math.trunc(input.limit)));
+    const candidates = await this.database
+      .select({ id: pollTargets.id })
+      .from(pollTargets)
+      .where(and(eq(pollTargets.enabled, true), lte(pollTargets.nextPollAt, input.claimedAt)))
+      .orderBy(desc(pollTargets.priority), asc(pollTargets.nextPollAt), asc(pollTargets.id))
+      .limit(limit);
+    if (candidates.length === 0) return [];
+
+    const leaseUntil = new Date(input.claimedAt.getTime() + Math.max(60, input.leaseSeconds) * 1000);
+    const claimed = await this.database
+      .update(pollTargets)
+      .set({
+        lastPolledAt: input.claimedAt,
+        nextPollAt: leaseUntil,
+        updatedAt: input.claimedAt,
+      })
+      .where(
+        and(
+          eq(pollTargets.enabled, true),
+          lte(pollTargets.nextPollAt, input.claimedAt),
+          inArray(pollTargets.id, candidates.map((row) => row.id)),
+        ),
+      )
+      .returning({ pollTargetId: pollTargets.id });
+
+    return claimed.map((row) => ({ pollTargetId: row.pollTargetId, claimedAt: input.claimedAt }));
+  }
+
+  async getPollTargetContext(pollTargetId: number, expectedClaimedAt?: Date): Promise<PollTargetContext | null> {
     const [row] = await this.database
       .select({
         pollTargetId: pollTargets.id,
@@ -221,6 +281,7 @@ export class DrizzleAvailabilitySyncRepository implements AvailabilitySyncReposi
       .where(
         and(
           eq(pollTargets.id, pollTargetId),
+          expectedClaimedAt ? eq(pollTargets.lastPolledAt, expectedClaimedAt) : undefined,
           eq(pollTargets.enabled, true),
           eq(sources.active, true),
           eq(venues.active, true),
@@ -399,17 +460,28 @@ export class DrizzleAvailabilitySyncRepository implements AvailabilitySyncReposi
     return changed;
   }
 
-  async markPollTargetSuccess(input: { pollTargetId: number; polledAt: Date; nextPollAt: Date }): Promise<void> {
-    await this.database
+  async markPollTargetSuccess(input: {
+    pollTargetId: number;
+    polledAt: Date;
+    nextPollAt: Date;
+    expectedClaimedAt?: Date;
+  }): Promise<boolean> {
+    const rows = await this.database
       .update(pollTargets)
       .set({
-        lastPolledAt: input.polledAt,
         lastSuccessAt: input.polledAt,
         lastErrorCode: null,
         nextPollAt: input.nextPollAt,
         updatedAt: input.polledAt,
       })
-      .where(eq(pollTargets.id, input.pollTargetId));
+      .where(
+        and(
+          eq(pollTargets.id, input.pollTargetId),
+          input.expectedClaimedAt ? eq(pollTargets.lastPolledAt, input.expectedClaimedAt) : undefined,
+        ),
+      )
+      .returning({ id: pollTargets.id });
+    return rows.length === 1;
   }
 
   async markPollTargetFailure(input: {
@@ -417,15 +489,22 @@ export class DrizzleAvailabilitySyncRepository implements AvailabilitySyncReposi
     polledAt: Date;
     nextPollAt: Date;
     errorCode: string;
-  }): Promise<void> {
-    await this.database
+    expectedClaimedAt?: Date;
+  }): Promise<boolean> {
+    const rows = await this.database
       .update(pollTargets)
       .set({
-        lastPolledAt: input.polledAt,
         lastErrorCode: input.errorCode,
         nextPollAt: input.nextPollAt,
         updatedAt: input.polledAt,
       })
-      .where(eq(pollTargets.id, input.pollTargetId));
+      .where(
+        and(
+          eq(pollTargets.id, input.pollTargetId),
+          input.expectedClaimedAt ? eq(pollTargets.lastPolledAt, input.expectedClaimedAt) : undefined,
+        ),
+      )
+      .returning({ id: pollTargets.id });
+    return rows.length === 1;
   }
 }
