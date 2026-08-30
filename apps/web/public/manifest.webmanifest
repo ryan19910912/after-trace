@@ -1,0 +1,19 @@
+{
+  "name": "AFTERTRACE 運動場地空位雷達",
+  "short_name": "AFTERTRACE",
+  "description": "跨場館搜尋公共運動場地空位，沒位時用 Radar 持續追蹤。",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f3f7f4",
+  "theme_color": "#15221b",
+  "lang": "zh-Hant",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
