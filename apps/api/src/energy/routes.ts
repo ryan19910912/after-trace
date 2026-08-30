@@ -8,7 +8,7 @@ import {
 } from '../commerce/checkout';
 import { resolveProductConfig } from '../config/product';
 import { createDatabase } from '../db/client';
-import { LineLiffUserSessionVerifier, LineWebUserSessionVerifier } from '../management/session';
+import { LineLiffUserSessionVerifier, LineWebUserSessionVerifier, type UserSessionResult } from '../management/session';
 import { DrizzlePrivateEnergyOverviewRepository, serializePrivateEnergyOverview } from './private-overview';
 import { DrizzleUserEnergyRepository } from './drizzle-repository';
 import { DrizzleUserRewardedAdRepository } from './drizzle-rewarded-ad';
@@ -19,7 +19,7 @@ import {
 
 export type EnergyRouteBindings = CheckoutEnv & {
   DATABASE_URL: string;
-  LIFF_CHANNEL_ID: string;
+  LIFF_CHANNEL_ID?: string;
   LIFF_WEB_ORIGIN?: string;
   WEB_AUTH_SECRET?: string;
   WEB_APP_ORIGIN?: string;
@@ -193,17 +193,27 @@ async function authorizeUser(
   env: EnergyRouteBindings,
   authorizationHeader: string | undefined,
 ): Promise<AuthorizedUser | { error: string; status: 401 | 503 }> {
+  let webResult: UserSessionResult | null = null;
   const webSecret = env.WEB_AUTH_SECRET?.trim();
   if (webSecret) {
-    const webSession = await new LineWebUserSessionVerifier(webSecret).verify(authorizationHeader);
-    if (webSession.status === 'AUTHORIZED') return { lineUserId: webSession.session.lineUserId };
+    webResult = await new LineWebUserSessionVerifier(webSecret).verify(authorizationHeader);
+    if (webResult.status === 'AUTHORIZED') return { lineUserId: webResult.session.lineUserId };
   }
 
-  const liffSession = await new LineLiffUserSessionVerifier(env.LIFF_CHANNEL_ID).verify(authorizationHeader);
-  if (liffSession.status === 'AUTHORIZED') return { lineUserId: liffSession.session.lineUserId };
+  const liffChannelId = env.LIFF_CHANNEL_ID?.trim();
+  if (liffChannelId) {
+    const liffResult = await new LineLiffUserSessionVerifier(liffChannelId).verify(authorizationHeader);
+    if (liffResult.status === 'AUTHORIZED') return { lineUserId: liffResult.session.lineUserId };
+    return {
+      error: liffResult.status,
+      status: liffResult.status === 'LINE_VERIFICATION_UNAVAILABLE' ? 503 : 401,
+    };
+  }
+
+  const result = webResult ?? { status: 'INVALID_USER_TOKEN' as const };
   return {
-    error: liffSession.status,
-    status: liffSession.status === 'LINE_VERIFICATION_UNAVAILABLE' ? 503 : 401,
+    error: result.status,
+    status: result.status === 'LINE_VERIFICATION_UNAVAILABLE' ? 503 : 401,
   };
 }
 
