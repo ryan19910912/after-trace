@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { SourceAdapterRegistry } from './registry';
 import { SourceSynchronizationService } from './sync-service';
-import type { AvailabilitySyncRepository, PersistableAvailabilitySlot, PollTargetContext } from './sync-repository';
+import type {
+  AvailabilitySyncRepository,
+  PersistableAvailabilitySlot,
+  PollTargetClaim,
+  PollTargetContext,
+} from './sync-repository';
 import type { AvailabilitySourceAdapter, SourceAvailabilitySlot, SourceSport, SourceVenue } from './types';
 
 class FakeRepository implements AvailabilitySyncRepository {
@@ -29,13 +34,15 @@ class FakeRepository implements AvailabilitySyncRepository {
   async upsertVenueSport(_venueId: number, _sportId: number, externalCategoryId?: string): Promise<void> { this.calls.push(`venue-sport:${externalCategoryId}`); }
   async deactivateMissingVenueSports(): Promise<void> { this.calls.push('deactivate-venue-sports'); }
   async ensurePollTarget(): Promise<void> { this.calls.push('poll-target'); }
+  async hasEnabledPollTargets(): Promise<boolean> { return true; }
+  async claimDuePollTargets(): Promise<PollTargetClaim[]> { return []; }
   async getPollTargetContext(): Promise<PollTargetContext | null> { return this.context; }
   async upsertAvailabilitySlot(input: { slot: PersistableAvailabilitySlot }): Promise<void> {
     this.slots.push({ ...input.slot, externalVenueId: 'V1', sportCode: 'badminton' });
   }
   async markMissingSlotsUnknown(input: { seenExternalSlotKeys: string[] }): Promise<number> { return input.seenExternalSlotKeys.length === 0 ? 2 : 0; }
-  async markPollTargetSuccess(input: { polledAt: Date }): Promise<void> { this.successAt = input.polledAt; }
-  async markPollTargetFailure(input: { errorCode: string }): Promise<void> { this.failureCode = input.errorCode; }
+  async markPollTargetSuccess(input: { polledAt: Date }): Promise<boolean> { this.successAt = input.polledAt; return true; }
+  async markPollTargetFailure(input: { errorCode: string }): Promise<boolean> { this.failureCode = input.errorCode; return true; }
 }
 
 function fakeAdapter(overrides: Partial<AvailabilitySourceAdapter> = {}): AvailabilitySourceAdapter {
@@ -81,6 +88,25 @@ describe('SourceSynchronizationService', () => {
     expect(repository.calls).toContain('venue:V1');
     expect(repository.calls).toContain('sport:badminton');
     expect(repository.calls).toContain('poll-target');
+  });
+
+  it('keeps launch metadata badminton-first even when a source exposes additional categories', async () => {
+    const repository = new FakeRepository();
+    const adapter = fakeAdapter({
+      async listSports() {
+        return [
+          { code: 'badminton', name: '羽球', externalCategoryId: 'Badminton' },
+          { code: 'basketball', name: '籃球', externalCategoryId: 'Basketball' },
+        ];
+      },
+    });
+    const service = new SourceSynchronizationService(repository, new SourceAdapterRegistry([adapter]));
+
+    const result = await service.syncMetadata('fake');
+
+    expect(result.venueSports).toBe(1);
+    expect(repository.calls).toContain('sport:badminton');
+    expect(repository.calls).not.toContain('sport:basketball');
   });
 
   it('polls only bookable dates, clears stale dates and marks target healthy', async () => {
