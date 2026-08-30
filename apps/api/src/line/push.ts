@@ -2,6 +2,8 @@ import type { LinePushResult, ReminderLinePushClient } from '../reminders/delive
 
 type FetchLike = typeof fetch;
 
+const defaultFetch: FetchLike = (input, init) => fetch(input, init);
+
 function boundedToken(value: string): string {
   const token = value.trim();
   if (!token) throw new Error('LINE channel access token must not be empty');
@@ -11,7 +13,7 @@ function boundedToken(value: string): string {
 export class LineMessagingPushClient implements ReminderLinePushClient {
   constructor(
     channelAccessToken: string,
-    private readonly fetchImpl: FetchLike = fetch,
+    private readonly fetchImpl: FetchLike = defaultFetch,
   ) {
     this.channelAccessToken = boundedToken(channelAccessToken);
   }
