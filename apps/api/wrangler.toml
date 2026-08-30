@@ -10,4 +10,3 @@ LIFF_WEB_ORIGIN = "https://after-trace.pages.dev"
 
 [observability]
 enabled = true
-redact_query_string = false
