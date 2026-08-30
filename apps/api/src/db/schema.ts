@@ -167,8 +167,12 @@ export const availabilityEvents = pgTable(
     previousStatus: availabilityStatusEnum('previous_status').notNull(),
     newStatus: availabilityStatusEnum('new_status').notNull(),
     occurredAt: timestamp('occurred_at', { withTimezone: true }).defaultNow().notNull(),
+    matchedAt: timestamp('matched_at', { withTimezone: true }),
   },
-  (table) => [index('availability_events_slot_time_idx').on(table.availabilitySlotId, table.occurredAt)],
+  (table) => [
+    index('availability_events_slot_time_idx').on(table.availabilitySlotId, table.occurredAt),
+    index('availability_events_match_queue_idx').on(table.newStatus, table.matchedAt, table.id),
+  ],
 );
 
 export const watchRules = pgTable(
@@ -177,6 +181,8 @@ export const watchRules = pgTable(
     id: bigserial('id', { mode: 'number' }).primaryKey(),
     userId: bigint('user_id', { mode: 'number' }).notNull().references(() => users.id, { onDelete: 'cascade' }),
     sportId: bigint('sport_id', { mode: 'number' }).notNull().references(() => sports.id, { onDelete: 'cascade' }),
+    clientKey: varchar('client_key', { length: 128 }).notNull(),
+    clientPayloadHash: varchar('client_payload_hash', { length: 64 }).notNull(),
     enabled: boolean('enabled').default(true).notNull(),
     dateFrom: date('date_from'),
     dateTo: date('date_to'),
@@ -188,7 +194,10 @@ export const watchRules = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (table) => [index('watch_rules_enabled_sport_idx').on(table.enabled, table.sportId)],
+  (table) => [
+    uniqueIndex('watch_rules_user_client_key_uq').on(table.userId, table.clientKey),
+    index('watch_rules_enabled_sport_idx').on(table.enabled, table.sportId),
+  ],
 );
 
 export const watchRuleVenues = pgTable(

@@ -8,6 +8,13 @@
       "when": 1788120000000,
       "tag": "0000_aftertrace_rebuild",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788122400000,
+      "tag": "0001_radar_watch_foundation",
+      "breakpoints": true
     }
   ]
 }
