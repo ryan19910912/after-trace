@@ -70,6 +70,10 @@ function oauthCookie(value: string, requestUrl: string, maxAge: number): string 
   return `${OAUTH_COOKIE}=${encodeURIComponent(value)}; Path=/api/v1/auth/line; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure}`;
 }
 
+async function authenticatedSession(c: Parameters<ReturnType<typeof createWebAuthRoutes>['get']>[1] extends never ? never : never) {
+  return c;
+}
+
 export function createWebAuthRoutes() {
   const app = new Hono<AuthEnv>();
 
@@ -228,7 +232,30 @@ export function createWebAuthRoutes() {
         }))),
       });
     } catch (error) {
-      if (error instanceof Error && error.message === 'LINE_GROUP_SUMMARY_UNAVAILABLE') {
+      if (error instanceof Error && (error.message === 'LINE_GROUP_SUMMARY_UNAVAILABLE' || error.message === 'LINE_GROUP_MEMBER_UNAVAILABLE')) {
+        return c.json({ ok: false, error: error.message }, 503);
+      }
+      throw error;
+    }
+  });
+
+  app.get('/memories', async (c) => {
+    const secret = authSecret(c.env);
+    if (!secret) return c.json({ ok: false, error: 'WEB_AUTH_NOT_CONFIGURED' }, 503);
+    const token = bearerToken(c.req.header('authorization'));
+    if (!token) return c.json({ ok: false, error: 'WEB_SESSION_REQUIRED' }, 401);
+    const session = await verifyWebSessionToken(token, secret);
+    if (!session) return c.json({ ok: false, error: 'INVALID_WEB_SESSION' }, 401);
+    try {
+      const service = new WebAuthService(
+        new DrizzleWebAuthRepository(createDatabase(c.env.DATABASE_URL)),
+        c.env.LINE_CHANNEL_ACCESS_TOKEN,
+        secret,
+      );
+      return c.json({ ok: true, memories: await service.searchMemories(session.lineUserId, c.req.query('q') ?? null) });
+    } catch (error) {
+      if (error instanceof Error && error.message === 'QUERY_TOO_LONG') return c.json({ ok: false, error: error.message }, 400);
+      if (error instanceof Error && (error.message === 'LINE_GROUP_SUMMARY_UNAVAILABLE' || error.message === 'LINE_GROUP_MEMBER_UNAVAILABLE')) {
         return c.json({ ok: false, error: error.message }, 503);
       }
       throw error;
