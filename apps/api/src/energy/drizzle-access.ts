@@ -55,10 +55,18 @@ export class DrizzleUserEnergyAccessRepository implements UserEnergyAccessReposi
       ORDER BY gm.first_seen_at ASC, gm.line_user_id ASC
     `);
 
-    return result.rows.map((raw, index) => {
+    let otherMemberNumber = 0;
+    return result.rows.map((raw) => {
       const row = raw as { line_user_id: string; usable: boolean };
+      if (row.line_user_id === callerLineUserId) {
+        return {
+          displayName: '你',
+          usable: Boolean(row.usable),
+        };
+      }
+      otherMemberNumber += 1;
       return {
-        displayName: row.line_user_id === callerLineUserId ? '你' : `成員 ${index + 1}`,
+        displayName: `成員 ${otherMemberNumber}`,
         usable: Boolean(row.usable),
       };
     });
