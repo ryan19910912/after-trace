@@ -45,6 +45,7 @@ export class WebAuthService {
     if (!registered) throw new Error('failed to register web auth entry');
     const url = new URL(input.webAppUrl);
     url.searchParams.set('t', token);
+    url.searchParams.set('openExternalBrowser', '1');
     return url.toString();
   }
 
