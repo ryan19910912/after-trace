@@ -69,11 +69,33 @@ The public key is exposed through `GET /api/v1/push/config` so the browser can c
 
 V1 sends an authenticated **payload-free** Web Push signal. When the Service Worker wakes, it uses the browser's anonymous Radar credential plus its current Push endpoint to atomically claim one already-accepted notification presentation from AFTERTRACE, then shows the venue/time context locally. This keeps notification context user-isolated without adding Web Push payload-encryption code or placing the anonymous credential in the push payload/URL.
 
+## Health and release readiness
+
+The Worker exposes separate liveness and readiness endpoints:
+
+- `GET /health` confirms that the Worker runtime can answer requests. It does not claim that external dependencies are ready.
+- `GET /ready` probes the migrated sports schema and validates the complete VAPID configuration. It returns HTTP `200` only when both database and Web Push checks are ready; otherwise it returns `503` with non-secret error codes.
+
+A deployed smoke script verifies Worker liveness/readiness, public Push configuration, sports/venue/availability API shape and optionally the Pages site:
+
+```powershell
+./smoke.ps1
+```
+
+After the first source synchronization has produced normalized sports data, use the stricter source-data check:
+
+```powershell
+./smoke.ps1 -RequireSourceData
+```
+
+`worker-deploy.ps1` now runs the Worker smoke automatically after migration + deployment. `pages-deploy.ps1` builds the PWA against the selected Worker URL and runs the combined Worker + Pages smoke after deployment. Both scripts accept URL parameters so release verification does not depend on hard-coded endpoints when environments change.
+
 ## Current API surface
 
-Public search:
+Public search/status:
 
 - `GET /health`
+- `GET /ready`
 - `GET /api/v1/sports`
 - `GET /api/v1/venues?sport=...`
 - `GET /api/v1/availability?sport=...&venueId=...&district=...&date=...&start=...&end=...`
