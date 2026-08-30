@@ -18,16 +18,14 @@ V1 principles:
 
 ## Actual current repository state
 
-The latest `main` has already completed the large retired-product cut that Round 0 planned. The application no longer contains the old LINE/AI runtime surface. Current runtime is the new availability shell:
+The large retired-product cut is already complete. Current `main` no longer contains the old LINE/AI product runtime. The application is now a sports-availability shell with a real Taipei source adapter and an active polling scheduler:
 
-- `apps/api/src/index.ts` exposes only health + normalized availability APIs.
-- `apps/api/src/db/schema.ts` is the new venue/sport/court/availability/watch/notification/poll-target schema.
-- all `schema-round*` files and old LINE/AI schema exports are gone.
-- `drizzle/0000_aftertrace_rebuild.sql` is a clean sports-radar baseline and refuses to coexist with detected legacy tables.
-- old admin app/runtime and retired LINE/AI/Energy/commerce/reminder/proactive modules are gone.
-- `apps/web` is now a mobile-first availability search shell with official booking links.
-
-The rebuild plan is therefore authoritative over the stale Round 0 wording that previously remained in this progress file.
+- `apps/api/src/index.ts` exposes health + normalized availability APIs and a Cloudflare `scheduled` handler.
+- `apps/api/src/db/schema.ts` contains only venue/sport/court/availability/watch/notification/poll-target product tables.
+- all old `schema-round*`, LINE/AI/Energy/commerce/reminder/proactive modules and old admin runtime are gone.
+- `drizzle/0000_aftertrace_rebuild.sql` remains the clean sports-radar baseline and must be deployed to a fresh Neon database/branch.
+- `apps/web` is a mobile-first availability search shell with official booking links.
+- source synchronization currently launches badminton-first while retaining generic mappings/model support for later sports.
 
 ## Round 1 — runtime/database/web pivot already present on `main`
 
@@ -55,63 +53,92 @@ Publicly observable/current references confirm the Taipei sports-center booking 
 
 The implementation uses independently written adapter/parsing code plus synthetic fixtures; it does not import or copy another application runtime.
 
-### Changes completed this round
-
-Added/updated source domain:
+### Changes completed
 
 - `apps/api/src/sources/types.ts`
-  - added source metadata to the adapter contract (`name`, `baseUrl`, minimum poll interval).
-  - added optional bookable-date query support.
-  - added normalized `courtName` so source-specific court labels can be persisted.
+  - source metadata contract (`name`, `baseUrl`, minimum poll interval).
+  - optional bookable-date query support.
+  - normalized `courtName`.
 - `apps/api/src/sources/taipei-sports-center.ts`
-  - implemented the first real source adapter.
-  - uses the known Taipei booking-system venue IDs instead of guessing unknown IDs.
-  - supports six known source category mappings while keeping normalized sport codes provider-neutral.
-  - performs form-encoded POST requests with explicit AJAX-style headers and manual redirect handling.
-  - retries only network / 302 / 429 / 5xx failures with bounded backoff.
-  - rejects successful non-JSON payloads so login/error HTML cannot be mistaken for `no availability`.
-  - normalizes calendar dates, court IDs/names, times, availability status, price, deterministic external slot key and official booking reference.
+  - first real source adapter.
+  - 11 independently verified booking-system venue IDs; no guessed Nangang booking ID.
+  - six known provider category mappings with provider-neutral normalized sport codes.
+  - form-encoded POST requests, AJAX-style headers, manual redirect handling and bounded retries for network/302/429/5xx failures.
+  - rejects successful non-JSON payloads instead of treating login/error HTML as an empty result.
+  - normalizes dates, court IDs/names, times, status, price, deterministic slot key and official booking reference.
 - `apps/api/src/sources/registry.ts`
-  - added a multi-source adapter registry and default Taipei registration.
+  - multi-source adapter registry with Taipei as the first default source.
 - `apps/api/src/sources/sync-repository.ts`
-  - added metadata upsert/deactivation for source/venue/sport mappings.
-  - creates/refreshes poll targets from normalized venue-sport mappings.
-  - resolves a poll target back to provider-neutral + provider-specific identifiers.
-  - upserts courts and availability slots.
-  - creates `availability_events` only on a meaningful first AVAILABLE observation or status transition.
-  - clears stale slots to `UNKNOWN` after a successful target/date response no longer contains them.
-  - updates poll-target success/failure health and next-poll timestamps.
+  - source/venue/sport metadata upsert/deactivation.
+  - court and availability-slot upsert.
+  - meaningful `availability_events` creation on first AVAILABLE observation/status transition.
+  - stale-slot clearing to `UNKNOWN` after successful source responses.
+  - poll-target health and next-poll state.
 - `apps/api/src/sources/sync-service.ts`
-  - added source metadata synchronization.
-  - added bounded availability-window synchronization (maximum 31 days).
-  - uses the source calendar to avoid requesting slot lists for closed dates.
-  - validates every returned slot belongs to the requested poll target/date.
-  - applies source minimum polling interval and bounded failure backoff.
-  - records target health on success/failure.
+  - metadata sync and bounded availability-window sync.
+  - calendar-first behavior to avoid unnecessary slot-list requests on closed dates.
+  - source-target/date consistency hard check.
+  - source minimum polling interval + bounded failure backoff.
+  - launch metadata is explicitly filtered to badminton by default, so the known extra category mappings do not create unverified production poll targets.
 
-Added tests:
+Tests added:
 
 - `apps/api/src/sources/taipei-sports-center.test.ts`
-  - calendar parsing/form request fixture.
-  - booking-row normalization fixture.
-  - non-JSON success rejection.
 - `apps/api/src/sources/sync-service.test.ts`
-  - metadata/poll-target creation flow.
-  - bookable-date polling + stale-slot clearing flow.
-  - failure health recording.
 
-### Important source coverage decision
+### Source coverage decision
 
-The official sports-center homepage currently lists Nangang among sports-center introductions, but the separately verified booking-system implementation/reference set exposes 11 known booking LIDs and does not establish a Nangang booking LID. The adapter therefore does **not** guess an ID for Nangang. Add it only after the booking source itself is verified.
+The public sports-center homepage currently lists Nangang among sports-center introductions, but the separately verified booking-system implementation/reference set exposes 11 known booking LIDs and does not establish a Nangang booking LID. Do not add a guessed `NGSC` mapping. Add Nangang only after the actual booking source is verified.
 
-The source adapter contains six known category mappings, but launch support must still be treated as badminton-first until per-venue coverage and live behavior for the other categories are measured. The generic sport/schema design remains ready for those later categories without making the product badminton-specific.
+The adapter knows six category IDs, but production metadata/poll-target creation is badminton-first until live per-venue behavior for the other sports is measured. The schema/source abstraction remains generic.
 
-### Verification performed this round
+## Round 3 — race-safe Cloudflare polling orchestration
 
-- Re-read latest `main`, `docs/REBUILD_PLAN.md`, old progress state, latest commit, schema, availability repository/routes, source types, API entry point and DB client before coding.
-- Independently checked the live public booking homepage and current public references for source request/response behavior.
-- Ran local TypeScript parsing/type analysis for the new source modules with the available global compiler. The only reported errors were expected missing workspace dependencies (`drizzle-orm`, `vitest`, local DB modules) because the private repository dependencies are not installed in the automation container; no syntax or cross-module type errors were reported for the source/service code itself.
-- Checked the repository CI workflow. It is configured for push to `main`, but connector-created commits in this round did not produce workflow runs; the latest visible historical CI runs still predate the rebuild and failed before they can validate this new code. Full `pnpm typecheck/lint/test/build/db:schema:check` must therefore remain unverified until an actual dependency-complete execution occurs.
+### Changes completed
+
+- `apps/api/src/sources/sync-repository.ts`
+  - added `hasEnabledPollTargets()` for scheduler bootstrap.
+  - added due-target selection ordered by priority, `next_poll_at`, then id.
+  - added bounded `claimDuePollTargets()`.
+  - claiming uses the existing `poll_targets.next_poll_at` as a temporary recovery lease instead of adding another lease table/column.
+  - the claim stamps `last_polled_at`; success/failure settlement optionally fences on that exact timestamp, so an older invocation cannot overwrite a newer claim after lease recovery.
+  - candidate selection may race, but the subsequent conditional `UPDATE ... WHERE next_poll_at <= claimedAt` is authoritative; PostgreSQL rechecks the predicate after row-lock waits, preventing two cron invocations from successfully claiming the same due row.
+- `apps/api/src/sources/sync-service.ts`
+  - accepts an optional claim timestamp and refuses to start a stale/lost claimed target.
+  - success/failure settlement carries the claim fence.
+- `apps/api/src/polling/orchestrator.ts`
+  - bootstraps Taipei metadata when no enabled poll targets exist.
+  - claims a small bounded batch (default 3, hard max 6).
+  - uses a five-minute recovery lease.
+  - polls a 14-day Taipei-local date window.
+  - isolates per-target failures with `Promise.allSettled` so one upstream failure does not fail all claimed targets.
+- `apps/api/src/polling/orchestrator.test.ts`
+  - covers metadata bootstrap, Taipei-local date handling and partial-batch failure isolation.
+- `apps/api/src/index.ts`
+  - converted the Worker export to the Hono-supported multi-handler shape (`fetch: app.fetch` + `scheduled`).
+  - scheduled work builds the DB/source/sync/orchestrator dependencies and logs structured success/failure summaries.
+  - export is checked against `ExportedHandler<Bindings>`.
+- `apps/api/wrangler.toml`
+  - added `* * * * *` Cron Trigger. This only wakes the scheduler every minute; individual targets still obey their own `next_poll_at`/interval.
+- `README.md`
+  - updated runtime description to reflect active source synchronization + cron polling.
+
+### Polling behavior now
+
+- New metadata-created targets default to 300-second polling.
+- Every minute, the Worker claims at most 3 due targets by default.
+- A claimed target is temporarily moved 5 minutes into the future as crash recovery protection.
+- Normal successful settlement resets its next poll according to the target/source interval; failure applies bounded backoff.
+- Launch metadata creates badminton targets only, so the initial target set is intentionally much smaller than `11 venues × all known categories`.
+- One-minute per-target polling is **not enabled yet**. It belongs to the later adaptive/watch-priority phase after real source behavior is measured.
+
+### Verification performed
+
+- Re-read latest `main`, rebuild plan/progress, schema, source contract, API entry point, Wrangler config and related tests before/while changing code.
+- Verified current Cloudflare Workers documentation (last updated 2026-06-20) supports an ES-module `scheduled(controller, env, ctx)` handler and TOML `[triggers] crons = [...]` syntax.
+- Verified current Hono documentation explicitly supports combining Hono with other Cloudflare handlers via `export default { fetch: app.fetch, scheduled: ... }`.
+- Earlier local TypeScript parsing/type analysis for the new source modules found only missing-workspace-dependency errors in the automation container; the container does not have pnpm/repository dependencies installed, so this run still cannot truthfully mark full `pnpm typecheck/lint/test/build/db:schema:check` green.
+- Repository CI is configured for pushes to `main`, but connector-created commits in this rebuild have not produced new workflow runs. The latest visible historical CI executions predate this rebuild and therefore do not validate current code.
 
 ## Remaining work — highest priority first
 
@@ -121,11 +148,11 @@ The source adapter contains six known category mappings, but launch support must
 
 ### Phase 4 — radar engine
 
-- [ ] Add poll-target claiming/lease so the same target cannot be concurrently polled by overlapping cron executions.
-- [ ] Add due-target selection + Cloudflare scheduled orchestration.
+- [x] Add race-safe bounded poll-target claiming/recovery behavior.
+- [x] Add due-target selection + Cloudflare scheduled orchestration.
 - [ ] Add watch-rule CRUD/auth boundary.
-- [ ] Add watch matcher from `availability_events` to idempotent notification deliveries.
-- [ ] Add adaptive polling priority based on active watches/search demand, bounded by source minimum interval.
+- [ ] Add matcher from newly AVAILABLE `availability_events` to idempotent notification deliveries.
+- [ ] Add adaptive polling priority based on active watches/search demand, bounded by source minimum interval and live rate-limit evidence.
 - [ ] Add Web Push subscription/delivery.
 
 ### Phase 5 — web/PWA completion
@@ -142,13 +169,14 @@ The source adapter contains six known category mappings, but launch support must
 
 ## Next round — planned
 
-Implement the poll orchestration/lease foundation as one coherent batch:
+Implement the Radar ownership/watch foundation as the next coherent batch:
 
-1. extend `poll_targets` with a safe claim/lease/fencing mechanism and update the clean baseline (it has not been deployed yet).
-2. implement due-target claiming ordered by priority/next-poll time.
-3. add Cloudflare `scheduled` execution that claims a bounded number of targets and calls `SourceSynchronizationService.syncPollTarget` using a Taipei-local date window.
-4. make failure/recovery release/advance claims safely so overlapping cron executions cannot duplicate source work.
-5. add orchestration tests and then proceed to watch matching/notifications.
+1. decide and implement a low-friction Web/PWA identity boundary that does not reintroduce LINE-specific auth; prefer a server-issued anonymous/browser identity for V1 unless existing generic auth is clearly reusable.
+2. add watch-rule create/list/update/delete APIs with validation for sport, venue/area, date/day-of-week and time window.
+3. enforce owner isolation and idempotent writes.
+4. add DB-backed watch matching for `UNKNOWN/UNAVAILABLE -> AVAILABLE` events and create idempotent `notification_deliveries` rows without sending Push yet.
+5. use active watch coverage to raise relevant poll-target priority/interval only within source minimum bounds.
+6. add unit/repository tests and update docs before beginning actual Web Push delivery/UI.
 
 ## Scheduled-round rules
 
