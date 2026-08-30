@@ -11,6 +11,11 @@ export class DrizzleWebAuthRepository {
     expiresAt: Date;
   }): Promise<boolean> {
     const result = await this.db.execute(sql`
+      WITH pruned AS (
+        DELETE FROM web_auth_entry_nonces
+        WHERE expires_at <= now()
+        RETURNING nonce
+      )
       INSERT INTO web_auth_entry_nonces (nonce, line_user_id, line_group_id, expires_at)
       VALUES (${input.nonce}, ${input.lineUserId}, ${input.lineGroupId}, ${input.expiresAt})
       ON CONFLICT (nonce) DO NOTHING
