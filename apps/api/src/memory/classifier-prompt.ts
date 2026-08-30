@@ -33,7 +33,7 @@ export function buildMemoryClassifierPrompt(input: MemoryClassificationInput): M
   const systemInstruction = [
     'You are AFTERTRACE memory classification for one LINE group.',
     'Return JSON only.',
-    'If nothing should be persisted, return need_save=false and candidates=[].',
+    'If nothing should be persisted, return exactly {"need_save":false}; do not return candidates.',
     'If something should be persisted, return need_save=true and one or more structured candidates.',
     'Every candidate decision must be NEW, DUPLICATE, UPDATE, or CONTRADICT.',
     'Only currentMessages may be used as sourceConversationMessageId.',
@@ -54,15 +54,11 @@ export function buildMemoryClassifierPrompt(input: MemoryClassificationInput): M
       allowedSourceConversationMessageIds: currentSourceIds,
       eligibleSubjectSpeakers: eligibleAliases,
     },
-    currentMessages: input.currentMessages.map((message) =>
-      toPromptMessage(message, speakerAliases),
-    ),
+    currentMessages: input.currentMessages.map((message) => toPromptMessage(message, speakerAliases)),
     previousContext: input.previousContext
       ? {
           batchId: input.previousContext.batchId,
-          messages: input.previousContext.messages.map((message) =>
-            toPromptMessage(message, speakerAliases),
-          ),
+          messages: input.previousContext.messages.map((message) => toPromptMessage(message, speakerAliases)),
         }
       : null,
     activeMemories: input.activeMemories.map((memory) => ({
@@ -78,10 +74,7 @@ export function buildMemoryClassifierPrompt(input: MemoryClassificationInput): M
 
 function buildSpeakerAliases(input: MemoryClassificationInput): Map<string, string> {
   const aliases = new Map<string, string>();
-  const messages = [
-    ...input.currentMessages,
-    ...(input.previousContext?.messages ?? []),
-  ];
+  const messages = [...input.currentMessages, ...(input.previousContext?.messages ?? [])];
   for (const message of messages) {
     if (!message.lineUserId || aliases.has(message.lineUserId)) continue;
     aliases.set(message.lineUserId, `speaker-${aliases.size + 1}`);
