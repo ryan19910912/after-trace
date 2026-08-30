@@ -17,7 +17,7 @@ export type MemoryClassificationInput = {
   };
   activeMemories: ActiveMemory[];
   eligibleSubjectLineUserIds: string[];
-  inlineMedia: InlineMemoryMedia[];
+  inlineMedia?: InlineMemoryMedia[];
 };
 
 export interface MemorySourceMessageRepository {
