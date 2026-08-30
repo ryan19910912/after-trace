@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray, isNull, lte } from 'drizzle-orm';
 import type { Database } from '../db/client';
+import { notificationDeliveryRuntime } from '../db/schema-notifications';
 import {
   availabilityEvents,
   availabilitySlots,
@@ -9,6 +10,8 @@ import {
   watchRuleVenues,
 } from '../db/schema';
 import { matchesWatchRule } from './rules';
+
+const DELIVERY_MAX_AGE_MS = 30 * 60 * 1000;
 
 export type RadarMatchResult = {
   eventsProcessed: number;
@@ -93,6 +96,7 @@ export class DrizzleRadarMatcher {
         );
         if (!matched) continue;
 
+        const idempotencyKey = `watch:${candidate.id}:event:${event.id}:web-push`;
         const inserted = await this.database
           .insert(notificationDeliveries)
           .values({
@@ -101,11 +105,31 @@ export class DrizzleRadarMatcher {
             subscriptionId: null,
             channel: 'WEB_PUSH',
             status: 'PENDING',
-            idempotencyKey: `watch:${candidate.id}:event:${event.id}:web-push`,
+            idempotencyKey,
           })
           .onConflictDoNothing({ target: notificationDeliveries.idempotencyKey })
           .returning({ id: notificationDeliveries.id });
         deliveriesCreated += inserted.length;
+
+        let deliveryId = inserted[0]?.id ?? null;
+        if (!deliveryId) {
+          const [existing] = await this.database
+            .select({ id: notificationDeliveries.id })
+            .from(notificationDeliveries)
+            .where(eq(notificationDeliveries.idempotencyKey, idempotencyKey))
+            .limit(1);
+          deliveryId = existing?.id ?? null;
+        }
+        if (deliveryId) {
+          await this.database
+            .insert(notificationDeliveryRuntime)
+            .values({
+              deliveryId,
+              nextAttemptAt: new Date(),
+              expiresAt: new Date(event.occurredAt.getTime() + DELIVERY_MAX_AGE_MS),
+            })
+            .onConflictDoNothing({ target: notificationDeliveryRuntime.deliveryId });
+        }
       }
 
       await this.database
