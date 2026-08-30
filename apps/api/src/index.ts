@@ -162,14 +162,16 @@ app.post('/webhooks/line', async (c) => {
     const deterministicCommand = detectDeterministicAiCommand(message);
     const explicitMemoryCommand = detectExplicitMemoryCommand(message);
 
-    if (deterministicCommand && message.lineUserId && message.replyToken && energyAccessService) {
+    if (deterministicCommand && message.lineUserId && message.replyToken) {
       let reply: string;
       if (deterministicCommand.kind === 'ENERGY_STATUS') {
-        reply = await energyAccessService.energyStatus({
-          groupId: result.groupId,
-          callerLineUserId: message.lineUserId,
-          at: message.lineTimestamp,
-        });
+        reply = energyAccessService
+          ? await energyAccessService.energyStatus({
+              groupId: result.groupId,
+              callerLineUserId: message.lineUserId,
+              at: message.lineTimestamp,
+            })
+          : 'AFTERTRACE｜群組 Energy\n\n詳細 Energy 查詢會在 LIFF 啟用後開放。';
       } else if (deterministicCommand.kind === 'HELP') {
         reply = [
           'AFTERTRACE｜幫助', '',
@@ -184,9 +186,10 @@ app.post('/webhooks/line', async (c) => {
           'FREE：每位使用者一生一次',
           'SUBSCRIPTION：每個 billing cycle 發放，到 period_end 過期',
           'AD：Rewarded Ad，取得後 7 天過期',
-          'PAID：一次性 Energy Pack，不過期', '',
-          '實際 Energy 數量與價格以 AFTERTRACE LIFF 顯示為準。',
-          c.env.LIFF_APP_URL,
+          'PAID：一次性 Energy Pack，不過期',
+          ...(c.env.LIFF_APP_URL?.trim()
+            ? ['', '實際 Energy 數量與價格以 AFTERTRACE LIFF 顯示為準。', c.env.LIFF_APP_URL]
+            : ['', '詳細 Energy 與購買頁面會在 LIFF 啟用後開放。']),
         ].join('\n');
       }
       await lineReplyClient.reply(message.replyToken, reply);
