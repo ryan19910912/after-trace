@@ -4,7 +4,7 @@ This file is the durable handoff between rebuild rounds. Every manual or schedul
 
 ## Current product target
 
-Public sports venue availability search + radar.
+Public sports venue availability search + Radar.
 
 V1 principles:
 
@@ -12,218 +12,199 @@ V1 principles:
 - Cloudflare Worker + Hono backend.
 - Neon PostgreSQL + Drizzle.
 - No AI requirement.
-- Do not book/pay for users; direct them to official booking channels.
-- Public-source polling + normalized availability + conditional notifications are the product core.
-- Badminton is the first launch sport, while the domain model remains generic for other slot-based sports.
+- Do not book/pay for users or store venue credentials; direct users to official booking channels.
+- Public-source polling + normalized availability + conditional Web Push are the product core.
+- Badminton is the first launch sport, while the domain/source model remains generic for other slot-based sports.
 
-## Actual current repository state
+## Actual current `main`
 
-The retired LINE/AI product runtime is gone. Current `main` is now a sports-availability + Radar backend foundation:
+The retired LINE-first AI memory product has been removed from the runtime. `apps/` now contains only `api` and `web`; the old admin application is gone.
 
-- `apps/api/src/index.ts` exposes health/search APIs, anonymous Radar identity, watch CRUD and a Cloudflare `scheduled` handler.
-- `apps/api/src/db/schema.ts` contains only sports-radar domain tables; Radar matching state and idempotent watch creation fields are present.
-- all old `schema-round*`, LINE/AI/Energy/commerce/reminder/proactive modules and old admin runtime are gone.
-- `drizzle/0000_aftertrace_rebuild.sql` remains the clean sports-radar baseline; `0001_radar_watch_foundation.sql` adds current Radar ownership/matching state.
-- `apps/web` is still the mobile-first availability search shell; watch/PWA Push UI is not implemented yet.
-- Taipei source synchronization launches badminton-first while retaining generic mappings/model support for later sports.
-- poll targets are race-safely claimed; watch-covered targets are elevated to priority 100 / requested 180-second polling while unwatched targets remain at 300 seconds, with source minimum interval always enforced.
-- newly `AVAILABLE` events are matched exactly once (retry-safe) into idempotent `PENDING` Web Push delivery intents; actual Web Push transport is not implemented yet.
+The current product path is implemented end-to-end at code level:
 
-## Round 1 — retired runtime/database/web pivot
+1. `TaipeiSportsCenterAdapter` reads public venue/calendar/availability endpoints.
+2. source synchronization normalizes venue/sport/court/slot state into Neon/Drizzle models.
+3. Cloudflare scheduled work claims bounded due poll targets and records availability transitions.
+4. anonymous browser identity owns private Radar watch rules.
+5. newly `AVAILABLE` events are matched idempotently to enabled watches.
+6. matching events create Web Push delivery intents with bounded freshness, lease/retry and dead-subscription handling.
+7. VAPID-authenticated payload-free Web Push wakes the PWA Service Worker.
+8. the Service Worker claims one owner-isolated accepted presentation from the API, displays venue/date/time context, and deep-links back to the relevant search/official booking flow.
+9. the React PWA can search availability, create/list/pause/resume/delete Radar rules, enable/disable Push, and recover its anonymous Radar identity.
 
-Commit previously inspected: `fbc18bf46d7ea0905e442dd1c1dabe99eb8090ce` (`refactor: replace legacy LINE AI runtime with availability core`).
+Current migrations:
 
-Completed:
+- `drizzle/0000_aftertrace_rebuild.sql` — clean sports-radar baseline; refuses a detected legacy LINE/AI database instead of carrying old tables forward.
+- `drizzle/0001_radar_watch_foundation.sql` — anonymous Radar ownership, matching cursor and watch idempotency state.
+- `drizzle/0002_web_push_delivery_runtime.sql` — Push lease/retry/expiry/presentation runtime.
 
-- retired LINE/group-memory/AI/Energy/commerce/reminder/proactive runtime removal.
-- clean sports-radar schema/baseline creation.
-- normalized sports/venues/availability read API.
-- mobile-first availability search shell + official booking links.
-- environment cleanup.
+Current polling policy:
 
-## Round 2 — Taipei source adapter + synchronization core
+- Worker Cron wakes every minute.
+- unwatched poll targets request 300-second polling.
+- watch-covered targets are priority 100 and request 180-second polling.
+- every target is clamped by its source minimum interval.
+- one-minute per-target polling is intentionally still disabled until deployed source behavior/rate limits are measured.
 
-Completed:
+## Completed rebuild batches
 
-- `AvailabilitySourceAdapter` boundary and default source registry.
-- Taipei sports-center adapter with 11 independently verified booking-system venue IDs; Nangang LID is not guessed.
-- known category mapping kept provider-neutral; production launch targets are badminton-only until other live venue/category behavior is verified.
-- form-encoded public-source calls, non-JSON rejection and bounded retry handling for network/302/429/5xx behavior.
-- calendar-first polling, court/slot normalization, deterministic external slot identity and official booking reference.
-- metadata/slot upserts, stale-slot `UNKNOWN` reconciliation and meaningful availability event creation.
-- source health / bounded failure backoff.
-- synthetic adapter + synchronization tests.
-
-## Round 3 — race-safe Cloudflare polling orchestration
+### 1. Retired product removal + clean sports domain
 
 Completed:
 
-- due-target selection by priority / `next_poll_at` / id.
-- bounded race-safe claiming; `next_poll_at` acts as crash-recovery lease and `last_polled_at` is the settlement fence.
-- one-minute Cloudflare Cron wake-up, while individual targets retain their own intervals.
-- default batch size 3, hard max 6, five-minute recovery lease.
-- Taipei-local 14-day polling window.
-- per-target failure isolation.
-- scheduler/bootstrap tests and Worker multi-handler export.
+- removed LINE webhook/group conversation, Group Memory, Gemini/AI, Energy, Rewarded Ad, Commerce, Reminder, Proactive Push and old admin runtime.
+- replaced legacy schema with clean sports availability/Radar tables.
+- preserved pnpm monorepo, Cloudflare Worker/Hono, React/Vite, Neon/Drizzle and common verification tooling.
+- built public sports/venue/availability read APIs and mobile-first search UI.
 
-Verification status from prior round:
+### 2. Taipei source adapter + normalization
 
-- Cloudflare scheduled-handler / Hono multi-handler contracts were checked against current official docs.
-- no dependency-complete local environment existed; full pnpm verification remained unexecuted.
-- connector-created commits did not produce GitHub Actions workflow runs.
+Completed:
 
-## Round 4 — anonymous Radar ownership, watch CRUD, matcher and watch-driven polling
+- generic `AvailabilitySourceAdapter` boundary and registry.
+- Taipei sports-center adapter using form-encoded public booking endpoints.
+- venue/sport/court/slot normalization, deterministic external slot identity, official booking references and stale-slot reconciliation.
+- bounded retry/error classification and source health behavior.
+- launch synchronization is badminton-first; other known sports remain behind the generic domain until live coverage is verified.
+
+### 3. Race-safe polling orchestration
+
+Completed:
+
+- priority/`next_poll_at` due-target selection.
+- bounded claiming with crash-recovery lease and settlement fence.
+- one-minute Cron wake-up with independent target intervals.
+- Taipei-local 14-day polling window and per-target failure isolation.
+
+### 4. Anonymous Radar ownership + watch matching
+
+Completed:
+
+- 256-bit anonymous browser credential; DB stores only SHA-256 identity subject.
+- bearer-authenticated watch CRUD with user isolation.
+- idempotent create via `Idempotency-Key` + canonical payload fingerprint.
+- sport/venue/city/district/date/day-of-week/time matching.
+- newly-available event cursor and idempotent watch/event delivery keys.
+- old availability that predates a watch is not retroactively notified.
+- overlapping rules for the same user/event are deduplicated so one availability event does not fan out duplicate notifications to the same browser identity.
+- enabled watch coverage raises relevant poll-target priority/frequency without rewriting an active poll lease.
+
+### 5. Web Push + PWA Radar UX
+
+Completed before this round:
+
+- authenticated Push subscription upsert/deactivation endpoints.
+- public VAPID application-server-key endpoint; private key remains Worker-only.
+- edge-native P-256 VAPID signing/sending with no Node-only Push dependency.
+- delivery runtime with claim lease, bounded retry, 30-minute freshness cutoff, 404/410 dead-subscription retirement and click/open acknowledgement.
+- payload-free Push presentation design: Service Worker wakes, proves anonymous identity + current endpoint, atomically claims the accepted notification context, then renders it locally.
+- manifest, Service Worker, notification click handling and deep-link search parameters.
+- React UI for anonymous identity, Watch creation/list/pause/resume/delete and notification enable/disable.
+- Push settlement/presentation race handling and delivery-settlement fencing.
+
+## Current round — Push lifecycle recovery, VAPID rotation safety and dispatch fencing
 
 ### Starting state verified
 
-Before changes, latest `main` was `0f0d8a2222075b8f00f48df5aed8e7c6f055176f` (`docs: record polling orchestration round`). The rebuild plan/progress, current schema, API entry point, availability routes/repository, polling orchestrator, migration baseline and source synchronization repository were re-read. The next planned coherent batch was Radar ownership/watch/matching.
+Latest `main` at the beginning of this round was `5f3f8e7be380dbee885626a3f4382255293d812f` (`fix: dedupe overlapping Radar watches per user event`). The rebuild plan/progress, current Web Push dispatcher/repository/routes, PWA helper, React app, service worker, schema, Taipei source adapter, CI and verification scripts were re-read before changes.
 
-### Code committed
+The old progress handoff was materially stale: it still described Web Push and PWA Radar UX as future work even though those features already existed on `main`. This file is now corrected to the actual repository state.
 
-Primary implementation commit:
+### Code completed this round
 
-- `4b5e0098ad02d5e143b283a3317f1c2ac5fa9bb6` — `feat: add anonymous radar watches and matching`
+Push subscription lifecycle hardening:
 
-Added `apps/api/src/auth/anonymous.ts`:
+- `52860adf726c0f9f23bb0c8f128cbae2a0bdd909` — `fix: reconcile Radar push subscriptions safely`
+  - added browser subscription/current VAPID public-key comparison.
+  - startup reconciliation now re-upserts a still-valid browser `PushSubscription` to the backend. This repairs a fresh/reset database or a previously deactivated server row without forcing the user to toggle notifications again.
+  - explicit notification enable detects VAPID key rotation, unsubscribes the obsolete browser endpoint, best-effort deactivates it server-side, and creates a new subscription with the current application-server key.
+  - startup intentionally does **not** silently resubscribe after VAPID rotation; a new subscription remains behind explicit user action.
+  - notification disable now unsubscribes the browser first, so a transient API failure cannot leave local notifications enabled. Backend deactivation is best-effort; a stale server endpoint will also be retired when Push returns 404/410.
 
-- high-entropy 256-bit anonymous browser token (`atr_anon_v1_...`).
-- SHA-256 token subject stored in `users`; raw token is never persisted.
-- token resolution uses provider `ANONYMOUS` + hashed subject.
-- bearer parsing helper.
+React startup recovery:
 
-Added `apps/api/src/auth/routes.ts`:
+- `f504d370b8d07ce5a7435ed0b5529cad777fb827` — `fix: repair push registration on PWA startup`
+  - replaced the old browser-only `currentPushEnabled()` check with server reconciliation.
+  - Push reconciliation failure is isolated from Watch loading (`catch(() => false)`), so a Push config/API issue does not make the Radar screen fail to initialize.
 
-- `POST /api/v1/session/anonymous`.
-- no existing bearer -> issue identity.
-- valid bearer -> reuse the same identity/token.
-- invalid supplied bearer -> 401 instead of silently replacing identity.
+PWA test coverage:
 
-Added `apps/api/src/watch/rules.ts`:
+- `4051274b719c9892df19bb7911bd83ce29b01db5` — `test: cover VAPID subscription key matching`
+  - covers matching key, rotated/different key, null key and malformed base64url input.
 
-- create/update validation for sport, venue IDs, city/district, date range, day-of-week and time window.
-- normalized sport code, deduplicated/sorted venue/day lists and `HH:mm` -> `HH:mm:ss` normalization.
-- inverted date/time window rejection.
-- strict `Idempotency-Key` validation.
-- canonical SHA-256 create-payload fingerprint.
-- reusable pure watch/event matcher.
+Verification script completeness:
 
-Added `apps/api/src/watch/repository.ts`:
+- `a877aa21a6034bbc7707101e97a4cbdbc3d4f5e5` — `chore: include Drizzle schema in local verification`
+  - `verify.ps1` now includes `pnpm db:schema:check` after build, matching the intended complete verification chain.
 
-- owner-isolated list/create/update/delete repository.
-- sport/venue compatibility checks before persistence.
-- creation uses `(user_id, client_key)` idempotency plus stored payload fingerprint; reusing a key for a different payload returns `IDEMPOTENCY_KEY_REUSE` instead of mutating/reduplicating data.
-- watch venue replacement is performed inside one PostgreSQL data-modifying CTE statement together with rule update.
-- watch create/read/update/delete never queries another user's rule without `user_id` ownership scope.
-- enabled watch coverage recalculates matching `poll_targets` to priority `100` and 180-second requested interval; unmatched targets return to priority `0` / 300 seconds; interval is clamped against each source's minimum interval.
-- watch-driven refresh deliberately does not rewrite `next_poll_at`, so it cannot break an active poll claim/recovery lease.
+Push dispatch fencing:
 
-Added `apps/api/src/watch/routes.ts`:
-
-- bearer-authenticated `GET /api/v1/watch-rules`.
-- idempotent `POST /api/v1/watch-rules` (requires `Idempotency-Key`).
-- owner-isolated `PATCH /api/v1/watch-rules/:watchRuleId`.
-- owner-isolated `DELETE /api/v1/watch-rules/:watchRuleId`.
-- database/identity middleware remains generic and does not restore LINE auth.
-
-Added `apps/api/src/watch/matcher.ts`:
-
-- bounded scan of newly `AVAILABLE` and unmatched `availability_events`.
-- only watches created on/before the event's `occurred_at` can match, preventing a newly-created watch from receiving old pre-watch availability.
-- sport, city/district, optional venue set, date range, day-of-week and time-window matching.
-- creates deterministic `watch:{rule}:event:{event}:web-push` delivery keys.
-- `notification_deliveries` remains `PENDING` and `subscription_id = null` until actual Push transport is implemented.
-- unique delivery key makes concurrent/retried matcher execution idempotent.
-- event is marked `matched_at` only after candidate processing; a mid-event failure leaves it retryable.
-
-Updated `apps/api/src/index.ts`:
-
-- explicit CORS allowance for `Authorization` and `Idempotency-Key`.
-- mounts anonymous session and watch routes.
-- scheduled polling now runs the Radar matcher after source polling and logs the Radar summary.
-
-Updated `apps/api/src/db/schema.ts`:
-
-- `availability_events.matched_at` + matching queue index.
-- `watch_rules.client_key` + `client_payload_hash`.
-- per-user unique watch creation key.
-
-Added migration:
-
-- `drizzle/0001_radar_watch_foundation.sql`.
-- adds matching cursor and idempotency columns/indexes.
-- includes deterministic backfill for any existing test watch rows before applying `NOT NULL`.
-- `drizzle/meta/_journal.json` now records the second migration.
-
-Tests added:
-
-- `apps/api/src/auth/anonymous.test.ts` — bearer parsing behavior.
-- `apps/api/src/watch/rules.test.ts` — input normalization, invalid windows, idempotency-key validation and combined match semantics.
-
-### Behavioral decisions
-
-- V1 identity is intentionally browser-anonymous and low-friction; no LINE/LIFF dependency was reintroduced.
-- anonymous token is a credential and must later be stored by the Web/PWA outside URLs/logs.
-- day-of-week uses JavaScript/PostgreSQL-compatible `0 = Sunday ... 6 = Saturday` semantics.
-- watch sport is immutable through PATCH in this first API; users can delete/recreate a watch when switching sport. This keeps venue/sport validation deterministic and the create idempotency identity stable.
-- watch-matched delivery rows are intents only. The next phase must register actual Push subscriptions and bind/send safely rather than pretending Push is complete.
-- one-minute target polling remains disabled. Watched targets use three minutes until live source behavior is measured.
+- `408449b16c2446021b6d91d8008175d8576536ad` — `fix: fence push subscription binding by delivery claim`
+- `1dc1f1e23299b54068abce5a1cd852dd057bd6bd` — `fix: stop stale push workers before send`
+  - binding a concrete Push subscription to a pending delivery now requires the same active `dispatch_claim_key` that owns the delivery lease.
+  - binding returns success/failure instead of blindly updating the row.
+  - dispatcher refuses to call the Push service when it lost the delivery claim before binding, preventing a stale/overlapping Worker from sending after ownership moved elsewhere.
 
 ### Verification performed this round
 
-- Re-read latest `main` and all planned handoff files before coding.
-- Re-read changed files from `main` after commit and inspected the generated commit diff.
-- Confirmed the commit is now the `main` runtime implementation and the new `auth/` + `watch/` directories exist.
-- Confirmed the new migration file and journal entry exist.
-- Queried GitHub Actions for implementation commit `4b5e0098ad02d5e143b283a3317f1c2ac5fa9bb6`: no workflow runs were produced, so CI does **not** validate this round.
-- The automation container has Node 22 and global TypeScript but no pnpm/repository dependencies. Network package lookup timed out, so a dependency-complete `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build`, and `pnpm db:schema:check` could not truthfully be executed. Do not mark them green.
-- Current Drizzle/Neon official docs were checked while designing writes: Neon HTTP is appropriate for single/non-interactive transactions; interactive transaction assumptions were deliberately avoided in the watch implementation.
+Performed:
+
+- re-read the latest `main` handoff and relevant source files before modifying code.
+- re-read the current Push/PWA implementation and verified the code path from browser subscription -> API -> delivery claim -> Push wake -> Service Worker presentation.
+- inspected the clean current schema and migrations; no retired LINE/AI domain tables were found in the runtime schema.
+- confirmed `apps/` contains only `api` and `web`.
+- checked the latest commit's GitHub Actions association before this round: no workflow run existed, so no CI result can be claimed.
+- current public Taipei sports-center booking site was independently checked as still present/current during this round; direct source smoke execution was not possible from the automation container because its outbound DNS/package environment is not dependency-complete.
+
+Not truthfully executable in this environment:
+
+- `pnpm typecheck`
+- `pnpm lint`
+- `pnpm test`
+- `pnpm build`
+- `pnpm db:schema:check`
+
+The automation runtime does not contain a checked-out dependency-complete repository/pnpm workspace. Therefore these remain **unverified**, not green. `verify.ps1` and CI both describe the required chain, but a real dependency-complete execution is still required.
 
 ## Remaining work — highest priority first
 
-### Phase 2 deployment blocker
+### Deployment / database
 
-- [ ] Point deployment at a fresh Neon database/branch and execute/review `0000_aftertrace_rebuild.sql` + `0001_radar_watch_foundation.sql` there.
+- [ ] Point deployment at a fresh Neon database/branch.
+- [ ] execute/review migrations `0000`, `0001`, `0002` against that clean database.
+- [ ] configure Worker `DATABASE_URL` and VAPID public/private/subject values.
+- [ ] deploy Worker + Pages and confirm Cron is active.
 
-### Phase 4 — Radar delivery
+### Real-device / source smoke verification
 
-- [x] Race-safe bounded poll-target claiming/recovery.
-- [x] Due-target Cloudflare scheduled orchestration.
-- [x] Anonymous/browser ownership boundary.
-- [x] Owner-isolated watch CRUD + idempotent create.
-- [x] New-AVAILABLE watch matching + idempotent delivery intents.
-- [x] Watch-driven priority / three-minute interval bounded by source minimum.
-- [ ] Web Push subscription registration/deactivation.
-- [ ] Bind/send pending delivery intents to active subscriptions with retry/expiry behavior.
-- [ ] Notification open/click acknowledgement only if it materially helps product behavior/analytics.
-- [ ] Measure live source behavior before considering one-minute watched polling.
+- [ ] Chrome/Android: search -> create Radar -> grant Push -> create/observe a real matching availability transition -> receive notification -> deep-link -> official booking.
+- [ ] iPhone/iPad installed Web App: add to Home Screen -> grant Push -> receive notification -> deep-link.
+- [ ] confirm VAPID rotation behavior on a real browser: old subscription is shown as disabled until the user explicitly re-enables notifications.
+- [ ] measure Taipei source latency/error/rate-limit behavior from the deployed Worker before considering one-minute watched polling.
+- [ ] verify known non-badminton categories per venue before expanding production launch sports.
 
-### Phase 5 — web/PWA completion
+### Repository cleanup / verification
 
-- [ ] Bootstrap/store anonymous Radar token in Web UI.
-- [ ] Add create/list/toggle/edit/delete watch UI.
-- [ ] Add PWA manifest/service worker.
-- [ ] Add Web Push permission + subscription flow.
-- [ ] Deep-link notifications to the relevant availability/official-booking context.
+- [ ] `pnpm-lock.yaml` still contains an `apps/admin` importer even though the old app directory is gone. Regenerate the lockfile from the current workspace in a dependency-complete environment and commit the clean result; do not hand-edit dependency snapshots blindly.
+- [ ] after lock regeneration, change CI installation from `--no-frozen-lockfile` to `--frozen-lockfile` so stale workspace metadata cannot silently return.
+- [ ] run the complete `verify.ps1` / CI chain and fix any actual TypeScript/lint/test/build/schema failures.
+- [ ] verify no retired LINE/LIFF/Gemini/Energy/Commerce/Reminder/Proactive runtime terminology remains outside historical rebuild documentation.
 
-### Phase 6 — final cleanup/verification
+### Optional post-smoke UX
 
-- [ ] Remove any remaining stale lockfile/importer/deployment-script references after feature work stabilizes.
-- [ ] Run full typecheck/lint/test/build/schema validation in a dependency-complete environment.
-- [ ] Verify no retired LINE/AI/Energy runtime terminology remains outside rebuild-history documentation.
-- [ ] Live-smoke the Taipei adapter from the deployed Worker and record measured source rate-limit behavior.
+- [ ] add full Watch-condition editing UI if real users need it; backend PATCH already supports condition updates other than changing sport.
+- [ ] improve iOS install guidance if real-device testing shows the current copy is insufficient.
+- [ ] consider email fallback only after Push reliability and demand are measured; it is not required for V1 launch.
 
 ## Next round — planned
 
-Implement actual Web Push + Web/PWA Radar UX as the next coherent batch:
+Prioritize **release verification and remaining repository cleanup**, not new feature scope:
 
-1. add authenticated Web Push subscription upsert/deactivate APIs under the anonymous identity boundary; validate endpoint + `p256dh` + `auth` shape and never log subscription secrets.
-2. choose an edge-compatible Web Push signing/sending approach for Cloudflare Workers (VAPID keys from Worker secrets; no Node-only runtime dependency).
-3. change pending delivery intents into concrete per-subscription deliveries or add a clear binding stage; add retry/terminal handling and avoid sending stale events after a bounded age.
-4. add the PWA manifest + service worker notification handlers.
-5. bootstrap/reuse `/session/anonymous` in the React app, store the credential locally, and add watch create/list/toggle/delete UI based on the existing search filters.
-6. add Push permission/subscription UI and notification click deep link to availability / official booking.
-7. add tests for subscription validation, delivery idempotency/retry and Web watch state helpers.
-8. update this file and the rebuild plan again before finishing.
+1. inspect latest `main` and any new CI/run information.
+2. remove remaining stale retired-product references that can be safely removed from source/config/docs without a generated-lockfile guess.
+3. if a dependency-complete execution path becomes available, regenerate `pnpm-lock.yaml`, switch CI to frozen lockfile and run the full verification chain.
+4. inspect deployment scripts/config for a clean Worker + Pages + fresh-Neon release path and strengthen smoke checks where code can do so without external credentials.
+5. only after the core verification/release path is clean should optional Watch editing or extra sports be added.
 
 ## Scheduled-round rules
 
