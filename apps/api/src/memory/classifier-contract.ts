@@ -28,23 +28,15 @@ export const memoryClassifierCandidateSchema = z
 export const memoryClassifierOutputSchema = z
   .object({
     need_save: z.boolean(),
-    candidates: z.array(memoryClassifierCandidateSchema).max(20),
+    candidates: z.array(memoryClassifierCandidateSchema).max(20).optional().default([]),
   })
   .strict()
   .superRefine((output, context) => {
     if (!output.need_save && output.candidates.length > 0) {
-      context.addIssue({
-        code: 'custom',
-        path: ['candidates'],
-        message: 'need_save=false requires an empty candidates array',
-      });
+      context.addIssue({ code: 'custom', path: ['candidates'], message: 'need_save=false must not contain candidates' });
     }
     if (output.need_save && output.candidates.length === 0) {
-      context.addIssue({
-        code: 'custom',
-        path: ['candidates'],
-        message: 'need_save=true requires at least one candidate',
-      });
+      context.addIssue({ code: 'custom', path: ['candidates'], message: 'need_save=true requires at least one candidate' });
     }
     output.candidates.forEach((candidate, index) => {
       if (candidate.candidateIndex !== index) {
@@ -80,16 +72,9 @@ export function parseMemoryClassifierOutput(
 
   for (const candidate of parsed.candidates) {
     const source = sourceMessages.get(candidate.sourceConversationMessageId);
-    if (!source) {
-      throw new Error(`classifier candidate ${candidate.candidateIndex} referenced a source outside the current request`);
-    }
-    if (
-      input.origin === 'AUTOMATIC' &&
-      (!source.lineUserId || !eligibleSubjects.has(source.lineUserId))
-    ) {
-      throw new Error(
-        `classifier candidate ${candidate.candidateIndex} referenced an ineligible automatic-memory subject`,
-      );
+    if (!source) throw new Error(`classifier candidate ${candidate.candidateIndex} referenced a source outside the current request`);
+    if (input.origin === 'AUTOMATIC' && (!source.lineUserId || !eligibleSubjects.has(source.lineUserId))) {
+      throw new Error(`classifier candidate ${candidate.candidateIndex} referenced an ineligible automatic-memory subject`);
     }
     if (candidate.targetMemoryId !== null && !activeMemoryIds.has(candidate.targetMemoryId)) {
       throw new Error(`classifier candidate ${candidate.candidateIndex} referenced a non-active target memory`);
