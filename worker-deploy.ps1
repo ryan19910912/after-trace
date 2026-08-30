@@ -1,13 +1,14 @@
 param(
     [switch]$SkipInstall,
     [switch]$AllowDirty,
-    [switch]$AllowNonMain
+    [switch]$AllowNonMain,
+    [string]$WorkerUrl = 'https://after-trace-api.a0955625660.workers.dev'
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $RepoRoot = $PSScriptRoot
-$WorkerUrl = 'https://after-trace-api.a0955625660.workers.dev'
+$SmokeScript = Join-Path $RepoRoot 'smoke.ps1'
 
 function Invoke-CommandChecked {
     param([string]$Name, [scriptblock]$Command)
@@ -35,11 +36,12 @@ try {
     Invoke-CommandChecked 'Drizzle schema check' { pnpm db:schema:check }
     Invoke-CommandChecked 'Apply database migrations' { pnpm --filter @aftertrace/api db:deploy:migrate }
     Invoke-CommandChecked 'Deploy Worker' { pnpm --filter @aftertrace/api exec wrangler deploy }
+    Invoke-CommandChecked 'Deployed Worker smoke' {
+        if (-not (Test-Path $SmokeScript)) { throw "Smoke script not found: $SmokeScript" }
+        & $SmokeScript -WorkerUrl $WorkerUrl -SkipPages
+    }
 
-    $health = Invoke-RestMethod "$WorkerUrl/health" -Method Get
-    if ($health.status -ne 'ok') { throw 'Worker health check failed.' }
-    $sports = Invoke-RestMethod "$WorkerUrl/api/v1/sports" -Method Get
-    Write-Host "`nWorker deployment completed. Health: $($health.status); sports: $($sports.sports.Count)" -ForegroundColor Green
+    Write-Host "`nWorker deployment completed and passed liveness/readiness/API smoke checks." -ForegroundColor Green
 }
 finally {
     Pop-Location
