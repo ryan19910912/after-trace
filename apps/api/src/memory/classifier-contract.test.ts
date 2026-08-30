@@ -66,10 +66,15 @@ const input: MemoryClassificationInput = {
 };
 
 describe('parseMemoryClassifierOutput', () => {
+  it('accepts need_save=false with no candidates', () => {
+    expect(parseMemoryClassifierOutput({ need_save: false, candidates: [] }, input)).toEqual([]);
+  });
+
   it('accepts a candidate grounded in an eligible current speaker and active memories', () => {
     expect(
       parseMemoryClassifierOutput(
         {
+          need_save: true,
           candidates: [
             {
               candidateIndex: 0,
@@ -87,10 +92,27 @@ describe('parseMemoryClassifierOutput', () => {
     ).toHaveLength(1);
   });
 
+  it('rejects inconsistent need_save values', () => {
+    expect(() => parseMemoryClassifierOutput({ need_save: true, candidates: [] }, input)).toThrow();
+    expect(() => parseMemoryClassifierOutput({
+      need_save: false,
+      candidates: [{
+        candidateIndex: 0,
+        decision: 'NEW',
+        targetMemoryId: null,
+        category: 'PLACE',
+        subject: '花蓮',
+        content: 'Amy 想去花蓮',
+        sourceConversationMessageId: 11,
+      }],
+    }, input)).toThrow();
+  });
+
   it('rejects a current source authored by an ineligible background speaker', () => {
     expect(() =>
       parseMemoryClassifierOutput(
         {
+          need_save: true,
           candidates: [
             {
               candidateIndex: 0,
@@ -112,6 +134,7 @@ describe('parseMemoryClassifierOutput', () => {
     expect(() =>
       parseMemoryClassifierOutput(
         {
+          need_save: true,
           candidates: [
             {
               candidateIndex: 0,
@@ -133,6 +156,7 @@ describe('parseMemoryClassifierOutput', () => {
     expect(() =>
       parseMemoryClassifierOutput(
         {
+          need_save: true,
           candidates: [
             {
               candidateIndex: 0,
@@ -152,6 +176,7 @@ describe('parseMemoryClassifierOutput', () => {
     expect(() =>
       parseMemoryClassifierOutput(
         {
+          need_save: true,
           candidates: [
             {
               candidateIndex: 3,
