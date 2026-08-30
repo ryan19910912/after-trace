@@ -10,8 +10,9 @@ import { DrizzleReservedBackgroundAiSettlementRepository } from '../energy/drizz
 import { DrizzleUserEnergyMutationRepository } from '../energy/drizzle-mutations';
 import { UserEnergyLedgerService } from '../energy/ledger';
 import { DrizzlePlatformAiBudgetReservationRepository } from '../energy/platform-budget';
-import { ExtractionBatchInputService } from '../extraction/input';
 import { DrizzleExtractionInputRepository } from '../extraction/drizzle-input-repository';
+import { ExtractionBatchInputService } from '../extraction/input';
+import { LineMessageContentResolver } from '../line/content';
 import { MemoryClassificationInputService, type MemoryClassificationInput } from './classification-input';
 import { parseMemoryClassifierOutput } from './classifier-contract';
 import { MemoryClassifierResultService } from './classifier-result';
@@ -36,6 +37,7 @@ export type MemoryAiRuntimeEnv = AiRuntimeEnv & AiEnergyMeterEnv & {
   GEMINI_MEMORY_MAX_OUTPUT_TOKENS?: string;
   MEMORY_REQUEST_LEASE_SECONDS?: string;
   BACKGROUND_AI_MAX_SUBSIDY_COST_TWD?: string;
+  LINE_CHANNEL_ACCESS_TOKEN?: string;
 };
 
 export type MemoryAiRuntimeResult =
@@ -93,11 +95,15 @@ export class UserEnergyMemoryAiRuntime {
       leaseSeconds(env.MEMORY_REQUEST_LEASE_SECONDS),
     );
     this.candidates = new MemoryCandidatePipeline(new DrizzleMemoryCandidateRepository(database));
+    const lineContent = env.LINE_CHANNEL_ACCESS_TOKEN?.trim()
+      ? new LineMessageContentResolver(env.LINE_CHANNEL_ACCESS_TOKEN)
+      : undefined;
     this.inputs = new MemoryClassificationInputService(
       new ExtractionBatchInputService(new DrizzleExtractionInputRepository(database)),
       new DrizzleMemorySourceMessageRepository(database),
       this.candidates,
       eligibleSubjects,
+      lineContent,
     );
     this.maxMemoryOutputTokens = requiredPositiveInteger(
       'GEMINI_MEMORY_MAX_OUTPUT_TOKENS',
@@ -203,7 +209,7 @@ export class UserEnergyMemoryAiRuntime {
         return this.deferWait(request, now, 'AI_INSUFFICIENT_CREDIT', 'WAITING_FOR_CREDIT');
       }
       if (billed.status === 'FREE_AI_BUDGET_EXHAUSTED') {
-        return this.deferWait(request, now, 'AI_FREE_BUDGET_EXHAUSTED', 'WAITING_FOR_FREE_BUDGET');
+        return this.deferWait(request, now, 'AI_FREE_AI_BUDGET_EXHAUSTED', 'WAITING_FOR_FREE_BUDGET');
       }
       if (billed.status === 'CREDIT_REFERENCE_CONFLICT') {
         return this.fail(request, now, 'AI_ENERGY_REFERENCE_CONFLICT');
@@ -275,7 +281,6 @@ export class UserEnergyMemoryAiRuntime {
     const reservation = await this.budget.reserve({
       requestId: request.id,
       groupId: request.groupId,
-      // Worst case assumes the platform may need to subsidize the entire provider call.
       maxSubsidyCostTwd: worstCase.costTwd,
       globalBudgetCostTwd: this.runtime.globalFreeAiBudgetCostTwd,
       at,
