@@ -22,8 +22,9 @@ p { line-height: 1.65; }
 .muted { color: #9da3ad; font-size: 13px; }
 
 .tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 6px; margin-bottom: 18px; border: 1px solid #282b31; border-radius: 14px; background: #17191d; }
-.tabs button { border: 0; border-radius: 10px; padding: 11px 8px; color: #aeb4bf; background: transparent; }
-.tabs button.active { color: #fff; background: #2b3038; }
+.tabs button { border: 0; border-radius: 10px; padding: 11px 8px; color: #aeb4bf; background: transparent; transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease; }
+.tabs button.active { color: #071109; background: #8cff66; box-shadow: 0 0 0 1px rgb(140 255 102 / 35%), 0 0 22px rgb(140 255 102 / 18%); font-weight: 700; }
+.tabs button.active:hover:not(:disabled) { background: #9dff7e; }
 
 .panel { display: grid; gap: 16px; }
 .section-head { display: flex; align-items: end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
