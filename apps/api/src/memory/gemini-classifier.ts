@@ -55,7 +55,7 @@ const responseJsonSchema = {
       },
     },
   },
-  required: ['need_save', 'candidates'],
+  required: ['need_save'],
 } as const;
 
 export function buildGeminiMemoryRequestBody(
@@ -94,12 +94,8 @@ export class GeminiMemoryClassifier implements MemoryClassifierPort {
   private readonly endpoint: string;
 
   constructor(private readonly options: GeminiClassifierOptions) {
-    if (!options.apiKey.trim()) {
-      throw new MemoryAiExecutionError('GEMINI_CONFIG_INVALID', false, 'Gemini API key is required');
-    }
-    if (!options.model.trim()) {
-      throw new MemoryAiExecutionError('GEMINI_CONFIG_INVALID', false, 'Gemini model is required');
-    }
+    if (!options.apiKey.trim()) throw new MemoryAiExecutionError('GEMINI_CONFIG_INVALID', false, 'Gemini API key is required');
+    if (!options.model.trim()) throw new MemoryAiExecutionError('GEMINI_CONFIG_INVALID', false, 'Gemini model is required');
     if (!Number.isSafeInteger(options.maxOutputTokens) || options.maxOutputTokens <= 0) {
       throw new MemoryAiExecutionError('GEMINI_CONFIG_INVALID', false, 'Gemini Memory maxOutputTokens must be a positive safe integer');
     }
@@ -112,23 +108,17 @@ export class GeminiMemoryClassifier implements MemoryClassifierPort {
     const startedAt = Date.now();
     let response: Response;
     try {
-      response = await this.fetchFn(
-        `${this.endpoint}/models/${encodeURIComponent(this.options.model)}:generateContent`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', 'x-goog-api-key': this.options.apiKey },
-          body: JSON.stringify(requestBody),
-        },
-      );
+      response = await this.fetchFn(`${this.endpoint}/models/${encodeURIComponent(this.options.model)}:generateContent`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': this.options.apiKey },
+        body: JSON.stringify(requestBody),
+      });
     } catch {
       throw new MemoryAiExecutionError('GEMINI_NETWORK_ERROR', true, 'Gemini generateContent network request failed');
     }
 
     const latencyMs = Date.now() - startedAt;
-    if (!response.ok) {
-      const text = (await response.text()).slice(0, 500);
-      throw providerHttpError(response.status, text);
-    }
+    if (!response.ok) throw providerHttpError(response.status, (await response.text()).slice(0, 500));
 
     let body: GeminiGenerateContentResponse;
     try {
@@ -157,26 +147,12 @@ export class GeminiMemoryClassifier implements MemoryClassifierPort {
 
     const inputTokens = body.usageMetadata?.promptTokenCount;
     const outputTokens = body.usageMetadata?.candidatesTokenCount;
-    if (typeof inputTokens !== 'number' || !Number.isSafeInteger(inputTokens) || inputTokens < 0) {
-      throw new MemoryAiExecutionError('GEMINI_INVALID_RESPONSE', true, 'Gemini response is missing valid prompt token usage');
-    }
-    if (typeof outputTokens !== 'number' || !Number.isSafeInteger(outputTokens) || outputTokens < 0) {
-      throw new MemoryAiExecutionError('GEMINI_INVALID_RESPONSE', true, 'Gemini response is missing valid output token usage');
-    }
-    if (inputTokens > memoryClassifierInputTokenUpperBound(input, this.options.maxOutputTokens)) {
-      throw new MemoryAiExecutionError('GEMINI_INVALID_RESPONSE', true, 'Gemini reported input usage above conservative request-byte bound');
-    }
-    if (outputTokens > this.options.maxOutputTokens) {
-      throw new MemoryAiExecutionError('GEMINI_INVALID_RESPONSE', true, 'Gemini reported output usage above configured Memory maxOutputTokens');
-    }
+    if (typeof inputTokens !== 'number' || !Number.isSafeInteger(inputTokens) || inputTokens < 0) throw new MemoryAiExecutionError('GEMINI_INVALID_RESPONSE', true, 'Gemini response is missing valid prompt token usage');
+    if (typeof outputTokens !== 'number' || !Number.isSafeInteger(outputTokens) || outputTokens < 0) throw new MemoryAiExecutionError('GEMINI_INVALID_RESPONSE', true, 'Gemini response is missing valid output token usage');
+    if (inputTokens > memoryClassifierInputTokenUpperBound(input, this.options.maxOutputTokens)) throw new MemoryAiExecutionError('GEMINI_INVALID_RESPONSE', true, 'Gemini reported input usage above conservative request-byte bound');
+    if (outputTokens > this.options.maxOutputTokens) throw new MemoryAiExecutionError('GEMINI_INVALID_RESPONSE', true, 'Gemini reported output usage above configured Memory maxOutputTokens');
 
-    return {
-      output,
-      tokenUsage: { inputTokens, outputTokens },
-      model: this.options.model,
-      providerResponseId: body.responseId ?? null,
-      latencyMs,
-    };
+    return { output, tokenUsage: { inputTokens, outputTokens }, model: this.options.model, providerResponseId: body.responseId ?? null, latencyMs };
   }
 }
 
@@ -186,9 +162,7 @@ function providerHttpError(status: number, detail: string): MemoryAiExecutionErr
   if (status === 400) return new MemoryAiExecutionError('GEMINI_BAD_REQUEST', false, `Gemini request was rejected as invalid (${status})${suffix}`);
   if (status === 404) return new MemoryAiExecutionError('GEMINI_MODEL_NOT_FOUND', false, `Gemini model/endpoint was not found (${status})${suffix}`);
   if (status === 408) return new MemoryAiExecutionError('GEMINI_TIMEOUT', true, `Gemini request timed out (${status})${suffix}`);
-  if (status === 409 || status === 425 || status === 429 || status >= 500) {
-    return new MemoryAiExecutionError(status === 429 ? 'GEMINI_RATE_LIMITED' : 'GEMINI_UPSTREAM_FAILURE', true, `Gemini transient request failure (${status})${suffix}`);
-  }
+  if (status === 409 || status === 425 || status === 429 || status >= 500) return new MemoryAiExecutionError(status === 429 ? 'GEMINI_RATE_LIMITED' : 'GEMINI_UPSTREAM_FAILURE', true, `Gemini transient request failure (${status})${suffix}`);
   if (status >= 400 && status < 500) return new MemoryAiExecutionError('GEMINI_REQUEST_REJECTED', false, `Gemini request was rejected (${status})${suffix}`);
   return new MemoryAiExecutionError('GEMINI_UPSTREAM_FAILURE', true, `Gemini request failed (${status})${suffix}`);
 }
