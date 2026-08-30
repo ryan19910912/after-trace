@@ -175,10 +175,10 @@ app.post('/webhooks/line', async (c) => {
       } else if (deterministicCommand.kind === 'HELP') {
         reply = [
           'AFTERTRACE｜幫助', '',
-          '@AI <問題>：用群組近期對話與記憶回答',
-          '@AI 額度：查看群組成員是否還可使用 Energy（不顯示他人數字）',
-          '@AI 記住 ...：明確要求 AFTERTRACE 記住資訊',
-          '@AI 方案：查看目前 V1 Energy 取得方式',
+          '@AFTERTRACE <問題>：用群組近期對話與記憶回答',
+          '@AFTERTRACE 額度：查看群組成員是否還可使用 Energy（不顯示他人數字）',
+          '@AFTERTRACE 記住 ...：明確要求 AFTERTRACE 記住資訊',
+          '@AFTERTRACE 方案：查看目前 V1 Energy 取得方式',
         ].join('\n');
       } else {
         reply = [
