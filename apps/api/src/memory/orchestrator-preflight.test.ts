@@ -112,7 +112,7 @@ describe('MemoryAiOrchestrator pre-invocation funding gate', () => {
       provider: 'GOOGLE' as const,
       model: 'gemini-2.5-flash-lite',
       providerResponseId: 'r1',
-      output: { candidates: [] },
+      output: { need_save: false, candidates: [] },
       inputTokens: 10,
       outputTokens: 5,
       latencyMs: 20,
