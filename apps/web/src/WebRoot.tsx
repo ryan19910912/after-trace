@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { App } from './App';
 import { ManagementApi, type ManagedGroup, WebAuthApi } from './api';
 
@@ -16,6 +16,7 @@ type SelectedGroup = {
 
 export function WebRoot({ apiBaseUrl }: Props) {
   const authApi = useMemo(() => new WebAuthApi(apiBaseUrl), [apiBaseUrl]);
+  const bootstrapStarted = useRef(false);
   const [sessionToken, setSessionToken] = useState<string | null>(() => localStorage.getItem(SESSION_KEY));
   const [selectedGroup, setSelectedGroup] = useState<SelectedGroup | null>(null);
   const [groups, setGroups] = useState<ManagedGroup[]>([]);
@@ -23,8 +24,9 @@ export function WebRoot({ apiBaseUrl }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (bootstrapStarted.current) return;
+    bootstrapStarted.current = true;
     void bootstrap();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function bootstrap() {
