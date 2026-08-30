@@ -50,11 +50,15 @@ export function WebRoot({ apiBaseUrl }: Props) {
         localStorage.setItem(SESSION_KEY, exchanged.sessionToken);
         localStorage.setItem(LAST_GROUP_KEY, exchanged.lineGroupId);
         setSessionToken(exchanged.sessionToken);
+        const nextGroups = await authApi.groups(exchanged.sessionToken);
+        setGroups(nextGroups);
+        const current = nextGroups.find((group) => group.lineGroupId === exchanged.lineGroupId);
         setSelectedGroup({
           lineGroupId: exchanged.lineGroupId,
-          groupContextToken: exchanged.groupContextToken,
+          groupContextToken: current?.groupContextToken ?? exchanged.groupContextToken,
         });
         url.searchParams.delete('t');
+        url.searchParams.delete('openExternalBrowser');
         window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
         return;
       }
@@ -138,7 +142,14 @@ export function WebRoot({ apiBaseUrl }: Props) {
           <button className="ghost" type="button" onClick={() => setSelectedGroup(null)}>切換群組</button>
           <button className="ghost" type="button" onClick={logout}>登出</button>
         </div>
-        <App api={managementApi} />
+        <App
+          api={managementApi}
+          authApi={authApi}
+          sessionToken={sessionToken}
+          groups={groups}
+          selectedLineGroupId={selectedGroup.lineGroupId}
+          onChooseGroup={chooseGroup}
+        />
       </>
     );
   }
