@@ -35,6 +35,14 @@ describe('detectExplicitMemoryCommand', () => {
     });
   });
 
+  it('accepts 記錄一下 as a reply-based explicit capture command', () => {
+    expect(detectExplicitMemoryCommand(message('@AFTERTRACE 幫我記錄一下', 'quoted-456'))).toEqual({
+      kind: 'REMEMBER',
+      quotedLineMessageId: 'quoted-456',
+      instruction: null,
+    });
+  });
+
   it('does not treat ordinary group conversation as a command', () => {
     expect(detectExplicitMemoryCommand(message('記住明天要下雨'))).toBeNull();
   });
