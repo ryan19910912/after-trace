@@ -124,11 +124,23 @@ Retry rules:
 
 `p256dh` and `auth` are still validated/stored for correct subscription state/future encrypted payload support, although V1's empty Push signal does not need payload encryption.
 
+## Runtime health + deployment verification
+
+Liveness and readiness are intentionally separate:
+
+- `GET /health` proves the Worker can answer HTTP and must remain cheap.
+- `GET /ready` probes the normalized `sports` table and validates full VAPID configuration. It returns `200` only when the deployed Worker is actually ready for the V1 database + Web Push path; missing/invalid dependencies return `503` with non-secret status/error codes.
+
+Deployment smoke is kept in `smoke.ps1` rather than duplicated in release scripts. It verifies liveness, readiness, public Push configuration and public search API shape; it can also verify the Pages URL. `-RequireSourceData` is reserved for post-Cron verification when source synchronization is expected to have populated normalized sports data.
+
+`worker-deploy.ps1` must run migration + deploy + Worker smoke. `pages-deploy.ps1` must build against the selected Worker URL, deploy Pages, then run the combined Worker + Pages smoke.
+
 ## API surface
 
 Public:
 
 - `GET /health`
+- `GET /ready`
 - `GET /api/v1/sports`
 - `GET /api/v1/venues?sport=...`
 - `GET /api/v1/availability?...`
@@ -206,13 +218,16 @@ Detailed in-place editing of every watch condition is optional UX refinement; th
 - [ ] Optional after-smoke UX: detailed watch editing / install guidance.
 
 ### Phase 6 — final verification
+- [x] Add explicit liveness/readiness contract and reusable deploy smoke script.
 - [ ] Fresh Neon migration execution/review.
 - [ ] Configure real VAPID secrets and deploy Worker + HTTPS PWA.
+- [ ] Confirm `/ready` returns 200 and `smoke.ps1` passes; then require source data after first polling synchronization.
 - [ ] Full `typecheck`, `lint`, `test`, `build`, `db:schema:check` in a dependency-complete environment.
+- [ ] Regenerate stale lockfile workspace metadata and switch CI to frozen-lockfile installation.
 - [ ] Live smoke source polling -> availability transition -> match -> Push -> presentation -> click.
 - [ ] Verify no retired runtime/dependency/deployment leftovers outside rebuild-history docs.
 - [ ] Record supported live sources and measured rate-limit behavior.
 
 ## Definition of done
 
-The rebuild is complete only when the old LINE/AI product cannot run and is absent from the application schema, the Taipei source + polling + watch + Web Push loop works end-to-end in a deployed smoke test, migrations are applied to a clean Neon target, and all executable repository verification passes.
+The rebuild is complete only when the old LINE/AI product cannot run and is absent from the application schema, the Taipei source + polling + watch + Web Push loop works end-to-end in a deployed smoke test, migrations are applied to a clean Neon target, readiness/deploy smoke succeeds, and all executable repository verification passes.
