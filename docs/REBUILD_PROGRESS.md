@@ -29,11 +29,12 @@ Current product flow:
 5. newly `AVAILABLE` events are matched idempotently to enabled watches.
 6. matching events create durable Web Push delivery intents with lease/retry/freshness handling.
 7. VAPID-authenticated payload-free Push wakes the PWA Service Worker.
-8. the Service Worker claims one owner-isolated presentation and deep-links back to search / official booking.
+8. the Service Worker claims one owner-isolated presentation and deep-links back to search.
 9. the React PWA supports search, Radar creation/list/pause/resume/delete and Push enable/disable.
-10. `/health` is cheap liveness; `/ready` checks the migrated sports schema plus valid complete VAPID configuration.
-11. deploy smoke verifies Worker readiness/public API shape and optionally Pages/source data.
-12. CI installs with `pnpm install --frozen-lockfile`.
+10. public availability responses expose the venue's human booking URL; provider-machine references stay internal and are not used/exposed as the public booking CTA.
+11. `/health` is cheap liveness; `/ready` checks the migrated sports schema plus valid complete VAPID configuration.
+12. deploy smoke verifies Worker readiness/public API shape and optionally Pages/source data.
+13. CI installs with `pnpm install --frozen-lockfile`.
 
 Current migrations:
 
@@ -71,6 +72,7 @@ Current polling policy:
 
 - due-target priority/lease/fencing.
 - per-target polling failure isolation.
+- scheduled pipeline stage isolation: polling failure cannot suppress matching/push, and matching failure cannot suppress already-durable Push dispatch.
 - anonymous browser identity using a 256-bit credential with only SHA-256 subject persisted.
 - watch CRUD/user isolation/idempotent creation.
 - venue/district/date/day/time matching.
@@ -92,42 +94,44 @@ Current polling policy:
 - `smoke.ps1`, `worker-deploy.ps1`, `pages-deploy.ps1` verify deployed readiness/API paths.
 - CI uses frozen lockfile installation.
 
-## Current round — scheduled pipeline failure isolation
+## Current round — cron resilience + official booking handoff correctness
 
 ### Starting state verified
 
-At round start latest `main` was `c92a450796613cf81ac412964ca61d3e282ea3d6` (`docs: record frozen CI and remaining lock cleanup`). Re-read the latest rebuild plan/progress plus current API entrypoint, polling orchestrator, Radar matcher, Push dispatcher/VAPID implementation, schema, deploy scripts, lockfile importers and relevant tests.
+At round start latest `main` was `c92a450796613cf81ac412964ca61d3e282ea3d6` (`docs: record frozen CI and remaining lock cleanup`). Re-read the latest rebuild plan/progress plus current API entrypoint, polling orchestrator, Radar matcher, Push dispatcher/VAPID implementation, schema, deploy scripts, lockfile importers, web search UI/API model and relevant tests.
 
-The important runtime issue found during source review was in the scheduled entrypoint: polling -> Radar matching -> Push dispatch were executed as one promise chain. Although polling already isolates individual target failures, a bootstrap/repository-level polling failure could still skip Radar matching for already-persisted events and skip Push dispatch for already-created deliveries until a later successful polling run. Those stages are operationally independent and should not block each other.
+Two concrete correctness issues were found and fixed:
+
+1. scheduled polling -> Radar matching -> Push dispatch were one promise chain, so a bootstrap/repository-level polling failure could suppress already-durable Radar/Push work for that cron run.
+2. the Taipei adapter stores an `externalBookingRef` built from the machine `findAllowBookingList` endpoint, while the React CTA preferred that reference over the venue's real booking page. Fresh verification of the live Taipei booking site on 2026-08-31 confirmed the root booking site is the actual interactive `Booking NOW` flow; the machine endpoint is not an appropriate user navigation target.
 
 ### Code completed this round
 
+Scheduled pipeline isolation:
+
 - `a462b2efa9fa01fc299cebc68e96746477e9c306` — added `apps/api/src/scheduled/run.ts`.
-  - `ScheduledRadarRunner` always attempts polling, Radar matching and Push dispatch in order.
-  - a failure in one stage is recorded but does not prevent later stages from processing durable work.
-  - failures expose only a bounded/sanitized error code; arbitrary database/provider exception text is not logged by this orchestration layer.
-  - every failed stage is naturally retried by the next Cron wake-up.
-- `cb9da05e3fed7ccec7200436c2ec6b21c58266f9` — added `apps/api/src/scheduled/run.test.ts`.
-  - covers all-success flow.
-  - covers polling failure while Radar + Push still run.
-  - covers Radar failure while Push still runs.
-  - covers all-stage failure without throwing the entire Cron pipeline.
-- `ce400ef071f3d2a728361d838672126572d5b94b` — updated `apps/api/src/index.ts` to use `ScheduledRadarRunner` and emit one structured `scheduled_radar_completed` summary instead of aborting the entire chain on the first stage failure.
+  - always attempts polling, Radar matching and Push dispatch in order.
+  - a failed stage is recorded but does not block later durable work.
+  - orchestration only emits bounded/sanitized error codes instead of arbitrary exception text.
+- `cb9da05e3fed7ccec7200436c2ec6b21c58266f9` — added `apps/api/src/scheduled/run.test.ts` covering all-success, polling failure, Radar failure and all-stage failure behavior.
+- `ce400ef071f3d2a728361d838672126572d5b94b` — API scheduled handler now uses `ScheduledRadarRunner` and logs one structured summary.
 
-### Source review finding to address next
+Official booking handoff boundary:
 
-The Taipei source was freshly checked against the live booking site on 2026-08-31. The site's root page is the actual interactive "Booking NOW" flow. Current adapter `externalBookingRef` is built from the machine endpoint `/Location/findAllowBookingList?...`, while the React UI currently prefers `externalBookingRef` over `venue.bookingUrl` for the "前往官方預約" link. That can send users to an API endpoint instead of the human booking flow. This is a concrete next-round correctness fix: public booking CTA must prefer/use the human booking URL; machine source references should remain internal provenance only.
+- `786cb9a6b684758df65025fbbf9da38a568a6147` — `apps/web/src/App.tsx` no longer uses `externalBookingRef` for the `前往官方預約` CTA; it uses the synchronized venue human booking URL instead.
+- `049d1194fcd04620754b722966dfd36162ed7092` — public availability repository no longer exposes `availability_slots.external_booking_ref`; that field remains provider-machine provenance in storage/sync only.
+- `962b58fb50a6d8f648dbeac4f7ead6d0a256a3ee` — web `AvailabilitySlot` model removed the now-private `externalBookingRef` field, so frontend code cannot accidentally regress to the machine endpoint without an explicit API contract change.
 
 ### Verification performed this round
 
 Performed:
 
-- re-read latest `main` and relevant source before edits.
-- independently strict-compiled the new scheduled runner contract with TypeScript 5.8.3 and local type stubs; zero diagnostics.
-- re-read the committed `apps/api/src/scheduled/run.ts` from `main` after writing.
-- confirmed latest commits are `a462b2e`, `cb9da05`, `ce400ef` in order.
-- checked GitHub Actions for `ce400ef071f3d2a728361d838672126572d5b94b`; zero workflow runs were returned.
-- local environment still has Node 22 + TypeScript 5.8.3 but no `pnpm`.
+- independently strict-compiled the new scheduled runner contract with TypeScript 5.8.3 and local stubs; zero diagnostics.
+- re-read committed scheduled runner and booking CTA snippets from latest `main` after writing.
+- live source verification on 2026-08-31 confirmed `https://booking-tpsc.sporetrofit.com/` is the interactive booking flow and the site links its navigation as `Booking NOW`; this supports using the venue booking URL rather than `findAllowBookingList` as the public CTA.
+- confirmed the latest round commits exist on `main`.
+- GitHub Actions returned zero workflow runs for the new cron commit, so CI still does not validate this round.
+- local automation environment still has Node 22 + TypeScript 5.8.3 but no `pnpm` and no `pwsh`.
 
 Not truthfully executable here:
 
@@ -136,7 +140,7 @@ Not truthfully executable here:
 - `pnpm test`
 - `pnpm build`
 - `pnpm db:schema:check`
-- PowerShell execution of deploy/smoke scripts (`pwsh` unavailable).
+- PowerShell execution of deploy/smoke scripts.
 
 Full repository verification therefore remains **unverified**, not green.
 
@@ -144,11 +148,11 @@ Full repository verification therefore remains **unverified**, not green.
 
 ### Repository correctness / cleanup
 
-- [ ] Fix official booking CTA boundary: user-facing links must open the human booking flow, not `findAllowBookingList` machine endpoints; keep provider API references internal if still needed for reconciliation/debug.
 - [ ] `pnpm-lock.yaml` still contains stale `apps/admin` importer metadata although the directory no longer exists. Regenerate the lockfile from the current workspace in a dependency-complete environment; do not fabricate dependency snapshots.
 - [ ] Run complete frozen-lockfile `typecheck`, `lint`, `test`, `build`, `db:schema:check` and fix real failures.
 - [ ] Run PowerShell syntax/execution checks for `smoke.ps1`, `worker-deploy.ps1`, `pages-deploy.ps1` on the normal Windows development machine.
 - [ ] Repeat content-level retired-term scan when local checkout/code search is reliable.
+- [ ] Continue source-level review for any other provider-machine fields accidentally exposed as user-facing navigation or product truth.
 
 ### Deployment / database
 
@@ -170,8 +174,7 @@ Full repository verification therefore remains **unverified**, not green.
 ## Next round — planned
 
 1. re-read latest `main`, rebuild plan/progress and actual source.
-2. fix the machine-API-vs-human-booking-link boundary and add/adjust tests so the public CTA cannot regress to `findAllowBookingList`.
-3. retry dependency-complete pnpm availability; if available, regenerate lockfile and run the complete frozen verification chain.
-4. if pnpm remains blocked, continue source-level correctness review of source sync, Radar matching and Push presentation instead of adding feature scope.
-5. only deploy/migrate if real environment credentials are available; otherwise keep those as explicit external blockers.
-6. do not enable one-minute watched polling or extra launch sports without deployed measurements.
+2. retry dependency-complete pnpm availability; if available, regenerate lockfile and run the complete frozen verification chain.
+3. if pnpm remains blocked, continue source-level correctness review of sync/matcher/notification routes and source/provider boundaries; fix concrete issues rather than adding feature scope.
+4. only deploy/migrate if real environment credentials are available; otherwise keep those as explicit external blockers.
+5. do not enable one-minute watched polling or extra launch sports without deployed measurements.
