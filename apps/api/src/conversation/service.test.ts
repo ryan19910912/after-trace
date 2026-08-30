@@ -10,7 +10,7 @@ import type { PendingCounters } from './threshold';
 
 class FakeConversationRepository implements ConversationRepository {
   readonly group: GroupRecord = { id: 1, lineGroupId: 'group-1', status: 'ACTIVE' };
-  counters: PendingCounters = { messageCount: 29, charCount: 100 };
+  counters: PendingCounters = { messageCount: 79, charCount: 100 };
   insertedMessageIds = new Set<string>();
   seenMembers: Array<{ lineUserId: string; seenAt: Date }> = [];
 
@@ -90,7 +90,7 @@ describe('ConversationIngestionService', () => {
     expect(result.status).toBe('STORED');
     if (result.status !== 'STORED') throw new Error('Expected stored result');
     expect(result.groupId).toBe(1);
-    expect(result.counters).toEqual({ messageCount: 30, charCount: 105 });
+    expect(result.counters).toEqual({ messageCount: 80, charCount: 105 });
     expect(result.threshold).toMatchObject({ extractionDue: true, reason: 'MESSAGE_COUNT' });
     expect(repository.seenMembers).toEqual([
       { lineUserId: 'user-1', seenAt: new Date('2026-08-29T00:00:00Z') },
@@ -107,7 +107,7 @@ describe('ConversationIngestionService', () => {
     expect(duplicate.status).toBe('DUPLICATE');
     if (duplicate.status !== 'DUPLICATE') throw new Error('Expected duplicate result');
     expect(duplicate.groupId).toBe(1);
-    expect(duplicate.counters).toEqual({ messageCount: 30, charCount: 105 });
+    expect(duplicate.counters).toEqual({ messageCount: 80, charCount: 105 });
   });
 
   it('ignores delayed/redelivered messages while the group is inactive', async () => {
@@ -118,7 +118,7 @@ describe('ConversationIngestionService', () => {
     const result = await service.ingest(message('late-message'));
 
     expect(result).toEqual({ status: 'IGNORED_INACTIVE' });
-    expect(repository.counters).toEqual({ messageCount: 29, charCount: 100 });
+    expect(repository.counters).toEqual({ messageCount: 79, charCount: 100 });
     expect(repository.insertedMessageIds.size).toBe(0);
     expect(repository.seenMembers).toHaveLength(0);
   });
