@@ -195,11 +195,25 @@ export class DrizzleNotificationRepository {
     return claimed ?? null;
   }
 
-  async bindSubscription(deliveryId: number, subscriptionId: number): Promise<void> {
-    await this.database
+  async bindSubscription(
+    deliveryId: number,
+    subscriptionId: number,
+    claimKey: string,
+    now = new Date(),
+  ): Promise<boolean> {
+    const [updated] = await this.database
       .update(notificationDeliveries)
-      .set({ subscriptionId, updatedAt: new Date() })
-      .where(and(eq(notificationDeliveries.id, deliveryId), eq(notificationDeliveries.status, 'PENDING')));
+      .set({ subscriptionId, updatedAt: now })
+      .where(and(
+        eq(notificationDeliveries.id, deliveryId),
+        eq(notificationDeliveries.status, 'PENDING'),
+        sql`EXISTS (
+          SELECT 1 FROM notification_delivery_runtime r
+          WHERE r.delivery_id = ${deliveryId} AND r.dispatch_claim_key = ${claimKey}
+        )`,
+      ))
+      .returning({ id: notificationDeliveries.id });
+    return Boolean(updated);
   }
 
   async settleAccepted(deliveryId: number, claimKey: string, now = new Date()): Promise<boolean> {
