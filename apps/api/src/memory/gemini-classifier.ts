@@ -63,9 +63,14 @@ export function buildGeminiMemoryRequestBody(
   maxOutputTokens: number,
 ) {
   const prompt = buildMemoryClassifierPrompt(input);
+  const parts: Array<Record<string, unknown>> = [{ text: prompt.userPrompt }];
+  for (const media of input.inlineMedia ?? []) {
+    parts.push({ text: `The following image belongs to LINE message ${media.lineMessageId}. Use it only as evidence for that source message.` });
+    parts.push({ inlineData: { mimeType: media.mimeType, data: media.dataBase64 } });
+  }
   return {
     systemInstruction: { parts: [{ text: prompt.systemInstruction }] },
-    contents: [{ role: 'user', parts: [{ text: prompt.userPrompt }] }],
+    contents: [{ role: 'user', parts }],
     generationConfig: {
       responseMimeType: 'application/json',
       responseJsonSchema,
@@ -96,11 +101,7 @@ export class GeminiMemoryClassifier implements MemoryClassifierPort {
       throw new MemoryAiExecutionError('GEMINI_CONFIG_INVALID', false, 'Gemini model is required');
     }
     if (!Number.isSafeInteger(options.maxOutputTokens) || options.maxOutputTokens <= 0) {
-      throw new MemoryAiExecutionError(
-        'GEMINI_CONFIG_INVALID',
-        false,
-        'Gemini Memory maxOutputTokens must be a positive safe integer',
-      );
+      throw new MemoryAiExecutionError('GEMINI_CONFIG_INVALID', false, 'Gemini Memory maxOutputTokens must be a positive safe integer');
     }
     this.fetchFn = options.fetchFn ?? fetch;
     this.endpoint = options.endpoint ?? 'https://generativelanguage.googleapis.com/v1beta';
@@ -115,19 +116,12 @@ export class GeminiMemoryClassifier implements MemoryClassifierPort {
         `${this.endpoint}/models/${encodeURIComponent(this.options.model)}:generateContent`,
         {
           method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            'x-goog-api-key': this.options.apiKey,
-          },
+          headers: { 'content-type': 'application/json', 'x-goog-api-key': this.options.apiKey },
           body: JSON.stringify(requestBody),
         },
       );
     } catch {
-      throw new MemoryAiExecutionError(
-        'GEMINI_NETWORK_ERROR',
-        true,
-        'Gemini generateContent network request failed',
-      );
+      throw new MemoryAiExecutionError('GEMINI_NETWORK_ERROR', true, 'Gemini generateContent network request failed');
     }
 
     const latencyMs = Date.now() - startedAt;
@@ -140,34 +134,17 @@ export class GeminiMemoryClassifier implements MemoryClassifierPort {
     try {
       body = (await response.json()) as GeminiGenerateContentResponse;
     } catch {
-      throw new MemoryAiExecutionError(
-        'GEMINI_INVALID_RESPONSE',
-        true,
-        'Gemini response body was not valid JSON',
-      );
+      throw new MemoryAiExecutionError('GEMINI_INVALID_RESPONSE', true, 'Gemini response body was not valid JSON');
     }
 
-    const text = body.candidates?.[0]?.content?.parts
-      ?.map((part) => part.text ?? '')
-      .join('')
-      .trim();
-    if (!text) {
-      throw new MemoryAiExecutionError(
-        'GEMINI_INVALID_RESPONSE',
-        true,
-        'Gemini response did not contain classifier JSON text',
-      );
-    }
+    const text = body.candidates?.[0]?.content?.parts?.map((part) => part.text ?? '').join('').trim();
+    if (!text) throw new MemoryAiExecutionError('GEMINI_INVALID_RESPONSE', true, 'Gemini response did not contain classifier JSON text');
 
     let raw: unknown;
     try {
       raw = JSON.parse(text);
     } catch {
-      throw new MemoryAiExecutionError(
-        'GEMINI_INVALID_RESPONSE',
-        true,
-        'Gemini classifier response was not valid JSON',
-      );
+      throw new MemoryAiExecutionError('GEMINI_INVALID_RESPONSE', true, 'Gemini classifier response was not valid JSON');
     }
 
     let output: MemoryClassifierOutput;
@@ -175,42 +152,22 @@ export class GeminiMemoryClassifier implements MemoryClassifierPort {
       output = memoryClassifierOutputSchema.parse(raw);
       parseMemoryClassifierOutput(output, input);
     } catch {
-      throw new MemoryAiExecutionError(
-        'GEMINI_INVALID_RESPONSE',
-        true,
-        'Gemini classifier response failed structured or grounding validation',
-      );
+      throw new MemoryAiExecutionError('GEMINI_INVALID_RESPONSE', true, 'Gemini classifier response failed structured or grounding validation');
     }
 
     const inputTokens = body.usageMetadata?.promptTokenCount;
     const outputTokens = body.usageMetadata?.candidatesTokenCount;
     if (typeof inputTokens !== 'number' || !Number.isSafeInteger(inputTokens) || inputTokens < 0) {
-      throw new MemoryAiExecutionError(
-        'GEMINI_INVALID_RESPONSE',
-        true,
-        'Gemini response is missing valid prompt token usage',
-      );
+      throw new MemoryAiExecutionError('GEMINI_INVALID_RESPONSE', true, 'Gemini response is missing valid prompt token usage');
     }
     if (typeof outputTokens !== 'number' || !Number.isSafeInteger(outputTokens) || outputTokens < 0) {
-      throw new MemoryAiExecutionError(
-        'GEMINI_INVALID_RESPONSE',
-        true,
-        'Gemini response is missing valid output token usage',
-      );
+      throw new MemoryAiExecutionError('GEMINI_INVALID_RESPONSE', true, 'Gemini response is missing valid output token usage');
     }
     if (inputTokens > memoryClassifierInputTokenUpperBound(input, this.options.maxOutputTokens)) {
-      throw new MemoryAiExecutionError(
-        'GEMINI_INVALID_RESPONSE',
-        true,
-        'Gemini reported input usage above conservative request-byte bound',
-      );
+      throw new MemoryAiExecutionError('GEMINI_INVALID_RESPONSE', true, 'Gemini reported input usage above conservative request-byte bound');
     }
     if (outputTokens > this.options.maxOutputTokens) {
-      throw new MemoryAiExecutionError(
-        'GEMINI_INVALID_RESPONSE',
-        true,
-        'Gemini reported output usage above configured Memory maxOutputTokens',
-      );
+      throw new MemoryAiExecutionError('GEMINI_INVALID_RESPONSE', true, 'Gemini reported output usage above configured Memory maxOutputTokens');
     }
 
     return {
@@ -225,51 +182,13 @@ export class GeminiMemoryClassifier implements MemoryClassifierPort {
 
 function providerHttpError(status: number, detail: string): MemoryAiExecutionError {
   const suffix = detail ? `: ${detail}` : '';
-  if (status === 401 || status === 403) {
-    return new MemoryAiExecutionError(
-      'GEMINI_AUTH_REJECTED',
-      false,
-      `Gemini authentication/authorization rejected (${status})${suffix}`,
-    );
-  }
-  if (status === 400) {
-    return new MemoryAiExecutionError(
-      'GEMINI_BAD_REQUEST',
-      false,
-      `Gemini request was rejected as invalid (${status})${suffix}`,
-    );
-  }
-  if (status === 404) {
-    return new MemoryAiExecutionError(
-      'GEMINI_MODEL_NOT_FOUND',
-      false,
-      `Gemini model/endpoint was not found (${status})${suffix}`,
-    );
-  }
-  if (status === 408) {
-    return new MemoryAiExecutionError(
-      'GEMINI_TIMEOUT',
-      true,
-      `Gemini request timed out (${status})${suffix}`,
-    );
-  }
+  if (status === 401 || status === 403) return new MemoryAiExecutionError('GEMINI_AUTH_REJECTED', false, `Gemini authentication/authorization rejected (${status})${suffix}`);
+  if (status === 400) return new MemoryAiExecutionError('GEMINI_BAD_REQUEST', false, `Gemini request was rejected as invalid (${status})${suffix}`);
+  if (status === 404) return new MemoryAiExecutionError('GEMINI_MODEL_NOT_FOUND', false, `Gemini model/endpoint was not found (${status})${suffix}`);
+  if (status === 408) return new MemoryAiExecutionError('GEMINI_TIMEOUT', true, `Gemini request timed out (${status})${suffix}`);
   if (status === 409 || status === 425 || status === 429 || status >= 500) {
-    return new MemoryAiExecutionError(
-      status === 429 ? 'GEMINI_RATE_LIMITED' : 'GEMINI_UPSTREAM_FAILURE',
-      true,
-      `Gemini transient request failure (${status})${suffix}`,
-    );
+    return new MemoryAiExecutionError(status === 429 ? 'GEMINI_RATE_LIMITED' : 'GEMINI_UPSTREAM_FAILURE', true, `Gemini transient request failure (${status})${suffix}`);
   }
-  if (status >= 400 && status < 500) {
-    return new MemoryAiExecutionError(
-      'GEMINI_REQUEST_REJECTED',
-      false,
-      `Gemini request was rejected (${status})${suffix}`,
-    );
-  }
-  return new MemoryAiExecutionError(
-    'GEMINI_UPSTREAM_FAILURE',
-    true,
-    `Gemini request failed (${status})${suffix}`,
-  );
+  if (status >= 400 && status < 500) return new MemoryAiExecutionError('GEMINI_REQUEST_REJECTED', false, `Gemini request was rejected (${status})${suffix}`);
+  return new MemoryAiExecutionError('GEMINI_UPSTREAM_FAILURE', true, `Gemini request failed (${status})${suffix}`);
 }
