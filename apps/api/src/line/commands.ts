@@ -1,11 +1,5 @@
 import type { BufferedGroupMessage } from './events';
 
-export type ExplicitMemoryCommand = {
-  kind: 'REMEMBER';
-  quotedLineMessageId: string | null;
-  instruction: string | null;
-};
-
 export type DeterministicAiCommand =
   | { kind: 'ENERGY_STATUS' }
   | { kind: 'HELP' }
@@ -32,51 +26,11 @@ export function detectDeterministicAiCommand(
 }
 
 export function isAiMention(message: BufferedGroupMessage): boolean {
-  return (
-    message.messageType === 'text' &&
-    !!message.textContent &&
-    stripAiMention(message.textContent).mentioned
-  );
+  return aiMentionText(message) !== null;
 }
 
-export function detectExplicitMemoryCommand(
-  message: BufferedGroupMessage,
-): ExplicitMemoryCommand | null {
+export function aiMentionText(message: BufferedGroupMessage): string | null {
   if (message.messageType !== 'text' || !message.textContent) return null;
-
   const stripped = stripAiMention(message.textContent);
-  const isReply = message.quotedLineMessageId !== null;
-  if (!stripped.mentioned && !isReply) return null;
-
-  const text = stripped.text.replace(/[！!。.]$/, '').trim();
-  const captureVerb = '(?:記住|記一下|記錄(?:一下|起來)?|紀錄(?:一下|起來)?|存一下|保存(?:一下|起來)?)';
-  const replyOnly = new RegExp(`^(?:請)?(?:幫我)?(?:把)?(?:這(?:個|則|張)?\\s*)?${captureVerb}(?:吧)?$`);
-  if (isReply && replyOnly.test(text)) {
-    return {
-      kind: 'REMEMBER',
-      quotedLineMessageId: message.quotedLineMessageId,
-      instruction: null,
-    };
-  }
-
-  const explicit = new RegExp(`^(?:請)?(?:幫我)?(?:把)?${captureVerb}[\\s,:：-]*(.*)$`).exec(text);
-  const trailing = explicit?.[1]?.trim();
-  if (explicit) {
-    return {
-      kind: 'REMEMBER',
-      quotedLineMessageId: message.quotedLineMessageId,
-      instruction: trailing || null,
-    };
-  }
-
-  const natural = /^(?:請)?幫我(?:把)?(.+?)(?:記住|記一下|記錄一下|紀錄一下|記錄起來|紀錄起來|存一下|保存一下|保存起來)(?:吧)?$/.exec(text);
-  if (natural?.[1]?.trim()) {
-    return {
-      kind: 'REMEMBER',
-      quotedLineMessageId: message.quotedLineMessageId,
-      instruction: natural[1].trim(),
-    };
-  }
-
-  return null;
+  return stripped.mentioned ? stripped.text : null;
 }
