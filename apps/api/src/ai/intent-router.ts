@@ -33,11 +33,13 @@ type GeminiResponse = {
   candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
 };
 
+const runtimeFetch: typeof fetch = (input, init) => fetch(input, init);
+
 export class GeminiAiIntentRouter {
   constructor(
     private readonly apiKey: string,
     private readonly model = 'gemini-2.5-flash-lite',
-    private readonly fetcher: typeof fetch = fetch,
+    private readonly fetcher: typeof fetch = runtimeFetch,
   ) {
     if (!apiKey.trim()) throw new Error('GEMINI_API_KEY is required for AI intent routing');
   }
