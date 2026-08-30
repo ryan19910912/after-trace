@@ -97,8 +97,10 @@ try {
     Write-Host "Worker: $WorkerUrl"
     Write-Host ''
     Write-Host 'Recommended smoke tests:' -ForegroundColor Yellow
-    Write-Host '  1. LINE group: @AFTERTRACE 幫助'
-    Write-Host '  2. LINE group: @AFTERTRACE 額度'
+    $helpCommand = '@AFTERTRACE ' + [char]0x5E6B + [char]0x52A9
+    $energyCommand = '@AFTERTRACE ' + [char]0x984D + [char]0x5EA6
+    Write-Host "  1. LINE group: $helpCommand"
+    Write-Host "  2. LINE group: $energyCommand"
     Write-Host '  3. Open LIFF and verify Energy API'
 }
 finally {
