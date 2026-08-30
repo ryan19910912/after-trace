@@ -1,278 +1,73 @@
-export type ManagedMemory = {
+export type SportOption = { id: number; code: string; name: string };
+export type VenueOption = {
   id: number;
-  category: string;
-  subject: string | null;
-  content: string;
-  sourceMessageId: string | null;
-  sourceLineUserId: string | null;
-  sourceLineTimestamp: string | null;
-  sourceQuoteToken: string | null;
-  updatedAt: string;
-};
-
-export type CrossGroupMemory = {
-  id: number;
-  groupId: number;
-  lineGroupId: string;
-  groupName: string;
-  category: string;
-  subject: string | null;
-  content: string;
-  sourceMessageId: string | null;
-  sourceLineTimestamp: string | null;
-  updatedAt: string;
-};
-
-export type ManagedReminder = {
-  id: number;
-  message: string;
-  scheduledFor: string;
-  status: 'SCHEDULED' | 'DISPATCHING' | 'CANCELLED' | 'DELIVERED';
-};
-
-export type EnergyBucket = 'FREE' | 'SUBSCRIPTION' | 'AD' | 'PAID';
-
-export type PrivateEnergyOverview = {
-  userId: number;
-  usableUnits: string;
-  reservedUnits: string;
-  buckets: Record<EnergyBucket, { usableUnits: string; reservedUnits: string }>;
-  lots: Array<{
-    id: number;
-    bucket: EnergyBucket;
-    availableUnits: string;
-    reservedUnits: string;
-    expiresAt: string | null;
-    sourceType: string;
-  }>;
-  subscription: null | {
-    provider: string;
-    status: string;
-    currentPeriodEnd: string | null;
-    cancelAtPeriodEnd: boolean;
-  };
-  proactive: {
-    subscriptionUsable: boolean;
-    paidUsable: boolean;
-    enabled: boolean;
-  };
-};
-
-export type CommerceCatalog = {
-  provider: string | null;
-  checkoutEnabled: boolean;
-  subscription: null | {
-    code: 'SUBSCRIPTION_V1';
-    energyUnits: string;
-    priceTwd: string | null;
-  };
-  paidPacks: Array<{
-    code: 'SMALL' | 'MEDIUM' | 'LARGE';
-    energyUnits: string;
-    priceTwd: string | null;
-  }>;
-};
-
-export type EnergyCatalogResponse = {
-  catalog: CommerceCatalog;
-  rewardedAd: {
-    enabled: boolean;
-    energyUnits: string | null;
-    dailyLimit: number;
-    cooldownMinutes: number;
-  };
-};
-
-export type RewardedAdNonce = {
-  nonce: string;
-  expiresAt: string;
-  client: {
-    provider: 'GOOGLE_AD_MANAGER_WEB';
-    networkCode: string;
-    adUnitPath: string;
-  };
-};
-
-export type RewardedAdClaim = {
-  status: 'GRANTED' | 'ALREADY_GRANTED';
-  claimId: number;
-  operationId: number;
-  units: string;
-};
-
-export type CheckoutProductCode = 'SUBSCRIPTION_V1' | 'PAID_SMALL' | 'PAID_MEDIUM' | 'PAID_LARGE';
-
-export type CheckoutSession = {
-  status: 'READY' | 'ALREADY_READY';
-  checkoutUrl: string;
-  provider: string;
-  providerCheckoutId: string;
-  expiresAt: string | null;
-};
-
-export type WebAuthExchange = {
-  sessionToken: string;
-  lineUserId: string;
-  lineGroupId: string;
-  groupContextToken: string;
-};
-
-export type ManagedGroup = {
-  id: number;
-  lineGroupId: string;
   name: string;
-  groupContextToken: string;
+  city: string;
+  district: string | null;
+  bookingUrl: string | null;
+};
+export type AvailabilitySlot = {
+  slotId: number;
+  venueId: number;
+  venueName: string;
+  district: string | null;
+  sportCode: string;
+  sportName: string;
+  courtName: string | null;
+  useDate: string;
+  startTime: string;
+  endTime: string;
+  status: 'AVAILABLE' | 'UNAVAILABLE' | 'UNKNOWN';
+  price: string | null;
+  bookingUrl: string | null;
+  externalBookingRef: string | null;
+  lastSeenAt: string;
 };
 
-async function responseBody<T>(response: Response, fallback: string): Promise<{ ok?: boolean; error?: string } & T> {
-  const raw = await response.text();
-  if (!raw) {
-    if (!response.ok) throw new Error(`${fallback}: ${response.status}`);
-    return {} as { ok?: boolean; error?: string } & T;
-  }
-  try {
-    return JSON.parse(raw) as { ok?: boolean; error?: string } & T;
-  } catch {
-    throw new Error(`${fallback}: ${response.status}${raw.trim() ? ` - ${raw.trim().slice(0, 160)}` : ''}`);
-  }
+function apiUrl(baseUrl: string, path: string) {
+  return `${baseUrl.replace(/\/$/, '')}${path}`;
 }
 
-export class WebAuthApi {
-  constructor(private readonly baseUrl: string) {}
-
-  private url(path: string): string {
-    return `${this.baseUrl.replace(/\/$/, '')}/api/v1/auth${path}`;
-  }
-
-  lineLoginUrl(): string {
-    return this.url('/line/start');
-  }
-
-  async exchangeEntry(token: string): Promise<WebAuthExchange> {
-    const response = await fetch(this.url('/entry/exchange'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token }),
-    });
-    const body = await responseBody<WebAuthExchange>(response, '登入連結驗證失敗');
-    if (!response.ok) throw new Error(body.error || `登入連結驗證失敗: ${response.status}`);
-    return body;
-  }
-
-  async groups(sessionToken: string): Promise<ManagedGroup[]> {
-    const response = await fetch(this.url('/groups'), {
-      headers: { Authorization: `Bearer ${sessionToken}` },
-    });
-    const body = await responseBody<{ groups: ManagedGroup[] }>(response, '群組載入失敗');
-    if (!response.ok) throw new Error(body.error || `群組載入失敗: ${response.status}`);
-    return body.groups;
-  }
-
-  async memories(sessionToken: string, query = ''): Promise<CrossGroupMemory[]> {
-    const suffix = query.trim() ? `?q=${encodeURIComponent(query.trim())}` : '';
-    const response = await fetch(this.url(`/memories${suffix}`), {
-      headers: { Authorization: `Bearer ${sessionToken}` },
-    });
-    const body = await responseBody<{ memories: CrossGroupMemory[] }>(response, '跨群組記憶搜尋失敗');
-    if (!response.ok) throw new Error(body.error || `跨群組記憶搜尋失敗: ${response.status}`);
-    return body.memories;
-  }
+async function getJson<T>(url: string): Promise<T> {
+  const response = await fetch(url, { headers: { Accept: 'application/json' } });
+  const body = (await response.json()) as T & { error?: string };
+  if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
+  return body;
 }
 
-export class ManagementApi {
-  constructor(
-    private readonly baseUrl: string,
-    private readonly accessToken: string,
-    private readonly groupContextToken: string,
-  ) {}
+export async function fetchSports(baseUrl: string) {
+  const body = await getJson<{ ok: true; sports: SportOption[] }>(apiUrl(baseUrl, '/api/v1/sports'));
+  return body.sports;
+}
 
-  private async managementRequest<T>(path: string, init?: RequestInit): Promise<T> {
-    const headers = new Headers(init?.headers);
-    headers.set('Authorization', `Bearer ${this.accessToken}`);
-    headers.set('X-Line-Group-Context', this.groupContextToken);
-    if (init?.body) headers.set('Content-Type', 'application/json');
-    const response = await fetch(`${this.baseUrl.replace(/\/$/, '')}/api/v1/management${path}`, {
-      ...init,
-      headers,
-    });
-    const body = await responseBody<T>(response, 'API request failed');
-    if (!response.ok) throw new Error(body.error || `API request failed: ${response.status}`);
-    return body;
-  }
+export async function fetchVenues(baseUrl: string, sport?: string) {
+  const params = new URLSearchParams();
+  if (sport) params.set('sport', sport);
+  const suffix = params.size ? `?${params.toString()}` : '';
+  const body = await getJson<{ ok: true; venues: VenueOption[] }>(apiUrl(baseUrl, `/api/v1/venues${suffix}`));
+  return body.venues;
+}
 
-  private async userEnergyRequest<T>(path: string, init?: RequestInit): Promise<T> {
-    const headers = new Headers(init?.headers);
-    headers.set('Authorization', `Bearer ${this.accessToken}`);
-    if (init?.body) headers.set('Content-Type', 'application/json');
-    const response = await fetch(`${this.baseUrl.replace(/\/$/, '')}/api/v1/energy${path}`, {
-      ...init,
-      headers,
-    });
-    const body = await responseBody<T>(response, 'Energy API request failed');
-    if (!response.ok) throw new Error(body.error || `Energy API request failed: ${response.status}`);
-    return body;
-  }
-
-  async energy(): Promise<PrivateEnergyOverview> {
-    const body = await this.userEnergyRequest<{ energy: PrivateEnergyOverview }>('/me');
-    return body.energy;
-  }
-
-  async catalog(): Promise<EnergyCatalogResponse> {
-    return this.userEnergyRequest<EnergyCatalogResponse>('/catalog');
-  }
-
-  async checkout(productCode: CheckoutProductCode): Promise<CheckoutSession> {
-    const body = await this.userEnergyRequest<{ checkout: CheckoutSession }>('/checkout', {
-      method: 'POST',
-      body: JSON.stringify({ productCode, requestKey: crypto.randomUUID() }),
-    });
-    return body.checkout;
-  }
-
-  async rewardedAdNonce(): Promise<RewardedAdNonce> {
-    return this.userEnergyRequest<RewardedAdNonce>('/rewarded-ad/nonce', { method: 'POST' });
-  }
-
-  async claimRewardedAd(nonce: string, providerEventId: string): Promise<RewardedAdClaim> {
-    const body = await this.userEnergyRequest<{ result: RewardedAdClaim }>('/rewarded-ad/claim', {
-      method: 'POST',
-      body: JSON.stringify({ nonce, providerEventId }),
-    });
-    return body.result;
-  }
-
-  async memories(query = ''): Promise<ManagedMemory[]> {
-    const body = await this.managementRequest<{ memories: ManagedMemory[] }>(
-      `/memories${query.trim() ? `?q=${encodeURIComponent(query.trim())}` : ''}`,
-    );
-    return body.memories;
-  }
-
-  async updateMemory(id: number, input: { category: string; subject: string | null; content: string }): Promise<void> {
-    await this.managementRequest(`/memories/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(input),
-    });
-  }
-
-  async deleteMemory(id: number): Promise<void> {
-    await this.managementRequest(`/memories/${id}`, { method: 'DELETE' });
-  }
-
-  async reminders(): Promise<ManagedReminder[]> {
-    const body = await this.managementRequest<{ reminders: ManagedReminder[] }>('/reminders');
-    return body.reminders;
-  }
-
-  async createReminder(input: { requestKey: string; message: string; scheduledFor: string }): Promise<void> {
-    await this.managementRequest('/reminders', {
-      method: 'POST',
-      body: JSON.stringify(input),
-    });
-  }
-
-  async cancelReminder(id: number): Promise<void> {
-    await this.managementRequest(`/reminders/${id}`, { method: 'DELETE' });
-  }
+export async function searchAvailability(
+  baseUrl: string,
+  input: {
+    sport?: string;
+    venueId?: number;
+    district?: string;
+    date?: string;
+    start?: string;
+    end?: string;
+  },
+) {
+  const params = new URLSearchParams();
+  if (input.sport) params.set('sport', input.sport);
+  if (input.venueId) params.set('venueId', String(input.venueId));
+  if (input.district) params.set('district', input.district);
+  if (input.date) params.set('date', input.date);
+  if (input.start) params.set('start', input.start);
+  if (input.end) params.set('end', input.end);
+  const body = await getJson<{ ok: true; slots: AvailabilitySlot[] }>(
+    apiUrl(baseUrl, `/api/v1/availability?${params.toString()}`),
+  );
+  return body.slots;
 }

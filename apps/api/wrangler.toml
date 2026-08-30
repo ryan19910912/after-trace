@@ -1,14 +1,7 @@
 name = "after-trace-api"
-main = "src/worker.ts"
+main = "src/index.ts"
 compatibility_date = "2026-08-29"
 compatibility_flags = ["nodejs_compat"]
-
-[vars]
-# Browser management app. WEB_AUTH_SECRET and LINE_LOGIN_CHANNEL_SECRET stay
-# in Cloudflare Worker secrets and must never be committed here.
-WEB_APP_URL = "https://after-trace.pages.dev"
-WEB_APP_ORIGIN = "https://after-trace.pages.dev"
-LINE_LOGIN_CHANNEL_ID = "2011322889"
 
 [observability]
 enabled = true

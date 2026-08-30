@@ -1,7 +1,7 @@
 {
   "name": "@aftertrace/api",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "lint": "eslint src --max-warnings=0",
-    "db:deploy:migrate": "node scripts/deploy-migrations.mjs"
+    "db:deploy:migrate": "drizzle-kit migrate --config=../../drizzle.config.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.1",
