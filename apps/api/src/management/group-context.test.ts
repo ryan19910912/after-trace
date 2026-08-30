@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildGroupLiffUrl, issueGroupContextToken, verifyGroupContextToken } from './group-context';
 
-const groupId = 'C1234567890abcdef1234567890abcde';
+const groupId = 'C1234567890abcdef1234567890abcdef';
 const secret = 'test-line-channel-secret';
 const now = new Date('2026-08-30T06:00:00.000Z');
 
