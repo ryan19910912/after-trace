@@ -8,7 +8,8 @@ compatibility_flags = ["nodejs_compat"]
 # in Cloudflare Worker secrets and must never be committed here.
 WEB_APP_URL = "https://after-trace.pages.dev"
 WEB_APP_ORIGIN = "https://after-trace.pages.dev"
-LINE_LOGIN_CHANNEL_ID = ""
+# Reuse the existing LINE Login Channel that currently owns the LIFF app.
+LINE_LOGIN_CHANNEL_ID = "2011322889"
 
 # Legacy LIFF vars stay during the cutover only. Remove after Web Auth production
 # verification succeeds.
