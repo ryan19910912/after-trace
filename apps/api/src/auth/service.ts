@@ -12,6 +12,13 @@ export type WebGroup = {
   name: string;
 };
 
+type ExchangeBotEntryResult =
+  | { status: 'AUTHORIZED'; sessionToken: string; lineUserId: string; lineGroupId: string }
+  | { status: 'INVALID_OR_EXPIRED' }
+  | { status: 'ALREADY_USED' }
+  | { status: 'NOT_GROUP_MEMBER' }
+  | { status: 'LINE_UNAVAILABLE' };
+
 export class WebAuthService {
   constructor(
     private readonly repository: DrizzleWebAuthRepository,
@@ -49,10 +56,7 @@ export class WebAuthService {
     return url.toString();
   }
 
-  async exchangeBotEntry(token: string, at = new Date()): Promise<
-    | { status: 'AUTHORIZED'; sessionToken: string; lineUserId: string; lineGroupId: string }
-    | { status: 'INVALID_OR_EXPIRED' | 'ALREADY_USED' | 'NOT_GROUP_MEMBER' | 'LINE_UNAVAILABLE' }
-  > {
+  async exchangeBotEntry(token: string, at = new Date()): Promise<ExchangeBotEntryResult> {
     const claims = await verifyWebEntryToken(token, this.authSecret, at);
     if (!claims) return { status: 'INVALID_OR_EXPIRED' };
 
