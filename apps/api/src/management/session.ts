@@ -46,6 +46,7 @@ type TokenVerification = {
 
 const LINE_PROFILE_URL = 'https://api.line.me/v2/profile';
 const LINE_VERIFY_URL = 'https://api.line.me/oauth2/v2.1/verify';
+const runtimeFetch: typeof fetch = (input, init) => fetch(input, init);
 
 function bearerToken(header: string | undefined): string | null {
   if (!header) return null;
@@ -110,7 +111,7 @@ async function resolveVerifiedLineUser(input: {
 export class LineLiffUserSessionVerifier {
   constructor(
     private readonly liffChannelId: string,
-    private readonly fetcher: typeof fetch = fetch,
+    private readonly fetcher: typeof fetch = runtimeFetch,
   ) {}
 
   verify(authorizationHeader: string | undefined): Promise<LiffUserSessionResult> {
@@ -131,7 +132,7 @@ export class LineLiffGroupSessionVerifier {
     private readonly db: Database,
     private readonly channelAccessToken: string,
     private readonly liffChannelId: string,
-    private readonly fetcher: typeof fetch = fetch,
+    private readonly fetcher: typeof fetch = runtimeFetch,
   ) {}
 
   async verify(
