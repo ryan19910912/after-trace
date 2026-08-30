@@ -27,7 +27,7 @@ V1 principles:
 - `apps/api/src/index.ts`: current runtime is deeply coupled to LINE webhook ingestion, AI chat/intent routing, conversation extraction, memory, Energy, commerce and group-management flows. This file should be replaced rather than incrementally patched.
 - `apps/api/src/db/schema.ts`: core schema is entirely old LINE-group/memory/conversation domain and should not survive in the rebuilt application schema.
 - `apps/api/src/db/schema-all.ts`: exports many historical round-based schema files (`schema-round5` ... `schema-round20`), indicating substantial old-product database debt that must be deliberately removed, not left exported.
-- `README.md`, `docs/PRODUCT_V1.md`, `docs/ARCHITECTURE.md`, `docs/AI_SAFETY.md`, `docs/DEVELOPMENT_PROGRESS.md`: describe the obsolete LINE-first AI memory product.
+- The old README and old product/architecture/AI/progress documents all described the retired LINE-first AI memory assistant.
 
 ### Decisions made
 
@@ -46,7 +46,7 @@ V1 principles:
 - Energy/commerce/rewarded-ad accounting.
 - reminder/proactive old-product features.
 - old product database schema and compatibility tables.
-- stale old-product docs after new rebuild docs replace them.
+- stale old-product docs.
 
 **Needs inspection before final decision:**
 
@@ -60,19 +60,31 @@ V1 principles:
 
 - Added `docs/REBUILD_PLAN.md` with full target architecture, new domain model, cleanup phases and definition of done.
 - Added this `docs/REBUILD_PROGRESS.md` handoff document.
+- Replaced `README.md` so the repository now describes the sports availability/radar rebuild instead of the retired AI memory product.
+- Deleted obsolete `docs/PRODUCT_V1.md`.
+- Deleted obsolete `docs/AI_SAFETY.md`.
+- Deleted obsolete `docs/ARCHITECTURE.md`.
+- Deleted obsolete `docs/DEVELOPMENT_PROGRESS.md` and replaced its handoff role with this file.
+- Created an hourly scheduled rebuild task. Every run must read latest `main`, `REBUILD_PLAN.md` and this file, implement a coherent batch directly on `main`, and update this progress file before finishing.
+
+### Verification performed
+
+- Confirmed current repository default branch is `main` and the connected GitHub account has push/admin access.
+- Confirmed the retained API/web package-level dependencies remain suitable for the target architecture.
+- No runtime code was removed in Round 0 because the API entry point is highly cross-coupled; Phase 1 should remove it as one coherent dependency-aware batch rather than leave a half-broken intermediate runtime.
 
 ## Next round — planned
 
-1. Re-read current `main`, `REBUILD_PLAN.md` and this progress file so concurrent/manual changes are respected.
-2. Inspect API source tree/modules, web source, shared package, admin source, wrangler/config files and all schema exports/migrations that can be discovered.
-3. Replace stale repository/product description in `README.md`.
-4. Begin Phase 1 by replacing the old API entry/runtime surface with a minimal sports-radar shell if enough dependent files can be removed coherently in the same round.
-5. Remove obsolete product documentation that would otherwise mislead future work, after ensuring required migration/history context is captured in rebuild docs.
-6. Update this file with exact files changed/deleted and the next coherent batch.
+1. Re-read latest `main`, `REBUILD_PLAN.md` and this progress file.
+2. Inspect/discover the complete API module set, web source, shared package, admin source, wrangler/config files, schema-round files and Drizzle migrations.
+3. Begin Phase 1 with a large coherent runtime cut: replace `apps/api/src/index.ts` with a minimal new-product API shell and delete old LINE/AI/memory/Energy/commerce/reminder/proactive modules that are no longer referenced.
+4. Clean obsolete environment bindings/configuration in the same batch.
+5. If feasible without leaving the repo in an incoherent state, begin the new venue/sport/availability schema immediately after removing old runtime exports.
+6. Update this file with exact files changed/deleted, verification results and the next batch.
 
 ## Remaining phases
 
-- [ ] Phase 0 — finish inventory + README cleanup.
+- [x] Phase 0 — pivot docs + initial inventory/README cleanup.
 - [ ] Phase 1 — remove old runtime surface.
 - [ ] Phase 2 — clean database rebuild.
 - [ ] Phase 3 — Taipei source adapter + search.
