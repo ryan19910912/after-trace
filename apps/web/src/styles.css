@@ -9,6 +9,7 @@
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100vh; background: #f3f7f4; }
 button, input, select { font: inherit; }
+button { cursor: pointer; }
 a { color: inherit; }
 
 .page-shell {
@@ -63,21 +64,56 @@ a { color: inherit; }
 .search-grid input:focus,
 .search-grid select:focus { outline: 2px solid #9fc9ab; outline-offset: 1px; }
 
+.primary-button,
+.secondary-button,
+.danger-button {
+  min-height: 44px;
+  border-radius: 12px;
+  padding: 0 16px;
+  font-weight: 800;
+}
 .primary-button {
   align-self: end;
-  min-height: 46px;
   border: 0;
-  border-radius: 12px;
-  padding: 0 20px;
   background: #1d6f42;
   color: #fff;
-  font-weight: 800;
-  cursor: pointer;
 }
-.primary-button:disabled { opacity: .5; cursor: default; }
+.secondary-button {
+  border: 1px solid #b8cbbf;
+  background: #fff;
+  color: #245b3b;
+}
+.danger-button {
+  border: 1px solid #e3bcbc;
+  background: #fff8f8;
+  color: #9c3030;
+}
+.primary-button:disabled,
+.secondary-button:disabled,
+.danger-button:disabled { opacity: .5; cursor: default; }
+.inline-button { width: fit-content; margin-top: 8px; }
 .error-message { margin: 16px 0 0; color: #a12d2d; font-weight: 700; }
+.notice-message { margin: 16px 0 0; color: #185f38; font-weight: 700; }
 
-.results-section { margin-top: 38px; }
+.radar-overview {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  margin-top: 22px;
+  padding: 22px 24px;
+  border: 1px solid #cfe0d5;
+  border-radius: 22px;
+  background: #eaf5ed;
+}
+.radar-overview h2 { margin: 0; font-size: 24px; }
+.radar-overview p:not(.eyebrow) { margin: 8px 0 0; color: #587064; }
+.radar-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.push-state { padding: 9px 12px; border-radius: 999px; background: #f5f6f5; color: #66756b; font-size: 13px; font-weight: 800; }
+.push-state.enabled { background: #d2ebda; color: #165a34; }
+
+.results-section,
+.watches-section { margin-top: 38px; }
 .section-heading { display: flex; justify-content: space-between; align-items: end; gap: 16px; margin-bottom: 14px; }
 .section-heading h2 { margin: 0; font-size: 28px; }
 .section-heading span { color: #637168; font-weight: 700; }
@@ -91,9 +127,12 @@ a { color: inherit; }
   color: #617067;
   background: rgba(255, 255, 255, .55);
 }
+.radar-empty { border-style: solid; background: #fff; }
 
-.result-list { display: grid; gap: 12px; }
-.slot-card {
+.result-list,
+.watch-list { display: grid; gap: 12px; }
+.slot-card,
+.watch-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -103,8 +142,10 @@ a { color: inherit; }
   border-radius: 20px;
   background: #fff;
 }
-.slot-card h3 { margin: 3px 0 8px; font-size: 20px; }
-.slot-card p { margin: 0; color: #5f6f65; }
+.slot-card h3,
+.watch-card h3 { margin: 3px 0 8px; font-size: 20px; }
+.slot-card p,
+.watch-card p { margin: 0; color: #5f6f65; }
 .slot-meta { font-size: 12px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
 .slot-card .price { margin-top: 8px; color: #1d6f42; font-weight: 800; }
 .booking-link {
@@ -119,12 +160,31 @@ a { color: inherit; }
 }
 .booking-link.disabled { color: #78867d; background: #eef2ef; }
 
+.keep-watching {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 14px;
+  color: #627168;
+  font-size: 14px;
+  font-weight: 700;
+}
+.watch-card.paused { opacity: .68; background: #f8faf8; }
+.watch-actions { display: flex; gap: 8px; flex: 0 0 auto; }
+
 @media (max-width: 760px) {
   .page-shell { width: min(100% - 20px, 680px); padding-top: 10px; }
   .hero { display: grid; padding: 26px 22px; border-radius: 22px; }
   .status-pill { justify-self: start; }
   .search-card { padding: 18px; }
   .search-grid { grid-template-columns: 1fr; }
-  .slot-card { align-items: flex-start; flex-direction: column; }
+  .radar-overview { display: grid; align-items: start; }
+  .radar-actions { justify-content: flex-start; }
+  .slot-card,
+  .watch-card { align-items: flex-start; flex-direction: column; }
   .booking-link { width: 100%; text-align: center; }
+  .watch-actions { width: 100%; }
+  .watch-actions button { flex: 1; }
+  .keep-watching { align-items: stretch; flex-direction: column; }
 }
