@@ -82,6 +82,10 @@ try {
         pnpm db:schema:check
     }
 
+    Invoke-CommandChecked 'Apply production DB migrations' {
+        pnpm --filter @aftertrace/api db:deploy:migrate
+    }
+
     Invoke-CommandChecked 'Deploy Cloudflare Worker' {
         pnpm --filter @aftertrace/api exec wrangler deploy
     }
