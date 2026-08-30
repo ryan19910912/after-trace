@@ -1,4 +1,7 @@
 import { Hono } from 'hono';
+import { DrizzleWebAuthRepository } from './auth/repository';
+import { createWebAuthRoutes } from './auth/routes';
+import { WebAuthService } from './auth/service';
 import { ExplicitAiChatService, explicitAiChatDisabledReason } from './ai/chat';
 import { createCommerceRoutes } from './commerce/routes';
 import { resolveProductConfig, type ProductConfigEnv } from './config/product';
@@ -34,6 +37,12 @@ export type Bindings = ProductConfigEnv & {
   LINE_CHANNEL_ACCESS_TOKEN: string;
   LIFF_CHANNEL_ID: string;
   LIFF_APP_URL?: string;
+  LIFF_WEB_ORIGIN?: string;
+  WEB_APP_URL?: string;
+  WEB_AUTH_SECRET?: string;
+  WEB_WEB_ORIGIN?: string;
+  LINE_LOGIN_CHANNEL_ID?: string;
+  LINE_LOGIN_CHANNEL_SECRET?: string;
   GEMINI_API_KEY: string;
   GEMINI_MODEL?: string;
   GEMINI_INPUT_USD_PER_MILLION_TOKENS?: string;
@@ -43,7 +52,6 @@ export type Bindings = ProductConfigEnv & {
   GLOBAL_FREE_AI_BUDGET_COST_TWD?: string;
   BACKGROUND_AI_MAX_SUBSIDY_COST_TWD?: string;
   ENERGY_UNITS_PER_TWD?: string;
-  LIFF_WEB_ORIGIN?: string;
   REMINDER_RESERVATION_ENERGY?: string;
   GOOGLE_AD_MANAGER_NETWORK_CODE?: string;
   GOOGLE_AD_MANAGER_REWARDED_AD_UNIT_PATH?: string;
@@ -53,6 +61,7 @@ export type Bindings = ProductConfigEnv & {
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
+app.route('/api/v1/auth', createWebAuthRoutes());
 app.route('/api/v1/management', createManagementRoutes());
 app.route('/api/v1/energy', createEnergyRoutes());
 app.route('/api/v1/internal/commerce', createCommerceRoutes());
@@ -107,8 +116,16 @@ app.post('/webhooks/line', async (c) => {
   );
   const energyRepository = new DrizzleUserEnergyRepository(database);
   const backgroundEnergyRepository = new DrizzleBackgroundEnergyRepository(database);
-  const energyAccessRepository = c.env.LIFF_APP_URL?.trim()
+  const managementAppConfigured = Boolean(c.env.WEB_APP_URL?.trim() || c.env.LIFF_APP_URL?.trim());
+  const energyAccessRepository = managementAppConfigured
     ? new DrizzleUserEnergyAccessRepository(database, c.env.LINE_CHANNEL_ACCESS_TOKEN)
+    : null;
+  const webAuthService = c.env.WEB_APP_URL?.trim() && c.env.WEB_AUTH_SECRET?.trim()
+    ? new WebAuthService(
+        new DrizzleWebAuthRepository(database),
+        c.env.LINE_CHANNEL_ACCESS_TOKEN,
+        c.env.WEB_AUTH_SECRET,
+      )
     : null;
   const lineReplyClient = new LineMessagingReplyClient(c.env.LINE_CHANNEL_ACCESS_TOKEN);
   const memoryRequestRepository = new DrizzleMemoryRequestRepository(database);
@@ -162,16 +179,27 @@ app.post('/webhooks/line', async (c) => {
 
     const deterministicCommand = detectDeterministicAiCommand(message);
     const explicitMemoryCommand = detectExplicitMemoryCommand(message);
-    const groupLiffUrl = c.env.LIFF_APP_URL?.trim()
-      ? await buildGroupLiffUrl(
+    const genericAiQuestion = isAiMention(message) && !explicitMemoryCommand;
+    let groupManagementUrl: string | null = null;
+    if ((deterministicCommand || genericAiQuestion) && message.lineUserId) {
+      if (webAuthService && c.env.WEB_APP_URL?.trim()) {
+        groupManagementUrl = await webAuthService.createBotEntry({
+          webAppUrl: c.env.WEB_APP_URL,
+          lineUserId: message.lineUserId,
+          lineGroupId: message.lineGroupId,
+          at: message.lineTimestamp,
+        });
+      } else if (c.env.LIFF_APP_URL?.trim()) {
+        groupManagementUrl = await buildGroupLiffUrl(
           c.env.LIFF_APP_URL,
           message.lineGroupId,
           c.env.LINE_CHANNEL_SECRET,
           message.lineTimestamp,
-        )
-      : null;
-    const energyAccessService = groupLiffUrl && energyAccessRepository
-      ? new UserEnergyAccessService(energyAccessRepository, groupLiffUrl)
+        );
+      }
+    }
+    const energyAccessService = groupManagementUrl && energyAccessRepository
+      ? new UserEnergyAccessService(energyAccessRepository, groupManagementUrl)
       : null;
 
     if (deterministicCommand && message.lineUserId && message.replyToken) {
@@ -183,7 +211,7 @@ app.post('/webhooks/line', async (c) => {
               callerLineUserId: message.lineUserId,
               at: message.lineTimestamp,
             })
-          : 'AFTERTRACE｜群組 Energy\n\n詳細 Energy 查詢會在 LIFF 啟用後開放。';
+          : 'AFTERTRACE｜群組 Energy\n\n詳細 Energy 查詢會在管理中心啟用後開放。';
       } else if (deterministicCommand.kind === 'HELP') {
         reply = [
           'AFTERTRACE｜幫助', '',
@@ -199,9 +227,9 @@ app.post('/webhooks/line', async (c) => {
           'SUBSCRIPTION：每個 billing cycle 發放，到 period_end 過期',
           'AD：Rewarded Ad，取得後 7 天過期',
           'PAID：一次性 Energy Pack，不過期',
-          ...(groupLiffUrl
-            ? ['', '實際 Energy 數量與價格以 AFTERTRACE LIFF 顯示為準。', groupLiffUrl]
-            : ['', '詳細 Energy 與購買頁面會在 LIFF 啟用後開放。']),
+          ...(groupManagementUrl
+            ? ['', '實際 Energy 數量與價格以 AFTERTRACE 管理中心顯示為準。', groupManagementUrl]
+            : ['', '詳細 Energy 與購買頁面會在管理中心啟用後開放。']),
         ].join('\n');
       }
       await lineReplyClient.reply(message.replyToken, reply);
@@ -209,7 +237,6 @@ app.post('/webhooks/line', async (c) => {
       continue;
     }
 
-    const genericAiQuestion = isAiMention(message) && !explicitMemoryCommand;
     if (genericAiQuestion && message.lineUserId && message.replyToken) {
       if (energyAccessService) {
         const preflight = await energyAccessService.preflightExplicitAi({
@@ -227,7 +254,7 @@ app.post('/webhooks/line', async (c) => {
       if (!chatService) {
         await lineReplyClient.reply(
           message.replyToken,
-          `AFTERTRACE AI 目前尚未啟用。${groupLiffUrl ? `\n${groupLiffUrl}` : ''}`,
+          `AFTERTRACE AI 目前尚未啟用。${groupManagementUrl ? `\n${groupManagementUrl}` : ''}`,
         );
       } else {
         const chat = await chatService.answer({
@@ -243,7 +270,7 @@ app.post('/webhooks/line', async (c) => {
         } else if (chat.status === 'INSUFFICIENT_ENERGY') {
           await lineReplyClient.reply(
             message.replyToken,
-            `你的 Energy 不足以安全完成這次 AI 請求。${groupLiffUrl ? `\n可到 AFTERTRACE 查看或補充 Energy：\n${groupLiffUrl}` : ''}`,
+            `你的 Energy 不足以安全完成這次 AI 請求。${groupManagementUrl ? `\n可到 AFTERTRACE 查看或補充 Energy：\n${groupManagementUrl}` : ''}`,
           );
           energyBlockedAiRequests += 1;
         } else {
