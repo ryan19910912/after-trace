@@ -49,7 +49,7 @@ export function detectExplicitMemoryCommand(
   if (!stripped.mentioned && !isReply) return null;
 
   const text = stripped.text.replace(/[！!。.]$/, '').trim();
-  const captureVerb = '(?:記住|記一下|記錄(?:起來)?|紀錄(?:起來)?|存一下|保存(?:起來)?)';
+  const captureVerb = '(?:記住|記一下|記錄(?:一下|起來)?|紀錄(?:一下|起來)?|存一下|保存(?:一下|起來)?)';
   const replyOnly = new RegExp(`^(?:請)?(?:幫我)?(?:把)?(?:這(?:個|則|張)?\\s*)?${captureVerb}(?:吧)?$`);
   if (isReply && replyOnly.test(text)) {
     return {
@@ -69,8 +69,7 @@ export function detectExplicitMemoryCommand(
     };
   }
 
-  // Natural explicit capture such as「幫我記錄起來我的行程」or「幫我存一下這個行程」.
-  const natural = /^(?:請)?幫我(?:把)?(.+?)(?:記住|記一下|記錄起來|紀錄起來|存一下|保存起來)(?:吧)?$/.exec(text);
+  const natural = /^(?:請)?幫我(?:把)?(.+?)(?:記住|記一下|記錄一下|紀錄一下|記錄起來|紀錄起來|存一下|保存一下|保存起來)(?:吧)?$/.exec(text);
   if (natural?.[1]?.trim()) {
     return {
       kind: 'REMEMBER',
