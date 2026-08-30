@@ -107,7 +107,10 @@ app.post('/webhooks/line', async (c) => {
   const energyRepository = new DrizzleUserEnergyRepository(database);
   const backgroundEnergyRepository = new DrizzleBackgroundEnergyRepository(database);
   const energyAccessService = c.env.LIFF_APP_URL?.trim()
-    ? new UserEnergyAccessService(new DrizzleUserEnergyAccessRepository(database), c.env.LIFF_APP_URL)
+    ? new UserEnergyAccessService(
+        new DrizzleUserEnergyAccessRepository(database, c.env.LINE_CHANNEL_ACCESS_TOKEN),
+        c.env.LIFF_APP_URL,
+      )
     : null;
   const lineReplyClient = new LineMessagingReplyClient(c.env.LINE_CHANNEL_ACCESS_TOKEN);
   const memoryRequestRepository = new DrizzleMemoryRequestRepository(database);
