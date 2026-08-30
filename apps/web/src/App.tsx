@@ -205,7 +205,7 @@ export function App({ api }: Props) {
   }
 
   async function cancelReminder(reminder: ManagedReminder) {
-    if (!window.confirm('確定取消這個提醒嗎？已保留的能量會退回原本的訂閱能量或購買能量。')) return;
+    if (!window.confirm('確定取消這個提醒嗎？建立提醒時已預扣的能量會退回原本的訂閱能量或購買能量。')) return;
     setBusy(true);
     setError(null);
     try {
@@ -287,30 +287,23 @@ export function App({ api }: Props) {
 
           <div className="metric-grid">
             <article className="metric">
-              <span>可用總額</span>
+              <span>可用能量</span>
               <strong>{units(energy.usableUnits)}</strong>
-            </article>
-            <article className="metric">
-              <span>提醒保留中</span>
-              <strong>{units(energy.reservedUnits)}</strong>
-            </article>
-            <article className="metric">
-              <span>主動提醒功能</span>
-              <strong>{energy.proactive.enabled ? '可使用' : '尚未解鎖'}</strong>
             </article>
           </div>
 
-          <div className="metric-grid">
-            {buckets.map((bucket) => (
-              <article className="metric" key={bucket}>
-                <span>{bucketLabels[bucket]}</span>
-                <strong>{units(energy.buckets[bucket].usableUnits)}</strong>
-                {BigInt(energy.buckets[bucket].reservedUnits) > 0n && (
-                  <small>保留 {units(energy.buckets[bucket].reservedUnits)}</small>
-                )}
-              </article>
-            ))}
-          </div>
+          {buckets.some((bucket) => BigInt(energy.buckets[bucket].usableUnits) > 0n) && (
+            <div className="metric-grid">
+              {buckets
+                .filter((bucket) => BigInt(energy.buckets[bucket].usableUnits) > 0n)
+                .map((bucket) => (
+                  <article className="metric" key={bucket}>
+                    <span>{bucketLabels[bucket]}</span>
+                    <strong>{units(energy.buckets[bucket].usableUnits)}</strong>
+                  </article>
+                ))}
+            </div>
+          )}
 
           <article className="card">
             <h3>我的訂閱</h3>
@@ -381,14 +374,15 @@ export function App({ api }: Props) {
           <article className="card">
             <h3>能量明細</h3>
             <div className="list">
-              {energy.lots.map((lot) => (
-                <div className="source" key={lot.id}>
-                  <strong>{bucketLabels[lot.bucket]} · {units(lot.availableUnits)}</strong>
-                  <span>{expiryLabel(lot.expiresAt)}</span>
-                  {BigInt(lot.reservedUnits) > 0n && <span>保留中 {units(lot.reservedUnits)}</span>}
-                </div>
-              ))}
-              {energy.lots.length === 0 && <p className="empty">目前沒有能量明細。</p>}
+              {energy.lots
+                .filter((lot) => BigInt(lot.availableUnits) > 0n)
+                .map((lot) => (
+                  <div className="source" key={lot.id}>
+                    <strong>{bucketLabels[lot.bucket]} · {units(lot.availableUnits)}</strong>
+                    <span>{expiryLabel(lot.expiresAt)}</span>
+                  </div>
+                ))}
+              {energy.lots.every((lot) => BigInt(lot.availableUnits) === 0n) && <p className="empty">目前沒有可用能量。</p>}
             </div>
           </article>
         </section>
@@ -399,7 +393,7 @@ export function App({ api }: Props) {
           <div className="section-head">
             <div>
               <h2>提醒</h2>
-              <p>提醒屬於你本人，並會送到目前群組；只會使用有效的訂閱能量或購買能量。</p>
+              <p>提醒屬於你本人，並會送到目前群組；每個提醒只會執行一次，建立時會先預扣所需的訂閱能量或購買能量，取消時再退回。</p>
             </div>
           </div>
 
