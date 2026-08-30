@@ -31,8 +31,9 @@ Current code-level product path:
 7. VAPID-authenticated payload-free Web Push wakes the PWA Service Worker.
 8. the Service Worker claims one owner-isolated accepted presentation, displays venue/date/time context, and deep-links back to matching search/official booking.
 9. the React PWA can search availability, create/list/pause/resume/delete Radar rules, enable/disable Push, and recover anonymous Radar identity.
-10. `/health` is liveness only; `/ready` now verifies the migrated sports schema is queryable and that full VAPID configuration is valid before reporting production readiness.
+10. `/health` is liveness only; `/ready` verifies the migrated sports schema is queryable and that full VAPID configuration is valid before reporting production readiness.
 11. `smoke.ps1` verifies deployed Worker liveness/readiness, public Push config and search API shape, with optional Pages and post-sync source-data checks.
+12. CI now installs with `pnpm install --frozen-lockfile` so verification cannot silently rewrite dependency state.
 
 Current migrations:
 
@@ -129,17 +130,22 @@ Deployed smoke/release scripts:
 - `1e35a8aff79dc1f2e33bb6d609dbfaaf3c47c8e7` — Pages deploy now accepts Worker/Pages/project parameters, builds against the selected Worker URL, and runs combined Worker + Pages smoke after deployment.
 - `b9659e75c8b3e34efaafc5a672bda1cad1cff433` — README documents liveness vs readiness, `/ready`, smoke usage and deploy behavior.
 
+CI hardening:
+
+- `d3fef5266c4da3982e1b8ce48acdcff51e7c243c` — `.github/workflows/ci.yml` now uses `pnpm install --frozen-lockfile` instead of `--no-frozen-lockfile`; CI can no longer hide manifest/lock drift by rewriting the lockfile during verification.
+- the stale `apps/admin` importer is still present and is intentionally not hand-pruned from generated lockfile dependency snapshots without a real pnpm regeneration. It remains a cleanup blocker rather than being disguised as resolved.
+
 ### Verification performed this round
 
 Performed:
 
 - verified latest `main` commit history and recursive repository tree before editing.
 - confirmed current runtime paths contain only sports availability/Radar/API/PWA code; no retired LINE/Gemini/admin path exists in the repository tree.
-- inspected `pnpm-lock.yaml` importers and confirmed the stale `apps/admin` importer still exists.
-- attempted `corepack pnpm --version` again in the automation container. It still fails because DNS lookup for `registry.npmjs.org` returns `EAI_AGAIN`, so dependency-complete workspace verification is still unavailable here.
+- inspected the full `pnpm-lock.yaml` blob and confirmed the stale `apps/admin` importer still exists while current `apps/api`, `apps/web` and `packages/shared` importers are present.
+- attempted `corepack pnpm --version` again in the automation container. It still fails because DNS lookup for `registry.npmjs.org` returns `EAI_AGAIN`, so dependency-complete workspace verification and lockfile regeneration are still unavailable here.
 - independently strict-compiled the new pure readiness contract with TypeScript 5.8.3 using local stubs for its imported contracts; no diagnostics were produced. This is syntax/type evidence for `readiness.ts`, not a substitute for the repository's TypeScript 5.9 workspace.
 - re-read the updated deploy script source after writing it.
-- queried GitHub Actions for latest implementation/documentation commit `b9659e75c8b3e34efaafc5a672bda1cad1cff433`; zero workflow runs were produced, so CI does not validate this round.
+- queried GitHub Actions for `b9659e75c8b3e34efaafc5a672bda1cad1cff433` and later CI commit `d3fef5266c4da3982e1b8ce48acdcff51e7c243c`; both returned zero workflow runs, so GitHub Actions does not validate this round.
 
 Not truthfully executable in this environment:
 
@@ -157,7 +163,7 @@ Therefore the full chain remains **unverified**, not green.
 ### Repository cleanup / verification
 
 - [ ] `pnpm-lock.yaml` still contains a stale `apps/admin` importer although the directory no longer exists. Regenerate the lockfile from the current workspace in a dependency-complete environment; do not fabricate package snapshots.
-- [ ] after lock regeneration, change CI installation from `pnpm install --no-frozen-lockfile` to `pnpm install --frozen-lockfile`.
+- [x] CI installation is frozen and will no longer rewrite the lockfile during verification.
 - [ ] run the complete `verify.ps1` / CI chain and fix any real TypeScript/lint/test/build/schema failure.
 - [ ] run PowerShell syntax/execution checks for `smoke.ps1`, `worker-deploy.ps1`, and `pages-deploy.ps1` on the normal Windows development machine.
 - [ ] verify no retired LINE/LIFF/Gemini/Energy/Commerce/Reminder/Proactive terminology remains outside explicit rebuild-history documentation. The current repository-tree path scan is clean, but content-level search must be repeated when code search/index or a local checkout is available.
@@ -190,9 +196,9 @@ Therefore the full chain remains **unverified**, not green.
 Prioritize verification/cleanup, not feature scope:
 
 1. re-read latest `main`, rebuild plan/progress and CI state.
-2. retry dependency-complete pnpm availability. If available, regenerate the lockfile to remove `apps/admin`, switch CI to frozen lockfile, and run the full chain.
-3. if pnpm remains externally blocked, perform source-level correctness review of the new readiness/deploy paths and address concrete issues without guessing generated artifacts.
-4. strengthen deployment smoke only where it can validate existing V1 behavior without adding production data pollution or new product scope.
+2. retry dependency-complete pnpm availability. If available, regenerate the lockfile to remove `apps/admin`, then run the full frozen-lockfile verification chain.
+3. if pnpm remains externally blocked, perform source-level correctness review of release/readiness/polling/Push paths and address concrete issues without guessing generated artifacts.
+4. if deployment credentials/configuration have become available through the repository environment, apply the clean migrations, deploy and use `/ready` + `smoke.ps1`; otherwise leave deployment as an explicit external blocker.
 5. do not enable one-minute watched polling or extra launch sports until deployed measurements exist.
 
 ## Scheduled-round rules
