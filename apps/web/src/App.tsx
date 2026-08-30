@@ -338,7 +338,10 @@ export function App({ apiBaseUrl }: Props) {
 
         <div className="result-list">
           {slots.map((slot) => {
-            const bookingUrl = slot.externalBookingRef || slot.bookingUrl || selectedVenue?.bookingUrl || null;
+            // `externalBookingRef` is provider-machine provenance (for example
+            // findAllowBookingList), not a guaranteed human navigation URL.
+            // The public CTA must stay on the venue's official booking flow.
+            const bookingUrl = slot.bookingUrl || selectedVenue?.bookingUrl || null;
             return (
               <article className="slot-card" key={slot.slotId}>
                 <div>
