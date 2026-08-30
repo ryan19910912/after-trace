@@ -9,7 +9,7 @@ function Fatal({ message }: { message: string }) {
   return (
     <main className="shell fatal-shell">
       <section className="fatal-card">
-        <p className="eyebrow">AFTERTRACE</p>
+        <p className="eyebrow">群組記憶助手</p>
         <h1>無法開啟管理中心</h1>
         <p>{message}</p>
       </section>
@@ -21,7 +21,7 @@ async function bootstrap() {
   const liffId = import.meta.env.VITE_LIFF_ID?.trim();
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
   if (!liffId || !apiBaseUrl) {
-    throw new Error('VITE_LIFF_ID / VITE_API_BASE_URL 尚未設定');
+    throw new Error('系統設定不完整，請稍後再試。');
   }
 
   await liff.init({ liffId });
@@ -32,19 +32,19 @@ async function bootstrap() {
 
   const context = liff.getContext();
   if (context?.type !== 'group') {
-    throw new Error('請從 AFTERTRACE 所在的 LINE 群組開啟此 LIFF。');
+    throw new Error('請從群組內開啟這個管理頁面。');
   }
 
-  // LINE discontinued exposing stable groupId values to LIFF. The bot therefore
-  // issues a signed group-context token in the LIFF URL when it replies in a group.
+  // Stable LINE group identifiers are not exposed to LIFF. The bot supplies a
+  // signed group-context token in the URL, which the API verifies server-side.
   const groupContextToken = new URL(window.location.href).searchParams.get('gc')?.trim();
   if (!groupContextToken) {
-    throw new Error('這個連結沒有群組識別資訊，請回到 LINE 群組重新使用 @AFTERTRACE 額度 或 @AFTERTRACE 方案 開啟。');
+    throw new Error('這個連結缺少群組識別資訊，請回到群組重新開啟新的管理連結。');
   }
 
   const accessToken = liff.getAccessToken();
   if (!accessToken) {
-    throw new Error('無法取得 LINE access token，請重新開啟 LIFF。');
+    throw new Error('無法取得登入憑證，請重新開啟管理頁面。');
   }
 
   const api = new ManagementApi(apiBaseUrl, accessToken, groupContextToken);
