@@ -72,14 +72,3 @@ export async function verifyGroupContextToken(
     return null;
   }
 }
-
-export async function buildGroupLiffUrl(
-  liffAppUrl: string,
-  lineGroupId: string,
-  secret: string,
-  now = new Date(),
-): Promise<string> {
-  const url = new URL(liffAppUrl);
-  url.searchParams.set('gc', await issueGroupContextToken(lineGroupId, secret, now));
-  return url.toString();
-}
