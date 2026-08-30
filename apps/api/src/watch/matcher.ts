@@ -47,6 +47,7 @@ export class DrizzleRadarMatcher {
       const candidates = await this.database
         .select({
           id: watchRules.id,
+          userId: watchRules.userId,
           enabled: watchRules.enabled,
           dateFrom: watchRules.dateFrom,
           dateTo: watchRules.dateTo,
@@ -64,7 +65,8 @@ export class DrizzleRadarMatcher {
             eq(watchRules.city, event.city),
             lte(watchRules.createdAt, event.occurredAt),
           ),
-        );
+        )
+        .orderBy(asc(watchRules.userId), asc(watchRules.id));
 
       const venueIdsByRule = new Map<number, number[]>();
       if (candidates.length > 0) {
@@ -79,7 +81,12 @@ export class DrizzleRadarMatcher {
         }
       }
 
+      // A user may intentionally have overlapping Radar rules. One slot event
+      // should wake that browser once, not once per matching rule. Candidate
+      // order is deterministic so retries select the same first matching rule.
+      const usersWithDelivery = new Set<number>();
       for (const candidate of candidates) {
+        if (usersWithDelivery.has(candidate.userId)) continue;
         const matched = matchesWatchRule(
           {
             ...candidate,
@@ -95,6 +102,7 @@ export class DrizzleRadarMatcher {
           },
         );
         if (!matched) continue;
+        usersWithDelivery.add(candidate.userId);
 
         const idempotencyKey = `watch:${candidate.id}:event:${event.id}:web-push`;
         const inserted = await this.database
