@@ -3,8 +3,31 @@ import type { Database } from '../db/client';
 import type { GroupEnergyMemberStatus } from '../line/energy-status';
 import type { CallerEnergySnapshot, UserEnergyAccessRepository } from './access';
 
+type FetchLike = typeof fetch;
+const runtimeFetch: FetchLike = (input, init) => fetch(input, init);
+
+type GroupMemberRow = {
+  line_group_id: string;
+  line_user_id: string;
+  usable: boolean;
+};
+
+type LineMemberProfile = {
+  displayName?: unknown;
+};
+
 export class DrizzleUserEnergyAccessRepository implements UserEnergyAccessRepository {
-  constructor(private readonly db: Database) {}
+  private readonly channelAccessToken: string;
+
+  constructor(
+    private readonly db: Database,
+    channelAccessToken: string,
+    private readonly fetcher: FetchLike = runtimeFetch,
+  ) {
+    const token = channelAccessToken.trim();
+    if (!token) throw new Error('LINE channel access token must not be empty');
+    this.channelAccessToken = token;
+  }
 
   async findCaller(lineUserId: string, at: Date): Promise<CallerEnergySnapshot | null> {
     const result = await this.db.execute(sql`
@@ -33,11 +56,12 @@ export class DrizzleUserEnergyAccessRepository implements UserEnergyAccessReposi
 
   async listGroupMemberAvailability(
     groupId: number,
-    callerLineUserId: string,
+    _callerLineUserId: string,
     at: Date,
   ): Promise<GroupEnergyMemberStatus[]> {
     const result = await this.db.execute(sql`
       SELECT
+        lg.line_group_id,
         gm.line_user_id,
         COALESCE(SUM(
           CASE
@@ -47,28 +71,35 @@ export class DrizzleUserEnergyAccessRepository implements UserEnergyAccessReposi
           END
         ), 0) > 0 AS usable
       FROM group_members gm
+      JOIN line_groups lg ON lg.id = gm.group_id
       LEFT JOIN line_users u ON u.line_user_id = gm.line_user_id
       LEFT JOIN user_energy_lots l ON l.user_id = u.id
       WHERE gm.group_id = ${groupId}
         AND gm.is_active = TRUE
-      GROUP BY gm.line_user_id, gm.first_seen_at
+      GROUP BY lg.line_group_id, gm.line_user_id, gm.first_seen_at
       ORDER BY gm.first_seen_at ASC, gm.line_user_id ASC
     `);
 
-    let otherMemberNumber = 0;
-    return result.rows.map((raw) => {
-      const row = raw as { line_user_id: string; usable: boolean };
-      if (row.line_user_id === callerLineUserId) {
-        return {
-          displayName: '你',
-          usable: Boolean(row.usable),
-        };
-      }
-      otherMemberNumber += 1;
-      return {
-        displayName: `成員 ${otherMemberNumber}`,
-        usable: Boolean(row.usable),
-      };
-    });
+    const rows = result.rows as GroupMemberRow[];
+    return Promise.all(rows.map(async (row) => ({
+      displayName: await this.memberDisplayName(row.line_group_id, row.line_user_id),
+      usable: Boolean(row.usable),
+    })));
+  }
+
+  private async memberDisplayName(lineGroupId: string, lineUserId: string): Promise<string> {
+    try {
+      const response = await this.fetcher(
+        `https://api.line.me/v2/bot/group/${encodeURIComponent(lineGroupId)}/member/${encodeURIComponent(lineUserId)}`,
+        { headers: { Authorization: `Bearer ${this.channelAccessToken}` } },
+      );
+      if (!response.ok) return 'LINE 使用者';
+      const profile = (await response.json()) as LineMemberProfile;
+      return typeof profile.displayName === 'string' && profile.displayName.trim()
+        ? profile.displayName.trim().slice(0, 100)
+        : 'LINE 使用者';
+    } catch {
+      return 'LINE 使用者';
+    }
   }
 }
