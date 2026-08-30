@@ -13,7 +13,7 @@ export type DeterministicAiCommand =
 
 function stripAiMention(text: string): { text: string; mentioned: boolean } {
   const trimmed = text.trim();
-  const match = trimmed.match(/^@(?:AI|AFTERTRACE)\b[\s,:：-]*/i);
+  const match = trimmed.match(/^@AFTERTRACE\b[\s,:：-]*/i);
   if (!match) return { text: trimmed, mentioned: false };
   return { text: trimmed.slice(match[0].length).trim(), mentioned: true };
 }
