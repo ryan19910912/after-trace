@@ -114,13 +114,13 @@ export class ManagementApi {
   constructor(
     private readonly baseUrl: string,
     private readonly accessToken: string,
-    private readonly lineGroupId: string,
+    private readonly groupContextToken: string,
   ) {}
 
   private async managementRequest<T>(path: string, init?: RequestInit): Promise<T> {
     const headers = new Headers(init?.headers);
     headers.set('Authorization', `Bearer ${this.accessToken}`);
-    headers.set('X-Line-Group-Id', this.lineGroupId);
+    headers.set('X-Line-Group-Context', this.groupContextToken);
     if (init?.body) headers.set('Content-Type', 'application/json');
     const response = await fetch(`${this.baseUrl.replace(/\/$/, '')}/api/v1/management${path}`, {
       ...init,
