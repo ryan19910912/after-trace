@@ -135,6 +135,8 @@ Deployment smoke is kept in `smoke.ps1` rather than duplicated in release script
 
 `worker-deploy.ps1` must run migration + deploy + Worker smoke. `pages-deploy.ps1` must build against the selected Worker URL, deploy Pages, then run the combined Worker + Pages smoke.
 
+CI uses `pnpm install --frozen-lockfile` so package-manifest/lockfile drift is not silently rewritten during verification. The remaining stale `apps/admin` importer is a tracked cleanup item and must be removed by regenerating the lockfile from the current workspace in a dependency-complete environment.
+
 ## API surface
 
 Public:
@@ -219,11 +221,12 @@ Detailed in-place editing of every watch condition is optional UX refinement; th
 
 ### Phase 6 — final verification
 - [x] Add explicit liveness/readiness contract and reusable deploy smoke script.
+- [x] Enforce frozen-lockfile installation in CI.
+- [ ] Regenerate the lockfile from the current workspace to remove stale `apps/admin` importer metadata.
 - [ ] Fresh Neon migration execution/review.
 - [ ] Configure real VAPID secrets and deploy Worker + HTTPS PWA.
 - [ ] Confirm `/ready` returns 200 and `smoke.ps1` passes; then require source data after first polling synchronization.
 - [ ] Full `typecheck`, `lint`, `test`, `build`, `db:schema:check` in a dependency-complete environment.
-- [ ] Regenerate stale lockfile workspace metadata and switch CI to frozen-lockfile installation.
 - [ ] Live smoke source polling -> availability transition -> match -> Push -> presentation -> click.
 - [ ] Verify no retired runtime/dependency/deployment leftovers outside rebuild-history docs.
 - [ ] Record supported live sources and measured rate-limit behavior.
