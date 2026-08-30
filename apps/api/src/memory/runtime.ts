@@ -209,7 +209,7 @@ export class UserEnergyMemoryAiRuntime {
         return this.deferWait(request, now, 'AI_INSUFFICIENT_CREDIT', 'WAITING_FOR_CREDIT');
       }
       if (billed.status === 'FREE_AI_BUDGET_EXHAUSTED') {
-        return this.deferWait(request, now, 'AI_FREE_AI_BUDGET_EXHAUSTED', 'WAITING_FOR_FREE_BUDGET');
+        return this.deferWait(request, now, 'AI_FREE_BUDGET_EXHAUSTED', 'WAITING_FOR_FREE_BUDGET');
       }
       if (billed.status === 'CREDIT_REFERENCE_CONFLICT') {
         return this.fail(request, now, 'AI_ENERGY_REFERENCE_CONFLICT');
