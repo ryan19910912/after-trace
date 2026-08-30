@@ -24,11 +24,12 @@ describe('ExplicitMemoryRequestService', () => {
       actorLineUserId: 'U1',
       sourceLineMessageId: 'quoted-1',
       instruction: null,
+      preferRecentImage: false,
       createdAt: at,
     });
   });
 
-  it('uses the command message as source when the user provides an explicit instruction', async () => {
+  it('uses the command message as source when the user provides a normal explicit instruction', async () => {
     const createExplicit = vi.fn(async () => ({
       id: 2,
       status: 'PENDING' as const,
@@ -46,7 +47,27 @@ describe('ExplicitMemoryRequestService', () => {
       expect.objectContaining({
         sourceLineMessageId: 'command-2',
         instruction: '明天要去台南',
+        preferRecentImage: false,
       }),
+    );
+  });
+
+  it('prefers a recent image for itinerary/image capture when there is no quoted message', async () => {
+    const createExplicit = vi.fn(async () => ({
+      id: 3,
+      status: 'PENDING' as const,
+      sourceLineMessageId: 'image-before-command',
+    }));
+    const service = new ExplicitMemoryRequestService({ createExplicit });
+
+    await service.enqueue(
+      9,
+      { lineMessageId: 'command-3', lineUserId: 'U1', lineTimestamp: new Date() },
+      { quotedLineMessageId: null, instruction: '我的行程' },
+    );
+
+    expect(createExplicit).toHaveBeenCalledWith(
+      expect.objectContaining({ preferRecentImage: true, instruction: '我的行程' }),
     );
   });
 });
