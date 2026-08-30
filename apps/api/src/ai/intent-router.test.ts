@@ -22,7 +22,7 @@ function fetchReturning(value: { intent: string; prefer_recent_image: boolean })
   return vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
     const request = JSON.parse(String(init?.body));
     expect(request.generationConfig.responseMimeType).toBe('application/json');
-    expect(request.generationConfig.maxOutputTokens).toBe(64);
+    expect(request.generationConfig.maxOutputTokens).toBe(128);
     return new Response(JSON.stringify({
       candidates: [{ content: { parts: [{ text: JSON.stringify(value) }] } }],
     }), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -67,5 +67,22 @@ describe('GeminiAiIntentRouter', () => {
     );
     await expect(ask.route(message('@AFTERTRACE 我們上次去陶板屋是什麼時候'))).resolves.toMatchObject({ intent: 'ASK' });
     await expect(reminder.route(message('@AFTERTRACE 明天下午三點提醒我看醫生'))).resolves.toMatchObject({ intent: 'REMINDER' });
+  });
+
+  it('retries without structured output when Gemini rejects the structured request', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response('{"error":{"message":"schema rejected"}}', { status: 400 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: '{"intent":"REMEMBER","prefer_recent_image":false}' }] } }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const router = new GeminiAiIntentRouter('test-key', 'gemini-2.5-flash-lite', fetcher as typeof fetch);
+
+    await expect(router.route(message('@AFTERTRACE 幫我記錄一下', 'quoted-1'))).resolves.toEqual({
+      intent: 'REMEMBER',
+      preferRecentImage: false,
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    const fallbackBody = JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body));
+    expect(fallbackBody.generationConfig.responseJsonSchema).toBeUndefined();
   });
 });
