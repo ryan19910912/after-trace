@@ -11,7 +11,7 @@ V1 goals:
 - Let users watch sport + venue/area + date/day-of-week + time conditions.
 - Poll public booking sources with explicit source-specific limits.
 - Notify users when a matching slot becomes newly available.
-- Never book, pay, store venue credentials, or add AI in V1; send users to the official booking channel.
+- Never book, pay, store venue credentials, or add AI in V1; send users to the official human booking channel.
 - Web/PWA first; native app only if usage later justifies it.
 
 ## Architecture kept vs retired
@@ -43,7 +43,7 @@ Retire completely, without compatibility runtime:
 - `notification_delivery_runtime`: dispatch attempts, recovery lease, freshness expiry and Service Worker presentation state.
 - `poll_targets`: source/venue/sport polling schedule and health.
 
-`availability_slots` uses `(source_id, external_slot_key)` as provider identity. Radar matching only scans newly `AVAILABLE`, unmatched events.
+`availability_slots` uses `(source_id, external_slot_key)` as provider identity. `external_booking_ref` is internal provider-machine provenance and must not be treated as a browser navigation URL. User-facing booking uses the normalized venue `booking_url`, which must point at a human booking flow. Radar matching only scans newly `AVAILABLE`, unmatched events.
 
 ## Database strategy
 
@@ -77,6 +77,8 @@ All providers implement `AvailabilitySourceAdapter`; search/watch logic never co
 
 The first adapter currently uses 11 independently verified booking-system venue IDs. Nangang is not guessed because its booking LID is not independently verified. Launch synchronization remains badminton-first; other category mappings wait for live venue/category verification.
 
+The provider's machine endpoints and the user's booking destination are separate concepts. On the Taipei source, `findAllowBookingList` is used for source ingestion, while `https://booking-tpsc.sporetrofit.com/` is the verified interactive booking flow. Public APIs/UI must expose/use the human `venues.booking_url`, not machine source references.
+
 Polling policy:
 
 - Cron wakes every minute, but targets have independent intervals.
@@ -84,6 +86,7 @@ Polling policy:
 - unwatched target default: 300 seconds.
 - enabled-watch coverage: priority `100`, requested 180 seconds, clamped to source minimum.
 - do not enable one-minute watched polling until live source behavior/rate limits support it.
+- scheduled responsibilities are failure-isolated: a polling/bootstrap failure must not prevent Radar from matching already-persisted events, and a matching failure must not prevent dispatch of already-created Push deliveries.
 
 ## Radar matching + notification strategy
 
@@ -148,6 +151,8 @@ Public:
 - `GET /api/v1/availability?...`
 - `GET /api/v1/push/config`
 
+Public availability output may expose `bookingUrl` for human navigation. Provider-machine source references are internal and must not become public CTAs.
+
 Anonymous Radar:
 
 - `POST /api/v1/session/anonymous`
@@ -167,7 +172,7 @@ Push:
 
 1. Select sport/date/time and optional venue/area.
 2. Search normalized availability across supported venues.
-3. Open official booking link when a slot is usable.
+3. Open the venue's verified human booking flow when a slot is usable.
 4. Create a Radar from current filters when no slot fits or the user wants to keep watching.
 5. Reuse the anonymous browser identity and list/pause/resume/delete watches.
 6. Enable/disable Web Push on supported browsers.
@@ -199,6 +204,7 @@ Detailed in-place editing of every watch condition is optional UX refinement; th
 - [x] Adapter contract + Taipei adapter.
 - [x] Normalized sports/venues/availability APIs.
 - [x] Metadata/slot synchronization, status diff/events and source health/backoff.
+- [x] Separate provider-machine source references from user-facing official booking navigation.
 
 ### Phase 4 — Radar backend
 - [x] Anonymous ownership + watch CRUD/idempotency.
@@ -208,6 +214,7 @@ Detailed in-place editing of every watch condition is optional UX refinement; th
 - [x] Worker-native VAPID dispatcher.
 - [x] retry lease/freshness expiry/dead-subscription handling.
 - [x] Service Worker presentation claim + click acknowledgement/deep link.
+- [x] Failure-isolate scheduled polling, matching and Push dispatch stages.
 - [ ] End-to-end deployed Push smoke with real VAPID keys.
 - [ ] Measure source behavior before considering one-minute watched polling.
 
@@ -233,4 +240,4 @@ Detailed in-place editing of every watch condition is optional UX refinement; th
 
 ## Definition of done
 
-The rebuild is complete only when the old LINE/AI product cannot run and is absent from the application schema, the Taipei source + polling + watch + Web Push loop works end-to-end in a deployed smoke test, migrations are applied to a clean Neon target, readiness/deploy smoke succeeds, and all executable repository verification passes.
+The rebuild is complete only when the old LINE/AI product cannot run and is absent from the application schema, the Taipei source + polling + watch + Web Push loop works end-to-end in a deployed smoke test, human booking links resolve to the official booking flow, migrations are applied to a clean Neon target, readiness/deploy smoke succeeds, and all executable repository verification passes.
