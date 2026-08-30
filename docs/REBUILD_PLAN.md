@@ -75,8 +75,10 @@ The first adapter currently uses 11 independently verified booking-system venue 
 
 Polling policy:
 
-- Do not poll the entire universe every minute.
-- Active watched targets may reach one-minute polling only where source behavior/rate limits permit it.
+- Cloudflare Cron wakes the scheduler every minute, but this does **not** mean every target is called every minute.
+- Poll targets default to a five-minute interval and are claimed in small bounded batches.
+- Claiming temporarily moves `next_poll_at` forward as a recovery lease and stamps `last_polled_at`; success/failure settlement is fenced against that stamp so overlapping cron executions cannot overwrite a newer claim.
+- Active watched targets may later reach one-minute polling only where source behavior/rate limits permit it.
 - Popular/search targets can use 5–15 minute refreshes.
 - Unwatched metadata/availability refreshes much less often.
 - Keep per-source concurrency/minimum interval behavior explicit.
@@ -87,10 +89,10 @@ Current public read surface:
 
 - `GET /health`
 - `GET /api/v1/sports`
-- `GET /api/v1/venues? sport=...`
+- `GET /api/v1/venues?sport=...`
 - `GET /api/v1/availability?sport=...&venueId=...&district=...&date=...&start=...&end=...`
 
-Next API phases add source synchronization, watch CRUD, push subscriptions and notification delivery.
+Next API phases add watch CRUD, push subscriptions and notification delivery.
 
 ## Frontend direction
 
@@ -143,10 +145,10 @@ Do not add AI chat, social feeds, team management, booking/payment proxy or unre
 ### Phase 4 — radar engine
 
 - [ ] Add watch-rule API/auth boundary.
-- [ ] Add scheduled polling orchestration with target claiming/lease safety.
+- [x] Add scheduled polling orchestration with race-safe bounded target claiming/recovery lease behavior.
 - [ ] Add watch matching/idempotency.
 - [ ] Add Web Push subscription and delivery.
-- [ ] Add adaptive polling/rate-limit behavior.
+- [ ] Add adaptive polling/rate-limit behavior based on active watch/search demand.
 
 ### Phase 5 — web/PWA
 
