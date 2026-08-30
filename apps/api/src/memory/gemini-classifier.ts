@@ -27,6 +27,7 @@ const responseJsonSchema = {
   type: 'object',
   additionalProperties: false,
   properties: {
+    need_save: { type: 'boolean' },
     candidates: {
       type: 'array',
       maxItems: 20,
@@ -54,7 +55,7 @@ const responseJsonSchema = {
       },
     },
   },
-  required: ['candidates'],
+  required: ['need_save', 'candidates'],
 } as const;
 
 export function buildGeminiMemoryRequestBody(
@@ -78,9 +79,6 @@ export function memoryClassifierInputTokenUpperBound(
   input: MemoryClassificationInput,
   maxOutputTokens: number,
 ): number {
-  // The exact serialized provider request includes system instruction, user prompt,
-  // structured response schema and request metadata. UTF-8 byte count is a conservative
-  // upper bound for the number of text tokens represented by those bytes.
   return new TextEncoder().encode(
     JSON.stringify(buildGeminiMemoryRequestBody(input, maxOutputTokens)),
   ).byteLength;
