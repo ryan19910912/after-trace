@@ -1,16 +1,25 @@
 import { useEffect, useMemo, useState } from 'react';
 import type {
   CheckoutProductCode,
+  CrossGroupMemory,
   EnergyBucket,
   EnergyCatalogResponse,
+  ManagedGroup,
   ManagedMemory,
   ManagedReminder,
   PrivateEnergyOverview,
 } from './api';
-import { ManagementApi } from './api';
+import { ManagementApi, WebAuthApi } from './api';
 import { runGoogleRewardedAd } from './rewarded-ad';
 
-type Props = { api: ManagementApi };
+type Props = {
+  api: ManagementApi;
+  authApi: WebAuthApi;
+  sessionToken: string;
+  groups: ManagedGroup[];
+  selectedLineGroupId: string;
+  onChooseGroup: (group: ManagedGroup) => void;
+};
 type Tab = 'memories' | 'energy' | 'reminders';
 
 const buckets: EnergyBucket[] = ['FREE', 'SUBSCRIPTION', 'AD', 'PAID'];
@@ -56,11 +65,12 @@ function subscriptionStatusLabel(status: string) {
   return '狀態更新中';
 }
 
-export function App({ api }: Props) {
+export function App({ api, authApi, sessionToken, groups, selectedLineGroupId, onChooseGroup }: Props) {
   const [tab, setTab] = useState<Tab>('memories');
   const [energy, setEnergy] = useState<PrivateEnergyOverview | null>(null);
   const [catalog, setCatalog] = useState<EnergyCatalogResponse | null>(null);
   const [memories, setMemories] = useState<ManagedMemory[]>([]);
+  const [globalMemories, setGlobalMemories] = useState<CrossGroupMemory[]>([]);
   const [reminders, setReminders] = useState<ManagedReminder[]>([]);
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(false);
@@ -76,19 +86,31 @@ export function App({ api }: Props) {
     [reminders],
   );
 
+  const memoriesByGroup = useMemo(() => {
+    const map = new Map<string, CrossGroupMemory[]>();
+    for (const memory of globalMemories) {
+      const items = map.get(memory.lineGroupId) ?? [];
+      items.push(memory);
+      map.set(memory.lineGroupId, items);
+    }
+    return map;
+  }, [globalMemories]);
+
   async function reload() {
     setBusy(true);
     setError(null);
     try {
-      const [energyResult, catalogResult, memoryResult, reminderResult] = await Promise.all([
+      const [energyResult, catalogResult, memoryResult, globalMemoryResult, reminderResult] = await Promise.all([
         api.energy(),
         api.catalog(),
-        api.memories(query),
+        api.memories(),
+        authApi.memories(sessionToken),
         api.reminders(),
       ]);
       setEnergy(energyResult);
       setCatalog(catalogResult);
       setMemories(memoryResult);
+      setGlobalMemories(globalMemoryResult);
       setReminders(reminderResult);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '載入失敗');
@@ -99,7 +121,7 @@ export function App({ api }: Props) {
 
   useEffect(() => {
     void reload();
-  }, []);
+  }, [selectedLineGroupId]);
 
   async function refreshEnergy() {
     const [nextEnergy, nextCatalog] = await Promise.all([api.energy(), api.catalog()]);
@@ -142,7 +164,7 @@ export function App({ api }: Props) {
     setBusy(true);
     setError(null);
     try {
-      setMemories(await api.memories(query));
+      setGlobalMemories(await authApi.memories(sessionToken, query));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '搜尋失敗');
     } finally {
@@ -161,7 +183,9 @@ export function App({ api }: Props) {
         content: editing.content,
       });
       setEditing(null);
-      setMemories(await api.memories(query));
+      const [local, global] = await Promise.all([api.memories(), authApi.memories(sessionToken, query)]);
+      setMemories(local);
+      setGlobalMemories(global);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '更新失敗');
     } finally {
@@ -176,6 +200,7 @@ export function App({ api }: Props) {
     try {
       await api.deleteMemory(memory.id);
       setMemories((items) => items.filter((item) => item.id !== memory.id));
+      setGlobalMemories((items) => items.filter((item) => !(item.lineGroupId === selectedLineGroupId && item.id === memory.id)));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '刪除失敗');
     } finally {
@@ -219,6 +244,11 @@ export function App({ api }: Props) {
     }
   }
 
+  function switchToMemoryGroup(memory: CrossGroupMemory) {
+    const group = groups.find((item) => item.lineGroupId === memory.lineGroupId);
+    if (group) onChooseGroup(group);
+  }
+
   return (
     <main className="shell">
       <header className="topbar">
@@ -242,36 +272,54 @@ export function App({ api }: Props) {
         <section className="panel">
           <div className="section-head">
             <div>
-              <h2>群組記憶</h2>
-              <p>對話與記憶屬於目前群組；能量則屬於你本人，並可跨群組共用。</p>
+              <h2>全部群組記憶</h2>
+              <p>可以搜尋你目前仍加入的所有 AFTERTRACE 群組；每則結果都會標示來自哪個群組。</p>
             </div>
             <div className="search-row">
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜尋內容、分類或主題" />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => { if (event.key === 'Enter') void search(); }}
+                placeholder="搜尋全部群組的內容、分類或主題"
+              />
               <button disabled={busy} onClick={() => void search()}>搜尋</button>
             </div>
           </div>
 
           <div className="list">
-            {memories.map((memory) => (
-              <article className="card" key={memory.id}>
-                <div className="card-head">
-                  <span className="pill">{memory.category}</span>
-                  <span className="muted">編號 {memory.id}</span>
-                </div>
-                {memory.subject && <h3>{memory.subject}</h3>}
-                <p className="content">{memory.content}</p>
-                <div className="source">
-                  <strong>來源</strong>
-                  <span>{memory.sourceLineTimestamp ? new Date(memory.sourceLineTimestamp).toLocaleString() : '時間未知'}</span>
-                  <span>{memory.sourceMessageId ? `訊息編號 ${memory.sourceMessageId}` : '無訊息編號'}</span>
-                </div>
-                <div className="actions">
-                  <button className="ghost" onClick={() => setEditing({ ...memory })}>編輯</button>
-                  <button className="danger" onClick={() => void deleteMemory(memory)}>刪除</button>
-                </div>
-              </article>
-            ))}
-            {!busy && memories.length === 0 && <p className="empty">目前沒有符合條件的記憶。</p>}
+            {globalMemories.map((memory) => {
+              const isCurrentGroup = memory.lineGroupId === selectedLineGroupId;
+              const editable = isCurrentGroup ? memories.find((item) => item.id === memory.id) : undefined;
+              return (
+                <article className="card" key={`${memory.lineGroupId}:${memory.id}`}>
+                  <div className="card-head">
+                    <div className="memory-tags">
+                      <span className="pill group-pill">{memory.groupName}</span>
+                      <span className="pill">{memory.category}</span>
+                    </div>
+                    <span className="muted">編號 {memory.id}</span>
+                  </div>
+                  {memory.subject && <h3>{memory.subject}</h3>}
+                  <p className="content">{memory.content}</p>
+                  <div className="source">
+                    <strong>來源群組：{memory.groupName}</strong>
+                    <span>{memory.sourceLineTimestamp ? new Date(memory.sourceLineTimestamp).toLocaleString() : '時間未知'}</span>
+                    <span>{memory.sourceMessageId ? `訊息編號 ${memory.sourceMessageId}` : '無訊息編號'}</span>
+                  </div>
+                  <div className="actions">
+                    {isCurrentGroup && editable ? (
+                      <>
+                        <button className="ghost" onClick={() => setEditing({ ...editable })}>編輯</button>
+                        <button className="danger" onClick={() => void deleteMemory(editable)}>刪除</button>
+                      </>
+                    ) : (
+                      <button className="ghost" onClick={() => switchToMemoryGroup(memory)}>切換到此群組</button>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+            {!busy && globalMemories.length === 0 && <p className="empty">目前沒有符合條件的記憶。</p>}
           </div>
         </section>
       )}
@@ -304,6 +352,34 @@ export function App({ api }: Props) {
                 ))}
             </div>
           )}
+
+          <article className="card">
+            <h3>我的群組與記憶</h3>
+            <p className="muted">這些是你目前仍加入、而且 AFTERTRACE 還在的群組。</p>
+            <div className="group-memory-grid">
+              {groups.map((group) => {
+                const groupMemories = memoriesByGroup.get(group.lineGroupId) ?? [];
+                return (
+                  <button className="group-memory-card" key={group.lineGroupId} type="button" onClick={() => onChooseGroup(group)}>
+                    <div className="card-head">
+                      <strong>{group.name}</strong>
+                      <span className="pill">{groupMemories.length} 則記憶</span>
+                    </div>
+                    {groupMemories.length === 0 ? (
+                      <span className="muted">目前還沒有記憶。</span>
+                    ) : (
+                      <ul className="memory-preview-list">
+                        {groupMemories.slice(0, 3).map((memory) => (
+                          <li key={memory.id}>{memory.subject || memory.content}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </button>
+                );
+              })}
+              {groups.length === 0 && <p className="empty">目前沒有可管理的群組。</p>}
+            </div>
+          </article>
 
           <article className="card">
             <h3>我的訂閱</h3>
