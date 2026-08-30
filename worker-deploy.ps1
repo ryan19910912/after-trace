@@ -9,6 +9,7 @@ $ErrorActionPreference = 'Stop'
 
 $RepoRoot = $PSScriptRoot
 $WorkerUrl = 'https://after-trace-api.a0955625660.workers.dev'
+$PagesUrl = 'https://after-trace.pages.dev'
 
 function Write-Step([string]$Message) {
     Write-Host ''
@@ -95,13 +96,15 @@ try {
     Write-Host ''
     Write-Host 'Worker deployment completed successfully.' -ForegroundColor Green
     Write-Host "Worker: $WorkerUrl"
+    Write-Host "Web   : $PagesUrl"
     Write-Host ''
     Write-Host 'Recommended smoke tests:' -ForegroundColor Yellow
     $helpCommand = '@AFTERTRACE ' + [char]0x5E6B + [char]0x52A9
     $energyCommand = '@AFTERTRACE ' + [char]0x984D + [char]0x5EA6
     Write-Host "  1. LINE group: $helpCommand"
-    Write-Host "  2. LINE group: $energyCommand"
-    Write-Host '  3. Open LIFF and verify Energy API'
+    Write-Host "  2. LINE group: $energyCommand and open the returned Web management link"
+    Write-Host '  3. Verify the Bot link opens the correct group without another LINE Login'
+    Write-Host '  4. Open Pages directly and verify LINE Login -> My Groups'
 }
 finally {
     Pop-Location
