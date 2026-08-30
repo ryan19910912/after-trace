@@ -5,7 +5,12 @@ import { DrizzleUserReminderRepository } from '../reminders/drizzle-user-reposit
 import { UserReminderService } from '../reminders/user-service';
 import { DrizzleManagementRepository } from './drizzle-repository';
 import { verifyGroupContextToken } from './group-context';
-import { LineLiffGroupSessionVerifier, type LiffGroupSession } from './session';
+import {
+  LineLiffGroupSessionVerifier,
+  LineWebGroupSessionVerifier,
+  type GroupSession,
+  type GroupSessionResult,
+} from './session';
 import { ManagementService } from './service';
 
 export type ManagementBindings = ProductConfigEnv & {
@@ -14,6 +19,8 @@ export type ManagementBindings = ProductConfigEnv & {
   LINE_CHANNEL_SECRET: string;
   LIFF_CHANNEL_ID: string;
   LIFF_WEB_ORIGIN?: string;
+  WEB_AUTH_SECRET?: string;
+  WEB_APP_ORIGIN?: string;
   REMINDER_RESERVATION_ENERGY?: string;
 };
 
@@ -56,19 +63,35 @@ function positivePathId(value: string): number {
   return parsed;
 }
 
-async function sessionFor(c: ManagementContext): Promise<LiffGroupSession | Response> {
+function allowedWebOrigin(c: ManagementContext): string | null {
+  return c.env.WEB_APP_ORIGIN?.trim() || c.env.LIFF_WEB_ORIGIN?.trim() || null;
+}
+
+async function verifySession(c: ManagementContext, lineGroupId: string): Promise<GroupSessionResult> {
+  const db = createDatabase(c.env.DATABASE_URL);
+  const webSecret = c.env.WEB_AUTH_SECRET?.trim();
+  if (webSecret) {
+    const web = await new LineWebGroupSessionVerifier(
+      db,
+      c.env.LINE_CHANNEL_ACCESS_TOKEN,
+      webSecret,
+    ).verify(c.req.header('authorization'), lineGroupId);
+    if (web.status === 'AUTHORIZED') return web;
+  }
+  return new LineLiffGroupSessionVerifier(
+    db,
+    c.env.LINE_CHANNEL_ACCESS_TOKEN,
+    c.env.LIFF_CHANNEL_ID,
+  ).verify(c.req.header('authorization'), lineGroupId);
+}
+
+async function sessionFor(c: ManagementContext): Promise<GroupSession | Response> {
   const groupContextToken = c.req.header('x-line-group-context');
   if (!groupContextToken) return c.json({ ok: false, error: 'LINE_GROUP_CONTEXT_REQUIRED' }, 400);
   const lineGroupId = await verifyGroupContextToken(groupContextToken, c.env.LINE_CHANNEL_SECRET);
   if (!lineGroupId) return c.json({ ok: false, error: 'INVALID_LINE_GROUP_CONTEXT' }, 401);
 
-  const db = createDatabase(c.env.DATABASE_URL);
-  const verifier = new LineLiffGroupSessionVerifier(
-    db,
-    c.env.LINE_CHANNEL_ACCESS_TOKEN,
-    c.env.LIFF_CHANNEL_ID,
-  );
-  const result = await verifier.verify(c.req.header('authorization'), lineGroupId);
+  const result = await verifySession(c, lineGroupId);
   if (result.status === 'AUTHORIZED') return result.session;
 
   if (result.status === 'LINE_VERIFICATION_UNAVAILABLE') {
@@ -86,7 +109,7 @@ async function sessionFor(c: ManagementContext): Promise<LiffGroupSession | Resp
   return c.json({ ok: false, error: result.status }, 409);
 }
 
-function isResponse(value: LiffGroupSession | Response): value is Response {
+function isResponse(value: GroupSession | Response): value is Response {
   return value instanceof Response;
 }
 
@@ -95,8 +118,8 @@ export function createManagementRoutes() {
 
   app.use('*', async (c, next) => {
     const origin = c.req.header('origin');
-    const allowedOrigin = c.env.LIFF_WEB_ORIGIN?.trim();
-    if (origin && !allowedOrigin) return c.json({ ok: false, error: 'LIFF_WEB_ORIGIN_NOT_CONFIGURED' }, 503);
+    const allowedOrigin = allowedWebOrigin(c);
+    if (origin && !allowedOrigin) return c.json({ ok: false, error: 'WEB_ORIGIN_NOT_CONFIGURED' }, 503);
     if (origin && origin !== allowedOrigin) return c.json({ ok: false, error: 'ORIGIN_NOT_ALLOWED' }, 403);
     await next();
     if (origin && origin === allowedOrigin) {
@@ -107,7 +130,7 @@ export function createManagementRoutes() {
 
   app.options('*', (c) => {
     const origin = c.req.header('origin');
-    const allowedOrigin = c.env.LIFF_WEB_ORIGIN?.trim();
+    const allowedOrigin = allowedWebOrigin(c);
     if (!origin || !allowedOrigin || origin !== allowedOrigin) return c.body(null, 403);
     c.header('Access-Control-Allow-Origin', origin);
     c.header('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Line-Group-Context');
@@ -212,7 +235,7 @@ export function createManagementRoutes() {
         groupId: session.groupId,
         reminderId,
         ownerLineUserId: session.lineUserId,
-        mutationKey: `liff:${reminderId}:${session.lineUserId}`,
+        mutationKey: `web:${reminderId}:${session.lineUserId}`,
       });
       if (result.status === 'NOT_FOUND') return c.json({ ok: false, result }, 404);
       if (result.status === 'NOT_OWNER') return c.json({ ok: false, result }, 403);
