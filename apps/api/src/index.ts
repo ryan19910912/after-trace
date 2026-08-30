@@ -10,6 +10,7 @@ import { DrizzleNotificationRepository } from './notifications/repository';
 import { createNotificationRoutes } from './notifications/routes';
 import { PollingOrchestrator } from './polling/orchestrator';
 import { evaluateRuntimeReadiness } from './readiness';
+import { ScheduledRadarRunner } from './scheduled/run';
 import { createDefaultSourceRegistry } from './sources/registry';
 import { DrizzleAvailabilitySyncRepository } from './sources/sync-repository';
 import { SourceSynchronizationService } from './sources/sync-service';
@@ -40,14 +41,16 @@ app.route('/api/v1/session', createIdentityRoutes());
 app.route('/api/v1/watch-rules', createWatchRoutes());
 app.route('/api/v1/push', createNotificationRoutes());
 
-async function runScheduledPolling(env: Bindings): Promise<void> {
+async function runScheduledRadar(env: Bindings) {
   const database = createDatabase(env.DATABASE_URL);
   const repository = new DrizzleAvailabilitySyncRepository(database);
   const synchronizer = new SourceSynchronizationService(repository, createDefaultSourceRegistry());
-  const polling = await new PollingOrchestrator(repository, synchronizer).run();
-  const radar = await new DrizzleRadarMatcher(database).matchPendingAvailableEvents();
-  const push = await new WebPushDispatcher(new DrizzleNotificationRepository(database), env).run();
-  console.log(JSON.stringify({ event: 'availability_polling_completed', ...polling, radar, push }));
+  const runner = new ScheduledRadarRunner(
+    new PollingOrchestrator(repository, synchronizer),
+    new DrizzleRadarMatcher(database),
+    new WebPushDispatcher(new DrizzleNotificationRepository(database), env),
+  );
+  return runner.run();
 }
 
 export type { Bindings } from './env';
@@ -57,12 +60,11 @@ export default {
   fetch: app.fetch,
   scheduled(_controller: ScheduledController, env: Bindings, ctx: ExecutionContext) {
     ctx.waitUntil(
-      runScheduledPolling(env).catch((cause) => {
-        console.error(JSON.stringify({
-          event: 'availability_polling_failed',
-          message: cause instanceof Error ? cause.message : 'unknown error',
+      runScheduledRadar(env).then((summary) => {
+        console.log(JSON.stringify({
+          event: 'scheduled_radar_completed',
+          ...summary,
         }));
-        throw cause;
       }),
     );
   },
