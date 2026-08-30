@@ -18,189 +18,160 @@ V1 principles:
 
 ## Actual current `main`
 
-The retired LINE-first AI memory product has been removed from the runtime. `apps/` contains only `api` and `web`; the old admin application is gone.
+The retired LINE-first AI memory product is absent from the runtime. `apps/` contains only `api` and `web`; the old admin app/runtime is gone.
 
-Current code-level product path:
+Current product flow:
 
-1. `TaipeiSportsCenterAdapter` reads public venue/calendar/availability endpoints.
-2. source synchronization normalizes venue/sport/court/slot state into Neon/Drizzle models.
-3. Cloudflare scheduled work claims bounded due poll targets and records availability transitions.
+1. `TaipeiSportsCenterAdapter` reads the public Taipei sports-center booking source.
+2. source synchronization normalizes venue/sport/court/slot state into Neon.
+3. scheduled polling claims bounded due targets and records meaningful availability transitions.
 4. anonymous browser identity owns private Radar watch rules.
 5. newly `AVAILABLE` events are matched idempotently to enabled watches.
-6. matching events create Web Push delivery intents with bounded freshness, lease/retry and dead-subscription handling.
-7. VAPID-authenticated payload-free Web Push wakes the PWA Service Worker.
-8. the Service Worker claims one owner-isolated accepted presentation, displays venue/date/time context, and deep-links back to matching search/official booking.
-9. the React PWA can search availability, create/list/pause/resume/delete Radar rules, enable/disable Push, and recover anonymous Radar identity.
-10. `/health` is liveness only; `/ready` verifies the migrated sports schema is queryable and that full VAPID configuration is valid before reporting production readiness.
-11. `smoke.ps1` verifies deployed Worker liveness/readiness, public Push config and search API shape, with optional Pages and post-sync source-data checks.
-12. CI now installs with `pnpm install --frozen-lockfile` so verification cannot silently rewrite dependency state.
+6. matching events create durable Web Push delivery intents with lease/retry/freshness handling.
+7. VAPID-authenticated payload-free Push wakes the PWA Service Worker.
+8. the Service Worker claims one owner-isolated presentation and deep-links back to search / official booking.
+9. the React PWA supports search, Radar creation/list/pause/resume/delete and Push enable/disable.
+10. `/health` is cheap liveness; `/ready` checks the migrated sports schema plus valid complete VAPID configuration.
+11. deploy smoke verifies Worker readiness/public API shape and optionally Pages/source data.
+12. CI installs with `pnpm install --frozen-lockfile`.
 
 Current migrations:
 
-- `drizzle/0000_aftertrace_rebuild.sql` — clean sports-radar baseline; refuses a detected legacy LINE/AI database instead of carrying old tables forward.
-- `drizzle/0001_radar_watch_foundation.sql` — anonymous Radar ownership, matching cursor and watch idempotency state.
-- `drizzle/0002_web_push_delivery_runtime.sql` — Push lease/retry/expiry/presentation runtime.
+- `drizzle/0000_aftertrace_rebuild.sql` — clean sports-radar baseline; refuses detected legacy LINE/AI tables.
+- `drizzle/0001_radar_watch_foundation.sql` — Radar ownership/matching/watch idempotency.
+- `drizzle/0002_web_push_delivery_runtime.sql` — Push retry/lease/freshness/presentation runtime.
 
 Current polling policy:
 
-- Worker Cron wakes every minute.
-- unwatched poll targets request 300-second polling.
-- watch-covered targets are priority 100 and request 180-second polling.
-- every target is clamped by its source minimum interval.
-- one-minute per-target polling stays disabled until deployed source behavior/rate limits are measured.
+- Cron wakes every minute.
+- unwatched target request interval: 300 seconds.
+- watch-covered target request interval: 180 seconds, priority 100.
+- every target remains clamped by its source minimum interval.
+- one-minute per-target polling stays disabled until live rate-limit/source behavior is measured.
 
-## Completed rebuild batches
+## Completed rebuild areas
 
-### Retired product removal + clean sports domain
+### Old product retirement
 
-- removed LINE webhook/group conversation, Group Memory, Gemini/AI, Energy, Rewarded Ad, Commerce, Reminder, Proactive Push and old admin runtime.
-- replaced legacy schema with clean sports availability/Radar tables.
-- preserved pnpm monorepo, Cloudflare Worker/Hono, React/Vite, Neon/Drizzle and common verification tooling.
-- built public sports/venue/availability read APIs and mobile-first search UI.
+- LINE webhook/group conversation/LIFF removed.
+- Group Memory/Gemini/AI removed.
+- Energy/Credit/Rewarded Ad/Commerce/Reminder/Proactive Push removed.
+- old admin/auth/retention/runtime schema modules removed.
+- retained pnpm monorepo, Hono/Workers, React/Vite, Neon/Drizzle and shared verification tooling.
 
-### Taipei source adapter + normalization
+### Sports availability domain
 
-- generic `AvailabilitySourceAdapter` boundary and registry.
-- Taipei sports-center adapter using form-encoded public booking endpoints.
-- venue/sport/court/slot normalization, deterministic external slot identity, official booking references and stale-slot reconciliation.
-- bounded retry/error classification and source health behavior.
-- launch synchronization is badminton-first; other sports remain behind the generic domain until live coverage is verified.
+- generic `AvailabilitySourceAdapter` boundary.
+- Taipei sports-center adapter.
+- normalized sports/venues/venue-sports/courts/availability slots/events.
+- public sports/venue/availability APIs.
+- mobile search UI + official booking handoff.
 
-### Race-safe polling orchestration
+### Polling + Radar
 
-- priority/`next_poll_at` due-target selection.
-- bounded claiming with crash-recovery lease and settlement fence.
-- one-minute Cron wake-up with independent target intervals.
-- Taipei-local 14-day polling window and per-target failure isolation.
+- due-target priority/lease/fencing.
+- per-target polling failure isolation.
+- anonymous browser identity using a 256-bit credential with only SHA-256 subject persisted.
+- watch CRUD/user isolation/idempotent creation.
+- venue/district/date/day/time matching.
+- old pre-watch availability is not retroactively notified.
+- watch coverage increases relevant target priority/frequency.
 
-### Anonymous Radar ownership + watch matching
+### Web Push + PWA
 
-- 256-bit anonymous browser credential; DB stores only SHA-256 identity subject.
-- bearer-authenticated watch CRUD with user isolation.
-- idempotent create via `Idempotency-Key` + canonical payload fingerprint.
-- sport/venue/city/district/date/day-of-week/time matching.
-- newly-available event cursor and idempotent watch/event delivery keys.
-- old availability that predates a watch is not retroactively notified.
-- overlapping rules for the same user/event are deduplicated.
-- enabled watch coverage raises relevant poll-target priority/frequency without rewriting active poll leases.
+- Push subscription register/deactivate/reconciliation.
+- Worker-native VAPID signing/sending.
+- dispatch lease/retry/freshness/dead-subscription handling.
+- Service Worker presentation claim + click acknowledgement/deep link.
+- manifest + Radar/Push UI.
+- stale overlapping dispatcher claims are fenced before send.
 
-### Web Push + PWA Radar UX
+### Release readiness
 
-- authenticated Push subscription upsert/deactivation endpoints.
-- public VAPID application-server-key endpoint; private key remains Worker-only.
-- edge-native P-256 VAPID signing/sending with no Node-only Push dependency.
-- delivery runtime with claim lease, bounded retry, 30-minute freshness cutoff, 404/410 dead-subscription retirement and click/open acknowledgement.
-- payload-free Push presentation: Service Worker wakes, proves anonymous identity + current endpoint, atomically claims accepted notification context, then renders locally.
-- manifest, Service Worker, notification click handling and deep-link search parameters.
-- React UI for anonymous identity, Watch creation/list/pause/resume/delete and notification enable/disable.
-- startup Push subscription reconciliation and safe VAPID rotation behavior.
-- delivery claim fencing prevents stale overlapping Workers from sending after ownership moves.
+- `/ready` checks DB schema reachability and VAPID configuration.
+- `smoke.ps1`, `worker-deploy.ps1`, `pages-deploy.ps1` verify deployed readiness/API paths.
+- CI uses frozen lockfile installation.
 
-## Current round — release readiness + deploy smoke hardening
+## Current round — scheduled pipeline failure isolation
 
 ### Starting state verified
 
-Latest `main` at round start was `016a98e3271f2daed37639f30470526608a80043` (`docs: record push hardening verification limits`). Before changing code this round, the latest rebuild plan/progress, complete repository tree, current API entrypoint/env/schema, VAPID dispatcher/config, CI, lockfile header/importers, Worker/Pages deploy scripts and local verification script were re-read.
+At round start latest `main` was `c92a450796613cf81ac412964ca61d3e282ea3d6` (`docs: record frozen CI and remaining lock cleanup`). Re-read the latest rebuild plan/progress plus current API entrypoint, polling orchestrator, Radar matcher, Push dispatcher/VAPID implementation, schema, deploy scripts, lockfile importers and relevant tests.
 
-The recursive `main` tree confirms there are no retired LINE/Gemini/admin runtime paths. One known retired-workspace artifact still exists inside `pnpm-lock.yaml`: the stale `apps/admin` importer.
+The important runtime issue found during source review was in the scheduled entrypoint: polling -> Radar matching -> Push dispatch were executed as one promise chain. Although polling already isolates individual target failures, a bootstrap/repository-level polling failure could still skip Radar matching for already-persisted events and skip Push dispatch for already-created deliveries until a later successful polling run. Those stages are operationally independent and should not block each other.
 
 ### Code completed this round
 
-Production readiness contract:
+- `a462b2efa9fa01fc299cebc68e96746477e9c306` — added `apps/api/src/scheduled/run.ts`.
+  - `ScheduledRadarRunner` always attempts polling, Radar matching and Push dispatch in order.
+  - a failure in one stage is recorded but does not prevent later stages from processing durable work.
+  - failures expose only a bounded/sanitized error code; arbitrary database/provider exception text is not logged by this orchestration layer.
+  - every failed stage is naturally retried by the next Cron wake-up.
+- `cb9da05e3fed7ccec7200436c2ec6b21c58266f9` — added `apps/api/src/scheduled/run.test.ts`.
+  - covers all-success flow.
+  - covers polling failure while Radar + Push still run.
+  - covers Radar failure while Push still runs.
+  - covers all-stage failure without throwing the entire Cron pipeline.
+- `ce400ef071f3d2a728361d838672126572d5b94b` — updated `apps/api/src/index.ts` to use `ScheduledRadarRunner` and emit one structured `scheduled_radar_completed` summary instead of aborting the entire chain on the first stage failure.
 
-- `4dc9cc461b4f215252efc90c8623f95b474e2432` — added `apps/api/src/readiness.ts`.
-  - database is `missing` when `DATABASE_URL` is blank.
-  - database probe failures become the non-secret `DATABASE_PROBE_FAILED` code.
-  - Web Push is `missing` unless all VAPID values exist, and `invalid` when VAPID validation fails.
-  - readiness is true only when both database and Web Push checks are `ok`.
-- `bdf89374c7fd395845e133b59be1c174b35022b4` — added readiness unit coverage for missing DB, missing VAPID, invalid VAPID, DB probe failure and fully-ready state.
-- `c2986847a24046a626b452b46c7fe7a9014e5659` — added `GET /ready`.
-  - it performs a real query against the normalized `sports` table, so a reachable but unmigrated/wrong database is not reported as ready.
-  - it returns HTTP 200 only for `ready`; otherwise HTTP 503.
-  - `/health` remains cheap liveness and no longer has to be misinterpreted as dependency readiness.
+### Source review finding to address next
 
-Deployed smoke/release scripts:
-
-- `45b530189a24720e4a01061daf50c6db96cbddd3` — added root `smoke.ps1`.
-  - verifies `/health`, `/ready`, public Push config, sports API, and when synchronized data exists also venue + availability API shape.
-  - optional Pages HTTP check.
-  - `-RequireSourceData` turns an empty fresh database into a smoke failure after polling is expected to have synchronized data.
-  - Worker/Pages URLs are parameters so the same script can verify another environment.
-- `10948557d9d8703ded7abb2ea49a1947d48a98f0` — Worker deploy now runs deployed readiness/API smoke after migration + Wrangler deploy and accepts `-WorkerUrl`.
-- `1e35a8aff79dc1f2e33bb6d609dbfaaf3c47c8e7` — Pages deploy now accepts Worker/Pages/project parameters, builds against the selected Worker URL, and runs combined Worker + Pages smoke after deployment.
-- `b9659e75c8b3e34efaafc5a672bda1cad1cff433` — README documents liveness vs readiness, `/ready`, smoke usage and deploy behavior.
-
-CI hardening:
-
-- `d3fef5266c4da3982e1b8ce48acdcff51e7c243c` — `.github/workflows/ci.yml` now uses `pnpm install --frozen-lockfile` instead of `--no-frozen-lockfile`; CI can no longer hide manifest/lock drift by rewriting the lockfile during verification.
-- the stale `apps/admin` importer is still present and is intentionally not hand-pruned from generated lockfile dependency snapshots without a real pnpm regeneration. It remains a cleanup blocker rather than being disguised as resolved.
+The Taipei source was freshly checked against the live booking site on 2026-08-31. The site's root page is the actual interactive "Booking NOW" flow. Current adapter `externalBookingRef` is built from the machine endpoint `/Location/findAllowBookingList?...`, while the React UI currently prefers `externalBookingRef` over `venue.bookingUrl` for the "前往官方預約" link. That can send users to an API endpoint instead of the human booking flow. This is a concrete next-round correctness fix: public booking CTA must prefer/use the human booking URL; machine source references should remain internal provenance only.
 
 ### Verification performed this round
 
 Performed:
 
-- verified latest `main` commit history and recursive repository tree before editing.
-- confirmed current runtime paths contain only sports availability/Radar/API/PWA code; no retired LINE/Gemini/admin path exists in the repository tree.
-- inspected the full `pnpm-lock.yaml` blob and confirmed the stale `apps/admin` importer still exists while current `apps/api`, `apps/web` and `packages/shared` importers are present.
-- attempted `corepack pnpm --version` again in the automation container. It still fails because DNS lookup for `registry.npmjs.org` returns `EAI_AGAIN`, so dependency-complete workspace verification and lockfile regeneration are still unavailable here.
-- independently strict-compiled the new pure readiness contract with TypeScript 5.8.3 using local stubs for its imported contracts; no diagnostics were produced. This is syntax/type evidence for `readiness.ts`, not a substitute for the repository's TypeScript 5.9 workspace.
-- re-read the updated deploy script source after writing it.
-- queried GitHub Actions for `b9659e75c8b3e34efaafc5a672bda1cad1cff433` and later CI commit `d3fef5266c4da3982e1b8ce48acdcff51e7c243c`; both returned zero workflow runs, so GitHub Actions does not validate this round.
+- re-read latest `main` and relevant source before edits.
+- independently strict-compiled the new scheduled runner contract with TypeScript 5.8.3 and local type stubs; zero diagnostics.
+- re-read the committed `apps/api/src/scheduled/run.ts` from `main` after writing.
+- confirmed latest commits are `a462b2e`, `cb9da05`, `ce400ef` in order.
+- checked GitHub Actions for `ce400ef071f3d2a728361d838672126572d5b94b`; zero workflow runs were returned.
+- local environment still has Node 22 + TypeScript 5.8.3 but no `pnpm`.
 
-Not truthfully executable in this environment:
+Not truthfully executable here:
 
 - `pnpm typecheck`
 - `pnpm lint`
 - `pnpm test`
 - `pnpm build`
 - `pnpm db:schema:check`
-- PowerShell execution of `smoke.ps1` / deploy scripts (`pwsh` is not installed in the automation container).
+- PowerShell execution of deploy/smoke scripts (`pwsh` unavailable).
 
-Therefore the full chain remains **unverified**, not green.
+Full repository verification therefore remains **unverified**, not green.
 
 ## Remaining work — highest priority first
 
-### Repository cleanup / verification
+### Repository correctness / cleanup
 
-- [ ] `pnpm-lock.yaml` still contains a stale `apps/admin` importer although the directory no longer exists. Regenerate the lockfile from the current workspace in a dependency-complete environment; do not fabricate package snapshots.
-- [x] CI installation is frozen and will no longer rewrite the lockfile during verification.
-- [ ] run the complete `verify.ps1` / CI chain and fix any real TypeScript/lint/test/build/schema failure.
-- [ ] run PowerShell syntax/execution checks for `smoke.ps1`, `worker-deploy.ps1`, and `pages-deploy.ps1` on the normal Windows development machine.
-- [ ] verify no retired LINE/LIFF/Gemini/Energy/Commerce/Reminder/Proactive terminology remains outside explicit rebuild-history documentation. The current repository-tree path scan is clean, but content-level search must be repeated when code search/index or a local checkout is available.
+- [ ] Fix official booking CTA boundary: user-facing links must open the human booking flow, not `findAllowBookingList` machine endpoints; keep provider API references internal if still needed for reconciliation/debug.
+- [ ] `pnpm-lock.yaml` still contains stale `apps/admin` importer metadata although the directory no longer exists. Regenerate the lockfile from the current workspace in a dependency-complete environment; do not fabricate dependency snapshots.
+- [ ] Run complete frozen-lockfile `typecheck`, `lint`, `test`, `build`, `db:schema:check` and fix real failures.
+- [ ] Run PowerShell syntax/execution checks for `smoke.ps1`, `worker-deploy.ps1`, `pages-deploy.ps1` on the normal Windows development machine.
+- [ ] Repeat content-level retired-term scan when local checkout/code search is reliable.
 
 ### Deployment / database
 
-- [ ] point production/development deployment at a fresh Neon database/branch.
-- [ ] execute/review migrations `0000`, `0001`, `0002` against that clean database.
+- [ ] point dev/prod at a fresh Neon branch/database.
+- [ ] execute/review migrations `0000`, `0001`, `0002` against that clean target.
 - [ ] configure Worker `DATABASE_URL` and VAPID public/private/subject values.
-- [ ] deploy Worker and confirm `GET /ready` returns HTTP 200.
-- [ ] deploy Pages and run `./smoke.ps1`; after first Cron synchronization run `./smoke.ps1 -RequireSourceData`.
+- [ ] deploy Worker and confirm `/ready` = 200.
+- [ ] deploy Pages and run `smoke.ps1`; after first synchronization run with `-RequireSourceData`.
 - [ ] confirm Cloudflare Cron is active.
 
-### Real-device / source smoke verification
+### Real-device / live-source smoke
 
-- [ ] Chrome/Android: search -> create Radar -> grant Push -> observe a real matching availability transition -> notification -> deep-link -> official booking.
-- [ ] iPhone/iPad installed Web App: add to Home Screen -> grant Push -> notification -> deep-link.
-- [ ] confirm VAPID rotation behavior on a real browser: old subscription remains disabled until explicit re-enable.
-- [ ] measure Taipei source latency/error/rate-limit behavior from the deployed Worker before considering one-minute watched polling.
-- [ ] verify known non-badminton categories per venue before expanding launch sports.
-
-### Optional post-smoke UX
-
-- [ ] full Watch-condition editing UI if real users need it; backend PATCH already supports condition updates other than changing sport.
-- [ ] improve iOS install guidance if device testing shows current copy is insufficient.
-- [ ] consider email fallback only after Push reliability/demand are measured; it is not required for V1 launch.
+- [ ] Chrome/Android: search -> Radar -> Push permission -> real availability transition -> notification -> deep link -> official booking.
+- [ ] iPhone/iPad installed Web App: add to Home Screen -> Push -> notification -> deep link.
+- [ ] verify VAPID rotation behavior on a real browser.
+- [ ] measure Taipei source latency/error/rate-limit behavior before considering one-minute watched polling.
+- [ ] verify non-badminton category IDs per venue before expanding launch sports.
 
 ## Next round — planned
 
-Prioritize verification/cleanup, not feature scope:
-
-1. re-read latest `main`, rebuild plan/progress and CI state.
-2. retry dependency-complete pnpm availability. If available, regenerate the lockfile to remove `apps/admin`, then run the full frozen-lockfile verification chain.
-3. if pnpm remains externally blocked, perform source-level correctness review of release/readiness/polling/Push paths and address concrete issues without guessing generated artifacts.
-4. if deployment credentials/configuration have become available through the repository environment, apply the clean migrations, deploy and use `/ready` + `smoke.ps1`; otherwise leave deployment as an explicit external blocker.
-5. do not enable one-minute watched polling or extra launch sports until deployed measurements exist.
-
-## Scheduled-round rules
-
-Each rebuild round must read latest `main`, `REBUILD_PLAN.md` and this file first; verify prior work exists; prefer a large coherent batch; delete obsolete code instead of preserving compatibility debt; run only verification that actually exists; and update this file with exact changes, results, remaining work and the next batch before finishing.
+1. re-read latest `main`, rebuild plan/progress and actual source.
+2. fix the machine-API-vs-human-booking-link boundary and add/adjust tests so the public CTA cannot regress to `findAllowBookingList`.
+3. retry dependency-complete pnpm availability; if available, regenerate lockfile and run the complete frozen verification chain.
+4. if pnpm remains blocked, continue source-level correctness review of source sync, Radar matching and Push presentation instead of adding feature scope.
+5. only deploy/migrate if real environment credentials are available; otherwise keep those as explicit external blockers.
+6. do not enable one-minute watched polling or extra launch sports without deployed measurements.
