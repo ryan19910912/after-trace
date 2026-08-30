@@ -34,11 +34,12 @@ describe('GeminiMemoryClassifier', () => {
       const body = JSON.parse(String(init?.body));
       expect(body.generationConfig.responseMimeType).toBe('application/json');
       expect(body.generationConfig.maxOutputTokens).toBe(maxOutputTokens);
+      expect(body.generationConfig.responseJsonSchema.required).toContain('need_save');
       expect(JSON.stringify(body)).not.toContain('U-secret');
       expect(JSON.stringify(body)).not.toContain('U-actor');
       return new Response(JSON.stringify({
         responseId: 'r-1',
-        candidates: [{ content: { parts: [{ text: JSON.stringify({ candidates: [{ candidateIndex: 0, decision: 'NEW', targetMemoryId: null, category: 'PREFERENCE', subject: null, content: '喜歡咖啡', sourceConversationMessageId: 7 }] }) }] } }],
+        candidates: [{ content: { parts: [{ text: JSON.stringify({ need_save: true, candidates: [{ candidateIndex: 0, decision: 'NEW', targetMemoryId: null, category: 'PREFERENCE', subject: null, content: '喜歡咖啡', sourceConversationMessageId: 7 }] }) }] } }],
         usageMetadata: { promptTokenCount: 20, candidatesTokenCount: 10 },
       }), { status: 200, headers: { 'content-type': 'application/json' } });
     });
@@ -49,8 +50,23 @@ describe('GeminiMemoryClassifier', () => {
       fetchFn: fetchFn as typeof fetch,
     });
     const result = await classifier.classify(input);
+    expect(result.output.need_save).toBe(true);
     expect(result.providerResponseId).toBe('r-1');
     expect(result.tokenUsage).toEqual({ inputTokens: 20, outputTokens: 10 });
+  });
+
+  it('accepts the minimal no-save response', async () => {
+    const classifier = new GeminiMemoryClassifier({
+      apiKey: 'test-key',
+      model: 'gemini-2.5-flash-lite',
+      maxOutputTokens,
+      fetchFn: vi.fn(async () => new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: JSON.stringify({ need_save: false, candidates: [] }) }] } }],
+        usageMetadata: { promptTokenCount: 20, candidatesTokenCount: 4 },
+      }), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch,
+    });
+    const result = await classifier.classify(input);
+    expect(result.output).toEqual({ need_save: false, candidates: [] });
   });
 
   it('marks invalid credentials as a permanent provider failure', async () => {
