@@ -5,6 +5,7 @@ import {
   eq,
   gt,
   inArray,
+  isNotNull,
   isNull,
   lte,
   ne,
@@ -202,22 +203,51 @@ export class DrizzleNotificationRepository {
   }
 
   async settleAccepted(deliveryId: number, claimKey: string, now = new Date()): Promise<boolean> {
-    // Update the durable delivery state before clearing the dispatch lease. If
-    // the Worker dies between these writes the SENT row is no longer eligible
-    // for dispatch, so a successfully accepted push cannot be duplicated.
-    const [updated] = await this.database
-      .update(notificationDeliveries)
-      .set({ status: 'SENT', errorCode: null, sentAt: now, updatedAt: now })
+    // Normally the dispatcher writes SENT first, then clears its lease. A Push
+    // service may however wake the Service Worker before the POST response gets
+    // back to this Worker; claimPresentation can therefore mark the same row
+    // SENT first. Treat both paths as one successful settlement as long as this
+    // dispatcher still owns the runtime claim.
+    const [claim] = await this.database
+      .select({ deliveryId: notificationDeliveryRuntime.deliveryId })
+      .from(notificationDeliveryRuntime)
       .where(and(
-        eq(notificationDeliveries.id, deliveryId),
-        eq(notificationDeliveries.status, 'PENDING'),
-        sql`EXISTS (
-          SELECT 1 FROM notification_delivery_runtime r
-          WHERE r.delivery_id = ${deliveryId} AND r.dispatch_claim_key = ${claimKey}
-        )`,
+        eq(notificationDeliveryRuntime.deliveryId, deliveryId),
+        eq(notificationDeliveryRuntime.dispatchClaimKey, claimKey),
       ))
-      .returning({ id: notificationDeliveries.id });
-    if (!updated) return false;
+      .limit(1);
+    if (!claim) return false;
+
+    const [current] = await this.database
+      .select({ status: notificationDeliveries.status })
+      .from(notificationDeliveries)
+      .where(eq(notificationDeliveries.id, deliveryId))
+      .limit(1);
+    if (!current || current.status === 'FAILED') return false;
+
+    if (current.status === 'PENDING') {
+      const [updated] = await this.database
+        .update(notificationDeliveries)
+        .set({ status: 'SENT', errorCode: null, sentAt: now, updatedAt: now })
+        .where(and(
+          eq(notificationDeliveries.id, deliveryId),
+          eq(notificationDeliveries.status, 'PENDING'),
+          sql`EXISTS (
+            SELECT 1 FROM notification_delivery_runtime r
+            WHERE r.delivery_id = ${deliveryId} AND r.dispatch_claim_key = ${claimKey}
+          )`,
+        ))
+        .returning({ id: notificationDeliveries.id });
+      if (!updated) {
+        const [raced] = await this.database
+          .select({ status: notificationDeliveries.status })
+          .from(notificationDeliveries)
+          .where(eq(notificationDeliveries.id, deliveryId))
+          .limit(1);
+        if (raced?.status !== 'SENT' && raced?.status !== 'OPENED') return false;
+      }
+    }
+
     await this.clearClaim(deliveryId, claimKey, now);
     return true;
   }
@@ -229,6 +259,10 @@ export class DrizzleNotificationRepository {
       .where(and(
         eq(notificationDeliveryRuntime.deliveryId, deliveryId),
         eq(notificationDeliveryRuntime.dispatchClaimKey, claimKey),
+        sql`EXISTS (
+          SELECT 1 FROM notification_deliveries d
+          WHERE d.id = ${deliveryId} AND d.status = 'PENDING'
+        )`,
       ))
       .returning({ deliveryId: notificationDeliveryRuntime.deliveryId });
     if (!runtime) return false;
@@ -334,8 +368,15 @@ export class DrizzleNotificationRepository {
       .where(and(
         eq(watchRules.userId, userId),
         eq(notificationSubscriptions.endpoint, endpoint),
-        eq(notificationDeliveries.status, 'SENT'),
         isNull(notificationDeliveryRuntime.presentedAt),
+        gt(notificationDeliveryRuntime.expiresAt, now),
+        or(
+          eq(notificationDeliveries.status, 'SENT'),
+          and(
+            eq(notificationDeliveries.status, 'PENDING'),
+            isNotNull(notificationDeliveryRuntime.dispatchClaimKey),
+          ),
+        ),
       ))
       .orderBy(asc(notificationDeliveries.sentAt), asc(notificationDeliveries.id))
       .limit(5);
@@ -347,9 +388,21 @@ export class DrizzleNotificationRepository {
         .where(and(
           eq(notificationDeliveryRuntime.deliveryId, candidate.deliveryId),
           isNull(notificationDeliveryRuntime.presentedAt),
+          gt(notificationDeliveryRuntime.expiresAt, now),
         ))
         .returning({ deliveryId: notificationDeliveryRuntime.deliveryId });
       if (!claimed) continue;
+
+      // Seeing the Push event is stronger evidence than waiting for the
+      // dispatching Worker to receive the Push service's HTTP response. Close
+      // that race by allowing presentation to settle PENDING -> SENT itself.
+      await this.database
+        .update(notificationDeliveries)
+        .set({ status: 'SENT', errorCode: null, sentAt: now, updatedAt: now })
+        .where(and(
+          eq(notificationDeliveries.id, candidate.deliveryId),
+          eq(notificationDeliveries.status, 'PENDING'),
+        ));
 
       const params = new URLSearchParams({
         sport: candidate.sportCode,
