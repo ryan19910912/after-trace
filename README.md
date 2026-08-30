@@ -2,7 +2,7 @@
 
 AFTERTRACE is a Web/PWA-first sports venue availability search and radar product.
 
-The product is being rebuilt from its retired LINE/AI memory-assistant prototype. The new V1 does not use AI and does not book or pay on a user's behalf. It normalizes public venue availability, lets users search across supported venues, lets a browser create private Radar watch rules, and prepares idempotent notification work when a watched slot becomes available before sending the user to the official booking channel.
+The retired LINE/AI memory-assistant prototype has been removed from the runtime. V1 does not use AI and does not book, pay, or store venue credentials on a user's behalf. It normalizes public venue availability, lets users search across supported venues, lets a browser create private Radar watch rules, and sends Web Push when a matching slot becomes newly available before directing the user to the official booking channel.
 
 ## V1 stack
 
@@ -13,14 +13,14 @@ The product is being rebuilt from its retired LINE/AI memory-assistant prototype
 - Public source adapters for venue/slot availability
 - Cloudflare Cron polling with bounded target claiming
 - Server-issued anonymous browser identity for Radar ownership
-- Web Push delivery (next implementation phase)
+- Standards-based Web Push using VAPID + Service Worker/PWA
 
 ## Workspace
 
 ```text
 apps/
-  api/       public availability API + Radar API + source sync + polling scheduler
-  web/       mobile-first search/PWA
+  api/       public availability API + Radar/Push API + source sync + polling scheduler
+  web/       mobile-first search/Radar PWA
 packages/
   shared/    shared availability domain types
 docs/
@@ -45,6 +45,30 @@ pnpm db:schema:check
 
 `DATABASE_URL` must point at the new sports-availability database. The clean rebuild baseline intentionally refuses to run against a detected legacy LINE/AI schema; create a fresh Neon database/branch instead of carrying retired product tables forward.
 
+Current migrations:
+
+- `0000_aftertrace_rebuild.sql` — clean sports-radar baseline.
+- `0001_radar_watch_foundation.sql` — anonymous Radar ownership/matching state.
+- `0002_web_push_delivery_runtime.sql` — Push retry lease, expiry and presentation state.
+
+## Web Push configuration
+
+Generate one P-256 VAPID key pair:
+
+```bash
+pnpm --filter @aftertrace/api webpush:keys
+```
+
+Configure the Worker with:
+
+- `WEB_PUSH_VAPID_PUBLIC_KEY`
+- `WEB_PUSH_VAPID_PRIVATE_KEY` — secret; never expose it to the web build.
+- `WEB_PUSH_VAPID_SUBJECT` — operator contact URI such as `mailto:ops@example.com` or an HTTPS URL.
+
+The public key is exposed through `GET /api/v1/push/config` so the browser can create a `PushSubscription`. The private key remains Worker-only.
+
+V1 sends an authenticated **payload-free** Web Push signal. When the Service Worker wakes, it uses the browser's anonymous Radar credential plus its current Push endpoint to atomically claim one already-accepted notification presentation from AFTERTRACE, then shows the venue/time context locally. This keeps notification context user-isolated without adding Web Push payload-encryption code or placing the anonymous credential in the push payload/URL.
+
 ## Current API surface
 
 Public search:
@@ -62,12 +86,38 @@ Radar ownership and watches:
 - `PATCH /api/v1/watch-rules/:watchRuleId`
 - `DELETE /api/v1/watch-rules/:watchRuleId`
 
-Watch conditions support sport, venue IDs, city/district, date range, day-of-week (`0` Sunday through `6` Saturday) and time window. Watch ownership is isolated by the anonymous browser identity; no LINE identity is used.
+Web Push:
 
-The Worker cron runs every minute, but poll targets are individually scheduled and claimed in bounded batches. Unwatched targets default to five-minute polling; targets covered by an enabled watch are raised to higher scheduler priority and a three-minute interval, still clamped by each source's minimum interval. One-minute per-target polling remains disabled until live source behavior is measured.
+- `GET /api/v1/push/config` — public VAPID application-server key only.
+- `POST /api/v1/push/subscription` — register/reactivate this browser's Push subscription.
+- `DELETE /api/v1/push/subscription` — deactivate this browser's Push endpoint.
+- `POST /api/v1/push/presentation` — authenticated Service Worker claim for one accepted notification.
+- `POST /api/v1/push/deliveries/:deliveryId/opened` — owner-isolated click acknowledgement.
 
-New `AVAILABLE` events are matched once against watches. Matching creates idempotent `PENDING` Web Push delivery intents; actual subscription registration and Push sending are the next implementation phase.
+Private Radar/Push endpoints use the anonymous browser bearer token. The raw token is not stored server-side and must never be put in URLs or logs.
+
+## Radar behavior
+
+Watch conditions support sport, venue IDs, city/district, date range, day-of-week (`0` Sunday through `6` Saturday) and time window.
+
+The Worker Cron wakes every minute, but poll targets are individually scheduled and claimed in bounded batches. Unwatched targets default to five-minute polling; targets covered by an enabled watch are raised to higher scheduler priority and a three-minute interval, still clamped by each source's minimum interval. One-minute per-target polling remains disabled until live source behavior is measured.
+
+A newly `AVAILABLE` event is matched once against watches. A matching watch/event pair creates an idempotent delivery. Push dispatch uses a recovery lease, bounded retries and a 30-minute freshness window; expired work becomes terminal instead of notifying about stale availability. A 404/410 Push response deactivates the dead subscription instead of repeatedly retrying it.
 
 Launch synchronization is badminton-first; additional sports stay behind the generic source/domain model until live per-venue coverage is verified.
 
-See `docs/REBUILD_PROGRESS.md` for the exact implementation status and next work batch.
+## PWA behavior
+
+The React app now:
+
+- bootstraps/reuses the anonymous Radar identity in the browser;
+- searches normalized availability and opens official booking links;
+- creates Radar watches from the current search filters;
+- lists, pauses/resumes and deletes watches;
+- installs a manifest + Service Worker;
+- lets supported browsers opt into/out of Web Push;
+- deep-links a notification back to the matching sport/venue/date/time search.
+
+On iPhone/iPad, Web Push availability follows the platform's installed web-app requirements, so users may need to add the site to the Home Screen before notification permission can be enabled.
+
+See `docs/REBUILD_PROGRESS.md` for exact implementation/verification status and remaining deployment work.
