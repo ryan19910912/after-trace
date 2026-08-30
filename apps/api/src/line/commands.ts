@@ -49,7 +49,8 @@ export function detectExplicitMemoryCommand(
   if (!stripped.mentioned && !isReply) return null;
 
   const text = stripped.text.replace(/[！!。.]$/, '').trim();
-  const replyOnly = /^(?:請)?(?:幫我)?(?:把)?(?:這(?:個|則)?\s*)?(?:記住|記一下)(?:吧)?$/;
+  const captureVerb = '(?:記住|記一下|記錄(?:起來)?|紀錄(?:起來)?|存一下|保存(?:起來)?)';
+  const replyOnly = new RegExp(`^(?:請)?(?:幫我)?(?:把)?(?:這(?:個|則|張)?\\s*)?${captureVerb}(?:吧)?$`);
   if (isReply && replyOnly.test(text)) {
     return {
       kind: 'REMEMBER',
@@ -58,13 +59,25 @@ export function detectExplicitMemoryCommand(
     };
   }
 
-  const explicit = text.match(/^(?:請)?(?:幫我)?(?:記住|記一下)[\s,:：-]*(.+)$/);
-  const instruction = explicit?.[1]?.trim();
-  if (!instruction) return null;
+  const explicit = new RegExp(`^(?:請)?(?:幫我)?(?:把)?${captureVerb}[\\s,:：-]*(.*)$`).exec(text);
+  const trailing = explicit?.[1]?.trim();
+  if (explicit) {
+    return {
+      kind: 'REMEMBER',
+      quotedLineMessageId: message.quotedLineMessageId,
+      instruction: trailing || null,
+    };
+  }
 
-  return {
-    kind: 'REMEMBER',
-    quotedLineMessageId: message.quotedLineMessageId,
-    instruction,
-  };
+  // Natural explicit capture such as「幫我記錄起來我的行程」or「幫我存一下這個行程」.
+  const natural = /^(?:請)?幫我(?:把)?(.+?)(?:記住|記一下|記錄起來|紀錄起來|存一下|保存起來)(?:吧)?$/.exec(text);
+  if (natural?.[1]?.trim()) {
+    return {
+      kind: 'REMEMBER',
+      quotedLineMessageId: message.quotedLineMessageId,
+      instruction: natural[1].trim(),
+    };
+  }
+
+  return null;
 }
