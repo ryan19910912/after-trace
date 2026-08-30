@@ -14,6 +14,7 @@ export type NotificationDispatchSummary = {
   retried: number;
   failed: number;
   gone: number;
+  settlementLost: number;
   waitingForSubscription: number;
   configError?: string;
 };
@@ -38,6 +39,7 @@ export class WebPushDispatcher {
       retried: 0,
       failed: 0,
       gone: 0,
+      settlementLost: 0,
       waitingForSubscription: 0,
     };
 
@@ -75,42 +77,47 @@ export class WebPushDispatcher {
       const result = await sendEmptyWebPush(subscription.endpoint, config);
 
       if (result.status === 'ACCEPTED') {
-        await this.repository.settleAccepted(delivery.deliveryId, claimKey, now);
-        summary.accepted += 1;
+        const settled = await this.repository.settleAccepted(delivery.deliveryId, claimKey, now);
+        if (settled) summary.accepted += 1;
+        else summary.settlementLost += 1;
         continue;
       }
 
       if (result.status === 'SUBSCRIPTION_GONE') {
-        await this.repository.resetGoneSubscription(delivery.deliveryId, claimKey, subscription.id, now);
-        summary.gone += 1;
+        const settled = await this.repository.resetGoneSubscription(delivery.deliveryId, claimKey, subscription.id, now);
+        if (settled) summary.gone += 1;
+        else summary.settlementLost += 1;
         continue;
       }
 
       if (result.status === 'RETRYABLE') {
         const nextAttemptAt = new Date(now.getTime() + retryDelayMs(claimed.attemptCount));
         if (claimed.attemptCount < MAX_ATTEMPTS && nextAttemptAt < claimed.expiresAt) {
-          await this.repository.settleRetry(
+          const settled = await this.repository.settleRetry(
             delivery.deliveryId,
             claimKey,
             result.errorCode,
             nextAttemptAt,
             now,
           );
-          summary.retried += 1;
+          if (settled) summary.retried += 1;
+          else summary.settlementLost += 1;
         } else {
-          await this.repository.settleFailed(
+          const settled = await this.repository.settleFailed(
             delivery.deliveryId,
             claimKey,
             `${result.errorCode}_RETRY_EXHAUSTED`,
             now,
           );
-          summary.failed += 1;
+          if (settled) summary.failed += 1;
+          else summary.settlementLost += 1;
         }
         continue;
       }
 
-      await this.repository.settleFailed(delivery.deliveryId, claimKey, result.errorCode, now);
-      summary.failed += 1;
+      const settled = await this.repository.settleFailed(delivery.deliveryId, claimKey, result.errorCode, now);
+      if (settled) summary.failed += 1;
+      else summary.settlementLost += 1;
     }
 
     return summary;
