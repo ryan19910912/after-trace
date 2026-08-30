@@ -3,9 +3,11 @@ import {
   deactivatePushSubscription,
   fetchPushConfig,
   registerPushSubscription,
+  type PushConfig,
 } from './api';
 
 const IDENTITY_STORAGE_KEY = 'aftertrace.anonymousToken.v1';
+const pushConfigCache = new Map<string, Promise<PushConfig>>();
 
 function readStoredToken(): string | null {
   try {
@@ -36,6 +38,18 @@ function base64UrlToArrayBuffer(value: string): ArrayBuffer {
 async function postServiceWorkerContext(registration: ServiceWorkerRegistration, token: string, apiBaseUrl: string) {
   const worker = registration.active ?? registration.waiting ?? registration.installing;
   worker?.postMessage({ type: 'SET_AFTERTRACE_CONTEXT', token, apiBaseUrl });
+}
+
+export function prepareWebPush(apiBaseUrl: string): Promise<PushConfig> {
+  const cacheKey = apiBaseUrl.replace(/\/$/, '');
+  const existing = pushConfigCache.get(cacheKey);
+  if (existing) return existing;
+  const request = fetchPushConfig(apiBaseUrl).catch((error) => {
+    pushConfigCache.delete(cacheKey);
+    throw error;
+  });
+  pushConfigCache.set(cacheKey, request);
+  return request;
 }
 
 export async function ensureRadarIdentity(apiBaseUrl: string): Promise<string> {
@@ -72,15 +86,20 @@ export async function enableWebPush(apiBaseUrl: string, token: string): Promise<
     return { status: 'UNSUPPORTED' };
   }
 
-  const config = await fetchPushConfig(apiBaseUrl);
-  if (!config.configured || !config.applicationServerKey) return { status: 'NOT_CONFIGURED' };
+  // Start non-gesture prerequisites without awaiting them. Notification
+  // permission is requested immediately from the button event; this matters on
+  // browsers that require Push opt-in to originate from transient user action.
+  const configPromise = prepareWebPush(apiBaseUrl);
+  const registrationPromise = ensureServiceWorker();
+  const permissionPromise = Notification.permission === 'granted'
+    ? Promise.resolve<NotificationPermission>('granted')
+    : Notification.requestPermission();
 
-  const permission = Notification.permission === 'granted'
-    ? 'granted'
-    : await Notification.requestPermission();
+  const permission = await permissionPromise;
   if (permission !== 'granted') return { status: 'DENIED' };
 
-  const registration = await ensureServiceWorker();
+  const [config, registration] = await Promise.all([configPromise, registrationPromise]);
+  if (!config.configured || !config.applicationServerKey) return { status: 'NOT_CONFIGURED' };
   if (!registration) return { status: 'UNSUPPORTED' };
   await postServiceWorkerContext(registration, token, apiBaseUrl);
 
