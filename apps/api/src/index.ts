@@ -21,6 +21,7 @@ import {
 import { parseLineWebhook } from './line/events';
 import { LineMessagingReplyClient } from './line/reply';
 import { verifyLineSignature } from './line/signature';
+import { buildGroupLiffUrl } from './management/group-context';
 import { createManagementRoutes } from './management/routes';
 import { DrizzleMemoryRequestRepository } from './memory/drizzle-request-repository';
 import { ExplicitMemoryRequestService } from './memory/requests';
@@ -106,11 +107,8 @@ app.post('/webhooks/line', async (c) => {
   );
   const energyRepository = new DrizzleUserEnergyRepository(database);
   const backgroundEnergyRepository = new DrizzleBackgroundEnergyRepository(database);
-  const energyAccessService = c.env.LIFF_APP_URL?.trim()
-    ? new UserEnergyAccessService(
-        new DrizzleUserEnergyAccessRepository(database, c.env.LINE_CHANNEL_ACCESS_TOKEN),
-        c.env.LIFF_APP_URL,
-      )
+  const energyAccessRepository = c.env.LIFF_APP_URL?.trim()
+    ? new DrizzleUserEnergyAccessRepository(database, c.env.LINE_CHANNEL_ACCESS_TOKEN)
     : null;
   const lineReplyClient = new LineMessagingReplyClient(c.env.LINE_CHANNEL_ACCESS_TOKEN);
   const memoryRequestRepository = new DrizzleMemoryRequestRepository(database);
@@ -164,6 +162,17 @@ app.post('/webhooks/line', async (c) => {
 
     const deterministicCommand = detectDeterministicAiCommand(message);
     const explicitMemoryCommand = detectExplicitMemoryCommand(message);
+    const groupLiffUrl = c.env.LIFF_APP_URL?.trim()
+      ? await buildGroupLiffUrl(
+          c.env.LIFF_APP_URL,
+          message.lineGroupId,
+          c.env.LINE_CHANNEL_SECRET,
+          message.lineTimestamp,
+        )
+      : null;
+    const energyAccessService = groupLiffUrl && energyAccessRepository
+      ? new UserEnergyAccessService(energyAccessRepository, groupLiffUrl)
+      : null;
 
     if (deterministicCommand && message.lineUserId && message.replyToken) {
       let reply: string;
@@ -190,8 +199,8 @@ app.post('/webhooks/line', async (c) => {
           'SUBSCRIPTION：每個 billing cycle 發放，到 period_end 過期',
           'AD：Rewarded Ad，取得後 7 天過期',
           'PAID：一次性 Energy Pack，不過期',
-          ...(c.env.LIFF_APP_URL?.trim()
-            ? ['', '實際 Energy 數量與價格以 AFTERTRACE LIFF 顯示為準。', c.env.LIFF_APP_URL]
+          ...(groupLiffUrl
+            ? ['', '實際 Energy 數量與價格以 AFTERTRACE LIFF 顯示為準。', groupLiffUrl]
             : ['', '詳細 Energy 與購買頁面會在 LIFF 啟用後開放。']),
         ].join('\n');
       }
@@ -218,7 +227,7 @@ app.post('/webhooks/line', async (c) => {
       if (!chatService) {
         await lineReplyClient.reply(
           message.replyToken,
-          `AFTERTRACE AI 目前尚未啟用。${c.env.LIFF_APP_URL ? `\n${c.env.LIFF_APP_URL}` : ''}`,
+          `AFTERTRACE AI 目前尚未啟用。${groupLiffUrl ? `\n${groupLiffUrl}` : ''}`,
         );
       } else {
         const chat = await chatService.answer({
@@ -234,7 +243,7 @@ app.post('/webhooks/line', async (c) => {
         } else if (chat.status === 'INSUFFICIENT_ENERGY') {
           await lineReplyClient.reply(
             message.replyToken,
-            `你的 Energy 不足以安全完成這次 AI 請求。${c.env.LIFF_APP_URL ? `\n可到 AFTERTRACE 查看或補充 Energy：\n${c.env.LIFF_APP_URL}` : ''}`,
+            `你的 Energy 不足以安全完成這次 AI 請求。${groupLiffUrl ? `\n可到 AFTERTRACE 查看或補充 Energy：\n${groupLiffUrl}` : ''}`,
           );
           energyBlockedAiRequests += 1;
         } else {
