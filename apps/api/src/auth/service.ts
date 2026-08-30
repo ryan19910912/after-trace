@@ -32,28 +32,45 @@ export class WebAuthService {
     lineUserId: string;
     lineGroupId: string;
     at: Date;
-  }): Promise<string> {
-    const nonce = createAuthNonce();
-    const ttlSeconds = 300;
-    const token = await issueWebEntryToken({
-      lineUserId: input.lineUserId,
-      lineGroupId: input.lineGroupId,
-      nonce,
-      secret: this.authSecret,
-      now: input.at,
-      ttlSeconds,
-    });
-    const registered = await this.repository.registerEntry({
-      nonce,
-      lineUserId: input.lineUserId,
-      lineGroupId: input.lineGroupId,
-      expiresAt: new Date(input.at.getTime() + ttlSeconds * 1000),
-    });
-    if (!registered) throw new Error('failed to register web auth entry');
-    const url = new URL(input.webAppUrl);
-    url.searchParams.set('t', token);
-    url.searchParams.set('openExternalBrowser', '1');
-    return url.toString();
+  }): Promise<string | null> {
+    try {
+      const nonce = createAuthNonce();
+      const ttlSeconds = 300;
+      const token = await issueWebEntryToken({
+        lineUserId: input.lineUserId,
+        lineGroupId: input.lineGroupId,
+        nonce,
+        secret: this.authSecret,
+        now: input.at,
+        ttlSeconds,
+      });
+      const registered = await this.repository.registerEntry({
+        nonce,
+        lineUserId: input.lineUserId,
+        lineGroupId: input.lineGroupId,
+        expiresAt: new Date(input.at.getTime() + ttlSeconds * 1000),
+      });
+      if (!registered) {
+        console.error(JSON.stringify({
+          event: 'web_auth_entry_register_failed',
+          lineGroupId: input.lineGroupId,
+          lineUserId: input.lineUserId,
+        }));
+        return null;
+      }
+      const url = new URL(input.webAppUrl);
+      url.searchParams.set('t', token);
+      url.searchParams.set('openExternalBrowser', '1');
+      return url.toString();
+    } catch (error) {
+      console.error(JSON.stringify({
+        event: 'web_auth_entry_create_failed',
+        lineGroupId: input.lineGroupId,
+        lineUserId: input.lineUserId,
+        message: error instanceof Error ? error.message : 'unknown error',
+      }));
+      return null;
+    }
   }
 
   async exchangeBotEntry(token: string, at = new Date()): Promise<ExchangeBotEntryResult> {
