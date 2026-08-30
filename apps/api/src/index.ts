@@ -24,7 +24,6 @@ import {
 import { parseLineWebhook } from './line/events';
 import { LineMessagingReplyClient } from './line/reply';
 import { verifyLineSignature } from './line/signature';
-import { buildGroupLiffUrl } from './management/group-context';
 import { createManagementRoutes } from './management/routes';
 import { DrizzleMemoryRequestRepository } from './memory/drizzle-request-repository';
 import { ExplicitMemoryRequestService } from './memory/requests';
@@ -35,12 +34,9 @@ export type Bindings = ProductConfigEnv & {
   DATABASE_URL: string;
   LINE_CHANNEL_SECRET: string;
   LINE_CHANNEL_ACCESS_TOKEN: string;
-  LIFF_CHANNEL_ID: string;
-  LIFF_APP_URL?: string;
-  LIFF_WEB_ORIGIN?: string;
   WEB_APP_URL?: string;
   WEB_AUTH_SECRET?: string;
-  WEB_WEB_ORIGIN?: string;
+  WEB_APP_ORIGIN?: string;
   LINE_LOGIN_CHANNEL_ID?: string;
   LINE_LOGIN_CHANNEL_SECRET?: string;
   GEMINI_API_KEY: string;
@@ -106,17 +102,11 @@ app.post('/webhooks/line', async (c) => {
 
   const config = resolveProductConfig(c.env);
   const database = createDatabase(c.env.DATABASE_URL);
-  const conversationService = new ConversationIngestionService(
-    new DrizzleConversationRepository(database),
-    config,
-  );
-  const extractionCoordinator = new ConversationExtractionCoordinator(
-    new DrizzleExtractionClaimRepository(database),
-    config,
-  );
+  const conversationService = new ConversationIngestionService(new DrizzleConversationRepository(database), config);
+  const extractionCoordinator = new ConversationExtractionCoordinator(new DrizzleExtractionClaimRepository(database), config);
   const energyRepository = new DrizzleUserEnergyRepository(database);
   const backgroundEnergyRepository = new DrizzleBackgroundEnergyRepository(database);
-  const managementAppConfigured = Boolean(c.env.WEB_APP_URL?.trim() || c.env.LIFF_APP_URL?.trim());
+  const managementAppConfigured = Boolean(c.env.WEB_APP_URL?.trim());
   const energyAccessRepository = managementAppConfigured
     ? new DrizzleUserEnergyAccessRepository(database, c.env.LINE_CHANNEL_ACCESS_TOKEN)
     : null;
@@ -169,10 +159,7 @@ app.post('/webhooks/line', async (c) => {
     else storedMessages += 1;
 
     if (message.lineUserId) {
-      const free = await energyRepository.ensureLifetimeFreeForLineUser(
-        message.lineUserId,
-        config.energy.freeInitialUnits,
-      );
+      const free = await energyRepository.ensureLifetimeFreeForLineUser(message.lineUserId, config.energy.freeInitialUnits);
       if (free.status === 'GRANTED') lifetimeFreeGrants += 1;
       if (free.status === 'REFERENCE_CONFLICT') throw new Error('lifetime FREE Energy consistency failure');
     }
@@ -181,22 +168,13 @@ app.post('/webhooks/line', async (c) => {
     const explicitMemoryCommand = detectExplicitMemoryCommand(message);
     const genericAiQuestion = isAiMention(message) && !explicitMemoryCommand;
     let groupManagementUrl: string | null = null;
-    if ((deterministicCommand || genericAiQuestion) && message.lineUserId) {
-      if (webAuthService && c.env.WEB_APP_URL?.trim()) {
-        groupManagementUrl = await webAuthService.createBotEntry({
-          webAppUrl: c.env.WEB_APP_URL,
-          lineUserId: message.lineUserId,
-          lineGroupId: message.lineGroupId,
-          at: message.lineTimestamp,
-        });
-      } else if (c.env.LIFF_APP_URL?.trim()) {
-        groupManagementUrl = await buildGroupLiffUrl(
-          c.env.LIFF_APP_URL,
-          message.lineGroupId,
-          c.env.LINE_CHANNEL_SECRET,
-          message.lineTimestamp,
-        );
-      }
+    if ((deterministicCommand || genericAiQuestion) && message.lineUserId && webAuthService && c.env.WEB_APP_URL?.trim()) {
+      groupManagementUrl = await webAuthService.createBotEntry({
+        webAppUrl: c.env.WEB_APP_URL,
+        lineUserId: message.lineUserId,
+        lineGroupId: message.lineGroupId,
+        at: message.lineTimestamp,
+      });
     }
     const energyAccessService = groupManagementUrl && energyAccessRepository
       ? new UserEnergyAccessService(energyAccessRepository, groupManagementUrl)
@@ -252,10 +230,7 @@ app.post('/webhooks/line', async (c) => {
       }
 
       if (!chatService) {
-        await lineReplyClient.reply(
-          message.replyToken,
-          `AFTERTRACE AI 目前尚未啟用。${groupManagementUrl ? `\n${groupManagementUrl}` : ''}`,
-        );
+        await lineReplyClient.reply(message.replyToken, `AFTERTRACE AI 目前尚未啟用。${groupManagementUrl ? `\n${groupManagementUrl}` : ''}`);
       } else {
         const chat = await chatService.answer({
           groupId: result.groupId,
@@ -293,11 +268,7 @@ app.post('/webhooks/line', async (c) => {
     if (!claim) continue;
 
     extractionClaims += 1;
-    const participants = await backgroundEnergyRepository.listBatchParticipants(
-      result.groupId,
-      claim.id,
-      message.lineTimestamp,
-    );
+    const participants = await backgroundEnergyRepository.listBatchParticipants(result.groupId, claim.id, message.lineTimestamp);
     const preflight = backgroundPreflight(participants);
     if (preflight.status === 'SKIP_NO_ELIGIBLE_PARTICIPANT') {
       const closed = await extractionCoordinator.markNoEligibleParticipant(claim.id, message.lineTimestamp);
