@@ -17,16 +17,15 @@ type LineMemberProfile = {
 };
 
 export class DrizzleUserEnergyAccessRepository implements UserEnergyAccessRepository {
-  private readonly channelAccessToken: string;
+  private readonly channelAccessToken: string | null;
 
   constructor(
     private readonly db: Database,
-    channelAccessToken: string,
+    channelAccessToken?: string,
     private readonly fetcher: FetchLike = runtimeFetch,
   ) {
-    const token = channelAccessToken.trim();
-    if (!token) throw new Error('LINE channel access token must not be empty');
-    this.channelAccessToken = token;
+    const token = channelAccessToken?.trim() ?? '';
+    this.channelAccessToken = token || null;
   }
 
   async findCaller(lineUserId: string, at: Date): Promise<CallerEnergySnapshot | null> {
@@ -56,7 +55,7 @@ export class DrizzleUserEnergyAccessRepository implements UserEnergyAccessReposi
 
   async listGroupMemberAvailability(
     groupId: number,
-    _callerLineUserId: string,
+    callerLineUserId: string,
     at: Date,
   ): Promise<GroupEnergyMemberStatus[]> {
     const result = await this.db.execute(sql`
@@ -82,24 +81,32 @@ export class DrizzleUserEnergyAccessRepository implements UserEnergyAccessReposi
 
     const rows = result.rows as GroupMemberRow[];
     return Promise.all(rows.map(async (row) => ({
-      displayName: await this.memberDisplayName(row.line_group_id, row.line_user_id),
+      displayName: await this.memberDisplayName(row.line_group_id, row.line_user_id, callerLineUserId),
       usable: Boolean(row.usable),
     })));
   }
 
-  private async memberDisplayName(lineGroupId: string, lineUserId: string): Promise<string> {
+  private async memberDisplayName(
+    lineGroupId: string,
+    lineUserId: string,
+    callerLineUserId: string,
+  ): Promise<string> {
+    if (!this.channelAccessToken) {
+      return lineUserId === callerLineUserId ? '你' : 'LINE 使用者';
+    }
+
     try {
       const response = await this.fetcher(
         `https://api.line.me/v2/bot/group/${encodeURIComponent(lineGroupId)}/member/${encodeURIComponent(lineUserId)}`,
         { headers: { Authorization: `Bearer ${this.channelAccessToken}` } },
       );
-      if (!response.ok) return 'LINE 使用者';
+      if (!response.ok) return lineUserId === callerLineUserId ? '你' : 'LINE 使用者';
       const profile = (await response.json()) as LineMemberProfile;
       return typeof profile.displayName === 'string' && profile.displayName.trim()
         ? profile.displayName.trim().slice(0, 100)
-        : 'LINE 使用者';
+        : lineUserId === callerLineUserId ? '你' : 'LINE 使用者';
     } catch {
-      return 'LINE 使用者';
+      return lineUserId === callerLineUserId ? '你' : 'LINE 使用者';
     }
   }
 }
