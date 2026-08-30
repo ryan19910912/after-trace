@@ -11,13 +11,14 @@ The product is being rebuilt from its retired LINE/AI memory-assistant prototype
 - React + Vite on Cloudflare Pages
 - PostgreSQL on Neon + Drizzle ORM
 - Public source adapters for venue/slot availability
+- Cloudflare Cron polling with bounded target claiming
 - Web Push for Radar notifications (next implementation phase)
 
 ## Workspace
 
 ```text
 apps/
-  api/       public availability API + future scheduler/source sync
+  api/       public availability API + source sync + polling scheduler
   web/       mobile-first search/PWA
 packages/
   shared/    shared availability domain types
@@ -47,7 +48,9 @@ pnpm db:schema:check
 
 - `GET /health`
 - `GET /api/v1/sports`
-- `GET /api/v1/venues? sport=...`
+- `GET /api/v1/venues?sport=...`
 - `GET /api/v1/availability?sport=...&venueId=...&district=...&date=...&start=...&end=...`
+
+The Worker cron runs every minute, but poll targets default to a five-minute interval and are claimed in bounded batches. Launch synchronization is badminton-first; additional sports stay behind the generic source/domain model until live per-venue coverage is verified.
 
 See `docs/REBUILD_PROGRESS.md` for the exact implementation status and next work batch.
