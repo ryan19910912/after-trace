@@ -12,6 +12,19 @@ export type WebGroup = {
   name: string;
 };
 
+export type WebGroupMemory = {
+  id: number;
+  groupId: number;
+  lineGroupId: string;
+  groupName: string;
+  category: string;
+  subject: string | null;
+  content: string;
+  sourceMessageId: string | null;
+  sourceLineTimestamp: string | null;
+  updatedAt: string;
+};
+
 type ExchangeBotEntryResult =
   | { status: 'AUTHORIZED'; sessionToken: string; lineUserId: string; lineGroupId: string }
   | { status: 'INVALID_OR_EXPIRED' }
@@ -110,6 +123,13 @@ export class WebAuthService {
     const groups = await this.repository.listActiveGroups(lineUserId);
     const visible: WebGroup[] = [];
     for (const group of groups) {
+      const memberResponse = await this.fetcher(
+        `https://api.line.me/v2/bot/group/${encodeURIComponent(group.lineGroupId)}/member/${encodeURIComponent(lineUserId)}`,
+        { headers: { Authorization: `Bearer ${this.channelAccessToken}` } },
+      );
+      if (memberResponse.status === 404) continue;
+      if (!memberResponse.ok) throw new Error('LINE_GROUP_MEMBER_UNAVAILABLE');
+
       const summaryResponse = await this.fetcher(
         `https://api.line.me/v2/bot/group/${encodeURIComponent(group.lineGroupId)}/summary`,
         { headers: { Authorization: `Bearer ${this.channelAccessToken}` } },
@@ -127,5 +147,17 @@ export class WebAuthService {
       });
     }
     return visible;
+  }
+
+  async searchMemories(lineUserId: string, query?: string | null): Promise<WebGroupMemory[]> {
+    const normalizedQuery = query?.trim() || null;
+    if (normalizedQuery && normalizedQuery.length > 200) throw new Error('QUERY_TOO_LONG');
+    const groups = await this.listGroups(lineUserId);
+    const groupNameById = new Map(groups.map((group) => [group.id, group.name]));
+    const rows = await this.repository.listGroupMemories(groups.map((group) => group.id), normalizedQuery, 200);
+    return rows.map((memory) => ({
+      ...memory,
+      groupName: groupNameById.get(memory.groupId) ?? 'LINE 群組',
+    }));
   }
 }
