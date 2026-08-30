@@ -13,10 +13,10 @@ import {
   type WatchRule,
 } from './api';
 import {
-  currentPushEnabled,
   disableWebPush,
   enableWebPush,
   ensureRadarIdentity,
+  reconcileWebPush,
   syncServiceWorkerIdentity,
 } from './pwa';
 
@@ -87,7 +87,7 @@ export function App({ apiBaseUrl }: Props) {
         await syncServiceWorkerIdentity(token, apiBaseUrl);
         const [rules, enabled] = await Promise.all([
           fetchWatchRules(apiBaseUrl, token),
-          currentPushEnabled(),
+          reconcileWebPush(apiBaseUrl, token).catch(() => false),
         ]);
         if (cancelled) return;
         setWatches(rules);
