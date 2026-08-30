@@ -3,11 +3,13 @@ import { cors } from 'hono/cors';
 import { createAvailabilityRoutes } from './availability/routes';
 import { createIdentityRoutes } from './auth/routes';
 import { createDatabase } from './db/client';
+import { sports } from './db/schema';
 import type { Bindings } from './env';
 import { WebPushDispatcher } from './notifications/dispatcher';
 import { DrizzleNotificationRepository } from './notifications/repository';
 import { createNotificationRoutes } from './notifications/routes';
 import { PollingOrchestrator } from './polling/orchestrator';
+import { evaluateRuntimeReadiness } from './readiness';
 import { createDefaultSourceRegistry } from './sources/registry';
 import { DrizzleAvailabilitySyncRepository } from './sources/sync-repository';
 import { SourceSynchronizationService } from './sources/sync-service';
@@ -22,6 +24,17 @@ app.use('/api/*', cors({
   allowHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key'],
 }));
 app.get('/health', (c) => c.json({ service: 'after-trace-api', product: 'sports-availability-radar', status: 'ok' }));
+app.get('/ready', async (c) => {
+  const databaseUrl = c.env.DATABASE_URL?.trim();
+  const readiness = await evaluateRuntimeReadiness(c.env, async () => {
+    if (!databaseUrl) throw new Error('DATABASE_NOT_CONFIGURED');
+    const database = createDatabase(databaseUrl);
+    await database.select({ id: sports.id }).from(sports).limit(1);
+  });
+
+  if (readiness.status === 'ready') return c.json(readiness, 200);
+  return c.json(readiness, 503);
+});
 app.route('/api/v1', createAvailabilityRoutes());
 app.route('/api/v1/session', createIdentityRoutes());
 app.route('/api/v1/watch-rules', createWatchRoutes());
