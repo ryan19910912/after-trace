@@ -30,17 +30,38 @@ export class DrizzleMemoryRequestRepository
   ): Promise<MemoryRequestResult> {
     const result = await this.db.execute(sql`
       WITH command_message AS (
-        SELECT id
+        SELECT id, line_message_id
         FROM conversation_messages
         WHERE group_id = ${input.groupId}
           AND line_message_id = ${input.requestLineMessageId}
         LIMIT 1
       ),
-      source_message AS (
-        SELECT id
+      direct_source AS (
+        SELECT id, line_message_id
         FROM conversation_messages
         WHERE group_id = ${input.groupId}
           AND line_message_id = ${input.sourceLineMessageId}
+        LIMIT 1
+      ),
+      recent_image AS (
+        SELECT id, line_message_id
+        FROM conversation_messages
+        WHERE group_id = ${input.groupId}
+          AND message_type = 'image'
+          AND line_timestamp <= ${input.createdAt}
+          AND line_timestamp >= ${new Date(input.createdAt.getTime() - 5 * 60_000)}
+          AND line_message_id <> ${input.requestLineMessageId}
+        ORDER BY line_timestamp DESC, id DESC
+        LIMIT 1
+      ),
+      source_message AS (
+        SELECT id, line_message_id
+        FROM recent_image
+        WHERE ${input.preferRecentImage} = TRUE
+        UNION ALL
+        SELECT id, line_message_id
+        FROM direct_source
+        WHERE NOT EXISTS (SELECT 1 FROM recent_image WHERE ${input.preferRecentImage} = TRUE)
         LIMIT 1
       )
       INSERT INTO memory_candidate_requests (
@@ -58,15 +79,13 @@ export class DrizzleMemoryRequestRepository
       SELECT
         ${input.groupId},
         'EXPLICIT',
-        CASE
-          WHEN ${input.instruction} IS NULL
-            AND NOT EXISTS (SELECT 1 FROM source_message)
-            THEN 'BLOCKED_SOURCE_MISSING'
+        CASE WHEN NOT EXISTS (SELECT 1 FROM source_message)
+          THEN 'BLOCKED_SOURCE_MISSING'
           ELSE 'PENDING'
         END,
         ${input.requestLineMessageId},
         ${input.actorLineUserId},
-        ${input.sourceLineMessageId},
+        COALESCE((SELECT line_message_id FROM source_message), ${input.sourceLineMessageId}),
         (SELECT id FROM source_message),
         ${input.instruction},
         ${input.createdAt},
@@ -78,27 +97,19 @@ export class DrizzleMemoryRequestRepository
     `);
 
     const row = result.rows[0] as RequestRow | undefined;
-    if (!row) {
-      throw new Error('explicit memory command message was not found in the conversation buffer');
-    }
-    return {
-      id: Number(row.id),
-      status: row.status,
-      sourceLineMessageId: row.source_line_message_id,
-    };
+    if (!row) throw new Error('explicit memory command message was not found in the conversation buffer');
+    return { id: Number(row.id), status: row.status, sourceLineMessageId: row.source_line_message_id };
   }
 
   async createAutomatic(
     input: Parameters<AutomaticMemoryRequestRepository['createAutomatic']>[0],
   ): Promise<AutomaticMemoryRequest> {
-    const subjectJson = JSON.stringify(
-      input.eligibleSubjects.map((subject) => ({
-        userId: subject.userId,
-        lineUserId: subject.lineUserId,
-        normalizedCharCount: subject.normalizedCharCount,
-        preflightAvailableUnits: subject.preflightAvailableUnits.toString(),
-      })),
-    );
+    const subjectJson = JSON.stringify(input.eligibleSubjects.map((subject) => ({
+      userId: subject.userId,
+      lineUserId: subject.lineUserId,
+      normalizedCharCount: subject.normalizedCharCount,
+      preflightAvailableUnits: subject.preflightAvailableUnits.toString(),
+    })));
 
     const result = await this.db.execute(sql`
       WITH extraction_batch AS MATERIALIZED (
@@ -117,36 +128,18 @@ export class DrizzleMemoryRequestRepository
       ),
       inserted_request AS (
         INSERT INTO memory_candidate_requests (
-          group_id,
-          origin,
-          status,
-          extraction_batch_id,
-          created_at,
-          updated_at
+          group_id, origin, status, extraction_batch_id, created_at, updated_at
         )
-        SELECT
-          batch.group_id,
-          'AUTOMATIC',
-          'PENDING',
-          batch.id,
-          ${input.createdAt},
-          ${input.createdAt}
+        SELECT batch.group_id, 'AUTOMATIC', 'PENDING', batch.id, ${input.createdAt}, ${input.createdAt}
         FROM extraction_batch batch
         WHERE NOT EXISTS (SELECT 1 FROM existing_key)
         RETURNING id, group_id, extraction_batch_id, status
       ),
       inserted_key AS (
         INSERT INTO automatic_memory_request_keys (
-          extraction_batch_id,
-          request_id,
-          group_id,
-          created_at
+          extraction_batch_id, request_id, group_id, created_at
         )
-        SELECT
-          request.extraction_batch_id,
-          request.id,
-          request.group_id,
-          ${input.createdAt}
+        SELECT request.extraction_batch_id, request.id, request.group_id, ${input.createdAt}
         FROM inserted_request request
         RETURNING request_id
       ),
@@ -161,24 +154,12 @@ export class DrizzleMemoryRequestRepository
       ),
       inserted_subjects AS (
         INSERT INTO automatic_memory_eligible_subjects (
-          request_id,
-          extraction_batch_id,
-          group_id,
-          user_id,
-          line_user_id,
-          normalized_char_count,
-          preflight_available_units,
-          created_at
+          request_id, extraction_batch_id, group_id, user_id, line_user_id,
+          normalized_char_count, preflight_available_units, created_at
         )
-        SELECT
-          request.id,
-          request.extraction_batch_id,
-          request.group_id,
-          subject."userId",
-          subject."lineUserId",
-          subject."normalizedCharCount",
-          subject."preflightAvailableUnits"::bigint,
-          ${input.createdAt}
+        SELECT request.id, request.extraction_batch_id, request.group_id,
+          subject."userId", subject."lineUserId", subject."normalizedCharCount",
+          subject."preflightAvailableUnits"::bigint, ${input.createdAt}
         FROM inserted_request request
         CROSS JOIN subjects subject
         ON CONFLICT DO NOTHING
@@ -194,20 +175,14 @@ export class DrizzleMemoryRequestRepository
         JOIN inserted_key key ON key.request_id = request.id
         WHERE (SELECT COUNT(*) FROM inserted_subjects) = ${input.eligibleSubjects.length}
       )
-      SELECT
-        id::text AS id,
-        group_id::text AS group_id,
-        extraction_batch_id::text AS extraction_batch_id,
-        status,
-        created
+      SELECT id::text AS id, group_id::text AS group_id,
+        extraction_batch_id::text AS extraction_batch_id, status, created
       FROM selected_request
       LIMIT 1
     `);
 
     const row = result.rows[0] as AutomaticRequestRow | undefined;
-    if (!row) {
-      throw new Error('automatic memory request and eligible subjects could not be persisted atomically');
-    }
+    if (!row) throw new Error('automatic memory request and eligible subjects could not be persisted atomically');
     return {
       id: Number(row.id),
       groupId: Number(row.group_id),
