@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { createDatabase } from '../db/client';
 import { issueGroupContextToken } from '../management/group-context';
 import { issueLineLoginState, verifyLineLoginState } from './oauth-state';
+import { createPkceChallenge, createPkceVerifier } from './pkce';
 import { DrizzleWebAuthRepository } from './repository';
 import { WebAuthService } from './service';
 import { issueWebSessionToken, verifyWebSessionToken } from './token';
@@ -27,6 +28,8 @@ type LineProfile = {
   userId?: unknown;
 };
 
+const OAUTH_COOKIE = 'aftertrace_line_oauth';
+
 function authSecret(env: WebAuthBindings): string | null {
   const value = env.WEB_AUTH_SECRET?.trim();
   return value && value.length >= 32 ? value : null;
@@ -45,6 +48,26 @@ function lineLoginConfig(env: WebAuthBindings): { channelId: string; channelSecr
   const channelSecret = env.LINE_LOGIN_CHANNEL_SECRET?.trim();
   const webAppUrl = env.WEB_APP_URL?.trim();
   return channelId && channelSecret && webAppUrl ? { channelId, channelSecret, webAppUrl } : null;
+}
+
+function cookieValue(header: string | undefined, name: string): string | null {
+  if (!header) return null;
+  for (const part of header.split(';')) {
+    const [key, ...rest] = part.trim().split('=');
+    if (key === name) {
+      try {
+        return decodeURIComponent(rest.join('='));
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+function oauthCookie(value: string, requestUrl: string, maxAge: number): string {
+  const secure = new URL(requestUrl).protocol === 'https:' ? '; Secure' : '';
+  return `${OAUTH_COOKIE}=${encodeURIComponent(value)}; Path=/api/v1/auth/line; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure}`;
 }
 
 export function createWebAuthRoutes() {
@@ -80,12 +103,17 @@ export function createWebAuthRoutes() {
     const config = lineLoginConfig(c.env);
     if (!secret || !config) return c.json({ ok: false, error: 'LINE_LOGIN_NOT_CONFIGURED' }, 503);
     const redirectUri = new URL('/api/v1/auth/line/callback', c.req.url).toString();
+    const state = await issueLineLoginState(secret);
+    const verifier = createPkceVerifier();
     const authorizeUrl = new URL('https://access.line.me/oauth2/v2.1/authorize');
     authorizeUrl.searchParams.set('response_type', 'code');
     authorizeUrl.searchParams.set('client_id', config.channelId);
     authorizeUrl.searchParams.set('redirect_uri', redirectUri);
-    authorizeUrl.searchParams.set('state', await issueLineLoginState(secret));
+    authorizeUrl.searchParams.set('state', state);
     authorizeUrl.searchParams.set('scope', 'profile openid');
+    authorizeUrl.searchParams.set('code_challenge', await createPkceChallenge(verifier));
+    authorizeUrl.searchParams.set('code_challenge_method', 'S256');
+    c.header('Set-Cookie', oauthCookie(`${state}|${verifier}`, c.req.url, 600));
     return c.redirect(authorizeUrl.toString(), 302);
   });
 
@@ -95,7 +123,19 @@ export function createWebAuthRoutes() {
     if (!secret || !config) return c.json({ ok: false, error: 'LINE_LOGIN_NOT_CONFIGURED' }, 503);
     const code = c.req.query('code')?.trim();
     const state = c.req.query('state')?.trim();
-    if (!code || !state || !(await verifyLineLoginState(state, secret))) {
+    const stored = cookieValue(c.req.header('cookie'), OAUTH_COOKIE);
+    c.header('Set-Cookie', oauthCookie('', c.req.url, 0));
+    const separator = stored?.lastIndexOf('|') ?? -1;
+    const storedState = separator > 0 ? stored!.slice(0, separator) : null;
+    const verifier = separator > 0 ? stored!.slice(separator + 1) : null;
+    if (
+      !code ||
+      !state ||
+      !storedState ||
+      state !== storedState ||
+      !verifier ||
+      !(await verifyLineLoginState(state, secret))
+    ) {
       return c.json({ ok: false, error: 'INVALID_LINE_LOGIN_CALLBACK' }, 400);
     }
 
@@ -109,6 +149,7 @@ export function createWebAuthRoutes() {
         redirect_uri: redirectUri,
         client_id: config.channelId,
         client_secret: config.channelSecret,
+        code_verifier: verifier,
       }),
     });
     if (!tokenResponse.ok) return c.json({ ok: false, error: 'LINE_LOGIN_EXCHANGE_FAILED' }, 502);
