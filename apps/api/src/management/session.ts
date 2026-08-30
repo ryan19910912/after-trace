@@ -2,19 +2,11 @@ import { sql } from 'drizzle-orm';
 import { verifyWebSessionToken } from '../auth/token';
 import type { Database } from '../db/client';
 
-export type UserSession = {
-  lineUserId: string;
-};
+export type UserSession = { lineUserId: string };
 
 export type UserSessionResult =
   | { status: 'AUTHORIZED'; session: UserSession }
-  | {
-      status:
-        | 'MISSING_BEARER_TOKEN'
-        | 'INVALID_USER_TOKEN'
-        | 'WRONG_LIFF_CHANNEL'
-        | 'LINE_VERIFICATION_UNAVAILABLE';
-    };
+  | { status: 'MISSING_BEARER_TOKEN' | 'INVALID_USER_TOKEN' };
 
 export type GroupSession = UserSession & {
   groupId: number;
@@ -27,31 +19,13 @@ export type GroupSessionResult =
       status:
         | 'MISSING_BEARER_TOKEN'
         | 'INVALID_USER_TOKEN'
-        | 'WRONG_LIFF_CHANNEL'
         | 'GROUP_NOT_FOUND'
         | 'GROUP_INACTIVE'
         | 'NOT_GROUP_MEMBER'
         | 'LINE_VERIFICATION_UNAVAILABLE';
     };
 
-export type LiffUserSession = UserSession;
-export type LiffUserSessionResult = UserSessionResult;
-export type LiffGroupSession = GroupSession;
-export type LiffGroupSessionResult = GroupSessionResult;
-
-type GroupRow = {
-  id: string;
-  status: 'ACTIVE' | 'INACTIVE';
-};
-
-type LineProfile = { userId?: unknown };
-type TokenVerification = {
-  client_id?: unknown;
-  expires_in?: unknown;
-};
-
-const LINE_PROFILE_URL = 'https://api.line.me/v2/profile';
-const LINE_VERIFY_URL = 'https://api.line.me/oauth2/v2.1/verify';
+type GroupRow = { id: string; status: 'ACTIVE' | 'INACTIVE' };
 const runtimeFetch: typeof fetch = (input, init) => fetch(input, init);
 
 export function bearerToken(header: string | undefined): string | null {
@@ -64,54 +38,8 @@ export function bearerToken(header: string | undefined): string | null {
 
 function boundedLineId(value: string, name: string): string {
   const normalized = value.trim();
-  if (!normalized || normalized.length > 64) {
-    throw new Error(`${name} must contain 1-64 characters`);
-  }
+  if (!normalized || normalized.length > 64) throw new Error(`${name} must contain 1-64 characters`);
   return normalized;
-}
-
-function providerUnavailable(status: number): boolean {
-  return status === 429 || status >= 500;
-}
-
-async function resolveVerifiedLineUser(input: {
-  authorizationHeader: string | undefined;
-  liffChannelId: string;
-  fetcher: typeof fetch;
-}): Promise<UserSessionResult> {
-  const token = bearerToken(input.authorizationHeader);
-  if (!token) return { status: 'MISSING_BEARER_TOKEN' };
-
-  const expectedChannelId = input.liffChannelId.trim();
-  if (!expectedChannelId) throw new Error('LIFF_CHANNEL_ID is required');
-
-  const verificationResponse = await input.fetcher(
-    `${LINE_VERIFY_URL}?access_token=${encodeURIComponent(token)}`,
-  );
-  if (providerUnavailable(verificationResponse.status)) {
-    return { status: 'LINE_VERIFICATION_UNAVAILABLE' };
-  }
-  if (!verificationResponse.ok) return { status: 'INVALID_USER_TOKEN' };
-  const verification = (await verificationResponse.json()) as TokenVerification;
-  if (verification.client_id !== expectedChannelId) return { status: 'WRONG_LIFF_CHANNEL' };
-  if (typeof verification.expires_in !== 'number' || verification.expires_in <= 0) {
-    return { status: 'INVALID_USER_TOKEN' };
-  }
-
-  const profileResponse = await input.fetcher(LINE_PROFILE_URL, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (providerUnavailable(profileResponse.status)) {
-    return { status: 'LINE_VERIFICATION_UNAVAILABLE' };
-  }
-  if (!profileResponse.ok) return { status: 'INVALID_USER_TOKEN' };
-
-  const profile = (await profileResponse.json()) as LineProfile;
-  if (typeof profile.userId !== 'string') return { status: 'INVALID_USER_TOKEN' };
-  return {
-    status: 'AUTHORIZED',
-    session: { lineUserId: boundedLineId(profile.userId, 'lineUserId') },
-  };
 }
 
 async function resolveGroupSession(input: {
@@ -141,11 +69,7 @@ async function resolveGroupSession(input: {
 
   return {
     status: 'AUTHORIZED',
-    session: {
-      groupId: Number(group.id),
-      lineGroupId,
-      lineUserId: input.lineUserId,
-    },
+    session: { groupId: Number(group.id), lineGroupId, lineUserId: input.lineUserId },
   };
 }
 
@@ -170,55 +94,8 @@ export class LineWebGroupSessionVerifier {
     private readonly fetcher: typeof fetch = runtimeFetch,
   ) {}
 
-  async verify(
-    authorizationHeader: string | undefined,
-    lineGroupIdInput: string,
-  ): Promise<GroupSessionResult> {
+  async verify(authorizationHeader: string | undefined, lineGroupIdInput: string): Promise<GroupSessionResult> {
     const verified = await new LineWebUserSessionVerifier(this.webAuthSecret).verify(authorizationHeader);
-    if (verified.status !== 'AUTHORIZED') return verified;
-    return resolveGroupSession({
-      db: this.db,
-      channelAccessToken: this.channelAccessToken,
-      lineUserId: verified.session.lineUserId,
-      lineGroupIdInput,
-      fetcher: this.fetcher,
-    });
-  }
-}
-
-export class LineLiffUserSessionVerifier {
-  constructor(
-    private readonly liffChannelId: string,
-    private readonly fetcher: typeof fetch = runtimeFetch,
-  ) {}
-
-  verify(authorizationHeader: string | undefined): Promise<UserSessionResult> {
-    return resolveVerifiedLineUser({
-      authorizationHeader,
-      liffChannelId: this.liffChannelId,
-      fetcher: this.fetcher,
-    });
-  }
-}
-
-/** Legacy verifier retained only during the LIFF-to-Web migration. */
-export class LineLiffGroupSessionVerifier {
-  constructor(
-    private readonly db: Database,
-    private readonly channelAccessToken: string,
-    private readonly liffChannelId: string,
-    private readonly fetcher: typeof fetch = runtimeFetch,
-  ) {}
-
-  async verify(
-    authorizationHeader: string | undefined,
-    lineGroupIdInput: string,
-  ): Promise<GroupSessionResult> {
-    const verified = await resolveVerifiedLineUser({
-      authorizationHeader,
-      liffChannelId: this.liffChannelId,
-      fetcher: this.fetcher,
-    });
     if (verified.status !== 'AUTHORIZED') return verified;
     return resolveGroupSession({
       db: this.db,
