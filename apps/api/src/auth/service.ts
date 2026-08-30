@@ -55,14 +55,6 @@ export class WebAuthService {
     const claims = await verifyWebEntryToken(token, this.authSecret, at);
     if (!claims) return { status: 'INVALID_OR_EXPIRED' };
 
-    const consumed = await this.repository.consumeEntry({
-      nonce: claims.nonce,
-      lineUserId: claims.lineUserId,
-      lineGroupId: claims.lineGroupId,
-      at,
-    });
-    if (!consumed) return { status: 'ALREADY_USED' };
-
     const member = await this.fetcher(
       `https://api.line.me/v2/bot/group/${encodeURIComponent(claims.lineGroupId)}/member/${encodeURIComponent(claims.lineUserId)}`,
       { headers: { Authorization: `Bearer ${this.channelAccessToken}` } },
@@ -71,6 +63,14 @@ export class WebAuthService {
     if (!member.ok) return { status: 'LINE_UNAVAILABLE' };
     const profile = (await member.json()) as LineMemberProfile;
     if (profile.userId !== claims.lineUserId) return { status: 'NOT_GROUP_MEMBER' };
+
+    const consumed = await this.repository.consumeEntry({
+      nonce: claims.nonce,
+      lineUserId: claims.lineUserId,
+      lineGroupId: claims.lineGroupId,
+      at,
+    });
+    if (!consumed) return { status: 'ALREADY_USED' };
 
     return {
       status: 'AUTHORIZED',
