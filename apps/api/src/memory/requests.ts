@@ -16,6 +16,7 @@ export interface MemoryRequestRepository {
     actorLineUserId: string | null;
     sourceLineMessageId: string;
     instruction: string | null;
+    preferRecentImage: boolean;
     createdAt: Date;
   }): Promise<MemoryRequestResult>;
 }
@@ -36,13 +37,18 @@ export class ExplicitMemoryRequestService {
       throw new Error('groupId must be a positive safe integer');
     }
 
+    const instruction = command.instruction?.trim() || null;
+    const preferRecentImage =
+      command.quotedLineMessageId === null &&
+      Boolean(instruction && /(?:圖片|照片|截圖|這張|行程|訂單|機票|車票)/.test(instruction));
     const sourceLineMessageId = command.quotedLineMessageId ?? message.lineMessageId;
     return this.repository.createExplicit({
       groupId,
       requestLineMessageId: message.lineMessageId,
       actorLineUserId: message.lineUserId,
       sourceLineMessageId,
-      instruction: command.instruction?.trim() || null,
+      instruction,
+      preferRecentImage,
       createdAt: message.lineTimestamp,
     });
   }
