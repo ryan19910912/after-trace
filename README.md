@@ -1,50 +1,38 @@
 # AFTERTRACE
 
-LINE-first shared life memory assistant.
+AFTERTRACE is being rebuilt as a public sports venue availability search + radar product.
 
-AFTERTRACE observes supported messages in a LINE group, keeps only a bounded recent conversation buffer, extracts useful long-term group memories with AI, and provides a LIFF interface for search and management.
+The previous LINE-first AI memory assistant product is retired. Old LINE group, AI memory, Energy/commerce, reminder and proactive-push code is being removed rather than retained as compatibility debt.
 
-## V1 stack
+## V1 product
+
+- Search supported public sports venues for available booking slots.
+- Start with Taipei and slot-based sports where booking pain is high, led by badminton.
+- Normalize different official booking sources behind source adapters.
+- Let users create watches by sport, venue/area, date/day-of-week and time window.
+- Poll watched targets in the background and notify users when a matching slot becomes available.
+- Send users back to the official booking channel; V1 does not book or pay on their behalf.
+- No AI is required for V1.
+- Web/PWA first.
+
+## Target stack
 
 - TypeScript + pnpm monorepo
 - Hono on Cloudflare Workers
-- React + Vite LIFF on Cloudflare Pages
+- React + Vite on Cloudflare Pages
 - PostgreSQL on Neon + Drizzle ORM
-- Gemini 2.5 Flash-Lite Standard
-- LINE Messaging API / LIFF
+- Cloudflare Cron Triggers for polling
+- Web Push for the primary radar notification channel
 
-V1 intentionally does not use Redis or object storage.
+Redis is not required for V1 unless later scale/locking requirements justify it.
 
-## Workspace
+## Rebuild status
 
-```text
-apps/
-  api/      Hono Cloudflare Worker
-  web/      React/Vite LIFF
-packages/
-  shared/   shared domain types/schemas
-docs/
-  PRODUCT_V1.md
-  ARCHITECTURE.md
-  AI_SAFETY.md
-  DEVELOPMENT_PROGRESS.md
-drizzle/    generated migrations
-```
+The repository is currently undergoing a deliberate cleanup/rebuild from the old product. Do not use stale old-product modules as architectural precedent.
 
-## Local setup
+Read these two files before making rebuild changes:
 
-Requirements: Node.js 22+ and pnpm 10+.
+- `docs/REBUILD_PLAN.md` — complete keep/remove/rebuild plan and target architecture.
+- `docs/REBUILD_PROGRESS.md` — durable progress handoff, completed work and next batch.
 
-```bash
-pnpm install
-cp .env.example .env
-pnpm typecheck
-pnpm test
-pnpm build
-```
-
-Cloudflare Worker secrets must be configured separately for deployment; never commit production credentials. Billable AI additionally requires explicit provider pricing/FX and a global free-AI budget ceiling; see `docs/AI_SAFETY.md`.
-
-## Development status
-
-See `docs/DEVELOPMENT_PROGRESS.md`. Scheduled development rounds must read that file and the current repository state before choosing the next work item.
+Scheduled development rounds must read the latest `main` plus both files before choosing work, then update `REBUILD_PROGRESS.md` before finishing.
