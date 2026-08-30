@@ -12,6 +12,8 @@ $WorkerUrl = 'https://after-trace-api.a0955625660.workers.dev'
 $PagesUrl = 'https://after-trace.pages.dev'
 $PagesProject = 'after-trace'
 $LiffId = '2011322889-AU0teTPM'
+$WranglerCmd = Join-Path $RepoRoot 'apps\api\node_modules\.bin\wrangler.cmd'
+$PagesDist = Join-Path $RepoRoot 'apps\web\dist'
 
 function Write-Step([string]$Message) {
     Write-Host ''
@@ -84,11 +86,14 @@ try {
     }
 
     Invoke-CommandChecked 'Deploy Cloudflare Pages' {
-        pnpm --filter @aftertrace/api exec wrangler pages deploy ../web/dist --project-name=$PagesProject --branch=main
+        if (-not (Test-Path $WranglerCmd)) {
+            throw "Wrangler executable not found: $WranglerCmd"
+        }
+        & $WranglerCmd pages deploy $PagesDist --project-name=$PagesProject --branch=main
     }
 
     Write-Step 'Verify Pages'
-    $response = Invoke-WebRequest $PagesUrl -Method Get
+    $response = Invoke-WebRequest $PagesUrl -Method Get -UseBasicParsing
     if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 400) {
         throw "Pages check failed with HTTP $($response.StatusCode)"
     }
