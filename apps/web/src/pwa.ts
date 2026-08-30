@@ -35,9 +35,34 @@ function base64UrlToArrayBuffer(value: string): ArrayBuffer {
   return copy.buffer;
 }
 
+export function applicationServerKeyMatches(
+  subscriptionKey: ArrayBuffer | null,
+  publicKey: string,
+): boolean {
+  if (!subscriptionKey || !publicKey) return false;
+  let expected: Uint8Array;
+  try {
+    expected = new Uint8Array(base64UrlToArrayBuffer(publicKey));
+  } catch {
+    return false;
+  }
+  const actual = new Uint8Array(subscriptionKey);
+  if (actual.byteLength !== expected.byteLength) return false;
+  return actual.every((value, index) => value === expected[index]);
+}
+
 async function postServiceWorkerContext(registration: ServiceWorkerRegistration, token: string, apiBaseUrl: string) {
   const worker = registration.active ?? registration.waiting ?? registration.installing;
   worker?.postMessage({ type: 'SET_AFTERTRACE_CONTEXT', token, apiBaseUrl });
+}
+
+async function deactivateServerSubscriptionBestEffort(apiBaseUrl: string, token: string, endpoint: string) {
+  try {
+    await deactivatePushSubscription(apiBaseUrl, token, endpoint);
+  } catch {
+    // A browser-side unsubscribe makes the old endpoint unusable. If the API is
+    // temporarily unavailable, a later dispatcher will also retire it on 404/410.
+  }
 }
 
 export function prepareWebPush(apiBaseUrl: string): Promise<PushConfig> {
@@ -104,6 +129,16 @@ export async function enableWebPush(apiBaseUrl: string, token: string): Promise<
   await postServiceWorkerContext(registration, token, apiBaseUrl);
 
   let subscription = await registration.pushManager.getSubscription();
+  if (
+    subscription
+    && !applicationServerKeyMatches(subscription.options.applicationServerKey, config.applicationServerKey)
+  ) {
+    const oldEndpoint = subscription.endpoint;
+    await subscription.unsubscribe();
+    await deactivateServerSubscriptionBestEffort(apiBaseUrl, token, oldEndpoint);
+    subscription = null;
+  }
+
   if (!subscription) {
     subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
@@ -119,12 +154,44 @@ export async function disableWebPush(apiBaseUrl: string, token: string): Promise
   const registration = await ensureServiceWorker();
   const subscription = await registration?.pushManager.getSubscription();
   if (!subscription) return;
-  await deactivatePushSubscription(apiBaseUrl, token, subscription.endpoint);
+
+  const endpoint = subscription.endpoint;
+  // Local unsubscribe is authoritative for the user's opt-out. Do it before
+  // the API call so a transient backend error cannot leave notifications on.
   await subscription.unsubscribe();
+  await deactivateServerSubscriptionBestEffort(apiBaseUrl, token, endpoint);
 }
 
-export async function currentPushEnabled(): Promise<boolean> {
-  if (!('Notification' in window) || Notification.permission !== 'granted') return false;
-  const registration = await ensureServiceWorker();
-  return Boolean(await registration?.pushManager.getSubscription());
+export async function reconcileWebPush(apiBaseUrl: string, token: string): Promise<boolean> {
+  if (
+    !('Notification' in window)
+    || Notification.permission !== 'granted'
+    || !('PushManager' in window)
+    || !('serviceWorker' in navigator)
+  ) {
+    return false;
+  }
+
+  const [registration, config] = await Promise.all([
+    ensureServiceWorker(),
+    prepareWebPush(apiBaseUrl),
+  ]);
+  if (!registration || !config.configured || !config.applicationServerKey) return false;
+
+  const subscription = await registration.pushManager.getSubscription();
+  if (!subscription) return false;
+
+  // A VAPID rotation invalidates an existing subscription for the new sender
+  // key. Re-subscribing should stay behind an explicit user gesture, so startup
+  // reports disabled instead of silently attempting a new subscription.
+  if (!applicationServerKeyMatches(subscription.options.applicationServerKey, config.applicationServerKey)) {
+    return false;
+  }
+
+  await postServiceWorkerContext(registration, token, apiBaseUrl);
+  // Re-upsert the browser subscription on every successful reconciliation. It
+  // repairs a fresh/reset database and reactivates an endpoint that was
+  // previously marked gone without asking the user to toggle notifications.
+  await registerPushSubscription(apiBaseUrl, token, subscription.toJSON());
+  return true;
 }
