@@ -5,20 +5,13 @@ import { DrizzleUserReminderRepository } from '../reminders/drizzle-user-reposit
 import { UserReminderService } from '../reminders/user-service';
 import { DrizzleManagementRepository } from './drizzle-repository';
 import { verifyGroupContextToken } from './group-context';
-import {
-  LineLiffGroupSessionVerifier,
-  LineWebGroupSessionVerifier,
-  type GroupSession,
-  type GroupSessionResult,
-} from './session';
+import { LineWebGroupSessionVerifier, type GroupSession } from './session';
 import { ManagementService } from './service';
 
 export type ManagementBindings = ProductConfigEnv & {
   DATABASE_URL: string;
   LINE_CHANNEL_ACCESS_TOKEN: string;
   LINE_CHANNEL_SECRET: string;
-  LIFF_CHANNEL_ID?: string;
-  LIFF_WEB_ORIGIN?: string;
   WEB_AUTH_SECRET?: string;
   WEB_APP_ORIGIN?: string;
   REMINDER_RESERVATION_ENERGY?: string;
@@ -29,18 +22,14 @@ type ManagementContext = Context<ManagementEnv>;
 
 function configuredReminderEnergy(value: string | undefined): bigint | null {
   if (!value?.trim()) return null;
-  if (!/^\d+$/.test(value.trim())) {
-    throw new Error('REMINDER_RESERVATION_ENERGY must be a positive integer');
-  }
+  if (!/^\d+$/.test(value.trim())) throw new Error('REMINDER_RESERVATION_ENERGY must be a positive integer');
   const units = BigInt(value.trim());
   if (units <= 0n) throw new Error('REMINDER_RESERVATION_ENERGY must be greater than zero');
   return units;
 }
 
 function jsonBody(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('request body must be an object');
-  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('request body must be an object');
   return value as Record<string, unknown>;
 }
 
@@ -63,51 +52,22 @@ function positivePathId(value: string): number {
   return parsed;
 }
 
-function allowedWebOrigin(c: ManagementContext): string | null {
-  return c.env.WEB_APP_ORIGIN?.trim() || c.env.LIFF_WEB_ORIGIN?.trim() || null;
-}
-
-async function verifySession(c: ManagementContext, lineGroupId: string): Promise<GroupSessionResult> {
-  const db = createDatabase(c.env.DATABASE_URL);
-  const webSecret = c.env.WEB_AUTH_SECRET?.trim();
-  let webResult: GroupSessionResult | null = null;
-  if (webSecret) {
-    webResult = await new LineWebGroupSessionVerifier(
-      db,
-      c.env.LINE_CHANNEL_ACCESS_TOKEN,
-      webSecret,
-    ).verify(c.req.header('authorization'), lineGroupId);
-    if (webResult.status === 'AUTHORIZED') return webResult;
-  }
-
-  const liffChannelId = c.env.LIFF_CHANNEL_ID?.trim();
-  if (liffChannelId) {
-    return new LineLiffGroupSessionVerifier(
-      db,
-      c.env.LINE_CHANNEL_ACCESS_TOKEN,
-      liffChannelId,
-    ).verify(c.req.header('authorization'), lineGroupId);
-  }
-  return webResult ?? { status: 'INVALID_USER_TOKEN' };
-}
-
 async function sessionFor(c: ManagementContext): Promise<GroupSession | Response> {
   const groupContextToken = c.req.header('x-line-group-context');
   if (!groupContextToken) return c.json({ ok: false, error: 'LINE_GROUP_CONTEXT_REQUIRED' }, 400);
   const lineGroupId = await verifyGroupContextToken(groupContextToken, c.env.LINE_CHANNEL_SECRET);
   if (!lineGroupId) return c.json({ ok: false, error: 'INVALID_LINE_GROUP_CONTEXT' }, 401);
 
-  const result = await verifySession(c, lineGroupId);
+  const webSecret = c.env.WEB_AUTH_SECRET?.trim();
+  if (!webSecret) return c.json({ ok: false, error: 'WEB_AUTH_NOT_CONFIGURED' }, 503);
+  const result = await new LineWebGroupSessionVerifier(
+    createDatabase(c.env.DATABASE_URL),
+    c.env.LINE_CHANNEL_ACCESS_TOKEN,
+    webSecret,
+  ).verify(c.req.header('authorization'), lineGroupId);
   if (result.status === 'AUTHORIZED') return result.session;
-
-  if (result.status === 'LINE_VERIFICATION_UNAVAILABLE') {
-    return c.json({ ok: false, error: result.status }, 503);
-  }
-  if (
-    result.status === 'MISSING_BEARER_TOKEN' ||
-    result.status === 'INVALID_USER_TOKEN' ||
-    result.status === 'WRONG_LIFF_CHANNEL'
-  ) {
+  if (result.status === 'LINE_VERIFICATION_UNAVAILABLE') return c.json({ ok: false, error: result.status }, 503);
+  if (result.status === 'MISSING_BEARER_TOKEN' || result.status === 'INVALID_USER_TOKEN') {
     return c.json({ ok: false, error: result.status }, 401);
   }
   if (result.status === 'NOT_GROUP_MEMBER') return c.json({ ok: false, error: result.status }, 403);
@@ -124,7 +84,7 @@ export function createManagementRoutes() {
 
   app.use('*', async (c, next) => {
     const origin = c.req.header('origin');
-    const allowedOrigin = allowedWebOrigin(c);
+    const allowedOrigin = c.env.WEB_APP_ORIGIN?.trim();
     if (origin && !allowedOrigin) return c.json({ ok: false, error: 'WEB_ORIGIN_NOT_CONFIGURED' }, 503);
     if (origin && origin !== allowedOrigin) return c.json({ ok: false, error: 'ORIGIN_NOT_ALLOWED' }, 403);
     await next();
@@ -136,7 +96,7 @@ export function createManagementRoutes() {
 
   app.options('*', (c) => {
     const origin = c.req.header('origin');
-    const allowedOrigin = allowedWebOrigin(c);
+    const allowedOrigin = c.env.WEB_APP_ORIGIN?.trim();
     if (!origin || !allowedOrigin || origin !== allowedOrigin) return c.body(null, 403);
     c.header('Access-Control-Allow-Origin', origin);
     c.header('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Line-Group-Context');
@@ -159,19 +119,12 @@ export function createManagementRoutes() {
     try {
       const body = jsonBody(await c.req.json());
       const service = new ManagementService(new DrizzleManagementRepository(createDatabase(c.env.DATABASE_URL)));
-      const result = await service.updateMemory(
-        session.groupId,
-        positivePathId(c.req.param('id')),
-        session.lineUserId,
-        {
-          category: stringField(body, 'category'),
-          subject: optionalStringField(body, 'subject'),
-          content: stringField(body, 'content'),
-        },
-      );
-      return result === 'UPDATED'
-        ? c.json({ ok: true })
-        : c.json({ ok: false, error: 'MEMORY_NOT_FOUND' }, 404);
+      const result = await service.updateMemory(session.groupId, positivePathId(c.req.param('id')), session.lineUserId, {
+        category: stringField(body, 'category'),
+        subject: optionalStringField(body, 'subject'),
+        content: stringField(body, 'content'),
+      });
+      return result === 'UPDATED' ? c.json({ ok: true }) : c.json({ ok: false, error: 'MEMORY_NOT_FOUND' }, 404);
     } catch (error) {
       return c.json({ ok: false, error: error instanceof Error ? error.message : 'INVALID_REQUEST' }, 400);
     }
@@ -182,14 +135,8 @@ export function createManagementRoutes() {
     if (isResponse(session)) return session;
     try {
       const service = new ManagementService(new DrizzleManagementRepository(createDatabase(c.env.DATABASE_URL)));
-      const result = await service.deleteMemory(
-        session.groupId,
-        positivePathId(c.req.param('id')),
-        session.lineUserId,
-      );
-      return result === 'DELETED'
-        ? c.json({ ok: true })
-        : c.json({ ok: false, error: 'MEMORY_NOT_FOUND' }, 404);
+      const result = await service.deleteMemory(session.groupId, positivePathId(c.req.param('id')), session.lineUserId);
+      return result === 'DELETED' ? c.json({ ok: true }) : c.json({ ok: false, error: 'MEMORY_NOT_FOUND' }, 404);
     } catch (error) {
       return c.json({ ok: false, error: error instanceof Error ? error.message : 'INVALID_REQUEST' }, 400);
     }
@@ -209,9 +156,7 @@ export function createManagementRoutes() {
     if (units === null) return c.json({ ok: false, error: 'REMINDER_ENERGY_NOT_CONFIGURED' }, 503);
     try {
       const body = jsonBody(await c.req.json());
-      const service = new UserReminderService(
-        new DrizzleUserReminderRepository(createDatabase(c.env.DATABASE_URL)),
-      );
+      const service = new UserReminderService(new DrizzleUserReminderRepository(createDatabase(c.env.DATABASE_URL)));
       const result = await service.create({
         groupId: session.groupId,
         ownerLineUserId: session.lineUserId,
@@ -233,9 +178,7 @@ export function createManagementRoutes() {
     const session = await sessionFor(c);
     if (isResponse(session)) return session;
     try {
-      const service = new UserReminderService(
-        new DrizzleUserReminderRepository(createDatabase(c.env.DATABASE_URL)),
-      );
+      const service = new UserReminderService(new DrizzleUserReminderRepository(createDatabase(c.env.DATABASE_URL)));
       const reminderId = positivePathId(c.req.param('id'));
       const result = await service.cancel({
         groupId: session.groupId,
