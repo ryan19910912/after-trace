@@ -1,6 +1,22 @@
 import { sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
 
+export type WebGroupMemory = {
+  id: number;
+  groupId: number;
+  lineGroupId: string;
+  category: string;
+  subject: string | null;
+  content: string;
+  sourceMessageId: string | null;
+  sourceLineTimestamp: string | null;
+  updatedAt: string;
+};
+
+function iso(value: Date | string | null): string | null {
+  return value === null ? null : new Date(value).toISOString();
+}
+
 export class DrizzleWebAuthRepository {
   constructor(private readonly db: Database) {}
 
@@ -57,6 +73,56 @@ export class DrizzleWebAuthRepository {
       if (typeof row.id !== 'string' || typeof row.line_group_id !== 'string') return [];
       const id = Number(row.id);
       return Number.isSafeInteger(id) && id > 0 ? [{ id, lineGroupId: row.line_group_id }] : [];
+    });
+  }
+
+  async listGroupMemories(
+    groupIds: readonly number[],
+    query: string | null,
+    limit = 200,
+  ): Promise<WebGroupMemory[]> {
+    if (groupIds.length === 0) return [];
+    const ids = sql.join(groupIds.map((id) => sql`${id}`), sql`, `);
+    const result = await this.db.execute(sql`
+      SELECT
+        m.id::text AS id,
+        m.group_id::text AS group_id,
+        g.line_group_id,
+        m.category,
+        m.subject,
+        m.content,
+        m.source_message_id,
+        m.source_line_timestamp,
+        m.updated_at
+      FROM memories m
+      JOIN line_groups g ON g.id = m.group_id
+      WHERE m.group_id IN (${ids})
+        AND m.status = 'ACTIVE'
+        AND (
+          ${query}::text IS NULL
+          OR m.category ILIKE '%' || ${query} || '%'
+          OR COALESCE(m.subject, '') ILIKE '%' || ${query} || '%'
+          OR m.content ILIKE '%' || ${query} || '%'
+        )
+      ORDER BY m.updated_at DESC, m.id DESC
+      LIMIT ${limit}
+    `);
+    return result.rows.flatMap((raw) => {
+      const row = raw as Record<string, unknown>;
+      const id = Number(row.id);
+      const groupId = Number(row.group_id);
+      if (!Number.isSafeInteger(id) || !Number.isSafeInteger(groupId) || typeof row.line_group_id !== 'string') return [];
+      return [{
+        id,
+        groupId,
+        lineGroupId: row.line_group_id,
+        category: String(row.category ?? ''),
+        subject: typeof row.subject === 'string' ? row.subject : null,
+        content: String(row.content ?? ''),
+        sourceMessageId: typeof row.source_message_id === 'string' ? row.source_message_id : null,
+        sourceLineTimestamp: iso(row.source_line_timestamp as Date | string | null),
+        updatedAt: new Date(row.updated_at as Date | string).toISOString(),
+      }];
     });
   }
 }
