@@ -40,7 +40,7 @@ export type Bindings = ProductConfigEnv & {
   GEMINI_MODEL?: string;
   GEMINI_INPUT_USD_PER_MILLION_TOKENS?: string;
   GEMINI_OUTPUT_USD_PER_MILLION_TOKENS?: string;
-  GEMINI_CHAT_MAX_OUTPUT_TOKENS?: string;
+  GEMINI_MEMORY_MAX_OUTPUT_TOKENS?: string;
   USD_TWD_RATE?: string;
   GLOBAL_FREE_AI_BUDGET_COST_TWD?: string;
   BACKGROUND_AI_MAX_SUBSIDY_COST_TWD?: string;
@@ -124,6 +124,7 @@ app.post('/webhooks/line', async (c) => {
   const chatDisabledReason = explicitAiChatDisabledReason(c.env);
   const chatService = chatDisabledReason ? null : new ExplicitAiChatService(database, c.env);
   const groupsWithAiWork = new Set<number>();
+  const explicitRequestTargets = new Map<number, string>();
 
   let lifecycleEvents = 0;
   let storedMessages = 0;
@@ -237,6 +238,22 @@ app.post('/webhooks/line', async (c) => {
     }
 
     if (routedIntent?.intent === 'REMEMBER') {
+      if (!aiRuntime) {
+        console.error(JSON.stringify({
+          event: 'explicit_memory_runtime_disabled',
+          lineGroupId: message.lineGroupId,
+          lineMessageId: message.lineMessageId,
+          reason: aiDisabledReason,
+        }));
+        if (message.replyToken) {
+          await lineReplyClient.reply(
+            message.replyToken,
+            '我知道你要我記住這則內容，但記憶 AI 目前尚未啟用，這次沒有寫入記憶。',
+          );
+        }
+        continue;
+      }
+
       const request = await explicitMemoryRequestService.enqueue(result.groupId, message, {
         quotedLineMessageId: message.quotedLineMessageId,
         instruction: aiMentionText(message),
@@ -245,8 +262,9 @@ app.post('/webhooks/line', async (c) => {
       if (request.status === 'PENDING') {
         explicitMemoryRequests += 1;
         groupsWithAiWork.add(result.groupId);
+        explicitRequestTargets.set(request.id, message.lineGroupId);
         if (message.replyToken) {
-          await lineReplyClient.reply(message.replyToken, '收到，我會整理這則內容並記住重要資訊。');
+          await lineReplyClient.reply(message.replyToken, '收到，我正在幫你整理並記錄。');
         }
       } else {
         blockedMemoryRequests += 1;
@@ -362,6 +380,31 @@ app.post('/webhooks/line', async (c) => {
         for (let i = 0; i < 5; i += 1) {
           const aiResult = await aiRuntime.runNextForGroup(groupId);
           console.log(JSON.stringify({ event: 'memory_ai_runtime', groupId, ...aiResult }));
+
+          if ('requestId' in aiResult) {
+            const target = explicitRequestTargets.get(aiResult.requestId);
+            if (target) {
+              if (aiResult.status === 'SUCCEEDED') {
+                await lineReplyClient.push(
+                  target,
+                  aiResult.candidateCount > 0
+                    ? '已完成記錄，你可以到 AFTERTRACE 管理中心查看。'
+                    : '我看過這則內容了，但沒有找到足夠明確、適合保存的資訊。',
+                );
+                explicitRequestTargets.delete(aiResult.requestId);
+              } else if (aiResult.status === 'FAILED') {
+                await lineReplyClient.push(target, '這次記錄沒有成功，請稍後再試一次。');
+                explicitRequestTargets.delete(aiResult.requestId);
+              } else if (aiResult.status === 'WAITING_FOR_CREDIT') {
+                await lineReplyClient.push(target, '這次記錄暫時無法完成，因為你的 Energy 不足。');
+                explicitRequestTargets.delete(aiResult.requestId);
+              } else if (aiResult.status === 'WAITING_FOR_FREE_BUDGET') {
+                await lineReplyClient.push(target, '這次記錄暫時無法完成，請稍後再試一次。');
+                explicitRequestTargets.delete(aiResult.requestId);
+              }
+            }
+          }
+
           if (
             aiResult.status === 'NO_WORK' ||
             aiResult.status === 'WAITING_FOR_CREDIT' ||
