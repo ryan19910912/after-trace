@@ -23,11 +23,14 @@ function writeStoredToken(token: string) {
   }
 }
 
-function base64UrlToUint8Array(value: string): Uint8Array {
+function base64UrlToArrayBuffer(value: string): ArrayBuffer {
   const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
   const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
   const raw = atob(padded);
-  return Uint8Array.from(raw, (character) => character.charCodeAt(0));
+  const bytes = Uint8Array.from(raw, (character) => character.charCodeAt(0));
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
 }
 
 async function postServiceWorkerContext(registration: ServiceWorkerRegistration, token: string, apiBaseUrl: string) {
@@ -85,7 +88,7 @@ export async function enableWebPush(apiBaseUrl: string, token: string): Promise<
   if (!subscription) {
     subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: base64UrlToUint8Array(config.applicationServerKey),
+      applicationServerKey: base64UrlToArrayBuffer(config.applicationServerKey),
     });
   }
 
