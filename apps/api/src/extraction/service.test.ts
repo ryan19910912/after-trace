@@ -55,8 +55,8 @@ describe('ConversationExtractionCoordinator', () => {
       now,
       leaseUntil: new Date('2026-08-29T04:02:00Z'),
       thresholds: {
-        messageThreshold: 30,
-        charThreshold: 5_000,
+        messageThreshold: 80,
+        charThreshold: 12_000,
         largeMessageChars: 2_000,
       },
     });
