@@ -97,6 +97,19 @@ export type CheckoutSession = {
   expiresAt: string | null;
 };
 
+async function responseBody<T>(response: Response, fallback: string): Promise<{ ok?: boolean; error?: string } & T> {
+  const raw = await response.text();
+  if (!raw) {
+    if (!response.ok) throw new Error(`${fallback}: ${response.status}`);
+    return {} as { ok?: boolean; error?: string } & T;
+  }
+  try {
+    return JSON.parse(raw) as { ok?: boolean; error?: string } & T;
+  } catch {
+    throw new Error(`${fallback}: ${response.status}${raw.trim() ? ` - ${raw.trim().slice(0, 160)}` : ''}`);
+  }
+}
+
 export class ManagementApi {
   constructor(
     private readonly baseUrl: string,
@@ -113,7 +126,7 @@ export class ManagementApi {
       ...init,
       headers,
     });
-    const body = (await response.json()) as { ok?: boolean; error?: string } & T;
+    const body = await responseBody<T>(response, 'API request failed');
     if (!response.ok) throw new Error(body.error || `API request failed: ${response.status}`);
     return body;
   }
@@ -126,7 +139,7 @@ export class ManagementApi {
       ...init,
       headers,
     });
-    const body = (await response.json()) as { ok?: boolean; error?: string } & T;
+    const body = await responseBody<T>(response, 'Energy API request failed');
     if (!response.ok) throw new Error(body.error || `Energy API request failed: ${response.status}`);
     return body;
   }
