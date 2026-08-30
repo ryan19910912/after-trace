@@ -8,7 +8,7 @@ import {
 } from '../commerce/checkout';
 import { resolveProductConfig } from '../config/product';
 import { createDatabase } from '../db/client';
-import { LineLiffUserSessionVerifier } from '../management/session';
+import { LineLiffUserSessionVerifier, LineWebUserSessionVerifier } from '../management/session';
 import { DrizzlePrivateEnergyOverviewRepository, serializePrivateEnergyOverview } from './private-overview';
 import { DrizzleUserEnergyRepository } from './drizzle-repository';
 import { DrizzleUserRewardedAdRepository } from './drizzle-rewarded-ad';
@@ -21,6 +21,8 @@ export type EnergyRouteBindings = CheckoutEnv & {
   DATABASE_URL: string;
   LIFF_CHANNEL_ID: string;
   LIFF_WEB_ORIGIN?: string;
+  WEB_AUTH_SECRET?: string;
+  WEB_APP_ORIGIN?: string;
   GOOGLE_AD_MANAGER_NETWORK_CODE?: string;
   GOOGLE_AD_MANAGER_REWARDED_AD_UNIT_PATH?: string;
 };
@@ -32,8 +34,8 @@ export function createEnergyRoutes() {
 
   app.use('*', async (c, next) => {
     const origin = c.req.header('origin');
-    const allowedOrigin = c.env.LIFF_WEB_ORIGIN?.trim();
-    if (origin && !allowedOrigin) return c.json({ ok: false, error: 'LIFF_WEB_ORIGIN_NOT_CONFIGURED' }, 503);
+    const allowedOrigin = c.env.WEB_APP_ORIGIN?.trim() || c.env.LIFF_WEB_ORIGIN?.trim();
+    if (origin && !allowedOrigin) return c.json({ ok: false, error: 'WEB_ORIGIN_NOT_CONFIGURED' }, 503);
     if (origin && origin !== allowedOrigin) return c.json({ ok: false, error: 'ORIGIN_NOT_ALLOWED' }, 403);
     await next();
     if (origin && origin === allowedOrigin) {
@@ -44,7 +46,7 @@ export function createEnergyRoutes() {
 
   app.options('*', (c) => {
     const origin = c.req.header('origin');
-    const allowedOrigin = c.env.LIFF_WEB_ORIGIN?.trim();
+    const allowedOrigin = c.env.WEB_APP_ORIGIN?.trim() || c.env.LIFF_WEB_ORIGIN?.trim();
     if (!origin || !allowedOrigin || origin !== allowedOrigin) return c.body(null, 403);
     c.header('Access-Control-Allow-Origin', origin);
     c.header('Access-Control-Allow-Headers', 'Authorization, Content-Type');
@@ -55,7 +57,7 @@ export function createEnergyRoutes() {
   });
 
   app.get('/me', async (c) => {
-    const user = await authorizeUser(c.env.LIFF_CHANNEL_ID, c.req.header('authorization'));
+    const user = await authorizeUser(c.env, c.req.header('authorization'));
     if ('error' in user) return c.json({ ok: false, error: user.error }, user.status);
     const overview = await new DrizzlePrivateEnergyOverviewRepository(
       createDatabase(c.env.DATABASE_URL),
@@ -65,7 +67,7 @@ export function createEnergyRoutes() {
   });
 
   app.get('/catalog', async (c) => {
-    const user = await authorizeUser(c.env.LIFF_CHANNEL_ID, c.req.header('authorization'));
+    const user = await authorizeUser(c.env, c.req.header('authorization'));
     if ('error' in user) return c.json({ ok: false, error: user.error }, user.status);
     const catalog = resolveCommerceCatalog(c.env);
     const product = resolveProductConfig(c.env);
@@ -85,7 +87,7 @@ export function createEnergyRoutes() {
   });
 
   app.post('/checkout', async (c) => {
-    const user = await authorizeUser(c.env.LIFF_CHANNEL_ID, c.req.header('authorization'));
+    const user = await authorizeUser(c.env, c.req.header('authorization'));
     if ('error' in user) return c.json({ ok: false, error: user.error }, user.status);
     const service = createCheckoutService(createDatabase(c.env.DATABASE_URL), c.env);
     if (!service) return c.json({ ok: false, error: 'CHECKOUT_NOT_CONFIGURED' }, 503);
@@ -121,7 +123,7 @@ export function createEnergyRoutes() {
   });
 
   app.post('/rewarded-ad/nonce', async (c) => {
-    const user = await authorizeUser(c.env.LIFF_CHANNEL_ID, c.req.header('authorization'));
+    const user = await authorizeUser(c.env, c.req.header('authorization'));
     if ('error' in user) return c.json({ ok: false, error: user.error }, user.status);
     const service = rewardedAdService(c.env);
     if (!service) return c.json({ ok: false, error: 'REWARDED_AD_NOT_CONFIGURED' }, 503);
@@ -136,7 +138,7 @@ export function createEnergyRoutes() {
   });
 
   app.post('/rewarded-ad/claim', async (c) => {
-    const user = await authorizeUser(c.env.LIFF_CHANNEL_ID, c.req.header('authorization'));
+    const user = await authorizeUser(c.env, c.req.header('authorization'));
     if ('error' in user) return c.json({ ok: false, error: user.error }, user.status);
     const service = rewardedAdService(c.env);
     if (!service) return c.json({ ok: false, error: 'REWARDED_AD_NOT_CONFIGURED' }, 503);
@@ -188,14 +190,20 @@ function rewardedAdService(env: EnergyRouteBindings): UserRewardedAdService | nu
 }
 
 async function authorizeUser(
-  liffChannelId: string,
+  env: EnergyRouteBindings,
   authorizationHeader: string | undefined,
 ): Promise<AuthorizedUser | { error: string; status: 401 | 503 }> {
-  const session = await new LineLiffUserSessionVerifier(liffChannelId).verify(authorizationHeader);
-  if (session.status === 'AUTHORIZED') return { lineUserId: session.session.lineUserId };
+  const webSecret = env.WEB_AUTH_SECRET?.trim();
+  if (webSecret) {
+    const webSession = await new LineWebUserSessionVerifier(webSecret).verify(authorizationHeader);
+    if (webSession.status === 'AUTHORIZED') return { lineUserId: webSession.session.lineUserId };
+  }
+
+  const liffSession = await new LineLiffUserSessionVerifier(env.LIFF_CHANNEL_ID).verify(authorizationHeader);
+  if (liffSession.status === 'AUTHORIZED') return { lineUserId: liffSession.session.lineUserId };
   return {
-    error: session.status,
-    status: session.status === 'LINE_VERIFICATION_UNAVAILABLE' ? 503 : 401,
+    error: liffSession.status,
+    status: liffSession.status === 'LINE_VERIFICATION_UNAVAILABLE' ? 503 : 401,
   };
 }
 
