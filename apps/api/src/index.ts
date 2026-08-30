@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
+import { ExplicitAiChatService, explicitAiChatDisabledReason } from './ai/chat';
+import { createAiIntentRouter } from './ai/intent-router';
 import { DrizzleWebAuthRepository } from './auth/repository';
 import { createWebAuthRoutes } from './auth/routes';
 import { WebAuthService } from './auth/service';
-import { ExplicitAiChatService, explicitAiChatDisabledReason } from './ai/chat';
 import { createCommerceRoutes } from './commerce/routes';
 import { resolveProductConfig, type ProductConfigEnv } from './config/product';
 import { DrizzleConversationRepository } from './conversation/drizzle-repository';
@@ -16,11 +17,7 @@ import { DrizzleUserEnergyRepository } from './energy/drizzle-repository';
 import { createEnergyRoutes } from './energy/routes';
 import { DrizzleExtractionClaimRepository } from './extraction/drizzle-repository';
 import { ConversationExtractionCoordinator } from './extraction/service';
-import {
-  detectDeterministicAiCommand,
-  detectExplicitMemoryCommand,
-  isAiMention,
-} from './line/commands';
+import { aiMentionText, detectDeterministicAiCommand, isAiMention } from './line/commands';
 import { parseLineWebhook } from './line/events';
 import { LineMessagingReplyClient } from './line/reply';
 import { verifyLineSignature } from './line/signature';
@@ -121,6 +118,7 @@ app.post('/webhooks/line', async (c) => {
   const memoryRequestRepository = new DrizzleMemoryRequestRepository(database);
   const explicitMemoryRequestService = new ExplicitMemoryRequestService(memoryRequestRepository);
   const automaticMemoryRequestService = new AutomaticMemoryRequestService(memoryRequestRepository);
+  const aiIntentRouter = createAiIntentRouter(c.env);
   const aiDisabledReason = memoryAiRuntimeDisabledReason(c.env);
   const aiRuntime = aiDisabledReason ? null : new UserEnergyMemoryAiRuntime(database, c.env);
   const chatDisabledReason = explicitAiChatDisabledReason(c.env);
@@ -165,10 +163,33 @@ app.post('/webhooks/line', async (c) => {
     }
 
     const deterministicCommand = detectDeterministicAiCommand(message);
-    const explicitMemoryCommand = detectExplicitMemoryCommand(message);
-    const genericAiQuestion = isAiMention(message) && !explicitMemoryCommand;
+    const mentioned = isAiMention(message);
+    let routedIntent: Awaited<ReturnType<NonNullable<typeof aiIntentRouter>['route']>> | null = null;
+    if (!deterministicCommand && mentioned) {
+      if (!aiIntentRouter) {
+        if (message.replyToken) {
+          await lineReplyClient.reply(message.replyToken, 'AFTERTRACE AI 目前尚未啟用，暫時無法理解這個指令。');
+        }
+        continue;
+      }
+      try {
+        routedIntent = await aiIntentRouter.route(message);
+      } catch (error) {
+        console.error(JSON.stringify({
+          event: 'ai_intent_router_failed',
+          lineGroupId: message.lineGroupId,
+          lineMessageId: message.lineMessageId,
+          message: error instanceof Error ? error.message : 'unknown error',
+        }));
+        if (message.replyToken) {
+          await lineReplyClient.reply(message.replyToken, 'AFTERTRACE 暫時無法理解這個指令，請稍後再試。');
+        }
+        continue;
+      }
+    }
+
     let groupManagementUrl: string | null = null;
-    if ((deterministicCommand || genericAiQuestion) && message.lineUserId && webAuthService && c.env.WEB_APP_URL?.trim()) {
+    if ((deterministicCommand || mentioned) && message.lineUserId && webAuthService && c.env.WEB_APP_URL?.trim()) {
       groupManagementUrl = await webAuthService.createBotEntry({
         webAppUrl: c.env.WEB_APP_URL,
         lineUserId: message.lineUserId,
@@ -195,7 +216,7 @@ app.post('/webhooks/line', async (c) => {
           'AFTERTRACE｜幫助', '',
           '@AFTERTRACE <問題>：用群組近期對話與記憶回答',
           '@AFTERTRACE 額度：查看群組成員是否還可使用 Energy（不顯示他人數字）',
-          '@AFTERTRACE 記住 ...：明確要求 AFTERTRACE 記住資訊',
+          '@AFTERTRACE 幫我記住／記錄：用自然語言要求 AFTERTRACE 記住資訊',
           '@AFTERTRACE 方案：查看目前 V1 Energy 取得方式',
         ].join('\n');
       } else {
@@ -215,7 +236,47 @@ app.post('/webhooks/line', async (c) => {
       continue;
     }
 
-    if (genericAiQuestion && message.lineUserId && message.replyToken) {
+    if (routedIntent?.intent === 'REMEMBER') {
+      const request = await explicitMemoryRequestService.enqueue(result.groupId, message, {
+        quotedLineMessageId: message.quotedLineMessageId,
+        instruction: aiMentionText(message),
+        preferRecentImage: routedIntent.preferRecentImage,
+      });
+      if (request.status === 'PENDING') {
+        explicitMemoryRequests += 1;
+        groupsWithAiWork.add(result.groupId);
+        if (message.replyToken) {
+          await lineReplyClient.reply(message.replyToken, '收到，我會整理這則內容並記住重要資訊。');
+        }
+      } else {
+        blockedMemoryRequests += 1;
+        if (message.replyToken) {
+          await lineReplyClient.reply(message.replyToken, '我找不到你要我記住的來源內容，請回覆那則訊息後再試一次。');
+        }
+      }
+      continue;
+    }
+
+    if (routedIntent?.intent === 'REMINDER') {
+      if (message.replyToken) {
+        await lineReplyClient.reply(
+          message.replyToken,
+          groupManagementUrl
+            ? `我知道你想建立提醒。目前請先到 AFTERTRACE 管理中心設定時間與內容：\n${groupManagementUrl}`
+            : '我知道你想建立提醒。目前提醒需要到 AFTERTRACE 管理中心設定時間與內容。',
+        );
+      }
+      continue;
+    }
+
+    if (routedIntent?.intent === 'UNKNOWN') {
+      if (message.replyToken) {
+        await lineReplyClient.reply(message.replyToken, '我還不確定你要我記住、回答問題，還是建立提醒，可以再說完整一點嗎？');
+      }
+      continue;
+    }
+
+    if (routedIntent?.intent === 'ASK' && message.lineUserId && message.replyToken) {
       if (energyAccessService) {
         const preflight = await energyAccessService.preflightExplicitAi({
           groupId: result.groupId,
@@ -253,14 +314,6 @@ app.post('/webhooks/line', async (c) => {
         }
       }
       continue;
-    }
-
-    if (explicitMemoryCommand) {
-      const request = await explicitMemoryRequestService.enqueue(result.groupId, message, explicitMemoryCommand);
-      if (request.status === 'PENDING') {
-        explicitMemoryRequests += 1;
-        groupsWithAiWork.add(result.groupId);
-      } else blockedMemoryRequests += 1;
     }
 
     if (result.threshold.extractionDue) extractionCandidates += 1;
