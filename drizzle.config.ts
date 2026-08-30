@@ -26,6 +26,7 @@ export default defineConfig({
     drizzlePath('apps/api/src/db/schema-round17.ts'),
     drizzlePath('apps/api/src/db/schema-round18.ts'),
     drizzlePath('apps/api/src/db/schema-round19.ts'),
+    drizzlePath('apps/api/src/db/schema-round20.ts'),
   ],
   out: drizzlePath('drizzle'),
   dialect: 'postgresql',
