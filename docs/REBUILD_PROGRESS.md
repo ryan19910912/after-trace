@@ -145,6 +145,11 @@ Push dispatch fencing:
   - binding returns success/failure instead of blindly updating the row.
   - dispatcher refuses to call the Push service when it lost the delivery claim before binding, preventing a stale/overlapping Worker from sending after ownership moved elsewhere.
 
+Handoff update commits:
+
+- `4cfb03a79e9919ecdd60dd1c774b101beeebe5ee` — corrected the stale Round-4 handoff to the actual Web Push/PWA state.
+- this document update records the final verification observations from the round.
+
 ### Verification performed this round
 
 Performed:
@@ -153,8 +158,10 @@ Performed:
 - re-read the current Push/PWA implementation and verified the code path from browser subscription -> API -> delivery claim -> Push wake -> Service Worker presentation.
 - inspected the clean current schema and migrations; no retired LINE/AI domain tables were found in the runtime schema.
 - confirmed `apps/` contains only `api` and `web`.
-- checked the latest commit's GitHub Actions association before this round: no workflow run existed, so no CI result can be claimed.
-- current public Taipei sports-center booking site was independently checked as still present/current during this round; direct source smoke execution was not possible from the automation container because its outbound DNS/package environment is not dependency-complete.
+- ran an isolated strict TypeScript compile of the updated `pwa.ts` contract with `ES2022 + DOM` libs using the automation container's TypeScript 5.8.3 and API type stubs; it passed with no diagnostics. This is useful syntax/DOM typing evidence but is **not** a substitute for the repository's real TypeScript 5.9 workspace build.
+- executed the VAPID key-comparison test vectors directly under Node 22.16.0; matching/malformed-key vectors behaved as expected.
+- attempted to obtain pnpm through Corepack for the real workspace verification; outbound DNS to `registry.npmjs.org` failed with `EAI_AGAIN`, so dependencies/package-manager bootstrap was unavailable.
+- queried GitHub Actions for final handoff commit `4cfb03a79e9919ecdd60dd1c774b101beeebe5ee`: no workflow runs were produced, so CI does **not** validate this round.
 
 Not truthfully executable in this environment:
 
@@ -164,7 +171,7 @@ Not truthfully executable in this environment:
 - `pnpm build`
 - `pnpm db:schema:check`
 
-The automation runtime does not contain a checked-out dependency-complete repository/pnpm workspace. Therefore these remain **unverified**, not green. `verify.ps1` and CI both describe the required chain, but a real dependency-complete execution is still required.
+The automation runtime does not contain a checked-out dependency-complete repository/pnpm workspace and cannot currently resolve the npm registry. Therefore the full chain remains **unverified**, not green. `verify.ps1` and CI both describe the required chain, but a real dependency-complete execution is still required.
 
 ## Remaining work — highest priority first
 
