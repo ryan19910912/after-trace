@@ -11,7 +11,6 @@ $RepoRoot = $PSScriptRoot
 $WorkerUrl = 'https://after-trace-api.a0955625660.workers.dev'
 $PagesUrl = 'https://after-trace.pages.dev'
 $PagesProject = 'after-trace'
-$LiffId = '2011322889-AU0teTPM'
 $WranglerCmd = Join-Path $RepoRoot 'apps\api\node_modules\.bin\wrangler.cmd'
 $PagesDist = Join-Path $RepoRoot 'apps\web\dist'
 
@@ -66,7 +65,6 @@ try {
         }
     }
 
-    $env:VITE_LIFF_ID = $LiffId
     $env:VITE_API_BASE_URL = $WorkerUrl
 
     Invoke-CommandChecked 'Web TypeScript typecheck' {
@@ -102,12 +100,12 @@ try {
     Write-Host ''
     Write-Host 'Pages deployment completed successfully.' -ForegroundColor Green
     Write-Host "Pages: $PagesUrl"
-    Write-Host "LIFF : https://liff.line.me/$LiffId"
     Write-Host ''
     Write-Host 'Recommended smoke tests:' -ForegroundColor Yellow
-    Write-Host '  1. Open LIFF inside LINE'
-    Write-Host '  2. Verify Energy page loads'
-    Write-Host '  3. Verify Memory / Reminder tabs load'
+    Write-Host '  1. Open Pages directly and verify LINE Login -> My Groups'
+    Write-Host '  2. Open a fresh Bot management link and verify it enters the correct group without another login'
+    Write-Host '  3. Verify Memory / Energy / Reminder tabs load'
+    Write-Host '  4. Reopen the same Bot login link and verify the one-time ticket is rejected'
 }
 finally {
     Pop-Location
