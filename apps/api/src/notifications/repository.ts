@@ -367,8 +367,6 @@ export class DrizzleNotificationRepository {
         useDate: availabilitySlots.useDate,
         startTime: availabilitySlots.startTime,
         endTime: availabilitySlots.endTime,
-        bookingUrl: venues.bookingUrl,
-        externalBookingRef: availabilitySlots.externalBookingRef,
       })
       .from(notificationDeliveries)
       .innerJoin(notificationDeliveryRuntime, eq(notificationDeliveryRuntime.deliveryId, notificationDeliveries.id))
@@ -382,6 +380,7 @@ export class DrizzleNotificationRepository {
       .where(and(
         eq(watchRules.userId, userId),
         eq(notificationSubscriptions.endpoint, endpoint),
+        eq(notificationSubscriptions.active, true),
         isNull(notificationDeliveryRuntime.presentedAt),
         gt(notificationDeliveryRuntime.expiresAt, now),
         or(
@@ -432,7 +431,6 @@ export class DrizzleNotificationRepository {
         body: `${candidate.venueName}｜${candidate.sportName}｜${candidate.useDate} ${candidate.startTime.slice(0, 5)}–${candidate.endTime.slice(0, 5)}`,
         tag: `aftertrace-delivery-${candidate.deliveryId}`,
         deepLink: `/?${params.toString()}`,
-        officialBookingUrl: candidate.externalBookingRef || candidate.bookingUrl || null,
         venueName: candidate.venueName,
         district: candidate.district,
         courtName: candidate.courtName,
