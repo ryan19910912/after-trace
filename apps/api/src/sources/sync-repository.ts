@@ -301,38 +301,48 @@ export class DrizzleAvailabilitySyncRepository implements AvailabilitySyncReposi
   } & PollWriteFence): Promise<boolean> {
     if (!(await this.isPollWriteFenceActive(input))) return false;
 
-    let courtId: number | null = null;
-    if (input.slot.externalCourtId) {
-      const [court] = await this.database
-        .insert(courts)
-        .values({
-          venueId: input.venueId,
-          sportId: input.sportId,
-          externalCourtId: input.slot.externalCourtId,
-          name: input.slot.courtName ?? input.slot.externalCourtId,
-          active: true,
-          updatedAt: input.seenAt,
-        })
-        .onConflictDoUpdate({
-          target: [courts.venueId, courts.sportId, courts.externalCourtId],
-          set: {
-            name: input.slot.courtName ?? input.slot.externalCourtId,
-            active: true,
-            updatedAt: input.seenAt,
-          },
-        })
-        .returning({ id: courts.id });
-      courtId = court?.id ?? null;
-    }
-
-    // The initial claim check avoids unnecessary court/slot work once a lease
-    // is already lost. The SQL write fence is authoritative and row-locks the
-    // claim while the slot/event mutation runs: a concurrent reclaim either
-    // happens before this statement (and the fence rejects the write) or waits
-    // until this legitimate write completes.
+    // Every mutation derived from a claimed poll must be serialized behind the
+    // same claim fence. Court discovery used to happen before the authoritative
+    // slot/event fence, which allowed an expired Worker to reactivate or rename
+    // a court even when its later slot write was correctly rejected.
     const writeFence = pollWriteFenceSql(input);
+    const courtUpsert = input.slot.externalCourtId
+      ? sql`
+        court_upsert AS (
+          INSERT INTO courts (
+            venue_id,
+            sport_id,
+            external_court_id,
+            name,
+            active,
+            created_at,
+            updated_at
+          )
+          SELECT
+            ${input.venueId},
+            ${input.sportId},
+            ${input.slot.externalCourtId},
+            ${input.slot.courtName ?? input.slot.externalCourtId},
+            TRUE,
+            ${input.seenAt},
+            ${input.seenAt}
+          WHERE ${writeFence}
+          ON CONFLICT (venue_id, sport_id, external_court_id)
+          DO UPDATE SET
+            name = EXCLUDED.name,
+            active = TRUE,
+            updated_at = EXCLUDED.updated_at
+          RETURNING id
+        ),`
+      : sql``;
+    const courtId = input.slot.externalCourtId
+      ? sql`(SELECT id FROM court_upsert)`
+      : sql`NULL`;
+
     await this.database.execute(sql`
-      WITH previous AS MATERIALIZED (
+      WITH
+      ${courtUpsert}
+      previous AS MATERIALIZED (
         SELECT id, status
         FROM availability_slots
         WHERE source_id = ${input.sourceId}
