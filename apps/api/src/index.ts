@@ -48,7 +48,8 @@ app.route('/api/v1/push', createNotificationRoutes());
 async function runScheduledRadar(env: Bindings) {
   const database = createDatabase(env.DATABASE_URL);
   const repository = new DrizzleAvailabilitySyncRepository(database);
-  const synchronizer = new SourceSynchronizationService(repository, createDefaultSourceRegistry());
+  const registry = createDefaultSourceRegistry();
+  const synchronizer = new SourceSynchronizationService(repository, registry);
   const notificationRepository = new DrizzleNotificationRepository(database);
   const runner = new ScheduledRadarRunner(
     new MetadataRefreshingPollingStage(
@@ -56,6 +57,7 @@ async function runScheduledRadar(env: Bindings) {
       synchronizer,
       new DrizzlePollingDemandReconciler(database),
       new PollingOrchestrator(repository, synchronizer),
+      registry.list().map((adapter) => adapter.code),
     ),
     new DrizzleRadarMatcher(database),
     new WebPushScheduledStage(

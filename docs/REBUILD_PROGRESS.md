@@ -22,20 +22,21 @@ The retired LINE-first product is absent from application runtime. `apps/` conta
 
 Current runtime flow:
 
-1. `TaipeiSportsCenterAdapter` reads the public Taipei sports-center booking source.
-2. `MetadataRefreshingPollingStage` exclusively owns provider metadata freshness/backoff.
-3. metadata discovery stages a complete non-empty venue + enabled-sport snapshot before normalized metadata mutation.
-4. `source_metadata_runtime` keeps six-hour success refresh cadence and 15-minute failure retry state.
-5. polling claims already-normalized targets only; each target has its own interval/source minimum.
-6. `poll_targets.last_polled_at` is the active poll-claim fence. Court + slot + event writes are serialized behind the same row-locking fence.
-7. `poll_targets.last_success_at` is the current availability freshness anchor. Search/Radar/Push require successful exact-target truth within `max(15 minutes, 3 × target interval)`.
-8. if a persisted AVAILABLE slot was not observed for longer than that same freshness allowance and an owned poll confirms it AVAILABLE again, synchronization emits a new AVAILABLE re-confirmation event even though the status value stayed AVAILABLE.
-9. anonymous browser identity owns Radar rules; watches validate active source/sport/venue geography and canonicalize common Taiwan `台`/`臺` city spellings.
-10. Radar matching requires fresh actionable slot truth, activation boundary ordering and current active source mappings.
-11. matching creates durable Web Push intents. Pre-dispatch and browser presentation recheck source/slot/watch truth and Taipei slot-start actionability.
-12. Push presentation only accepts the active endpoint. It returns display fields + search deep-link only; provider-machine `external_booking_ref` is no longer selected/computed in the notification repository.
-13. public search exposes only fresh actionable AVAILABLE rows and supplies the normalized venue human `booking_url`.
-14. `/health` is liveness and `/ready` checks sports schema reachability plus complete valid VAPID configuration.
+1. Registered `AvailabilitySourceAdapter`s provide provider-specific venue/sport/calendar/availability reads; the first live adapter is `TaipeiSportsCenterAdapter`.
+2. `MetadataRefreshingPollingStage` receives its metadata source codes from the adapter registry instead of hard-coding one provider branch.
+3. Each source uses independent `source_metadata_runtime` cadence: successful metadata refresh after six hours, provider failure retry after 15 minutes.
+4. Provider metadata discovery stages a complete non-empty venue + enabled-sport snapshot before normalized mutations.
+5. A metadata failure for one provider does not stop other due providers or polling of already-normalized targets. Successful metadata refresh must still persist its cadence state; a database/runtime persistence failure after success remains a real stage failure.
+6. polling claims already-normalized targets only; each target has its own interval/source minimum.
+7. `poll_targets.last_polled_at` is the active poll-claim fence. Court + slot + event writes are serialized behind the same row-locking fence.
+8. `poll_targets.last_success_at` is the current availability freshness anchor. Search/Radar/Push require successful exact-target truth within `max(15 minutes, 3 × target interval)`.
+9. if a persisted AVAILABLE slot was not observed for longer than that freshness allowance and an owned poll confirms it AVAILABLE again, synchronization emits a new AVAILABLE re-confirmation event even though the status value stayed AVAILABLE.
+10. anonymous browser identity owns Radar rules; watches validate active source/sport/venue geography and canonicalize common Taiwan `台`/`臺` city spellings.
+11. Radar matching requires fresh actionable slot truth, activation boundary ordering and current active source mappings.
+12. matching creates durable Web Push intents. Pre-dispatch and browser presentation recheck source/slot/watch truth and Taipei slot-start actionability.
+13. Push presentation only accepts the active endpoint and returns display fields + search deep-link only; provider-machine `external_booking_ref` is not a public navigation path.
+14. public search exposes only fresh actionable AVAILABLE rows and supplies the normalized venue human `booking_url`.
+15. `/health` is liveness and `/ready` checks sports schema reachability plus complete valid VAPID configuration.
 
 Current migration chain remains:
 
@@ -63,6 +64,7 @@ No schema migration was required in this round.
 - [x] public sports/venue/actionable availability APIs.
 - [x] provider-machine booking references isolated from public/shared contracts.
 - [x] staged periodic metadata refresh with persisted success/backoff state.
+- [x] registry-driven multi-source metadata cadence and provider failure isolation.
 - [x] 300-second unwatched / 180-second watched demand, source minimum clamp and 14-day watch horizon.
 - [x] demand reconciliation never shortens active `next_poll_at` lease.
 - [x] complete `last_polled_at` claim fencing through court/slot/event/missing-slot/final target settlement.
@@ -81,7 +83,7 @@ No schema migration was required in this round.
 - [x] pre-dispatch stale delivery invalidation.
 - [x] final presentation-time current-truth validation.
 - [x] Worker-native VAPID + Service Worker flow.
-- [x] presentation now requires an active subscription endpoint.
+- [x] presentation requires an active subscription endpoint.
 - [x] presentation repository no longer selects/returns `external_booking_ref` or internally derived `officialBookingUrl`.
 
 ### Web/PWA + release path
@@ -92,50 +94,56 @@ No schema migration was required in this round.
 - [x] `/ready`, `smoke.ps1`, `worker-deploy.ps1`, `pages-deploy.ps1`.
 - [x] CI frozen-lockfile install policy.
 
-## Current round — outage recovery semantics + Push presentation cleanup
+## Current round — registry-driven metadata refresh + provider failure isolation
 
 ### Starting state verified
 
-At round start latest `main` was `e90db6ed689d6abb51c19d1d3c0040557fd0aa79`. The rebuild plan/progress, recursive repository tree, availability freshness policy, source synchronization repository, Radar matcher, notification repository/routes/reconciler and current lockfile were re-read.
+At round start latest `main` was `2926ca345a214c64dc3050026e5345a55e22ce53`. The latest rebuild plan/progress, repository tree, polling metadata stage/tests, source registry, API composition, scheduled summary types, source synchronization/repository, notification repository/reconciler/routes and CI workflow were re-read before changing code.
 
-Concrete remaining issues confirmed:
+Concrete issues confirmed:
 
-1. prolonged provider outage correctly made old AVAILABLE truth disappear, but recovery behavior was accidental: if the provider later confirmed the same slot was still AVAILABLE, no new event was emitted because status stayed AVAILABLE. An active watch could therefore remain notification-silent after truth became trustworthy again.
-2. notification `claimPresentation` still selected `availability_slots.external_booking_ref`, selected venue `booking_url`, and computed an internal `officialBookingUrl` even though the route intentionally never exposed that field. This was a future machine-reference misuse footgun.
-3. presentation did not require `notification_subscriptions.active = true`, so an already deactivated/replaced endpoint could still be considered for a late wake-up.
-4. dependency-complete verification remains unavailable because Corepack still cannot download pnpm from npm registry.
+1. `MetadataRefreshingPollingStage` still hard-coded `taipei-sports-center` even though `SourceAdapterRegistry` already supports multiple adapters. Adding a second source would therefore require hidden polling-stage branching instead of only registering an adapter.
+2. When a due provider metadata refresh failed, the stage persisted retry state and then threw immediately. That skipped invalid-target cleanup, watch-demand reconciliation and polling of already-normalized targets for the entire run. A metadata endpoint outage should not stop last-known normalized availability polling when those endpoints remain usable; target-level freshness already fails closed if polling itself later becomes stale.
+3. Full dependency-complete verification is still externally blocked because Corepack cannot fetch pnpm from npm registry. `pnpm-lock.yaml` still contains the removed `apps/admin` workspace importer and must be regenerated by pnpm rather than hand-edited.
 
 ### Code completed this round
 
-Commits on `main` before this progress update:
+Files changed in this round:
 
-- `2460faae3c34bc3b06288ee72083dcd8124752f8` — define shared stale-gap observation policy in `availability/freshness.ts`.
-- `20f76fd4f3df602ad0750cebcaf4f2aefd181f1f` — add freshness-boundary/reconfirmation unit cases.
-- `f39c426ab9e49a65c9dbb35acc152f3fe0295318` — emit a same-status AVAILABLE recovery event when an owned poll observes a slot after a strictly stale observation gap.
-- `8040b7be4a2ef3cc87b64bc1ca0f8f71f3203293` — remove provider-machine booking data from Push presentation repository and require active Push endpoint.
-- `0474d840bbcdb20042e89b700ff1409280546757` — update rebuild plan with explicit recovery/presentation boundaries.
+- `apps/api/src/polling/stage.ts`
+  - added `refreshDueMetadataSources`, a testable per-source refresh coordinator;
+  - source metadata due/backoff is evaluated independently per registered source;
+  - one provider discovery failure records a failure result, best-effort persists its 15-minute retry boundary, and continues to later sources;
+  - provider metadata failure no longer aborts invalid-target cleanup, demand reconciliation or polling of already-normalized targets;
+  - successful provider refresh still requires successful cadence persistence so a DB/runtime write failure cannot silently cause metadata hammering on the next Cron wake-up;
+  - stage summary now includes due/refreshed/failed source counts and failed source codes.
+- `apps/api/src/polling/stage.test.ts`
+  - retained due-boundary tests;
+  - added a multi-source case proving a failed source (including failure-runtime persistence failure) does not prevent another due source from refreshing;
+  - added a case proving success-cadence persistence failure is not swallowed.
+- `apps/api/src/index.ts`
+  - creates the default source registry once, shares it with `SourceSynchronizationService`, and passes `registry.list().map(adapter => adapter.code)` into the metadata stage.
+- `apps/api/src/scheduled/run.ts`
+  - scheduled polling summary now carries metadata source due/refreshed/failed counts and failed source codes.
+- `docs/REBUILD_PLAN.md`
+  - source strategy now explicitly defines registry-driven source enumeration, per-source failure isolation and success-cadence persistence semantics.
+- `docs/REBUILD_PROGRESS.md`
+  - records this batch and the remaining verification/deployment work.
 
-Important behavior now:
+Behavioral result:
 
-- freshness and stale-gap recovery use the same allowance: `max(900 seconds, 3 × poll target interval)`.
-- an observation exactly on the freshness boundary remains fresh; re-confirmation requires a strictly longer gap.
-- normal repeated AVAILABLE polls do not create duplicate events.
-- after a prolonged outage, the first owned poll that re-confirms a still-AVAILABLE slot creates an AVAILABLE→AVAILABLE event. Older slot events are then superseded by existing Radar current-truth logic.
-- a watch active before that recovery event may receive a new notification because the product had intentionally stopped claiming the slot was actionable while stale and now has new trustworthy truth.
-- direct/unfenced synchronization does not create stale-gap recovery events; a real poll target/claim is required so source cadence remains authoritative.
-- Push presentation no longer has an `external_booking_ref -> officialBookingUrl` path at all.
-- a deactivated/replaced Push endpoint cannot claim a presentation candidate.
-
-No migration was added; existing `availability_slots.last_seen_at`, `poll_targets.interval_seconds` and event tables are sufficient.
+- adding a new adapter to the default source registry is enough for scheduled metadata refresh to discover its source code; the polling stage no longer needs a new hard-coded branch;
+- one provider metadata outage cannot monopolize the whole scheduled polling phase;
+- previously normalized targets continue to be polled after that provider metadata failure, while `last_success_at` freshness still prevents stale availability from surfacing if actual availability polling also stops succeeding;
+- no migration was added because `source_metadata_runtime` is already keyed by `source_id` and supports independent source cadence.
 
 ### Verification actually performed
 
-- Retried `corepack prepare pnpm@10.15.0 --activate` in the runtime. It still fails fetching `https://registry.npmjs.org/pnpm/-/pnpm-10.15.0.tgz`.
-- Runtime still reports Node `v22.16.0` and Corepack `0.32.0`.
-- Executed independent Node vectors mirroring the new stale-gap helper: **7/7 passed**, including exact-boundary and slower-source cases.
-- Re-read latest `main` after code commits and confirmed the new recovery SQL and cleaned Push presentation projection are present.
-- Confirmed `pnpm-lock.yaml` still contains an `apps/admin` importer while `apps/admin` is absent from the repository tree.
-- GitHub combined status for code head `8040b7be4a2ef3cc87b64bc1ca0f8f71f3203293` exposes no completed statuses.
+- Runtime reports Node `v22.16.0` and Corepack `0.32.0`.
+- Retried `corepack prepare pnpm@10.15.0 --activate`; it still fails fetching `https://registry.npmjs.org/pnpm/-/pnpm-10.15.0.tgz`.
+- Direct GitHub clone from the execution container is also unavailable due DNS resolution, so a dependency-complete local checkout cannot be manufactured as a workaround.
+- Source-reviewed the changed constructor/composition path against the actual `SourceAdapterRegistry.list()` contract.
+- The new Vitest cases are committed but cannot be truthfully claimed as executed until pnpm dependencies are available.
 
 Not truthfully executable in this environment:
 
@@ -146,17 +154,18 @@ Not truthfully executable in this environment:
 - `pnpm db:schema:check`
 - PowerShell deploy/smoke script execution
 
-Full repository verification remains **unverified**, not green. The committed Vitest cases have not run in a dependency-complete checkout.
+Full repository verification remains **unverified**, not green.
 
 ## Remaining work — highest priority first
 
 ### Repository correctness / cleanup
 
-- [ ] Regenerate `pnpm-lock.yaml` with actual current workspace using pnpm so stale `apps/admin` importer metadata is removed by the package manager rather than hand editing a generated file.
+- [ ] Regenerate `pnpm-lock.yaml` with the actual current workspace using pnpm so stale `apps/admin` importer metadata is removed by the package manager rather than hand editing a generated file.
 - [ ] Run frozen-lockfile `typecheck`, `lint`, `test`, `build`, `db:schema:check`; fix real failures.
-- [ ] Run PowerShell syntax/execution checks for deploy/smoke scripts on normal Windows development environment.
+- [ ] Run PowerShell syntax/execution checks for deploy/smoke scripts on a normal Windows development environment.
 - [ ] Full retired-term/source-boundary scan from a dependency-complete/local checkout.
 - [ ] Review SQL-level integration of stale-gap recovery against a real PostgreSQL/Neon database; current logic is source-reviewed and pure timing policy tested, but no DB integration test has executed here.
+- [ ] Review Push presentation claiming/current-truth ordering for a possible stale-candidate wake consumption race before declaring notification concurrency final.
 
 ### Deployment / database
 
@@ -175,4 +184,4 @@ Full repository verification remains **unverified**, not green. The committed Vi
 
 ## Next round priority
 
-First retry dependency-complete verification. If pnpm remains externally unavailable, inspect current SQL/notification concurrency for another concrete correctness issue rather than expanding product scope. In particular, review whether stale-gap recovery event creation should gain DB-level idempotency protection for crash/retry edge cases and whether notification presentation claiming can be made more atomic with final current-truth validation without increasing false negatives.
+First retry dependency-complete verification and regenerate the lockfile if pnpm becomes available. If registry access remains unavailable, inspect Push presentation claim/current-truth ordering and remaining SQL concurrency for another concrete correctness issue rather than expanding V1 scope.

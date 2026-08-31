@@ -24,7 +24,7 @@ Retire completely, without compatibility runtime: LINE webhook/group/LIFF, conve
 
 - `users`: generic identity; V1 uses anonymous browser identities and stores only token hashes.
 - `sources`, `sports`, `venues`, `venue_sports`, `courts`: normalized provider/venue/sport mapping.
-- `source_metadata_runtime`: provider metadata success/retry state.
+- `source_metadata_runtime`: per-source provider metadata success/retry state.
 - `availability_slots`: normalized current slot truth plus last observation time.
 - `availability_events`: meaningful status transitions, first AVAILABLE observations, and stale-gap AVAILABLE re-confirmations; `matched_at` is the Radar queue cursor.
 - `watch_rules` + `watch_rule_venues`: user-owned Radar conditions with idempotent creation keys.
@@ -66,7 +66,9 @@ First source is the Taipei sports-center booking platform around the verified en
 
 All sources implement `AvailabilitySourceAdapter`; domain/search/watch logic never consumes raw provider response shapes directly.
 
-`MetadataRefreshingPollingStage` is the sole metadata refresh owner. It uses persisted `source_metadata_runtime`, reads a complete non-empty venue + enabled-sport snapshot before normalized mutations, applies deactivation only after successful discovery, refreshes successful metadata after six hours and retries failures after 15 minutes. `PollingOrchestrator` never bypasses this cadence by bootstrapping metadata itself.
+`MetadataRefreshingPollingStage` is the sole metadata refresh owner. Its source list comes from the registered `AvailabilitySourceAdapter`s rather than hard-coded provider branches. Each source has independent persisted cadence/backoff in `source_metadata_runtime`: a successful refresh is due again after six hours and a provider refresh failure retries after 15 minutes. Discovery reads a complete non-empty venue + enabled-sport snapshot before normalized mutations and applies deactivation only after successful discovery.
+
+Metadata-source failures are isolated. If one registered provider fails metadata discovery, other due providers still refresh and already-normalized poll targets still run using their last-known catalog; current availability remains fail-closed independently through each target's `last_success_at` freshness rule. Failure-runtime persistence is best effort when a provider fails before its source anchor/runtime row can be used, but after successful provider discovery the new success cadence must persist—database/runtime persistence failure remains a stage failure so Cron does not silently hammer provider metadata on the next wake-up. `PollingOrchestrator` never bootstraps metadata or bypasses this cadence.
 
 ## Polling demand + claim fencing
 
@@ -227,7 +229,8 @@ Do not add AI chat, feeds, teams, automatic booking/payment or credential storag
 ### 3: source/search/polling
 - [x] Generic adapter + Taipei source.
 - [x] Normalized domain + actionable public search.
-- [x] staged metadata refresh + persisted cadence/backoff.
+- [x] staged periodic metadata refresh + persisted cadence/backoff.
+- [x] registry-driven multi-source metadata cadence with provider-failure isolation.
 - [x] horizon-aware watch demand.
 - [x] full poll claim fencing and row-lock serialization.
 - [x] shared Taipei date/time semantics.
@@ -265,4 +268,4 @@ Do not add AI chat, feeds, teams, automatic booking/payment or credential storag
 
 ## Definition of done
 
-The rebuild is complete only when the retired LINE/AI product cannot run and is absent from application schema; source metadata + polling + actionable search + current-truth Radar + Web Push work end-to-end on deployed infrastructure; provider outages fail closed and recover deterministically; past/already-started or operationally stale slots cannot appear or alert; Push cannot leak/use provider-machine booking references; human booking resolves through official venue flows; migrations are applied on a clean Neon target; readiness/deploy smoke succeeds; and all executable repository verification passes.
+The rebuild is complete only when the retired LINE/AI product cannot run and is absent from application schema; registered source metadata + polling + actionable search + current-truth Radar + Web Push work end-to-end on deployed infrastructure; one provider outage cannot stall healthy providers or last-known normalized polling; provider outages fail closed and recover deterministically; past/already-started or operationally stale slots cannot appear or alert; Push cannot leak/use provider-machine booking references; human booking resolves through official venue flows; migrations are applied on a clean Neon target; readiness/deploy smoke succeeds; and all executable repository verification passes.

@@ -11,6 +11,10 @@ export type ScheduledStageFailure = {
 
 export type ScheduledPollingSummary = PollingRunResult & {
   metadataRefreshed?: boolean;
+  metadataSourcesDue?: number;
+  metadataSourcesRefreshed?: number;
+  metadataSourcesFailed?: number;
+  metadataFailedSourceCodes?: string[];
   invalidTargetsDisabled?: number;
   demandTargetsUpdated?: number;
   watchedTargets?: number;
