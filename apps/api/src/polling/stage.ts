@@ -26,10 +26,9 @@ export function metadataRefreshDue(state: MetadataState | null, now: Date): bool
 }
 
 /**
- * Keeps provider metadata and poll targets aligned without calling metadata
- * endpoints every minute. A dedicated runtime row records only completed
- * metadata refreshes, so a partial/failed refresh never advances the success
- * clock. Failures back off before retrying the provider metadata endpoints.
+ * Sole owner of provider metadata refresh cadence. PollingOrchestrator only
+ * consumes already-normalized targets; an empty target set must never trigger
+ * an implicit metadata call that bypasses source_metadata_runtime backoff.
  */
 export class MetadataRefreshingPollingStage {
   constructor(
@@ -70,9 +69,9 @@ export class MetadataRefreshingPollingStage {
           lastErrorCode: null,
         }, now);
       } catch (error) {
-        // `syncMetadata` upserts the source before provider venue/sport work, so
-        // the source row normally exists even on a partial refresh. Persist a
-        // bounded retry instead of hammering metadata endpoints every minute.
+        // syncMetadata keeps the source anchor before provider discovery, so
+        // the runtime row can normally be persisted even on the first failed
+        // refresh. The polling layer will not bypass this retry boundary.
         await this.setMetadataRuntime(sourceCode, {
           nextAttemptAt: new Date(now.getTime() + METADATA_FAILURE_RETRY_MS),
           lastErrorCode: 'SOURCE_METADATA_REFRESH_FAILED',
@@ -83,10 +82,10 @@ export class MetadataRefreshingPollingStage {
 
     const invalidTargetsDisabled = await this.disableInvalidPollTargets(now);
     const demand = await this.demand.reconcile(now);
-    const result = await this.polling.run({ sourceCode });
+    const result = await this.polling.run();
     return {
       ...result,
-      metadataRefreshed: metadataRefreshed || result.bootstrappedMetadata,
+      metadataRefreshed,
       invalidTargetsDisabled,
       demandTargetsUpdated: demand.targetsUpdated,
       watchedTargets: demand.watchedTargets,
