@@ -101,15 +101,29 @@ export function createNotificationRoutes() {
     const repository = new DrizzleNotificationRepository(database);
     const reconciler = new DrizzlePendingDeliveryReconciler(database);
 
-    // A bare Push carries no delivery id. Multiple durable deliveries can race
-    // for one endpoint, and an older candidate may have become stale after the
-    // Push service accepted it. Consume stale candidates but keep scanning in
-    // the same browser wake so they cannot hide a later actionable delivery.
+    // A bare Push carries no delivery id. Treat the wake as capacity to present
+    // any durable delivery whose Push-service acceptance has already settled.
+    // Never promote an in-flight PENDING row from the browser: otherwise wake A
+    // could incorrectly settle delivery B when several sends overlap.
     const notification = await claimFirstActionablePresentation({
       claim: () => repository.claimPresentation(userId, parsed.data.endpoint, now),
       isActionable: (deliveryId) => reconciler.isDeliveryActionable(userId, deliveryId, now),
     });
-    if (!notification) return c.json({ ok: true, notification: null });
+    if (!notification) {
+      // A Push event may reach the browser just before the dispatching Worker
+      // receives the Push service HTTP response. Tell the Service Worker to
+      // retry briefly only when this endpoint still has a live fenced dispatch;
+      // otherwise a null result is authoritative and should stay silent.
+      const settlementPending = await repository.hasActiveDispatchForEndpoint(
+        userId,
+        parsed.data.endpoint,
+        now,
+      );
+      if (settlementPending) {
+        return c.json({ ok: false, error: 'PUSH_SETTLEMENT_PENDING' }, 425);
+      }
+      return c.json({ ok: true, notification: null });
+    }
 
     // Keep provider-machine booking references inside synchronization storage.
     // Browser presentation only receives the search deep-link and display data;
