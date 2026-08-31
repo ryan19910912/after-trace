@@ -1,7 +1,7 @@
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { Database } from '../db/client';
 import { pollTargets, sources, venues, watchRules, watchRuleVenues } from '../db/schema';
-import { taipeiDate } from './orchestrator';
+import { addIsoDays, taipeiDate } from '../time/taipei';
 
 const WATCHED_PRIORITY = 100;
 const DEFAULT_PRIORITY = 0;
@@ -130,10 +130,4 @@ export class DrizzlePollingDemandReconciler {
     }
     return result;
   }
-}
-
-function addIsoDays(value: string, days: number): string {
-  const date = new Date(`${value}T00:00:00.000Z`);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
 }
