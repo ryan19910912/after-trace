@@ -82,7 +82,9 @@ Provider-machine endpoints and user navigation are separate. `findAllowBookingLi
 
 ### Metadata freshness
 
-Metadata bootstrap is not one-time forever. The scheduled polling stage now:
+Metadata bootstrap is not one-time forever. `MetadataRefreshingPollingStage` is the sole owner of provider metadata refresh; `PollingOrchestrator` only consumes already-normalized due targets and never performs an implicit metadata bootstrap when the target set is empty. This prevents a zero-target state from bypassing the persisted success/retry cadence.
+
+The scheduled polling stage now:
 
 1. checks `source_metadata_runtime`;
 2. refreshes provider venue/sport metadata when `next_attempt_at` is due;
@@ -94,9 +96,10 @@ Metadata bootstrap is not one-time forever. The scheduled polling stage now:
 8. schedules the next normal metadata refresh six hours later;
 9. on failure, persists a 15-minute retry boundary instead of calling metadata endpoints every minute;
 10. disables poll targets whose source/venue/sport/venue-sport mapping is no longer active;
-11. reapplies watch-driven polling demand after metadata refresh, because metadata upsert may reset a target to the source/default interval.
+11. reapplies watch-driven polling demand after metadata refresh, because metadata upsert may reset a target to the source/default interval;
+12. invokes availability polling only after those metadata/demand responsibilities are complete; an empty due-target set returns without calling provider metadata again.
 
-A provider failure halfway through venue discovery therefore cannot leave public/Radar normalized venue/sport truth half-refreshed. A failed refresh may touch the source anchor/runtime bookkeeping, but does not partially apply venue/sport deactivations.
+A provider failure halfway through venue discovery therefore cannot leave public/Radar normalized venue/sport truth half-refreshed. A failed refresh may touch the source anchor/runtime bookkeeping, but does not partially apply venue/sport deactivations. The 15-minute metadata retry boundary remains authoritative even when there are zero enabled poll targets.
 
 ### Polling demand + claim fencing
 
@@ -233,6 +236,7 @@ Do not add AI chat, feeds, teams, automatic booking/payment or credential storag
 - [x] slot synchronization, status diff/events and target health/backoff.
 - [x] separate provider-machine refs from human booking navigation.
 - [x] periodic provider metadata refresh with persisted success/backoff state.
+- [x] make metadata stage the sole provider-refresh owner so an empty target set cannot bypass refresh/backoff cadence.
 - [x] stage provider metadata before applying normalized venue/sport changes; fail closed on empty venue snapshot.
 - [x] deactivate invalid source mappings and hide them from public/Radar truth.
 - [x] horizon-aware watch polling demand without mutating active target leases.
