@@ -1,10 +1,12 @@
 import { and, asc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
+import { pollTargetFreshAt } from '../availability/freshness';
 import { notificationDeliveryRuntime } from '../db/schema-notifications';
 import {
   availabilityEvents,
   availabilitySlots,
   notificationDeliveries,
+  pollTargets,
   sources,
   sports,
   venueSports,
@@ -93,6 +95,14 @@ export class DrizzleRadarMatcher {
           eq(venueSports.sportId, availabilitySlots.sportId),
         ),
       )
+      .innerJoin(
+        pollTargets,
+        and(
+          eq(pollTargets.sourceId, availabilitySlots.sourceId),
+          eq(pollTargets.venueId, availabilitySlots.venueId),
+          eq(pollTargets.sportId, availabilitySlots.sportId),
+        ),
+      )
       .where(and(
         eq(availabilityEvents.newStatus, 'AVAILABLE'),
         isNull(availabilityEvents.matchedAt),
@@ -101,6 +111,9 @@ export class DrizzleRadarMatcher {
           gt(availabilitySlots.useDate, today),
           and(eq(availabilitySlots.useDate, today), gt(availabilitySlots.startTime, currentTime)),
         ),
+        // Do not turn persisted AVAILABLE state into a fresh alert when the
+        // source target has not completed a successful poll for too long.
+        pollTargetFreshAt(now),
         eq(sources.active, true),
         eq(venues.active, true),
         eq(sports.active, true),
