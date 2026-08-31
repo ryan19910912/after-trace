@@ -93,17 +93,6 @@ export class TinyBookSourceError extends AvailabilitySourceError {
   }
 }
 
-/**
- * TinyBook currently renders public court-rental products with the standard
- * WooCommerce Bookings front-end contract. The adapter only reads the same
- * anonymous product page + availability AJAX call used by the consumer booking
- * UI; it never logs in, adds to cart, books or pays.
- *
- * Venue/product entries are deliberately curated. TinyBook is a multi-tenant
- * platform, so discovering an arbitrary tenant is not permission to ingest it.
- * Add a venue only after its official public booking product and sport/location
- * have been verified.
- */
 export class TinyBookAdapter implements AvailabilitySourceAdapter {
   readonly code = 'tinybook';
   readonly name = 'TinyBook 公開場地預約';
@@ -257,10 +246,6 @@ export class TinyBookAdapter implements AvailabilitySourceAdapter {
     form.set('wc_bookings_field_start_date_month', month);
     form.set('wc_bookings_field_start_date_day', day);
     form.set('wc_bookings_field_resource', resourceId);
-
-    // Curated products define their normalized minimum slot length separately.
-    // Asking WooCommerce for one duration unit exposes which start blocks the
-    // official consumer flow currently permits for that minimum booking unit.
     form.set('wc_bookings_field_duration', '1');
     form.delete('wc_bookings_field_start_date_time');
 
@@ -279,9 +264,7 @@ export class TinyBookAdapter implements AvailabilitySourceAdapter {
       body: body.toString(),
     });
 
-    if (/^-?\d+$/.test(html.trim())) {
-      throw new TinyBookSourceError('TinyBook booking endpoint returned a WordPress AJAX error code', 'INVALID_BLOCK_PAYLOAD');
-    }
+    validateTimeBlockPayload(html);
     return html;
   }
 
@@ -416,9 +399,6 @@ function findBookingAjaxUrl(html: string, productUrl: string): string {
     }
   }
 
-  // TinyBook supports both path tenants (`/tenant/product/...`) and root/custom
-  // domain WordPress installs (`/product/...`). The WordPress base is the path
-  // before the product segment, not blindly the first URL segment.
   const segments = product.pathname.split('/').filter(Boolean);
   const productSegment = segments.findIndex((segment) => segment.toLowerCase() === 'product');
   const baseSegments = productSegment >= 0 ? segments.slice(0, productSegment) : [];
@@ -455,6 +435,26 @@ function parseAttributes(tag: string): Map<string, string> {
     attributes.set(match[1].toLowerCase(), match[2] ?? match[3] ?? match[4] ?? '');
   }
   return attributes;
+}
+
+function validateTimeBlockPayload(html: string): void {
+  const trimmed = html.trim();
+  if (/^-?\d+$/.test(trimmed)) {
+    throw new TinyBookSourceError('TinyBook booking endpoint returned a WordPress AJAX error code', 'INVALID_BLOCK_PAYLOAD');
+  }
+
+  // WooCommerce Bookings' standard get_time_slots_html returns an empty string
+  // when no available blocks exist. Any non-empty response without a recognized
+  // time block is therefore not safe to interpret as "sold out": it may be a
+  // proxy/WAF/theme error page returned with HTTP 200. Fail closed so polling
+  // cannot mark previously known slots unavailable from an untrusted payload.
+  if (trimmed === '') return;
+  if (parseAvailableTimeBlocks(trimmed).length > 0) return;
+
+  throw new TinyBookSourceError(
+    'TinyBook booking endpoint returned an unrecognized non-empty availability payload',
+    'INVALID_BLOCK_PAYLOAD',
+  );
 }
 
 function parseAvailableTimeBlocks(html: string): string[] {
