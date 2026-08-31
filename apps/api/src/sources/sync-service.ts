@@ -9,7 +9,14 @@ import {
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const DEFAULT_POLL_INTERVAL_SECONDS = 300;
 const MAX_SYNC_WINDOW_DAYS = 31;
-const DEFAULT_LAUNCH_SPORT_CODES = ['badminton'] as const;
+const DEFAULT_INGEST_SPORT_CODES = [
+  'badminton',
+  'table-tennis',
+  'squash',
+  'tennis',
+  'pickleball',
+  'basketball',
+] as const;
 
 export type MetadataSyncResult = {
   sourceCode: string;
@@ -47,13 +54,20 @@ export class SourceSynchronizationService {
     private readonly repository: AvailabilitySyncRepository,
     private readonly registry: SourceAdapterRegistry,
     private readonly now: () => Date = () => new Date(),
-    enabledSportCodes: readonly string[] = DEFAULT_LAUNCH_SPORT_CODES,
+    enabledSportCodes: readonly string[] = DEFAULT_INGEST_SPORT_CODES,
   ) {
     this.enabledSportCodes = new Set(enabledSportCodes);
   }
 
   async syncMetadata(sourceCode: string): Promise<MetadataSyncResult> {
     const adapter = this.registry.get(sourceCode);
+
+    // A source may expose a catalog broader than the subset we can safely
+    // normalize for that provider. Source overrides can only narrow the global
+    // product allowlist; they never opt a provider into an unsupported sport.
+    const sourceSportCodes = adapter.ingestSportCodes
+      ? new Set(adapter.ingestSportCodes.filter((code) => this.enabledSportCodes.has(code)))
+      : this.enabledSportCodes;
 
     // Keep the source anchor current before provider discovery so the metadata
     // stage can persist retry/backoff state even on the first failed refresh.
@@ -78,7 +92,7 @@ export class SourceSynchronizationService {
     const snapshot: VenueMetadataSnapshot[] = [];
     for (const venue of sourceVenues) {
       const sports = (await adapter.listSports(venue.externalVenueId))
-        .filter((sport) => this.enabledSportCodes.has(sport.code));
+        .filter((sport) => sourceSportCodes.has(sport.code));
       snapshot.push({ venue, sports });
     }
 
