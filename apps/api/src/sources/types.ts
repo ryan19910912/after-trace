@@ -1,3 +1,14 @@
+export class AvailabilitySourceError extends Error {
+  constructor(
+    message: string,
+    readonly code: string,
+    readonly status?: number,
+  ) {
+    super(message);
+    this.name = 'AvailabilitySourceError';
+  }
+}
+
 export type SourceVenue = {
   externalVenueId: string;
   name: string;
