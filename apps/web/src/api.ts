@@ -5,6 +5,8 @@ export type VenueOption = {
   city: string;
   district: string | null;
   bookingUrl: string | null;
+  sourceCode: string;
+  sourceName: string;
 };
 export type AvailabilitySlot = {
   slotId: number;
