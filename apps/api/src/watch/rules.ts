@@ -2,6 +2,12 @@ import { z } from 'zod';
 
 const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 const timePattern = /^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/;
+const taiwanCityAliases: Readonly<Record<string, string>> = {
+  台北市: '臺北市',
+  台中市: '臺中市',
+  台南市: '臺南市',
+  台東縣: '臺東縣',
+};
 
 function isValidIsoDate(value: string): boolean {
   if (!isoDatePattern.test(value)) return false;
@@ -15,8 +21,19 @@ function normalizeTime(value: string): string {
   return value.length === 5 ? `${value}:00` : value;
 }
 
+function normalizePlaceName(value: string): string {
+  return value.normalize('NFKC').trim();
+}
+
+export function normalizeTaiwanCityName(value: string): string {
+  const normalized = normalizePlaceName(value);
+  return taiwanCityAliases[normalized] ?? normalized;
+}
+
 const dateSchema = z.string().refine(isValidIsoDate, 'Invalid ISO date');
 const timeSchema = z.string().regex(timePattern).transform(normalizeTime);
+const placeNameSchema = z.string().transform(normalizePlaceName).pipe(z.string().min(1).max(80));
+const citySchema = placeNameSchema.transform(normalizeTaiwanCityName);
 const venueIdsSchema = z
   .array(z.number().int().positive())
   .max(50)
@@ -36,8 +53,8 @@ export const createWatchRuleSchema = z
     daysOfWeek: daysOfWeekSchema.nullish().transform((value) => value ?? []),
     startTime: timeSchema.nullish().transform((value) => value ?? null),
     endTime: timeSchema.nullish().transform((value) => value ?? null),
-    city: z.string().trim().min(1).max(80).default('臺北市'),
-    district: z.string().trim().min(1).max(80).nullish().transform((value) => value ?? null),
+    city: citySchema.default('臺北市'),
+    district: placeNameSchema.nullish().transform((value) => value ?? null),
   })
   .superRefine((value, context) => {
     const error = validateWatchWindow(value);
@@ -53,8 +70,8 @@ export const updateWatchRuleSchema = z
     daysOfWeek: daysOfWeekSchema.nullable().optional(),
     startTime: timeSchema.nullable().optional(),
     endTime: timeSchema.nullable().optional(),
-    city: z.string().trim().min(1).max(80).optional(),
-    district: z.string().trim().min(1).max(80).nullable().optional(),
+    city: citySchema.optional(),
+    district: placeNameSchema.nullable().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, 'Watch update must change at least one field');
 
@@ -88,6 +105,25 @@ export async function fingerprintWatchCreate(input: CreateWatchRuleInput): Promi
   });
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+export type WatchAreaVenue = {
+  city: string;
+  district: string | null;
+};
+
+/**
+ * Selected venues are an additional narrowing constraint, never an escape from
+ * the watch's geographic boundary. Keeping this rule explicit prevents a watch
+ * such as "大安區 + 中山運動中心" from being accepted but never matching.
+ */
+export function venueMatchesWatchArea(
+  city: string,
+  district: string | null,
+  venue: WatchAreaVenue,
+): boolean {
+  if (venue.city !== city) return false;
+  return !district || venue.district === district;
 }
 
 export type MatchableWatchRule = {
