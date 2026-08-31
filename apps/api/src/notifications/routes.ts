@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { AnonymousIdentityService, parseBearerToken } from '../auth/anonymous';
 import { createDatabase } from '../db/client';
 import type { Bindings } from '../env';
+import { DrizzlePendingDeliveryReconciler } from './reconciler';
 import { DrizzleNotificationRepository } from './repository';
 import { pushEndpointSchema, pushSubscriptionSchema } from './validation';
 import { resolveVapidConfig } from './vapid';
@@ -93,9 +94,35 @@ export function createNotificationRoutes() {
     const parsed = pushEndpointSchema.safeParse(body);
     if (!parsed.success) return c.json({ ok: false, error: 'INVALID_PUSH_ENDPOINT' }, 400);
 
-    const repository = new DrizzleNotificationRepository(c.get('database'));
-    const notification = await repository.claimPresentation(c.get('userId'), parsed.data.endpoint);
-    return c.json({ ok: true, notification });
+    const database = c.get('database');
+    const userId = c.get('userId');
+    const repository = new DrizzleNotificationRepository(database);
+    const notification = await repository.claimPresentation(userId, parsed.data.endpoint);
+    if (!notification) return c.json({ ok: true, notification: null });
+
+    // Push-service acceptance and browser wake-up can race with a newer source
+    // transition or a watch edit/pause. Recheck the exact delivery after claim;
+    // a successful null response means the wake-up is stale and must stay silent.
+    const actionable = await new DrizzlePendingDeliveryReconciler(database)
+      .isDeliveryActionable(userId, notification.deliveryId);
+    if (!actionable) return c.json({ ok: true, notification: null });
+
+    // Keep provider-machine booking references inside synchronization storage.
+    // Browser presentation only receives the search deep-link and display data;
+    // the normal availability API supplies the verified human booking URL.
+    return c.json({
+      ok: true,
+      notification: {
+        deliveryId: notification.deliveryId,
+        title: notification.title,
+        body: notification.body,
+        tag: notification.tag,
+        deepLink: notification.deepLink,
+        venueName: notification.venueName,
+        district: notification.district,
+        courtName: notification.courtName,
+      },
+    });
   });
 
   app.post('/deliveries/:deliveryId/opened', async (c) => {

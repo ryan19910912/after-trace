@@ -1,21 +1,15 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
 import {
-  pollTargets,
-  sources,
   sports,
   venueSports,
   venues,
   watchRules,
   watchRuleVenues,
 } from '../db/schema';
+import { DrizzlePollingDemandReconciler } from '../polling/demand';
 import type { CreateWatchRuleInput, UpdateWatchRuleInput } from './rules';
 import { validateWatchWindow } from './rules';
-
-const WATCHED_PRIORITY = 100;
-const DEFAULT_PRIORITY = 0;
-const WATCHED_POLL_INTERVAL_SECONDS = 180;
-const DEFAULT_POLL_INTERVAL_SECONDS = 300;
 
 export class WatchRuleError extends Error {
   constructor(readonly code: string, message = code) {
@@ -194,7 +188,7 @@ export class DrizzleWatchRuleRepository {
       ON CONFLICT (watch_rule_id, venue_id) DO NOTHING
     `);
 
-    await this.refreshPollingDemand();
+    await this.refreshPollingDemand(now);
     return this.getById(userId, watchRuleId);
   }
 
@@ -209,48 +203,7 @@ export class DrizzleWatchRuleRepository {
   }
 
   async refreshPollingDemand(now = new Date()): Promise<void> {
-    const targets = await this.database
-      .select({
-        id: pollTargets.id,
-        venueId: pollTargets.venueId,
-        sportId: pollTargets.sportId,
-        sourceMinPollIntervalSeconds: sources.minPollIntervalSeconds,
-        city: venues.city,
-        district: venues.district,
-      })
-      .from(pollTargets)
-      .innerJoin(sources, eq(sources.id, pollTargets.sourceId))
-      .innerJoin(venues, eq(venues.id, pollTargets.venueId))
-      .where(eq(pollTargets.enabled, true));
-
-    const activeWatches = await this.database
-      .select({
-        id: watchRules.id,
-        sportId: watchRules.sportId,
-        city: watchRules.city,
-        district: watchRules.district,
-      })
-      .from(watchRules)
-      .where(eq(watchRules.enabled, true));
-    const venueIdsByRule = await this.loadVenueIds(activeWatches.map((watch) => watch.id));
-
-    for (const target of targets) {
-      const watched = activeWatches.some((watch) => {
-        if (watch.sportId !== target.sportId || watch.city !== target.city) return false;
-        if (watch.district && watch.district !== target.district) return false;
-        const venueIds = venueIdsByRule.get(watch.id) ?? [];
-        return venueIds.length === 0 || venueIds.includes(target.venueId);
-      });
-      const requestedInterval = watched ? WATCHED_POLL_INTERVAL_SECONDS : DEFAULT_POLL_INTERVAL_SECONDS;
-      await this.database
-        .update(pollTargets)
-        .set({
-          priority: watched ? WATCHED_PRIORITY : DEFAULT_PRIORITY,
-          intervalSeconds: Math.max(target.sourceMinPollIntervalSeconds, requestedInterval),
-          updatedAt: now,
-        })
-        .where(eq(pollTargets.id, target.id));
-    }
+    await new DrizzlePollingDemandReconciler(this.database).reconcile(now);
   }
 
   private async resolveSportId(code: string): Promise<number> {

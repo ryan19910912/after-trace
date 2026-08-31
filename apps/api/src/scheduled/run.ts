@@ -9,15 +9,26 @@ export type ScheduledStageFailure = {
   errorCode: string;
 };
 
+export type ScheduledPollingSummary = PollingRunResult & {
+  metadataRefreshed?: boolean;
+  invalidTargetsDisabled?: number;
+  demandTargetsUpdated?: number;
+  watchedTargets?: number;
+};
+
+export type ScheduledPushSummary = NotificationDispatchSummary & {
+  invalidated?: number;
+};
+
 export type ScheduledRadarRunSummary = {
-  polling: PollingRunResult | null;
+  polling: ScheduledPollingSummary | null;
   radar: RadarMatchResult | null;
-  push: NotificationDispatchSummary | null;
+  push: ScheduledPushSummary | null;
   failures: ScheduledStageFailure[];
 };
 
 type ScheduledPollingStage = {
-  run(): Promise<PollingRunResult>;
+  run(): Promise<ScheduledPollingSummary>;
 };
 
 type ScheduledRadarStage = {
@@ -25,16 +36,16 @@ type ScheduledRadarStage = {
 };
 
 type ScheduledPushStage = {
-  run(): Promise<NotificationDispatchSummary>;
+  run(): Promise<ScheduledPushSummary>;
 };
 
 /**
  * Runs the three cron responsibilities independently.
  *
- * A provider/metadata failure must not prevent Radar from matching already
- * persisted availability events, and neither of those stages may prevent
- * previously-created Push deliveries from being dispatched. Every stage is
- * retried naturally by the next cron wake-up.
+ * A provider/metadata/polling failure must not prevent Radar from matching
+ * already persisted availability events, and neither of those stages may
+ * prevent previously-created Push deliveries from being dispatched. Every
+ * stage is retried naturally by the next cron wake-up.
  */
 export class ScheduledRadarRunner {
   constructor(

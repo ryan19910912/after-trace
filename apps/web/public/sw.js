@@ -39,7 +39,7 @@ async function readContext() {
 
 async function showGenericNotification() {
   await self.registration.showNotification('AFTERTRACE 空位雷達', {
-    body: '發現新的可預約空位，點擊查看最新結果。',
+    body: '空位雷達收到更新，開啟 AFTERTRACE 重新整理最新狀態。',
     tag: 'aftertrace-radar-generic',
     data: { deepLink: '/' },
   });
@@ -70,10 +70,10 @@ async function handlePush() {
 
     const body = await response.json();
     const notification = body.notification;
-    if (!notification) {
-      await showGenericNotification();
-      return;
-    }
+    // The Push service can race with a later availability transition. The API
+    // returns a successful null presentation when no delivery is still current;
+    // do not turn that stale wake-up into a false "空位" notification.
+    if (!notification) return;
 
     await self.registration.showNotification(notification.title, {
       body: notification.body,

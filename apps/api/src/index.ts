@@ -6,9 +6,13 @@ import { createDatabase } from './db/client';
 import { sports } from './db/schema';
 import type { Bindings } from './env';
 import { WebPushDispatcher } from './notifications/dispatcher';
+import { DrizzlePendingDeliveryReconciler } from './notifications/reconciler';
 import { DrizzleNotificationRepository } from './notifications/repository';
 import { createNotificationRoutes } from './notifications/routes';
+import { WebPushScheduledStage } from './notifications/stage';
+import { DrizzlePollingDemandReconciler } from './polling/demand';
 import { PollingOrchestrator } from './polling/orchestrator';
+import { MetadataRefreshingPollingStage } from './polling/stage';
 import { evaluateRuntimeReadiness } from './readiness';
 import { ScheduledRadarRunner } from './scheduled/run';
 import { createDefaultSourceRegistry } from './sources/registry';
@@ -45,10 +49,19 @@ async function runScheduledRadar(env: Bindings) {
   const database = createDatabase(env.DATABASE_URL);
   const repository = new DrizzleAvailabilitySyncRepository(database);
   const synchronizer = new SourceSynchronizationService(repository, createDefaultSourceRegistry());
+  const notificationRepository = new DrizzleNotificationRepository(database);
   const runner = new ScheduledRadarRunner(
-    new PollingOrchestrator(repository, synchronizer),
+    new MetadataRefreshingPollingStage(
+      database,
+      synchronizer,
+      new DrizzlePollingDemandReconciler(database),
+      new PollingOrchestrator(repository, synchronizer),
+    ),
     new DrizzleRadarMatcher(database),
-    new WebPushDispatcher(new DrizzleNotificationRepository(database), env),
+    new WebPushScheduledStage(
+      new DrizzlePendingDeliveryReconciler(database),
+      new WebPushDispatcher(notificationRepository, env),
+    ),
   );
   return runner.run();
 }

@@ -1,10 +1,13 @@
-import { and, asc, eq, inArray, isNull, lte } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lte, sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
 import { notificationDeliveryRuntime } from '../db/schema-notifications';
 import {
   availabilityEvents,
   availabilitySlots,
   notificationDeliveries,
+  sources,
+  sports,
+  venueSports,
   venues,
   watchRules,
   watchRuleVenues,
@@ -37,8 +40,31 @@ export class DrizzleRadarMatcher {
       })
       .from(availabilityEvents)
       .innerJoin(availabilitySlots, eq(availabilitySlots.id, availabilityEvents.availabilitySlotId))
+      .innerJoin(sources, eq(sources.id, availabilitySlots.sourceId))
       .innerJoin(venues, eq(venues.id, availabilitySlots.venueId))
-      .where(and(eq(availabilityEvents.newStatus, 'AVAILABLE'), isNull(availabilityEvents.matchedAt)))
+      .innerJoin(sports, eq(sports.id, availabilitySlots.sportId))
+      .innerJoin(
+        venueSports,
+        and(
+          eq(venueSports.venueId, availabilitySlots.venueId),
+          eq(venueSports.sportId, availabilitySlots.sportId),
+        ),
+      )
+      .where(and(
+        eq(availabilityEvents.newStatus, 'AVAILABLE'),
+        isNull(availabilityEvents.matchedAt),
+        eq(availabilitySlots.status, 'AVAILABLE'),
+        eq(sources.active, true),
+        eq(venues.active, true),
+        eq(sports.active, true),
+        eq(venueSports.active, true),
+        sql`NOT EXISTS (
+          SELECT 1
+          FROM availability_events newer
+          WHERE newer.availability_slot_id = ${availabilitySlots.id}
+            AND newer.id > ${availabilityEvents.id}
+        )`,
+      ))
       .orderBy(asc(availabilityEvents.id))
       .limit(boundedLimit);
 
@@ -63,7 +89,11 @@ export class DrizzleRadarMatcher {
             eq(watchRules.enabled, true),
             eq(watchRules.sportId, event.sportId),
             eq(watchRules.city, event.city),
-            lte(watchRules.createdAt, event.occurredAt),
+            // Treat every watch edit/resume as a new activation boundary. An
+            // availability event that happened before the latest rule state
+            // must never become a retroactive notification just because Radar
+            // matching was temporarily backlogged.
+            lte(watchRules.updatedAt, event.occurredAt),
           ),
         )
         .orderBy(asc(watchRules.userId), asc(watchRules.id));

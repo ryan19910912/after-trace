@@ -28,8 +28,9 @@ describe('watch rule validation', () => {
     expect(createWatchRuleSchema.safeParse({ sport: 'badminton', startTime: '22:00', endTime: '18:00' }).success).toBe(false);
   });
 
-  it('accepts partial update payloads and strict idempotency keys', () => {
+  it('accepts real partial updates but rejects empty no-op patches', () => {
     expect(updateWatchRuleSchema.parse({ enabled: false })).toEqual({ enabled: false });
+    expect(updateWatchRuleSchema.safeParse({}).success).toBe(false);
     expect(parseIdempotencyKey('watch-create:1234')).toBe('watch-create:1234');
     expect(parseIdempotencyKey('tiny')).toBeNull();
   });

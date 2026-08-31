@@ -1,6 +1,6 @@
 import { and, asc, eq, gte, lte } from 'drizzle-orm';
 import type { Database } from '../db/client';
-import { availabilitySlots, courts, sports, venueSports, venues } from '../db/schema';
+import { availabilitySlots, courts, sources, sports, venueSports, venues } from '../db/schema';
 import type { AvailabilitySearchQuery } from './query';
 
 export class DrizzleAvailabilityRepository {
@@ -8,9 +8,17 @@ export class DrizzleAvailabilityRepository {
 
   async listSports() {
     return this.database
-      .select({ id: sports.id, code: sports.code, name: sports.name })
+      .selectDistinct({ id: sports.id, code: sports.code, name: sports.name })
       .from(sports)
-      .where(eq(sports.active, true))
+      .innerJoin(venueSports, eq(venueSports.sportId, sports.id))
+      .innerJoin(venues, eq(venues.id, venueSports.venueId))
+      .innerJoin(sources, eq(sources.id, venues.sourceId))
+      .where(and(
+        eq(sports.active, true),
+        eq(venueSports.active, true),
+        eq(venues.active, true),
+        eq(sources.active, true),
+      ))
       .orderBy(asc(sports.name));
   }
 
@@ -19,16 +27,24 @@ export class DrizzleAvailabilityRepository {
       return this.database
         .select({ id: venues.id, name: venues.name, city: venues.city, district: venues.district, bookingUrl: venues.bookingUrl })
         .from(venues)
-        .where(eq(venues.active, true))
+        .innerJoin(sources, eq(sources.id, venues.sourceId))
+        .where(and(eq(venues.active, true), eq(sources.active, true)))
         .orderBy(asc(venues.district), asc(venues.name));
     }
 
     return this.database
       .selectDistinct({ id: venues.id, name: venues.name, city: venues.city, district: venues.district, bookingUrl: venues.bookingUrl })
       .from(venues)
+      .innerJoin(sources, eq(sources.id, venues.sourceId))
       .innerJoin(venueSports, eq(venueSports.venueId, venues.id))
       .innerJoin(sports, eq(sports.id, venueSports.sportId))
-      .where(and(eq(venues.active, true), eq(venueSports.active, true), eq(sports.active, true), eq(sports.code, sportCode)))
+      .where(and(
+        eq(sources.active, true),
+        eq(venues.active, true),
+        eq(venueSports.active, true),
+        eq(sports.active, true),
+        eq(sports.code, sportCode),
+      ))
       .orderBy(asc(venues.district), asc(venues.name));
   }
 
@@ -51,14 +67,24 @@ export class DrizzleAvailabilityRepository {
         lastSeenAt: availabilitySlots.lastSeenAt,
       })
       .from(availabilitySlots)
+      .innerJoin(sources, eq(sources.id, availabilitySlots.sourceId))
       .innerJoin(venues, eq(venues.id, availabilitySlots.venueId))
       .innerJoin(sports, eq(sports.id, availabilitySlots.sportId))
+      .innerJoin(
+        venueSports,
+        and(
+          eq(venueSports.venueId, availabilitySlots.venueId),
+          eq(venueSports.sportId, availabilitySlots.sportId),
+        ),
+      )
       .leftJoin(courts, eq(courts.id, availabilitySlots.courtId))
       .where(
         and(
           eq(availabilitySlots.status, 'AVAILABLE'),
+          eq(sources.active, true),
           eq(venues.active, true),
           eq(sports.active, true),
+          eq(venueSports.active, true),
           input.sport ? eq(sports.code, input.sport) : undefined,
           input.venueId ? eq(venues.id, input.venueId) : undefined,
           input.district ? eq(venues.district, input.district) : undefined,

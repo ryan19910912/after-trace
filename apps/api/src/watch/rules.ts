@@ -44,17 +44,19 @@ export const createWatchRuleSchema = z
     if (error) context.addIssue({ code: 'custom', message: error });
   });
 
-export const updateWatchRuleSchema = z.object({
-  enabled: z.boolean().optional(),
-  venueIds: venueIdsSchema.optional(),
-  dateFrom: dateSchema.nullable().optional(),
-  dateTo: dateSchema.nullable().optional(),
-  daysOfWeek: daysOfWeekSchema.nullable().optional(),
-  startTime: timeSchema.nullable().optional(),
-  endTime: timeSchema.nullable().optional(),
-  city: z.string().trim().min(1).max(80).optional(),
-  district: z.string().trim().min(1).max(80).nullable().optional(),
-});
+export const updateWatchRuleSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    venueIds: venueIdsSchema.optional(),
+    dateFrom: dateSchema.nullable().optional(),
+    dateTo: dateSchema.nullable().optional(),
+    daysOfWeek: daysOfWeekSchema.nullable().optional(),
+    startTime: timeSchema.nullable().optional(),
+    endTime: timeSchema.nullable().optional(),
+    city: z.string().trim().min(1).max(80).optional(),
+    district: z.string().trim().min(1).max(80).nullable().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, 'Watch update must change at least one field');
 
 export type CreateWatchRuleInput = z.infer<typeof createWatchRuleSchema>;
 export type UpdateWatchRuleInput = z.infer<typeof updateWatchRuleSchema>;
