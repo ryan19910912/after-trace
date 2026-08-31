@@ -1,9 +1,10 @@
-import type {
-  AvailabilitySourceAdapter,
-  SourceAvailabilitySlot,
-  SourceBookableDateQuery,
-  SourceSport,
-  SourceVenue,
+import {
+  AvailabilitySourceError,
+  type AvailabilitySourceAdapter,
+  type SourceAvailabilitySlot,
+  type SourceBookableDateQuery,
+  type SourceSport,
+  type SourceVenue,
 } from './types';
 
 const DEFAULT_BASE_URL = 'https://booking-tpsc.sporetrofit.com';
@@ -35,13 +36,9 @@ export const TAIPEI_SPORTS_CENTER_SPORTS: readonly SourceSport[] = [
   { externalCategoryId: 'TableTennis', code: 'table-tennis', name: '桌球' },
 ] as const;
 
-export class TaipeiSportsCenterSourceError extends Error {
-  constructor(
-    message: string,
-    readonly code: string,
-    readonly status?: number,
-  ) {
-    super(message);
+export class TaipeiSportsCenterSourceError extends AvailabilitySourceError {
+  constructor(message: string, code: string, status?: number) {
+    super(message, code, status);
     this.name = 'TaipeiSportsCenterSourceError';
   }
 }
