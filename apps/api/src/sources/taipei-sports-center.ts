@@ -47,6 +47,11 @@ export class TaipeiSportsCenterAdapter implements AvailabilitySourceAdapter {
   readonly code = 'taipei-sports-center';
   readonly name = '臺北市運動中心預約系統';
   readonly minPollIntervalSeconds = 60;
+  // The adapter's current sport discovery is a static provider catalog rather
+  // than venue-specific truth. Keep production ingestion badminton-only until
+  // /Home/loadSportBlock is normalized per venue; private adapters can opt into
+  // other generic slot sports independently through the same contract.
+  readonly ingestSportCodes = ['badminton'] as const;
 
   constructor(
     private readonly fetcher: Fetcher = fetch,
