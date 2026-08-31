@@ -16,6 +16,20 @@ export function availabilityFreshnessSeconds(intervalSeconds: number): number {
 }
 
 /**
+ * A still-AVAILABLE slot is a new actionable discovery again when it was not
+ * observed for longer than the same freshness allowance used to fail closed
+ * during provider outages. Equality stays fresh; only a strictly older
+ * observation needs a recovery/reconfirmation event.
+ */
+export function availabilityObservationWasStale(
+  lastSeenAt: Date,
+  observedAt: Date,
+  intervalSeconds: number,
+): boolean {
+  return lastSeenAt.getTime() + availabilityFreshnessSeconds(intervalSeconds) * 1000 < observedAt.getTime();
+}
+
+/**
  * Current availability must be backed by a reasonably recent successful full
  * poll of the exact source/venue/sport target. We tolerate at least 15 minutes
  * and otherwise three configured poll intervals, so transient provider errors
