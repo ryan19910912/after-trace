@@ -22,6 +22,16 @@ import {
 
 type Props = { apiBaseUrl: string };
 
+const WEEKDAYS = [
+  { value: 0, label: '日' },
+  { value: 1, label: '一' },
+  { value: 2, label: '二' },
+  { value: 3, label: '三' },
+  { value: 4, label: '四' },
+  { value: 5, label: '五' },
+  { value: 6, label: '六' },
+] as const;
+
 function todayLocal() {
   const now = new Date();
   const year = now.getFullYear();
@@ -48,6 +58,11 @@ function sourceFreshness(value: string) {
   return `${ageHours} 小時前同步`;
 }
 
+function watchDays(days: number[] | null) {
+  if (!days || days.length === 0) return '每天';
+  return days.map((day) => `週${WEEKDAYS.find((item) => item.value === day)?.label ?? day}`).join('、');
+}
+
 export function App({ apiBaseUrl }: Props) {
   const [sports, setSports] = useState<SportOption[]>([]);
   const [venues, setVenues] = useState<VenueOption[]>([]);
@@ -59,6 +74,9 @@ export function App({ apiBaseUrl }: Props) {
   const [date, setDate] = useState(() => queryValue('date', todayLocal()));
   const [start, setStart] = useState(() => queryValue('start', '18:00'));
   const [end, setEnd] = useState(() => queryValue('end', '22:00'));
+  const [radarDateTo, setRadarDateTo] = useState(() => queryValue('date', todayLocal()));
+  const [radarDaysOfWeek, setRadarDaysOfWeek] = useState<number[]>([]);
+  const [editingWatchId, setEditingWatchId] = useState<number | null>(null);
   const [slots, setSlots] = useState<AvailabilitySlot[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -232,32 +250,78 @@ export function App({ apiBaseUrl }: Props) {
     }
   }
 
-  async function createRadar() {
+  function toggleRadarDay(day: number) {
+    setRadarDaysOfWeek((current) => current.includes(day)
+      ? current.filter((value) => value !== day)
+      : [...current, day].sort((a, b) => a - b));
+  }
+
+  function cancelRadarEdit() {
+    setEditingWatchId(null);
+    setRadarDateTo(date);
+    setRadarDaysOfWeek([]);
+  }
+
+  async function saveRadar() {
     if (!identityToken || !sport || !date || !city) return;
+    if (radarDateTo && radarDateTo < date) {
+      setError('Radar 結束日期不能早於開始日期。');
+      return;
+    }
+
     setRadarBusy(true);
     setError(null);
     setNotice(null);
+    const radarInput = {
+      venueIds: venueId ? [Number(venueId)] : [],
+      dateFrom: date,
+      dateTo: radarDateTo || date,
+      daysOfWeek: radarDaysOfWeek,
+      startTime: start || null,
+      endTime: end || null,
+      city: selectedVenue?.city || city,
+      district: district.trim() || null,
+    };
+
     try {
-      await createWatchRule(apiBaseUrl, identityToken, `web:${crypto.randomUUID()}`, {
-        sport,
-        enabled: true,
-        venueIds: venueId ? [Number(venueId)] : [],
-        dateFrom: date,
-        dateTo: date,
-        daysOfWeek: [],
-        startTime: start || null,
-        endTime: end || null,
-        city: selectedVenue?.city || city,
-        district: district.trim() || null,
-      });
+      if (editingWatchId) {
+        await updateWatchRule(apiBaseUrl, identityToken, editingWatchId, radarInput);
+        setNotice('Radar 條件已更新；新的啟用邊界會避免把修改前的舊空位重新通知。');
+      } else {
+        await createWatchRule(apiBaseUrl, identityToken, `web:${crypto.randomUUID()}`, {
+          sport,
+          enabled: true,
+          ...radarInput,
+        });
+        setNotice('Radar 已建立。符合日期、星期與時段的空位重新出現時會進入通知流程。');
+      }
       await refreshWatches(identityToken);
-      setNotice('Radar 已建立。有人取消、符合條件的時段重新出現時會進入通知流程。');
+      setEditingWatchId(null);
       if (!pushEnabled) await enableNotifications();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Radar 建立失敗');
+      setError(reason instanceof Error ? reason.message : 'Radar 儲存失敗');
     } finally {
       setRadarBusy(false);
     }
+  }
+
+  function beginEditWatch(rule: WatchRule) {
+    if (rule.venueIds.length > 1) {
+      setNotice('這組 Radar 同時指定多個場館，目前請先用暫停/刪除管理；Web 編輯器暫不會縮窄它的多場館條件。');
+      return;
+    }
+    setEditingWatchId(rule.id);
+    setSport(rule.sportCode);
+    setCity(rule.city);
+    setDistrict(rule.district ?? '');
+    setVenueId(rule.venueIds[0] ? String(rule.venueIds[0]) : '');
+    setDate(rule.dateFrom ?? todayLocal());
+    setRadarDateTo(rule.dateTo ?? rule.dateFrom ?? todayLocal());
+    setRadarDaysOfWeek(rule.daysOfWeek ?? []);
+    setStart(rule.startTime?.slice(0, 5) ?? '');
+    setEnd(rule.endTime?.slice(0, 5) ?? '');
+    setNotice('已把 Radar 條件帶回編輯區；修改後按「更新 Radar」。');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   async function toggleWatch(rule: WatchRule) {
@@ -279,6 +343,7 @@ export function App({ apiBaseUrl }: Props) {
     try {
       await deleteWatchRule(apiBaseUrl, identityToken, rule.id);
       await refreshWatches(identityToken);
+      if (editingWatchId === rule.id) cancelRadarEdit();
       setNotice('Radar 已刪除。');
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Radar 刪除失敗');
@@ -302,7 +367,7 @@ export function App({ apiBaseUrl }: Props) {
         <form onSubmit={submit} className="search-grid">
           <label>
             <span>運動</span>
-            <select value={sport} onChange={(event) => { setSport(event.target.value); setVenueId(''); setSearched(false); }}>
+            <select value={sport} onChange={(event) => { setSport(event.target.value); setVenueId(''); setSearched(false); setEditingWatchId(null); }}>
               {sports.length === 0 && <option value="">尚無資料</option>}
               {sports.map((item) => <option value={item.code} key={item.id}>{item.name}</option>)}
             </select>
@@ -340,8 +405,8 @@ export function App({ apiBaseUrl }: Props) {
           </label>
 
           <label>
-            <span>日期</span>
-            <input type="date" value={date} onChange={(event) => setDate(event.target.value)} required />
+            <span>搜尋日期 / Radar 起日</span>
+            <input type="date" value={date} onChange={(event) => { setDate(event.target.value); if (!editingWatchId) setRadarDateTo(event.target.value); }} required />
           </label>
 
           <label>
@@ -365,13 +430,40 @@ export function App({ apiBaseUrl }: Props) {
       <section className="radar-overview">
         <div>
           <p className="eyebrow">RADAR</p>
-          <h2>空位出現再叫我</h2>
-          <p>Radar 只監控公開空位，不會替你登入、搶位或付款。</p>
+          <h2>{editingWatchId ? '編輯 Radar' : '空位出現再叫我'}</h2>
+          <p>Radar 只監控公開空位，不會替你登入、搶位或付款。可設定日期區間與星期條件。</p>
+          <div className="search-grid">
+            <label>
+              <span>Radar 結束日期</span>
+              <input type="date" min={date} value={radarDateTo} onChange={(event) => setRadarDateTo(event.target.value)} />
+            </label>
+            <fieldset>
+              <legend>星期（不選＝每天）</legend>
+              <div className="radar-actions">
+                {WEEKDAYS.map((item) => (
+                  <label key={item.value}>
+                    <input
+                      type="checkbox"
+                      checked={radarDaysOfWeek.includes(item.value)}
+                      onChange={() => toggleRadarDay(item.value)}
+                    />
+                    週{item.label}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          </div>
         </div>
         <div className="radar-actions">
           <span className={pushEnabled ? 'push-state enabled' : 'push-state'}>
             {pushEnabled ? '通知已開啟' : '通知未開啟'}
           </span>
+          <button type="button" className="primary-button" disabled={radarBusy || !identityToken || !sport || !city} onClick={() => void saveRadar()}>
+            {radarBusy ? '儲存中…' : editingWatchId ? '更新 Radar' : '建立 Radar'}
+          </button>
+          {editingWatchId && (
+            <button type="button" className="secondary-button" disabled={radarBusy} onClick={cancelRadarEdit}>取消編輯</button>
+          )}
           {pushEnabled ? (
             <button type="button" className="secondary-button" disabled={pushBusy} onClick={() => void turnOffNotifications()}>
               關閉通知
@@ -397,8 +489,8 @@ export function App({ apiBaseUrl }: Props) {
         {searched && slots.length === 0 && (
           <div className="empty-state radar-empty">
             <strong>目前沒有符合條件的空位。</strong>
-            <span>可以直接用目前的運動、場館、日期與時間建立 Radar。</span>
-            <button type="button" className="primary-button inline-button" disabled={radarBusy || !identityToken} onClick={() => void createRadar()}>
+            <span>可以直接用目前的運動、場館、日期、星期與時間建立 Radar。</span>
+            <button type="button" className="primary-button inline-button" disabled={radarBusy || !identityToken} onClick={() => void saveRadar()}>
               {radarBusy ? '建立中…' : '有空位通知我'}
             </button>
           </div>
@@ -430,7 +522,7 @@ export function App({ apiBaseUrl }: Props) {
         {searched && slots.length > 0 && (
           <div className="keep-watching">
             <span>想等更多時段或有人取消？</span>
-            <button type="button" className="secondary-button" disabled={radarBusy || !identityToken} onClick={() => void createRadar()}>
+            <button type="button" className="secondary-button" disabled={radarBusy || !identityToken} onClick={() => void saveRadar()}>
               追蹤這組條件
             </button>
           </div>
@@ -457,9 +549,12 @@ export function App({ apiBaseUrl }: Props) {
                   <div>
                     <p className="slot-meta">{rule.enabled ? '監控中' : '已暫停'} · {rule.sportName}</p>
                     <h3>{rule.venueIds.length ? `指定 ${rule.venueIds.length} 個場館` : area}</h3>
-                    <p>{rule.dateFrom ?? '不限日期'}{rule.dateTo && rule.dateTo !== rule.dateFrom ? ` ～ ${rule.dateTo}` : ''}｜{watchTime(rule.startTime)}–{watchTime(rule.endTime)}</p>
+                    <p>{rule.dateFrom ?? '不限日期'}{rule.dateTo && rule.dateTo !== rule.dateFrom ? ` ～ ${rule.dateTo}` : ''}｜{watchDays(rule.daysOfWeek)}｜{watchTime(rule.startTime)}–{watchTime(rule.endTime)}</p>
                   </div>
                   <div className="watch-actions">
+                    <button type="button" className="secondary-button" disabled={radarBusy || rule.venueIds.length > 1} onClick={() => beginEditWatch(rule)}>
+                      編輯
+                    </button>
                     <button type="button" className="secondary-button" disabled={radarBusy} onClick={() => void toggleWatch(rule)}>
                       {rule.enabled ? '暫停' : '恢復'}
                     </button>
