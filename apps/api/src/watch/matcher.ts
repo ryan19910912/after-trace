@@ -26,6 +26,25 @@ export class DrizzleRadarMatcher {
 
   async matchPendingAvailableEvents(limit = 200): Promise<RadarMatchResult> {
     const boundedLimit = Math.max(1, Math.min(500, Math.trunc(limit)));
+    const now = new Date();
+
+    // Once a later transition exists for the same slot, an older AVAILABLE
+    // event can never be the current Radar truth again. Close it out so stale
+    // unmatched rows do not accumulate forever in the Radar queue index.
+    await this.database
+      .update(availabilityEvents)
+      .set({ matchedAt: now })
+      .where(and(
+        eq(availabilityEvents.newStatus, 'AVAILABLE'),
+        isNull(availabilityEvents.matchedAt),
+        sql`EXISTS (
+          SELECT 1
+          FROM availability_events newer
+          WHERE newer.availability_slot_id = ${availabilityEvents.availabilitySlotId}
+            AND newer.id > ${availabilityEvents.id}
+        )`,
+      ));
+
     const events = await this.database
       .select({
         id: availabilityEvents.id,
@@ -163,7 +182,7 @@ export class DrizzleRadarMatcher {
             .insert(notificationDeliveryRuntime)
             .values({
               deliveryId,
-              nextAttemptAt: new Date(),
+              nextAttemptAt: now,
               expiresAt: new Date(event.occurredAt.getTime() + DELIVERY_MAX_AGE_MS),
             })
             .onConflictDoNothing({ target: notificationDeliveryRuntime.deliveryId });
@@ -172,7 +191,7 @@ export class DrizzleRadarMatcher {
 
       await this.database
         .update(availabilityEvents)
-        .set({ matchedAt: new Date() })
+        .set({ matchedAt: now })
         .where(and(eq(availabilityEvents.id, event.id), isNull(availabilityEvents.matchedAt)));
     }
 
