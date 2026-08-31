@@ -37,7 +37,6 @@ class FakeRepository implements AvailabilitySyncRepository {
   async upsertVenueSport(_venueId: number, _sportId: number, externalCategoryId?: string): Promise<void> { this.calls.push(`venue-sport:${externalCategoryId}`); }
   async deactivateMissingVenueSports(): Promise<void> { this.calls.push('deactivate-venue-sports'); }
   async ensurePollTarget(): Promise<void> { this.calls.push('poll-target'); }
-  async hasEnabledPollTargets(): Promise<boolean> { return true; }
   async claimDuePollTargets(): Promise<PollTargetClaim[]> { return []; }
   async getPollTargetContext(): Promise<PollTargetContext | null> { return this.context; }
   async upsertAvailabilitySlot(input: Parameters<AvailabilitySyncRepository['upsertAvailabilitySlot']>[0]): Promise<boolean> {
