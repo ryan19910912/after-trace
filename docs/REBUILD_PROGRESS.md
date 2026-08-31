@@ -39,19 +39,9 @@ GitHub code search also returned no current matches for the old LINE/memory/Ener
 
 `drizzle/0000_aftertrace_rebuild.sql` was originally written for a fresh Neon database. Its legacy guard only aborts when representative old tables are detected; it does **not** delete an already-existing legacy schema.
 
-Because the product owner has explicitly decided the retired product data does not need to be preserved, a destructive one-time cleanup script is now committed:
+The product owner has decided to use a brand-new Neon database/branch for the rebuilt sports/Radar product, so destructive legacy cleanup is not part of the active migration path. The temporary cleanup script that had been added for a reused legacy database was removed again in commit `2ce3edfa61aaa616d9f0300c92024bdd639655ee`.
 
-- `scripts/drop-retired-product-schema.sql`
-
-It hard-deletes the known retired LINE/group/conversation/memory/credit/AI/Energy/rewarded-ad/reminder/commerce/proactive/web-auth/settings tables and their retired enum types using `DROP ... IF EXISTS ... CASCADE`.
-
-It intentionally does **not** drop the current sports/Radar `users` table.
-
-If production/dev uses a brand-new Neon branch, this script is unnecessary. If an old AFTERTRACE database is reused, run the cleanup script before applying the sports/Radar baseline. Actual database execution has not been performed from this environment.
-
-Relevant commit:
-
-- `4c6175bd707e077bb6ce7fb1aec096c7fd0fdd08` — `Add destructive legacy schema cleanup`
+Actual database execution has not been performed from this environment.
 
 ## Private-source status
 
@@ -61,13 +51,39 @@ Relevant commit:
 
 Live anonymous POST/XHR smoke remains deferred to verification.
 
-### AiNFOLiNK — blocked on transport capture
+### AiNFOLiNK — anonymous availability transport resolved; time mapping remains
 
-Public booking UI and multiple real consumer tenants are confirmed, including Taipei Pickle Pickle and badminton tenants. What is still missing is the exact anonymous browser request contract that loads date/court availability.
+The prior transport blocker is resolved. AiNFOLiNK exposes a reusable anonymous availability endpoint of the form:
 
-**User-assisted capture requested:** open a public AiNFOLiNK booking page while logged out, DevTools → Network → Fetch/XHR, reload/change booking date, then send the request that changes availability as **Copy as cURL** plus its response body. Cookies/auth values may be redacted if present; no login/security bypass is wanted.
+`https://<tenant>-backend.ainfolink.net/api/booking-item/available?booking_date=YYYY-MM-DD&booking_period_id=1,2,3`
 
-Once one normal anonymous availability request is reproducible, implement `AiNFOLiNKAdapter` immediately.
+Known backend tenants currently include:
+
+- `flex-backend.ainfolink.net`
+- `sunny-backend.ainfolink.net`
+- `pickleball-backend.ainfolink.net`
+
+The verified response contract is:
+
+- `content[]` = courts/resources;
+- `venue_id` = court ID;
+- `display_name` = court name;
+- `booking_type`;
+- `shared_capacity`;
+- `available[]` rows contain `booking_date`, `booking_hours_code`, `time_slot`, `unit_price`, `quantity`;
+- `quantity > 0` means AVAILABLE;
+- `quantity = 0` means UNAVAILABLE;
+- `unit_price` is the real slot price;
+- the external slot key must include `booking_date + booking_hours_code + time_slot`;
+- provider responses may include rows outside the requested date, so the adapter must filter each row by `booking_date` again.
+
+The same contract has been observed across pickleball, badminton, billiards and multi-purpose resources. `time_slot` may be `null` for some tenants and `1`/`2` for others. This makes AiNFOLiNK suitable for one config-driven system adapter rather than one parser per venue.
+
+**Only remaining blocker before registering `AiNFOLiNKAdapter`:** obtain the normal consumer-flow mapping from `booking_hours_code + time_slot` to actual `startTime/endTime`. Do not infer that a numeric code equals an hour and do not infer that `time_slot=1/2` means first/second half-hour. The mapping must come from a public booking-period / booking-hours / time-slot / setting / config API or equivalent response used by the normal anonymous frontend.
+
+Public web research confirms that AiNFOLiNK exposes live booking UIs and treats time-slot configuration and price tiers as first-class venue settings, but the exact raw mapping contract was not exposed by the searchable/indexed public pages inspected in this round. No guessed runtime mapping was committed.
+
+Once that mapping is reproducible, implement `AiNFOLiNKAdapter` immediately and wire it through registry → metadata sync → courts → normalized availability → polling → Radar → Push. Tenant definitions must remain config-driven.
 
 ### PickleBook / PickleTown — blocked on transport/SSR capture
 
@@ -79,11 +95,12 @@ Once reproducible, implement a system-level adapter rather than a venue-specific
 
 ## Remaining function/source work — highest priority first
 
-1. Use user-captured AiNFOLiNK or PickleBook request/response to implement the next private booking-system adapter.
-2. Continue verified Taipei private-court discovery without padding coverage with rooms/classes/LINE-only flows.
-3. Finish mixed-source semantics review: booking horizon, slot duration, dynamic prices and source minimum intervals.
-4. Finish small mixed-source PWA polish, including source labeling in venue selection where useful.
-5. Keep removing any retired source/config artifact found by inspection; current runtime/schema audit is clean.
+1. Resolve AiNFOLiNK's public time mapping (`booking_hours_code + time_slot` → start/end) and then implement the config-driven `AiNFOLiNKAdapter`.
+2. Continue PickleBook/PickleTown transport discovery in parallel if AiNFOLiNK mapping remains externally opaque.
+3. Continue verified Taipei private-court discovery without padding coverage with rooms/classes/LINE-only flows.
+4. Finish mixed-source semantics review: booking horizon, slot duration, dynamic prices and source minimum intervals.
+5. Finish small mixed-source PWA polish, including source labeling in venue selection where useful.
+6. Keep removing any retired source/config artifact found by inspection; current runtime/schema audit is clean.
 
 ## Verification intentionally deferred
 
@@ -100,4 +117,4 @@ Per current strategy, functional/source work remains ahead of general verificati
 
 ## Next round priority
 
-If the user supplies AiNFOLiNK/PickleBook cURL + response, stop researching that transport and implement the adapter directly. Otherwise continue private-source acquisition plus mixed-source edge-case cleanup; do not return to repetitive build/test attempts yet.
+Do not research AiNFOLiNK availability transport again: that endpoint is already known. Start from the time-mapping blocker. If a normal anonymous booking-period / booking-hours / setting response is obtained, implement and register the adapter in the same round. Otherwise continue PickleBook/private-source acquisition plus mixed-source edge-case cleanup; do not return to repetitive build/test attempts yet.
