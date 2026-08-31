@@ -43,6 +43,10 @@ export type PollingDemandResult = {
  * horizon. Expired watches and watches that only begin beyond the horizon do
  * not keep provider endpoints hot forever; they automatically become relevant
  * as the cron horizon reaches them.
+ *
+ * This reconciliation intentionally changes only priority/interval. `next_poll_at`
+ * also acts as the in-flight polling lease, so shortening it here could let a
+ * second Worker reclaim a target while the first source request is still active.
  */
 export class DrizzlePollingDemandReconciler {
   constructor(private readonly database: Database) {}
@@ -57,8 +61,6 @@ export class DrizzlePollingDemandReconciler {
         sportId: pollTargets.sportId,
         priority: pollTargets.priority,
         intervalSeconds: pollTargets.intervalSeconds,
-        nextPollAt: pollTargets.nextPollAt,
-        lastPolledAt: pollTargets.lastPolledAt,
         sourceMinPollIntervalSeconds: sources.minPollIntervalSeconds,
         city: venues.city,
         district: venues.district,
@@ -97,25 +99,13 @@ export class DrizzlePollingDemandReconciler {
       const requestedInterval = watched ? WATCHED_POLL_INTERVAL_SECONDS : DEFAULT_POLL_INTERVAL_SECONDS;
       const intervalSeconds = Math.max(target.sourceMinPollIntervalSeconds, requestedInterval);
       const priority = watched ? WATCHED_PRIORITY : DEFAULT_PRIORITY;
-      let nextPollAt = target.nextPollAt;
-
-      if (watched) {
-        const earliestDesired = target.lastPolledAt
-          ? new Date(target.lastPolledAt.getTime() + intervalSeconds * 1000)
-          : now;
-        const accelerated = earliestDesired < now ? now : earliestDesired;
-        if (nextPollAt > accelerated) nextPollAt = accelerated;
-      }
-
-      const nextChanged = nextPollAt.getTime() !== target.nextPollAt.getTime();
-      if (target.priority === priority && target.intervalSeconds === intervalSeconds && !nextChanged) continue;
+      if (target.priority === priority && target.intervalSeconds === intervalSeconds) continue;
 
       await this.database
         .update(pollTargets)
         .set({
           priority,
           intervalSeconds,
-          nextPollAt,
           updatedAt: now,
         })
         .where(and(eq(pollTargets.id, target.id), eq(pollTargets.enabled, true)));
