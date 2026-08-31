@@ -18,8 +18,8 @@ describe('availability freshness policy', () => {
     expect(AVAILABILITY_FRESHNESS_INTERVAL_MULTIPLIER).toBe(3);
   });
 
-  it('fails conservatively for invalid interval values', () => {
-    expect(availabilityFreshnessSeconds(0)).toBe(2700);
-    expect(availabilityFreshnessSeconds(Number.NaN)).toBe(2700);
+  it('falls back to the normal five-minute cadence for invalid interval values', () => {
+    expect(availabilityFreshnessSeconds(0)).toBe(900);
+    expect(availabilityFreshnessSeconds(Number.NaN)).toBe(900);
   });
 });
