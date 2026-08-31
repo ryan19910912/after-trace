@@ -54,7 +54,6 @@ export type AvailabilitySyncRepository = {
     sportId: number;
     intervalSeconds: number;
   }): Promise<void>;
-  hasEnabledPollTargets(): Promise<boolean>;
   claimDuePollTargets(input: {
     claimedAt: Date;
     leaseSeconds: number;
@@ -216,15 +215,6 @@ export class DrizzleAvailabilitySyncRepository implements AvailabilitySyncReposi
         target: [pollTargets.sourceId, pollTargets.venueId, pollTargets.sportId],
         set: { enabled: true, intervalSeconds: input.intervalSeconds, updatedAt: new Date() },
       });
-  }
-
-  async hasEnabledPollTargets(): Promise<boolean> {
-    const [row] = await this.database
-      .select({ id: pollTargets.id })
-      .from(pollTargets)
-      .where(eq(pollTargets.enabled, true))
-      .limit(1);
-    return Boolean(row);
   }
 
   async claimDuePollTargets(input: {
