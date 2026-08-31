@@ -7,6 +7,7 @@ export const availabilitySearchQuerySchema = z
   .object({
     sport: z.string().trim().min(1).max(64).optional(),
     venueId: z.coerce.number().int().positive().optional(),
+    city: z.string().trim().min(1).max(80).optional(),
     district: z.string().trim().min(1).max(80).optional(),
     date: z.string().regex(isoDate, 'date must use YYYY-MM-DD').optional(),
     start: z.string().regex(clockTime, 'start must use HH:mm or HH:mm:ss').optional(),
