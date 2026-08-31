@@ -43,7 +43,8 @@ export function App({ apiBaseUrl }: Props) {
   const [venues, setVenues] = useState<VenueOption[]>([]);
   const [sport, setSport] = useState(() => queryValue('sport'));
   const [venueId, setVenueId] = useState(() => queryValue('venueId'));
-  const [district, setDistrict] = useState('');
+  const [city, setCity] = useState(() => queryValue('city', '臺北市'));
+  const [district, setDistrict] = useState(() => queryValue('district'));
   const [date, setDate] = useState(() => queryValue('date', todayLocal()));
   const [start, setStart] = useState(() => queryValue('start', '18:00'));
   const [end, setEnd] = useState(() => queryValue('end', '22:00'));
@@ -73,6 +74,11 @@ export function App({ apiBaseUrl }: Props) {
     void fetchVenues(apiBaseUrl, sport)
       .then((items) => {
         setVenues(items);
+        setCity((current) => {
+          if (current && items.some((venue) => venue.city === current)) return current;
+          if (items.some((venue) => venue.city === '臺北市')) return '臺北市';
+          return items[0]?.city || current;
+        });
         setVenueId((current) => current && items.some((venue) => String(venue.id) === current) ? current : '');
       })
       .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : '無法載入場館'));
@@ -99,6 +105,16 @@ export function App({ apiBaseUrl }: Props) {
     return () => { cancelled = true; };
   }, [apiBaseUrl]);
 
+  const cityOptions = useMemo(
+    () => [...new Set(venues.map((venue) => venue.city))].sort((a, b) => a.localeCompare(b, 'zh-Hant')),
+    [venues],
+  );
+
+  const visibleVenues = useMemo(
+    () => city ? venues.filter((venue) => venue.city === city) : venues,
+    [venues, city],
+  );
+
   const selectedVenue = useMemo(
     () => venues.find((venue) => String(venue.id) === venueId),
     [venues, venueId],
@@ -112,6 +128,7 @@ export function App({ apiBaseUrl }: Props) {
       const result = await searchAvailability(apiBaseUrl, {
         sport,
         venueId: venueId ? Number(venueId) : undefined,
+        city: selectedVenue?.city || city || undefined,
         district: district.trim() || undefined,
         date: date || undefined,
         start: start || undefined,
@@ -181,7 +198,7 @@ export function App({ apiBaseUrl }: Props) {
   }
 
   async function createRadar() {
-    if (!identityToken || !sport || !date) return;
+    if (!identityToken || !sport || !date || !city) return;
     setRadarBusy(true);
     setError(null);
     setNotice(null);
@@ -195,7 +212,7 @@ export function App({ apiBaseUrl }: Props) {
         daysOfWeek: [],
         startTime: start || null,
         endTime: end || null,
-        city: '臺北市',
+        city: selectedVenue?.city || city,
         district: district.trim() || null,
       });
       await refreshWatches(identityToken);
@@ -250,9 +267,25 @@ export function App({ apiBaseUrl }: Props) {
         <form onSubmit={submit} className="search-grid">
           <label>
             <span>運動</span>
-            <select value={sport} onChange={(event) => setSport(event.target.value)}>
+            <select value={sport} onChange={(event) => { setSport(event.target.value); setVenueId(''); setSearched(false); }}>
               {sports.length === 0 && <option value="">尚無資料</option>}
               {sports.map((item) => <option value={item.code} key={item.id}>{item.name}</option>)}
+            </select>
+          </label>
+
+          <label>
+            <span>縣市</span>
+            <select
+              value={city}
+              onChange={(event) => {
+                setCity(event.target.value);
+                setVenueId('');
+                setDistrict('');
+                setSearched(false);
+              }}
+            >
+              {cityOptions.length === 0 && <option value={city}>{city || '尚無資料'}</option>}
+              {cityOptions.map((item) => <option value={item} key={item}>{item}</option>)}
             </select>
           </label>
 
@@ -260,7 +293,7 @@ export function App({ apiBaseUrl }: Props) {
             <span>場館</span>
             <select value={venueId} onChange={(event) => setVenueId(event.target.value)}>
               <option value="">全部場館</option>
-              {venues.map((venue) => (
+              {visibleVenues.map((venue) => (
                 <option value={venue.id} key={venue.id}>{venue.district ? `${venue.district}｜` : ''}{venue.name}</option>
               ))}
             </select>
@@ -286,7 +319,7 @@ export function App({ apiBaseUrl }: Props) {
             <input type="time" value={end} onChange={(event) => setEnd(event.target.value)} />
           </label>
 
-          <button type="submit" disabled={loading || !sport} className="primary-button">
+          <button type="submit" disabled={loading || !sport || !city} className="primary-button">
             {loading ? '搜尋中…' : '搜尋空位'}
           </button>
         </form>
@@ -325,7 +358,7 @@ export function App({ apiBaseUrl }: Props) {
           {searched && <span>{slots.length} 筆</span>}
         </div>
 
-        {!searched && <div className="empty-state">選好運動、日期與時段後開始搜尋。</div>}
+        {!searched && <div className="empty-state">選好運動、縣市、日期與時段後開始搜尋。</div>}
         {searched && slots.length === 0 && (
           <div className="empty-state radar-empty">
             <strong>目前沒有符合條件的空位。</strong>
@@ -338,14 +371,12 @@ export function App({ apiBaseUrl }: Props) {
 
         <div className="result-list">
           {slots.map((slot) => {
-            // `externalBookingRef` is provider-machine provenance (for example
-            // findAllowBookingList), not a guaranteed human navigation URL.
-            // The public CTA must stay on the venue's official booking flow.
             const bookingUrl = slot.bookingUrl || selectedVenue?.bookingUrl || null;
+            const place = [slot.city, slot.district].filter(Boolean).join(' · ');
             return (
               <article className="slot-card" key={slot.slotId}>
                 <div>
-                  <p className="slot-meta">{slot.district ?? '臺北市'} · {slot.sportName}</p>
+                  <p className="slot-meta">{place} · {slot.sportName}</p>
                   <h3>{slot.venueName}</h3>
                   <p>{slot.courtName ?? '場地'}｜{slot.useDate}｜{slot.startTime.slice(0, 5)}–{slot.endTime.slice(0, 5)}</p>
                   {slot.price && <p className="price">NT$ {slot.price}</p>}
@@ -383,23 +414,26 @@ export function App({ apiBaseUrl }: Props) {
           <div className="empty-state">還沒有 Radar。搜尋不到空位時可以直接建立。</div>
         ) : (
           <div className="watch-list">
-            {watches.map((rule) => (
-              <article className={`watch-card${rule.enabled ? '' : ' paused'}`} key={rule.id}>
-                <div>
-                  <p className="slot-meta">{rule.enabled ? '監控中' : '已暫停'} · {rule.sportName}</p>
-                  <h3>{rule.venueIds.length ? `指定 ${rule.venueIds.length} 個場館` : (rule.district || '全部場館')}</h3>
-                  <p>{rule.dateFrom ?? '不限日期'}{rule.dateTo && rule.dateTo !== rule.dateFrom ? ` ～ ${rule.dateTo}` : ''}｜{watchTime(rule.startTime)}–{watchTime(rule.endTime)}</p>
-                </div>
-                <div className="watch-actions">
-                  <button type="button" className="secondary-button" disabled={radarBusy} onClick={() => void toggleWatch(rule)}>
-                    {rule.enabled ? '暫停' : '恢復'}
-                  </button>
-                  <button type="button" className="danger-button" disabled={radarBusy} onClick={() => void removeWatch(rule)}>
-                    刪除
-                  </button>
-                </div>
-              </article>
-            ))}
+            {watches.map((rule) => {
+              const area = [rule.city, rule.district].filter(Boolean).join(' · ');
+              return (
+                <article className={`watch-card${rule.enabled ? '' : ' paused'}`} key={rule.id}>
+                  <div>
+                    <p className="slot-meta">{rule.enabled ? '監控中' : '已暫停'} · {rule.sportName}</p>
+                    <h3>{rule.venueIds.length ? `指定 ${rule.venueIds.length} 個場館` : area}</h3>
+                    <p>{rule.dateFrom ?? '不限日期'}{rule.dateTo && rule.dateTo !== rule.dateFrom ? ` ～ ${rule.dateTo}` : ''}｜{watchTime(rule.startTime)}–{watchTime(rule.endTime)}</p>
+                  </div>
+                  <div className="watch-actions">
+                    <button type="button" className="secondary-button" disabled={radarBusy} onClick={() => void toggleWatch(rule)}>
+                      {rule.enabled ? '暫停' : '恢復'}
+                    </button>
+                    <button type="button" className="danger-button" disabled={radarBusy} onClick={() => void removeWatch(rule)}>
+                      刪除
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         )}
       </section>
