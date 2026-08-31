@@ -21,6 +21,5 @@ export type AvailabilitySearchItem = {
   status: AvailabilityStatus;
   price: string | null;
   bookingUrl: string | null;
-  externalBookingRef: string | null;
   lastSeenAt: string;
 };
