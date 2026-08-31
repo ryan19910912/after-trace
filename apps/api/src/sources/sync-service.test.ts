@@ -106,7 +106,7 @@ describe('SourceSynchronizationService', () => {
     expect(repository.calls).toContain('poll-target');
   });
 
-  it('stages the complete provider metadata snapshot before mutating normalized state', async () => {
+  it('stages the complete provider metadata snapshot before mutating normalized venue/sport state', async () => {
     const repository = new FakeRepository();
     const adapter = fakeAdapter({
       async listVenues() {
@@ -123,7 +123,7 @@ describe('SourceSynchronizationService', () => {
     const service = new SourceSynchronizationService(repository, new SourceAdapterRegistry([adapter]));
 
     await expect(service.syncMetadata('fake')).rejects.toThrow('provider metadata failed');
-    expect(repository.calls).toEqual([]);
+    expect(repository.calls).toEqual(['source']);
   });
 
   it('rejects an empty venue snapshot instead of deactivating every known venue', async () => {
@@ -133,7 +133,7 @@ describe('SourceSynchronizationService', () => {
     ]));
 
     await expect(service.syncMetadata('fake')).rejects.toThrow('empty venue snapshot');
-    expect(repository.calls).toEqual([]);
+    expect(repository.calls).toEqual(['source']);
   });
 
   it('keeps launch metadata badminton-first even when a source exposes additional categories', async () => {
