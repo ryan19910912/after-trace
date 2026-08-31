@@ -28,7 +28,7 @@ Current product flow:
 4. `source_metadata_runtime` records successful metadata refresh cadence/backoff independently from `sources.updated_at`.
 5. `MetadataRefreshingPollingStage` is the sole provider-metadata refresh owner; an empty poll-target set cannot bypass the six-hour success / 15-minute failure cadence.
 6. scheduled polling refreshes due metadata, disables invalid mappings, reapplies horizon-aware watch demand, then asks `PollingOrchestrator` to claim only already-normalized due targets.
-7. `poll_targets.last_polled_at` is the active poll-claim fence; claimed Workers propagate it through slot/event/missing-slot writes and final target settlement.
+7. `poll_targets.last_polled_at` is the active poll-claim fence. Critical slot/event writes row-lock the current claim while mutating availability so a concurrent reclaim cannot interleave stale truth.
 8. anonymous browser identity owns private Radar watch rules.
 9. current `AVAILABLE` events are matched only against watch state that already existed at the event time.
 10. superseded availability events are retired and cannot wake Radar later.
@@ -48,7 +48,7 @@ Current migrations:
 - `drizzle/0002_web_push_delivery_runtime.sql` — Push retry/lease/freshness/presentation runtime.
 - `drizzle/0003_source_metadata_runtime.sql` — persisted provider metadata success/retry state.
 
-No schema change was required by the current polling/source hardening round.
+No schema change was required by this polling/source hardening round.
 
 Current polling policy:
 
@@ -60,6 +60,7 @@ Current polling policy:
 - watch demand is relevant only when the watch intersects the current 14-day polling horizon; expired/far-future watches do not keep endpoints hot.
 - demand reconciliation never shortens `next_poll_at`, because that field also acts as the active polling recovery lease.
 - `last_polled_at` identifies the Worker claim; stale Workers are fenced from critical availability slot/event writes and final health/backoff settlement.
+- the critical slot/event mutation uses `SELECT ... FOR UPDATE` through its claim predicate to serialize the write against a concurrent reclaim, then rechecks ownership before the old Worker proceeds.
 - source metadata normal refresh cadence is six hours; failed refreshes back off 15 minutes even when there are zero enabled poll targets.
 - provider venue/sport discovery is staged before normalized venue/sport truth is changed, and an empty venue list is treated as a failed snapshot.
 - one-minute per-target polling remains disabled until deployed source behavior is measured.
@@ -99,8 +100,9 @@ Current polling policy:
 - watch polling demand is recalculated on CRUD and scheduled passage of time from the current 14-day horizon.
 - watch demand changes priority/interval only; active target lease timestamps are left untouched.
 - availability slot/status-event and missing-slot writes carry the same `last_polled_at` claim fence as final success/failure settlement.
-- the critical slot/event SQL checks the live claim at write time, so a Worker reclaimed between preliminary validation and SQL mutation cannot overwrite current availability truth.
+- the critical slot/event SQL row-locks the live claim during the mutation, then the Worker rechecks ownership before continuing.
 - claim loss is distinct from source failure and does not let an old Worker overwrite newer target health/backoff.
+- the retired `hasEnabledPollTargets` metadata-bootstrap repository hook has been removed rather than left as dead compatibility surface.
 
 ### Radar current-truth guarantees
 
@@ -160,6 +162,10 @@ Commits on `main`:
 - `fd9f3aaf9e0a22c54c71a42ec860e249af19db30` — rewrote polling tests around normalized-target-only responsibility and added the zero-target/no-source-work assertion.
 - `c0935e37b766140cf8b7ff10221b4c9959fe0c37` — removed the retired `bootstrappedMetadata` result from scheduled-run test fixtures.
 - `89adc4bcd827eff6a836847e150da4eff7f1ce08` — updated `REBUILD_PLAN.md` for sole metadata ownership/backoff behavior.
+- `0b17d74fca427052864483cedb30a85f98b0994b` — strengthened the critical availability claim fence with `FOR UPDATE` and a post-write ownership recheck.
+- `92b0b0b07563392183002781ce5095d0cea62e6f` — removed the obsolete `hasEnabledPollTargets` repository contract/implementation left from the retired metadata bootstrap path.
+- `2da91ea178ccd6f831dc54ba205c97d7853aa71b` — removed the same obsolete bootstrap stub from source synchronization tests.
+- `8184e8015f80cd46267f3e3912bfff3d1aae5bbd` — synchronized `REBUILD_PLAN.md` with the row-locking claim-fence semantics.
 
 Important implementation details:
 
@@ -167,8 +173,9 @@ Important implementation details:
 - an empty provider venue list throws instead of calling `deactivateMissingVenues(..., [])`.
 - `PollTargetClaimLostError` separates stale ownership from actual provider/source failure.
 - `PollWriteFence` carries `pollTargetId + expectedClaimedAt` through every availability write.
-- the critical `availability_slots` + `availability_events` CTE uses a SQL `EXISTS` check against enabled `poll_targets.last_polled_at`, protecting the mutation even if claim ownership changes after a preliminary repository check.
-- missing-slot-to-`UNKNOWN` writes reuse the same fence.
+- the critical `availability_slots` + `availability_events` statement checks the enabled target's expected `last_polled_at` and locks that row with `FOR UPDATE` for the statement. A concurrent reclaim cannot interleave with the guarded slot/event write.
+- after the critical write, the old Worker checks ownership again and stops before additional provider/date work if reclaim occurred immediately afterward.
+- missing-slot-to-`UNKNOWN` writes reuse the same guarded slot upsert path.
 - final success settlement is checked; if the expected claim no longer owns the target, the old Worker terminates without writing a failure/backoff over the newer claim.
 - `PollingOrchestrator` no longer knows a source code or calls `syncMetadata`; an empty claim set simply returns `{ claimed: 0, succeeded: 0, failed: 0 }`.
 - metadata due/backoff logic therefore has one owner and cannot be re-entered through the target-polling layer.
@@ -178,12 +185,13 @@ Important implementation details:
 
 Actually performed:
 
-- re-read changed source/polling files from latest `main` after commits and confirmed the snapshot, write-fence and sole-metadata-owner changes are present.
+- re-read changed source/polling files from latest `main` after commits and confirmed the staged snapshot, row-locking write fence, post-write claim check and sole-metadata-owner changes are present.
 - confirmed no database schema/migration change is required for this round; the fence reuses existing `poll_targets.last_polled_at` and cadence reuses `source_metadata_runtime`.
-- runtime still reports Node `v22.16.0`, TypeScript `5.8.3`, Corepack `0.32.0`.
-- retried `corepack prepare pnpm@10.15.0 --activate`; it again failed fetching the pnpm tarball from `registry.npmjs.org`, so pnpm is unavailable in this runtime.
-- inspected the complete `pnpm-lock.yaml` blob and confirmed the stale `apps/admin` importer is still present; `apps/admin` itself is no longer a workspace/runtime app.
-- GitHub reports no workflow run for this round's code/documentation chain.
+- checked PostgreSQL's current documentation for row-level locking semantics: `SELECT ... FOR UPDATE` locks selected rows against concurrent updates/locking operations; under Read Committed, a waiter proceeds against the updated row after the lock holder completes. This is the concurrency primitive used by the critical poll claim fence.
+- runtime reports Node `v22.16.0`, TypeScript `5.8.3`, Corepack `0.32.0`.
+- retried `corepack prepare pnpm@10.15.0 --activate`; it failed fetching the pnpm tarball from `registry.npmjs.org`, so pnpm remains unavailable in this runtime.
+- inspected the current `pnpm-lock.yaml` and confirmed the stale `apps/admin` importer is still present; `apps/admin` itself is no longer a workspace/runtime app.
+- GitHub reports no workflow run for latest code commit `2da91ea178ccd6f831dc54ba205c97d7853aa71b`.
 
 Not truthfully executable here:
 
