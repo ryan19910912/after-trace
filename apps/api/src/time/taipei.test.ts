@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { addIsoDays, taipeiDate } from './taipei';
+import { addIsoDays, taipeiDate, taipeiTime } from './taipei';
 
-describe('taipeiDate', () => {
+describe('Taipei calendar helpers', () => {
   it('uses Asia/Taipei rather than UTC around midnight', () => {
     expect(taipeiDate(new Date('2026-08-30T15:59:59.000Z'))).toBe('2026-08-30');
+    expect(taipeiTime(new Date('2026-08-30T15:59:59.000Z'))).toBe('23:59:59');
     expect(taipeiDate(new Date('2026-08-30T16:00:00.000Z'))).toBe('2026-08-31');
+    expect(taipeiTime(new Date('2026-08-30T16:00:00.000Z'))).toBe('00:00:00');
   });
 });
 
