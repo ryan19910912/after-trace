@@ -1,7 +1,10 @@
-import { TaipeiSportsCenterSourceError } from './taipei-sports-center';
 import type { SourceAdapterRegistry } from './registry';
 import type { AvailabilitySyncRepository, PollTargetContext } from './sync-repository';
-import type { SourceSport, SourceVenue } from './types';
+import {
+  AvailabilitySourceError,
+  type SourceSport,
+  type SourceVenue,
+} from './types';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const DEFAULT_POLL_INTERVAL_SECONDS = 300;
@@ -253,7 +256,7 @@ function addSeconds(value: Date, seconds: number): Date {
 }
 
 function sourceErrorCode(cause: unknown): string {
-  if (cause instanceof TaipeiSportsCenterSourceError) return cause.code;
+  if (cause instanceof AvailabilitySourceError) return cause.code;
   if (cause instanceof Error && cause.message.includes('outside poll target')) return 'SOURCE_TARGET_MISMATCH';
   return 'SOURCE_SYNC_FAILED';
 }
