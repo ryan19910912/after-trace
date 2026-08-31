@@ -25,9 +25,19 @@ export class DrizzleAvailabilityRepository {
   }
 
   async listVenues(sportCode?: string) {
+    const selection = {
+      id: venues.id,
+      name: venues.name,
+      city: venues.city,
+      district: venues.district,
+      bookingUrl: venues.bookingUrl,
+      sourceCode: sources.code,
+      sourceName: sources.name,
+    };
+
     if (!sportCode) {
       return this.database
-        .select({ id: venues.id, name: venues.name, city: venues.city, district: venues.district, bookingUrl: venues.bookingUrl })
+        .select(selection)
         .from(venues)
         .innerJoin(sources, eq(sources.id, venues.sourceId))
         .where(and(eq(venues.active, true), eq(sources.active, true)))
@@ -35,7 +45,7 @@ export class DrizzleAvailabilityRepository {
     }
 
     return this.database
-      .selectDistinct({ id: venues.id, name: venues.name, city: venues.city, district: venues.district, bookingUrl: venues.bookingUrl })
+      .selectDistinct(selection)
       .from(venues)
       .innerJoin(sources, eq(sources.id, venues.sourceId))
       .innerJoin(venueSports, eq(venueSports.venueId, venues.id))
