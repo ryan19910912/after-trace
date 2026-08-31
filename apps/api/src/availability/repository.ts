@@ -31,7 +31,7 @@ export class DrizzleAvailabilityRepository {
         .from(venues)
         .innerJoin(sources, eq(sources.id, venues.sourceId))
         .where(and(eq(venues.active, true), eq(sources.active, true)))
-        .orderBy(asc(venues.district), asc(venues.name));
+        .orderBy(asc(venues.city), asc(venues.district), asc(venues.name));
     }
 
     return this.database
@@ -47,7 +47,7 @@ export class DrizzleAvailabilityRepository {
         eq(sports.active, true),
         eq(sports.code, sportCode),
       ))
-      .orderBy(asc(venues.district), asc(venues.name));
+      .orderBy(asc(venues.city), asc(venues.district), asc(venues.name));
   }
 
   async search(input: AvailabilitySearchQuery, now = new Date()) {
@@ -58,6 +58,7 @@ export class DrizzleAvailabilityRepository {
         slotId: availabilitySlots.id,
         venueId: venues.id,
         venueName: venues.name,
+        city: venues.city,
         district: venues.district,
         sportCode: sports.code,
         sportName: sports.name,
@@ -93,17 +94,10 @@ export class DrizzleAvailabilityRepository {
       .where(
         and(
           eq(availabilitySlots.status, 'AVAILABLE'),
-          // Availability is a current-state surface. Historical rows may remain
-          // for state/audit continuity after the moving polling horizon advances.
-          // On today's Taipei date, a slot is no longer actionable once its
-          // start time has arrived, even if an upstream row still says AVAILABLE.
           or(
             gt(availabilitySlots.useDate, today),
             and(eq(availabilitySlots.useDate, today), gt(availabilitySlots.startTime, currentTime)),
           ),
-          // A prolonged provider outage must not leave an old AVAILABLE row on
-          // the public surface indefinitely. Require a recent successful full
-          // poll of this exact source/venue/sport target.
           pollTargetFreshAt(now),
           eq(sources.active, true),
           eq(venues.active, true),
@@ -111,13 +105,14 @@ export class DrizzleAvailabilityRepository {
           eq(venueSports.active, true),
           input.sport ? eq(sports.code, input.sport) : undefined,
           input.venueId ? eq(venues.id, input.venueId) : undefined,
+          input.city ? eq(venues.city, input.city) : undefined,
           input.district ? eq(venues.district, input.district) : undefined,
           input.date ? eq(availabilitySlots.useDate, input.date) : undefined,
           input.start ? gte(availabilitySlots.startTime, input.start) : undefined,
           input.end ? lte(availabilitySlots.endTime, input.end) : undefined,
         ),
       )
-      .orderBy(asc(availabilitySlots.useDate), asc(availabilitySlots.startTime), asc(venues.name))
+      .orderBy(asc(availabilitySlots.useDate), asc(availabilitySlots.startTime), asc(venues.city), asc(venues.name))
       .limit(input.limit);
   }
 }
