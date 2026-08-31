@@ -1,7 +1,7 @@
 const DB_NAME = 'aftertrace-pwa-v1';
 const STORE_NAME = 'context';
 const CONTEXT_KEY = 'radar';
-const PRESENTATION_ATTEMPTS = 3;
+const PRESENTATION_ATTEMPTS = 5;
 
 function openDatabase() {
   return new Promise((resolve, reject) => {
@@ -42,6 +42,10 @@ function sleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+function isRetryablePresentationStatus(status) {
+  return status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
 async function fetchPresentation(context, endpoint) {
   const url = `${String(context.apiBaseUrl).replace(/\/$/, '')}/api/v1/push/presentation`;
 
@@ -61,6 +65,11 @@ async function fetchPresentation(context, endpoint) {
         const body = await response.json();
         return body.notification ?? null;
       }
+
+      // 425 is returned when this bare wake arrived before the dispatching
+      // Worker had time to persist Push-service acceptance. Retry only
+      // transient statuses; auth/validation failures should fail closed now.
+      if (!isRetryablePresentationStatus(response.status)) return null;
     } catch {
       // Retry short-lived network/API failures inside this Push event. If all
       // attempts fail we stay silent because current availability was not
