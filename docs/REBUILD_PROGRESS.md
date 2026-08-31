@@ -4,197 +4,147 @@ This file is the durable handoff between rebuild rounds. Every round must read t
 
 ## Current product target
 
-Public sports venue availability search + Radar.
+AFTERTRACE is now a public sports venue availability search + Radar product.
 
 V1 principles:
 
 - Web/PWA first.
 - Cloudflare Worker + Hono backend.
 - Neon PostgreSQL + Drizzle.
-- No AI requirement.
+- No AI.
 - Do not book/pay for users or store venue credentials; direct users to official human booking channels.
-- Public-source polling + normalized availability + conditional Web Push are the product core.
-- Badminton is the first launch sport; the domain/source model remains generic for other slot-based sports.
+- Public-source polling + normalized current availability + conditional Web Push are the core.
+- Badminton is the first launch sport; the domain/source model remains generic for table tennis, squash, tennis, pickleball, basketball and other slot-based sports.
 
 ## Actual current `main`
 
-The retired LINE-first AI memory product is absent from runtime. `apps/` contains only `api` and `web`; old LINE/AI/Memory/Energy/Commerce/Reminder/Proactive/Admin runtime has been removed.
+The retired LINE-first product is absent from application runtime. `apps/` contains only `api` and `web`. LINE group ingestion, LIFF, Group Memory, Gemini/AI, Energy/Credit, Rewarded Ad, Commerce, Reminder, Proactive Push, old admin/auth/retention runtime and legacy schema modules have been removed.
 
-Current product flow:
+Current runtime flow:
 
 1. `TaipeiSportsCenterAdapter` reads the public Taipei sports-center booking source.
-2. metadata synchronization keeps the source anchor current, stages a complete provider venue/enabled-sport snapshot, then applies normalized venue/sport mappings only after provider discovery succeeds.
-3. empty provider venue snapshots fail closed rather than deactivating every known venue.
-4. `source_metadata_runtime` records successful metadata refresh cadence/backoff independently from `sources.updated_at`.
-5. `MetadataRefreshingPollingStage` is the sole provider-metadata refresh owner; an empty poll-target set cannot bypass the six-hour success / 15-minute failure cadence.
-6. scheduled polling refreshes due metadata, disables invalid mappings, reapplies horizon-aware watch demand, then asks `PollingOrchestrator` to claim only already-normalized due targets.
-7. `poll_targets.last_polled_at` is the active poll-claim fence. Critical slot/event writes row-lock the current claim while mutating availability so a concurrent reclaim cannot interleave stale truth.
-8. anonymous browser identity owns private Radar watch rules.
-9. current `AVAILABLE` events are matched only against watch state that already existed at the event time.
-10. superseded availability events are retired and cannot wake Radar later.
-11. matching events create durable Web Push delivery intents.
-12. immediately before Push, stale intents are invalidated if watch/source/slot truth changed.
-13. VAPID-authenticated payload-free Push wakes the PWA Service Worker.
-14. presentation performs one final current-truth check; stale wake-ups return `notification: null` and remain silent.
-15. React PWA supports search, Radar create/list/pause/resume/delete and Push enable/disable.
-16. public search/presentation never expose provider-machine booking references; human navigation uses `venues.booking_url`.
-17. `/health` is cheap liveness; `/ready` checks migrated sports schema + complete valid VAPID configuration.
-18. deploy smoke verifies readiness/public APIs and optionally Pages/source data.
+2. `MetadataRefreshingPollingStage` owns provider metadata freshness/backoff.
+3. metadata discovery stages a complete venue/enabled-sport snapshot before normalized venue/sport changes are applied; empty venue snapshots fail closed.
+4. `source_metadata_runtime` keeps six-hour successful refresh cadence and 15-minute failure retry state independently from source-row timestamps.
+5. Polling claims already-normalized targets only. Cron may wake every minute, while each target has its own interval and source minimum.
+6. `poll_targets.last_polled_at` is the active poll-claim fence. Critical court + slot + status-event writes are all guarded by the same row-locking claim fence.
+7. stale Workers stop when ownership changes and cannot overwrite newer polling health/backoff.
+8. anonymous browser identity owns Radar watch rules.
+9. matching requires a new/current AVAILABLE transition, current active source mapping and a watch activation boundary that predates the event.
+10. matching creates durable Web Push delivery intents; pre-dispatch and presentation-time current-truth checks suppress stale alerts.
+11. payload-free VAPID Push wakes the PWA Service Worker, which fetches one owner-isolated presentation and deep-links back to search.
+12. public search exposes only current/future Taipei-date AVAILABLE rows; historical AVAILABLE rows outside the moving polling horizon are not returned.
+13. provider-machine booking references stay internal; public/shared search contracts use verified human `booking_url` only.
+14. `/health` is liveness and `/ready` checks sports schema reachability plus complete valid VAPID configuration.
 
-Current migrations:
+Current migration chain:
 
 - `drizzle/0000_aftertrace_rebuild.sql` — clean sports-radar baseline; refuses detected legacy LINE/AI tables.
-- `drizzle/0001_radar_watch_foundation.sql` — Radar ownership/matching/watch idempotency.
+- `drizzle/0001_radar_watch_foundation.sql` — Radar matching/watch idempotency.
 - `drizzle/0002_web_push_delivery_runtime.sql` — Push retry/lease/freshness/presentation runtime.
-- `drizzle/0003_source_metadata_runtime.sql` — persisted provider metadata success/retry state.
+- `drizzle/0003_source_metadata_runtime.sql` — provider metadata success/retry state.
 
-No schema change was required by this polling/source hardening round.
-
-Current polling policy:
-
-- Cron wakes every minute.
-- provider metadata is called only by `MetadataRefreshingPollingStage` when `source_metadata_runtime.next_attempt_at` is due.
-- unwatched target requested interval: 300 seconds.
-- watch-covered target requested interval: 180 seconds, priority 100.
-- every target is clamped by source minimum interval.
-- watch demand is relevant only when the watch intersects the current 14-day polling horizon; expired/far-future watches do not keep endpoints hot.
-- demand reconciliation never shortens `next_poll_at`, because that field also acts as the active polling recovery lease.
-- `last_polled_at` identifies the Worker claim; stale Workers are fenced from critical availability slot/event writes and final health/backoff settlement.
-- the critical slot/event mutation uses `SELECT ... FOR UPDATE` through its claim predicate to serialize the write against a concurrent reclaim, then rechecks ownership before the old Worker proceeds.
-- source metadata normal refresh cadence is six hours; failed refreshes back off 15 minutes even when there are zero enabled poll targets.
-- provider venue/sport discovery is staged before normalized venue/sport truth is changed, and an empty venue list is treated as a failed snapshot.
-- one-minute per-target polling remains disabled until deployed source behavior is measured.
+No schema change was required in the current round.
 
 ## Completed rebuild areas
 
-### Old product retirement
+### Retired product cleanup
 
-- LINE webhook/group conversation/LIFF removed.
-- Group Memory/Gemini/AI removed.
-- Energy/Credit/Rewarded Ad/Commerce/Reminder/Proactive Push removed.
-- old admin/auth/retention/runtime schema modules removed.
-- retained pnpm monorepo, Hono/Workers, React/Vite, Neon/Drizzle and common verification tooling.
+- [x] Remove LINE/group/LIFF runtime.
+- [x] Remove conversation extraction/Group Memory/Gemini/AI runtime.
+- [x] Remove Energy/Credit/Rewarded Ad/Commerce/Reminder/Proactive Push runtime.
+- [x] Remove old admin/auth/retention schema/runtime modules.
+- [x] Keep reusable pnpm/Hono/Workers/React/Vite/Neon/Drizzle/tooling base.
 
-### Sports availability domain
+### Sports availability + source normalization
 
-- generic `AvailabilitySourceAdapter` boundary.
-- Taipei sports-center adapter.
-- normalized sports/venues/venue-sports/courts/availability slots/events.
-- public sports/venue/availability APIs.
-- mobile search UI + official human booking handoff.
-- public availability requires active source + active venue/sport mapping, not just a stale `AVAILABLE` row.
+- [x] Generic `AvailabilitySourceAdapter` boundary.
+- [x] Taipei sports-center adapter.
+- [x] Normalized source/sport/venue/venue-sport/court/slot/event domain.
+- [x] Public sports/venue/current-availability APIs.
+- [x] Human booking handoff separated from provider-machine API references.
+- [x] Periodic staged metadata refresh with persisted success/backoff state.
+- [x] Disable/hide inactive source mappings.
 
-### Polling + source freshness
+### Polling correctness
 
-- due-target priority/lease/fencing.
-- per-target polling failure isolation.
-- scheduled polling/Radar/Push stage isolation.
-- periodic provider metadata synchronization backed by `source_metadata_runtime`.
-- `MetadataRefreshingPollingStage` is the only code path that owns provider metadata cadence; target polling no longer implicitly bootstraps metadata when no targets are due/present.
-- provider metadata venue/sport reads are staged before normalized mapping mutations, preventing a later provider metadata failure from leaving earlier venues half-refreshed.
-- empty venue snapshots fail closed instead of deactivating every venue.
-- source anchor is retained/updated before discovery so first-run failures can still persist metadata retry/backoff state.
-- successful metadata clock advances only after the synchronization call finishes.
-- metadata failures persist a 15-minute retry boundary that zero-target polling cannot bypass.
-- invalid source/venue/sport/venue-sport poll targets are disabled.
-- watch polling demand is recalculated on CRUD and scheduled passage of time from the current 14-day horizon.
-- watch demand changes priority/interval only; active target lease timestamps are left untouched.
-- availability slot/status-event and missing-slot writes carry the same `last_polled_at` claim fence as final success/failure settlement.
-- the critical slot/event SQL row-locks the live claim during the mutation, then the Worker rechecks ownership before continuing.
-- claim loss is distinct from source failure and does not let an old Worker overwrite newer target health/backoff.
-- the retired `hasEnabledPollTargets` metadata-bootstrap repository hook has been removed rather than left as dead compatibility surface.
+- [x] Priority + lease based due-target claiming.
+- [x] 300-second unwatched and 180-second watched requested intervals, clamped by source minimum.
+- [x] 14-day watch-aware polling demand horizon.
+- [x] Demand reconciliation never shortens active `next_poll_at` lease.
+- [x] Failure isolation by target and scheduled stage.
+- [x] `last_polled_at` claim fencing through slot/event/missing-slot writes and final settlement.
+- [x] Row-lock critical availability writes against concurrent reclaim.
+- [x] Court discovery/upsert is now inside the same claim-fenced SQL statement as slot/event mutation, so an expired Worker cannot rename/reactivate a court after losing ownership.
+- [x] Shared Taipei calendar helpers used by polling horizon and demand logic.
 
-### Radar current-truth guarantees
+### Radar + Web Push
 
-- anonymous browser identity using a 256-bit credential with only SHA-256 subject persisted.
-- watch CRUD/user isolation/idempotent creation.
-- empty watch PATCH payloads rejected.
-- venue/district/date/day/time matching.
-- watch `updated_at` is the activation boundary, so create/edit/resume never retroactively consumes older availability backlog.
-- matcher requires the slot to still be `AVAILABLE` and source/venue/sport/venue-sport mapping to still be active.
-- a newer transition for the same slot supersedes an older `AVAILABLE` event.
-- superseded unmatched events are marked handled so they do not accumulate forever.
+- [x] Anonymous identity with only SHA-256 token subject stored server-side.
+- [x] Watch CRUD, user isolation and idempotent creation.
+- [x] Venue/district/date/day/time matching.
+- [x] Watch create/edit/resume activation boundary prevents retroactive alerts.
+- [x] Superseded event retirement.
+- [x] Durable Push delivery ledger, retry, expiry and dispatch lease fencing.
+- [x] Pre-dispatch stale intent reconciliation.
+- [x] Final presentation-time current-truth validation.
+- [x] Worker-native VAPID + PWA Service Worker presentation/click flow.
 
-### Web Push + PWA
+### Web/PWA + release path
 
-- Push subscription register/deactivate/reconciliation.
-- Worker-native VAPID signing/sending.
-- dispatch lease/retry/freshness/dead-subscription handling.
-- stale pending delivery reconciliation immediately before dispatch.
-- final owner/watch/source/slot current-truth check at presentation time.
-- successful `notification: null` presentation is silent in the Service Worker instead of becoming a false generic availability alert.
-- generic transport fallback wording is neutral and does not claim that a slot is currently bookable.
-- browser presentation response is explicitly projected to display/deep-link fields; provider-machine booking refs stay internal.
-- Service Worker presentation + click acknowledgement/deep link.
+- [x] Mobile search and official booking links.
+- [x] Anonymous identity storage/bootstrap.
+- [x] Radar create/list/pause/resume/delete UI.
+- [x] manifest + Service Worker + Push subscription UI.
+- [x] `/ready`, `smoke.ps1`, `worker-deploy.ps1`, `pages-deploy.ps1`.
+- [x] CI frozen-lockfile install policy.
 
-### Release readiness
-
-- `/ready` checks DB schema reachability and VAPID configuration.
-- `smoke.ps1`, `worker-deploy.ps1`, `pages-deploy.ps1` define deployed verification path.
-- CI uses `pnpm install --frozen-lockfile`.
-
-## Current round — provider snapshot safety + polling ownership/cadence hardening
+## Current round — calendar/current-search cleanup + complete poll mutation fencing
 
 ### Starting state verified
 
-At round start the latest repository already contained periodic metadata refresh, current-truth Radar/Push protections, horizon-aware demand and the `0000` -> `0003` migration chain. `REBUILD_PLAN.md`, this progress file, polling stage/orchestrator, source synchronization repository/service/tests, Radar matcher, notification reconciler/dispatcher/repository/routes and current lockfile were re-read from latest `main` before changes.
+At round start, latest `main` already contained the 0000→0003 migration chain, staged metadata refresh, sole metadata ownership, horizon-aware demand, slot/event row-lock claim fencing, current-truth Radar/Push protections and the React PWA.
 
-Three concrete correctness issues were found:
+The latest `REBUILD_PLAN.md`, `REBUILD_PROGRESS.md`, repository tree, polling/source synchronization, public availability, notification, watch and shared-contract files were re-read before changes.
 
-1. `syncMetadata` interleaved provider `listSports()` calls with venue/sport DB mutations. If a later provider metadata call failed, earlier venues could already have been modified/deactivated even though the refresh was recorded as failed.
-2. poll ownership was checked when loading target context and again only when settling success/failure. If a source call exceeded the target lease and another Worker reclaimed the target, the older Worker could still mutate `availability_slots`, create `availability_events`, or mark unseen slots `UNKNOWN` after ownership was lost.
-3. `PollingOrchestrator` still had an old “no enabled targets => sync metadata now” bootstrap path. After `MetadataRefreshingPollingStage` introduced persisted cadence, that fallback could bypass the 15-minute metadata failure backoff (or six-hour success cadence) on the next Cron wake whenever there were zero enabled targets.
+Three concrete issues were found:
+
+1. Taipei date arithmetic was duplicated between polling orchestration and demand reconciliation, creating unnecessary drift risk around the product's calendar boundary.
+2. public availability search filtered `status = AVAILABLE` but did not impose a current Taipei-date floor. Because historical slot rows are retained after the moving polling horizon advances, an old `AVAILABLE` row could still appear when the caller omitted a date.
+3. court upsert happened after a non-locking ownership precheck but before the authoritative row-locked slot/event fence. A slow Worker could therefore lose its poll claim, then still reactivate/rename a court even though its subsequent slot write was rejected.
+
+A stale provider-machine `externalBookingRef` also remained in the shared public `AvailabilitySearchItem` type even though the actual API/Web flow had already removed it.
 
 ### Code completed this round
 
 Commits on `main`:
 
-- `53f9aa41070c398ac27a48674ebe71e98270a8f6` — staged metadata snapshot + introduced poll-claim-loss semantics.
-- `e18a7edd576f608421e529c26419cb0b8f63269c` — added active poll write fences to availability slot/event/missing-slot persistence.
-- `be602ef01538078e25bad042d127160f84aab698` — stopped poll work when the repository reports a lost write claim and fenced final settlement.
-- `bdcd1ec63c4a0d98771d818fc395a3191eabd2d5` — added metadata-staging and poll-write-fence tests.
-- `22e4eff09986693f11641a001f934725efde8b5b` — test/lint cleanup.
-- `9d799d9237cfcc6519eb301e743722610d12e683` — retained source anchor before provider discovery so metadata retry runtime works on first failure.
-- `ffcf45ad377c6058fd08767550d86afe0d36e64d` — aligned failed-metadata tests with the source-anchor boundary.
-- `6fe7918aa60360a0cbcc69c48e5abc3f994de9f1` — synchronized rebuild plan with snapshot/write-fence boundaries.
-- `3689385ed452ff1198d0f91bf212db7816819101` — removed metadata bootstrap ownership from `PollingOrchestrator`; it now polls normalized due targets only.
-- `d2e912d0be68a399be447942398e60e888cd62ed` — made the metadata stage authoritative so a zero-target state cannot bypass persisted retry/success cadence.
-- `fd9f3aaf9e0a22c54c71a42ec860e249af19db30` — rewrote polling tests around normalized-target-only responsibility and added the zero-target/no-source-work assertion.
-- `c0935e37b766140cf8b7ff10221b4c9959fe0c37` — removed the retired `bootstrappedMetadata` result from scheduled-run test fixtures.
-- `89adc4bcd827eff6a836847e150da4eff7f1ce08` — updated `REBUILD_PLAN.md` for sole metadata ownership/backoff behavior.
-- `0b17b10c42b100c5b600ebc236b024523b0e245d` — strengthened the critical availability claim fence with `FOR UPDATE` and a post-write ownership recheck.
-- `92b0ca6c351089e44d92961a9861ac938a9b9b8e` — removed the obsolete `hasEnabledPollTargets` repository contract/implementation left from the retired metadata bootstrap path.
-- `2da91ea178ccd6f831dc54ba205c97d7853aa71b` — removed the same obsolete bootstrap stub from source synchronization tests.
-- `8184e8015f80cd46267f3e3912bfff3d1aae5bbd` — synchronized `REBUILD_PLAN.md` with the row-locking claim-fence semantics.
+- `50832538881b2e39e4a3e4ad27436b2f6e396114` — add shared `time/taipei.ts` calendar helpers.
+- `a4d760773aa8642fb98a23c630e8777d53dfbc95` — add Taipei midnight/month/leap-day/invalid-date tests.
+- `9522d6aaf387a647efc42d0836e3bafcef199e23` — polling orchestrator reuses shared Taipei helpers.
+- `456fc0aa09d43476f5735e517c6e31ff42ea2d24` — polling demand reuses the same calendar arithmetic.
+- `387496b3236fcaa0cc38b1f0c03bf39d77be8f5c` — public search excludes slot dates earlier than the current Asia/Taipei date.
+- `7fcb87d1fd7add790306086f784992e8f8eb70f5` — remove provider-machine booking ref from the shared public search type.
+- `b9e88e208bb40e2284ff7cdf6bc97f0066731bc6` — move court upsert into the same row-locking poll-claim-fenced SQL statement as slot/event mutation.
 
-Important implementation details:
+Important behavior after this round:
 
-- `syncMetadata` upserts only the source anchor before provider discovery, then reads every venue's enabled launch-sport metadata into memory before mutating normalized venue/sport/venue-sport state.
-- an empty provider venue list throws instead of calling `deactivateMissingVenues(..., [])`.
-- `PollTargetClaimLostError` separates stale ownership from actual provider/source failure.
-- `PollWriteFence` carries `pollTargetId + expectedClaimedAt` through every availability write.
-- the critical `availability_slots` + `availability_events` statement checks the enabled target's expected `last_polled_at` and locks that row with `FOR UPDATE` for the statement. A concurrent reclaim cannot interleave with the guarded slot/event write.
-- after the critical write, the old Worker checks ownership again and stops before additional provider/date work if reclaim occurred immediately afterward.
-- missing-slot-to-`UNKNOWN` writes reuse the same guarded slot upsert path.
-- final success settlement is checked; if the expected claim no longer owns the target, the old Worker terminates without writing a failure/backoff over the newer claim.
-- `PollingOrchestrator` no longer knows a source code or calls `syncMetadata`; an empty claim set simply returns `{ claimed: 0, succeeded: 0, failed: 0 }`.
-- metadata due/backoff logic therefore has one owner and cannot be re-entered through the target-polling layer.
-- tests cover provider failure on a later venue, empty venue snapshot, claim propagation, lost write ownership, lost final settlement, target-level failure isolation and zero-target/no-source-work behavior.
+- all product calendar-day computations used by polling demand/orchestration share one Asia/Taipei implementation;
+- `/api/v1/availability` cannot expose past-date slots even if an old row is still marked AVAILABLE;
+- an explicit search for a past date naturally returns no rows because it must also satisfy the current-date floor;
+- court metadata derived from availability polling is no longer an unfenced side effect;
+- direct/manual synchronization without a poll fence still works because the write fence resolves to `TRUE`;
+- no new migration was necessary.
 
-### Verification performed this round
+### Verification actually performed
 
-Actually performed:
+- Re-read the modified source from latest `main` after commits and confirmed the current-date floor, shared date imports and court CTE claim fence are present.
+- Executed independent Node 22 vectors for the new calendar logic: **8/8 passed**, including the Asia/Taipei midnight transition, month crossing, leap day and invalid input rejection.
+- Runtime reports Node `v22.16.0` and Corepack `0.32.0`.
+- `pnpm` is still unavailable in this runtime; previous/retried Corepack resolution is blocked by transient DNS/network access to `registry.npmjs.org`.
+- `pnpm-lock.yaml` still contains the stale `apps/admin` importer; `apps/admin` itself is absent from the repository.
 
-- re-read changed source/polling files from latest `main` after commits and confirmed the staged snapshot, row-locking write fence, post-write claim check and sole-metadata-owner changes are present.
-- confirmed no database schema/migration change is required for this round; the fence reuses existing `poll_targets.last_polled_at` and cadence reuses `source_metadata_runtime`.
-- checked PostgreSQL's current documentation for row-level locking semantics: `SELECT ... FOR UPDATE` locks selected rows against concurrent updates/locking operations; under Read Committed, a waiter proceeds against the updated row after the lock holder completes. This is the concurrency primitive used by the critical poll claim fence.
-- runtime reports Node `v22.16.0`, TypeScript `5.8.3`, Corepack `0.32.0`.
-- retried `corepack prepare pnpm@10.15.0 --activate`; it failed fetching the pnpm tarball from `registry.npmjs.org`, so pnpm remains unavailable in this runtime.
-- inspected the current `pnpm-lock.yaml` and confirmed the stale `apps/admin` importer is still present; `apps/admin` itself is no longer a workspace/runtime app.
-- repository search confirms both retired identifiers `hasEnabledPollTargets` and `bootstrappedMetadata` now have no remaining code matches.
-- GitHub reports no workflow run for latest code commit `2da91ea178ccd6f831dc54ba205c97d7853aa71b`.
-
-Not truthfully executable here:
+Not truthfully executable in this runtime:
 
 - `pnpm typecheck`
 - `pnpm lint`
@@ -203,41 +153,33 @@ Not truthfully executable here:
 - `pnpm db:schema:check`
 - PowerShell execution of deploy/smoke scripts.
 
-Full repository verification therefore remains **unverified**, not green. The new Vitest cases are committed but have not been executed in a dependency-complete environment.
+Full repository verification therefore remains **unverified**, not green. The committed Vitest cases have not yet run in a dependency-complete environment.
 
 ## Remaining work — highest priority first
 
 ### Repository correctness / cleanup
 
-- [ ] Regenerate `pnpm-lock.yaml` from the actual current workspace in a dependency-complete environment so the stale `apps/admin` importer and any now-orphaned snapshots are removed by pnpm itself.
+- [ ] Regenerate `pnpm-lock.yaml` from the actual current workspace in a dependency-complete environment so the stale `apps/admin` importer is removed by pnpm itself.
 - [ ] Run frozen-lockfile `typecheck`, `lint`, `test`, `build`, `db:schema:check`; fix actual failures.
 - [ ] Run PowerShell syntax/execution checks for `smoke.ps1`, `worker-deploy.ps1`, `pages-deploy.ps1` on the normal Windows development machine.
-- [ ] Repeat full retired-term/source-boundary scan from a local checkout once repository search is reliable.
-- [ ] Continue source review for remaining event-ordering/race boundaries while dependency execution remains externally blocked; do not add speculative features.
+- [ ] Repeat a full retired-term/source-boundary scan from a dependency-complete/local checkout.
+- [ ] Continue correctness review while package execution is blocked; prioritize stale-state/race/security behavior over speculative features.
 
 ### Deployment / database
 
-- [ ] point dev/prod at a fresh Neon branch/database.
-- [ ] execute/review migrations `0000` -> `0003` against the clean target.
-- [ ] configure Worker `DATABASE_URL` and VAPID public/private/subject values.
-- [ ] deploy Worker and confirm `/ready` = 200.
-- [ ] deploy Pages and run `smoke.ps1`; after initial synchronization run with `-RequireSourceData`.
-- [ ] confirm Cloudflare Cron is active and `source_metadata_runtime` advances success/backoff as designed.
+- [ ] Point dev/prod at a fresh Neon branch/database.
+- [ ] Execute/review migrations `0000`→`0003` against the clean target.
+- [ ] Configure Worker `DATABASE_URL` and VAPID public/private/subject values.
+- [ ] Deploy Worker + HTTPS PWA and confirm `/ready` = 200.
+- [ ] Run deployed smoke with real source data.
+- [ ] Run live source polling → availability transition → Radar match → Push → presentation → click flow.
+- [ ] Measure live source latency/rate-limit behavior before considering one-minute watched polling.
 
-### Real-device / live-source smoke
+### Optional after release verification
 
-- [ ] Chrome/Android: search -> Radar -> Push permission -> real availability transition -> notification -> deep link -> official booking.
-- [ ] specifically verify `AVAILABLE -> unavailable/newer transition` before browser presentation produces **no false notification**.
-- [ ] pause/edit/resume a Radar while a delivery is pending and verify stale intent is suppressed.
-- [ ] iPhone/iPad installed Web App: add to Home Screen -> Push -> notification -> deep link.
-- [ ] verify VAPID rotation on a real browser.
-- [ ] measure Taipei source latency/error/rate-limit behavior before considering one-minute watched polling.
-- [ ] verify non-badminton category IDs per venue before expanding launch sports.
+- [ ] Detailed watch-editing UX / PWA install guidance if useful after live smoke.
+- [ ] Add additional sports/sources only after each source is independently validated; do not hard-code the domain to badminton.
 
-## Next round — planned
+## Next round priority
 
-1. re-read latest `main`, this progress file and rebuild plan.
-2. retry dependency-complete pnpm availability first; if available, regenerate the lockfile and execute the full verification chain before adding scope.
-3. if pnpm remains externally blocked, inspect current event chronology/source synchronization/Radar/Push code for another concrete race or stale-state issue and fix only verified problems.
-4. keep migration/VAPID/deployed real-device work explicit blockers unless the actual environment/credentials are available.
-5. do not enable one-minute polling or expand launch sports without live measurements/category verification.
+First retry dependency-complete verification. If pnpm remains externally unavailable, continue source review around remaining state/race boundaries (especially watch/source geographic validation, prolonged provider-failure freshness semantics, and notification presentation cleanup) rather than adding new product scope.
