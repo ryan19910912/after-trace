@@ -11,10 +11,12 @@ import {
   sql,
 } from 'drizzle-orm';
 import type { Database } from '../db/client';
+import { pollTargetFreshAt, pollTargetStaleAt } from '../availability/freshness';
 import {
   availabilityEvents,
   availabilitySlots,
   notificationDeliveries,
+  pollTargets,
   sources,
   sports,
   venueSports,
@@ -52,6 +54,14 @@ export class DrizzlePendingDeliveryReconciler {
           eq(venueSports.sportId, availabilitySlots.sportId),
         ),
       )
+      .leftJoin(
+        pollTargets,
+        and(
+          eq(pollTargets.sourceId, availabilitySlots.sourceId),
+          eq(pollTargets.venueId, availabilitySlots.venueId),
+          eq(pollTargets.sportId, availabilitySlots.sportId),
+        ),
+      )
       .where(and(
         eq(notificationDeliveries.status, 'PENDING'),
         or(
@@ -66,6 +76,10 @@ export class DrizzlePendingDeliveryReconciler {
           eq(sports.active, false),
           isNull(venueSports.id),
           eq(venueSports.active, false),
+          // A prolonged source outage is also stale truth. Once the target has
+          // missed the freshness allowance, fail closed instead of pushing an
+          // AVAILABLE observation that is no longer recently confirmed.
+          pollTargetStaleAt(now),
           // Even without another provider status transition, a slot stops being
           // actionable once its Taipei start time arrives.
           sql`(
@@ -125,6 +139,14 @@ export class DrizzlePendingDeliveryReconciler {
           eq(venueSports.sportId, availabilitySlots.sportId),
         ),
       )
+      .innerJoin(
+        pollTargets,
+        and(
+          eq(pollTargets.sourceId, availabilitySlots.sourceId),
+          eq(pollTargets.venueId, availabilitySlots.venueId),
+          eq(pollTargets.sportId, availabilitySlots.sportId),
+        ),
+      )
       .where(and(
         eq(notificationDeliveries.id, deliveryId),
         eq(watchRules.userId, userId),
@@ -136,6 +158,7 @@ export class DrizzlePendingDeliveryReconciler {
           ${availabilitySlots.useDate} > ${today}
           OR (${availabilitySlots.useDate} = ${today} AND ${availabilitySlots.startTime} > ${currentTime})
         )`,
+        pollTargetFreshAt(now),
         eq(sources.active, true),
         eq(venues.active, true),
         eq(sports.active, true),
