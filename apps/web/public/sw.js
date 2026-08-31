@@ -1,6 +1,7 @@
 const DB_NAME = 'aftertrace-pwa-v1';
 const STORE_NAME = 'context';
 const CONTEXT_KEY = 'radar';
+const PRESENTATION_ATTEMPTS = 3;
 
 function openDatabase() {
   return new Promise((resolve, reject) => {
@@ -37,56 +38,61 @@ async function readContext() {
   return value;
 }
 
-async function showGenericNotification() {
-  await self.registration.showNotification('AFTERTRACE 空位雷達', {
-    body: '空位雷達收到更新，開啟 AFTERTRACE 重新整理最新狀態。',
-    tag: 'aftertrace-radar-generic',
-    data: { deepLink: '/' },
-  });
+function sleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function fetchPresentation(context, endpoint) {
+  const url = `${String(context.apiBaseUrl).replace(/\/$/, '')}/api/v1/push/presentation`;
+
+  for (let attempt = 0; attempt < PRESENTATION_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${context.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ endpoint }),
+      });
+
+      if (response.ok) {
+        const body = await response.json();
+        return body.notification ?? null;
+      }
+    } catch {
+      // Retry short-lived network/API failures inside this Push event. If all
+      // attempts fail we stay silent because current availability was not
+      // revalidated and must never be replaced with an unverified fallback.
+    }
+
+    if (attempt + 1 < PRESENTATION_ATTEMPTS) await sleep(250 * (attempt + 1));
+  }
+
+  return null;
 }
 
 async function handlePush() {
   const context = await readContext().catch(() => null);
   const subscription = await self.registration.pushManager.getSubscription();
-  if (!context?.token || !context?.apiBaseUrl || !subscription) {
-    await showGenericNotification();
-    return;
-  }
+  if (!context?.token || !context?.apiBaseUrl || !subscription) return;
 
-  try {
-    const response = await fetch(`${String(context.apiBaseUrl).replace(/\/$/, '')}/api/v1/push/presentation`, {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${context.token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ endpoint: subscription.endpoint }),
-    });
-    if (!response.ok) {
-      await showGenericNotification();
-      return;
-    }
+  const notification = await fetchPresentation(context, subscription.endpoint);
+  // A successful null response means the accepted wake is stale, while a
+  // failed presentation fetch means current truth could not be verified. Both
+  // cases must stay silent rather than producing a false availability alert.
+  if (!notification) return;
 
-    const body = await response.json();
-    const notification = body.notification;
-    // The Push service can race with a later availability transition. The API
-    // returns a successful null presentation when no delivery is still current;
-    // do not turn that stale wake-up into a false "空位" notification.
-    if (!notification) return;
-
-    await self.registration.showNotification(notification.title, {
-      body: notification.body,
-      tag: notification.tag,
-      renotify: true,
-      data: {
-        deliveryId: notification.deliveryId,
-        deepLink: notification.deepLink,
-      },
-    });
-  } catch {
-    await showGenericNotification();
-  }
+  await self.registration.showNotification(notification.title, {
+    body: notification.body,
+    tag: notification.tag,
+    renotify: true,
+    data: {
+      deliveryId: notification.deliveryId,
+      deepLink: notification.deepLink,
+    },
+  });
 }
 
 async function acknowledgeOpened(deliveryId) {
