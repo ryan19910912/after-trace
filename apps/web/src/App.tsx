@@ -41,6 +41,7 @@ function watchTime(value: string | null) {
 export function App({ apiBaseUrl }: Props) {
   const [sports, setSports] = useState<SportOption[]>([]);
   const [venues, setVenues] = useState<VenueOption[]>([]);
+  const [venuesReady, setVenuesReady] = useState(false);
   const [sport, setSport] = useState(() => queryValue('sport'));
   const [venueId, setVenueId] = useState(() => queryValue('venueId'));
   const [city, setCity] = useState(() => queryValue('city', '臺北市'));
@@ -70,18 +71,46 @@ export function App({ apiBaseUrl }: Props) {
   }, [apiBaseUrl]);
 
   useEffect(() => {
-    if (!sport) return;
+    if (!sport) {
+      setVenues([]);
+      setVenuesReady(false);
+      return;
+    }
+
+    let cancelled = false;
+    setVenuesReady(false);
     void fetchVenues(apiBaseUrl, sport)
       .then((items) => {
+        if (cancelled) return;
         setVenues(items);
-        setCity((current) => {
-          if (current && items.some((venue) => venue.city === current)) return current;
-          if (items.some((venue) => venue.city === '臺北市')) return '臺北市';
-          return items[0]?.city || current;
+        setVenueId((currentVenueId) => {
+          const matchedVenue = currentVenueId
+            ? items.find((venue) => String(venue.id) === currentVenueId)
+            : undefined;
+
+          if (matchedVenue) {
+            // Notification deep links historically carried venueId but not city.
+            // The normalized venue is authoritative, so hydrate its actual city
+            // before the one-shot Radar search instead of keeping the Taipei UI
+            // default and issuing an impossible venueId + city combination.
+            setCity(matchedVenue.city);
+            return currentVenueId;
+          }
+
+          setCity((currentCity) => {
+            if (currentCity && items.some((venue) => venue.city === currentCity)) return currentCity;
+            if (items.some((venue) => venue.city === '臺北市')) return '臺北市';
+            return items[0]?.city || currentCity;
+          });
+          return '';
         });
-        setVenueId((current) => current && items.some((venue) => String(venue.id) === current) ? current : '');
+        setVenuesReady(true);
       })
-      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : '無法載入場館'));
+      .catch((reason: unknown) => {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : '無法載入場館');
+      });
+
+    return () => { cancelled = true; };
   }, [apiBaseUrl, sport]);
 
   useEffect(() => {
@@ -144,11 +173,13 @@ export function App({ apiBaseUrl }: Props) {
   }
 
   useEffect(() => {
-    if (!autoSearch || searched || !sport || sports.length === 0) return;
+    if (!autoSearch || searched || !sport || sports.length === 0 || !venuesReady) return;
+    if (venueId && !selectedVenue) return;
     void performSearch();
-    // The deep-link auto search intentionally runs once after sport metadata is ready.
+    // The deep-link auto search intentionally runs once after sport + venue
+    // metadata are ready, so a private cross-city venue is fully hydrated first.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoSearch, searched, sport, sports.length]);
+  }, [autoSearch, searched, sport, sports.length, venuesReady, venueId, selectedVenue]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
