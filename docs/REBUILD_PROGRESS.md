@@ -162,8 +162,8 @@ Commits on `main`:
 - `fd9f3aaf9e0a22c54c71a42ec860e249af19db30` — rewrote polling tests around normalized-target-only responsibility and added the zero-target/no-source-work assertion.
 - `c0935e37b766140cf8b7ff10221b4c9959fe0c37` — removed the retired `bootstrappedMetadata` result from scheduled-run test fixtures.
 - `89adc4bcd827eff6a836847e150da4eff7f1ce08` — updated `REBUILD_PLAN.md` for sole metadata ownership/backoff behavior.
-- `0b17d74fca427052864483cedb30a85f98b0994b` — strengthened the critical availability claim fence with `FOR UPDATE` and a post-write ownership recheck.
-- `92b0b0b07563392183002781ce5095d0cea62e6f` — removed the obsolete `hasEnabledPollTargets` repository contract/implementation left from the retired metadata bootstrap path.
+- `0b17b10c42b100c5b600ebc236b024523b0e245d` — strengthened the critical availability claim fence with `FOR UPDATE` and a post-write ownership recheck.
+- `92b0ca6c351089e44d92961a9861ac938a9b9b8e` — removed the obsolete `hasEnabledPollTargets` repository contract/implementation left from the retired metadata bootstrap path.
 - `2da91ea178ccd6f831dc54ba205c97d7853aa71b` — removed the same obsolete bootstrap stub from source synchronization tests.
 - `8184e8015f80cd46267f3e3912bfff3d1aae5bbd` — synchronized `REBUILD_PLAN.md` with the row-locking claim-fence semantics.
 
@@ -191,6 +191,7 @@ Actually performed:
 - runtime reports Node `v22.16.0`, TypeScript `5.8.3`, Corepack `0.32.0`.
 - retried `corepack prepare pnpm@10.15.0 --activate`; it failed fetching the pnpm tarball from `registry.npmjs.org`, so pnpm remains unavailable in this runtime.
 - inspected the current `pnpm-lock.yaml` and confirmed the stale `apps/admin` importer is still present; `apps/admin` itself is no longer a workspace/runtime app.
+- repository search confirms both retired identifiers `hasEnabledPollTargets` and `bootstrappedMetadata` now have no remaining code matches.
 - GitHub reports no workflow run for latest code commit `2da91ea178ccd6f831dc54ba205c97d7853aa71b`.
 
 Not truthfully executable here:
