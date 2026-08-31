@@ -26,19 +26,20 @@ Current product flow:
 2. metadata synchronization keeps the source anchor current, stages a complete provider venue/enabled-sport snapshot, then applies normalized venue/sport mappings only after provider discovery succeeds.
 3. empty provider venue snapshots fail closed rather than deactivating every known venue.
 4. `source_metadata_runtime` records successful metadata refresh cadence/backoff independently from `sources.updated_at`.
-5. scheduled polling refreshes due metadata, disables invalid mappings, reapplies horizon-aware watch demand, then claims due targets.
-6. `poll_targets.last_polled_at` is the active poll-claim fence; claimed Workers propagate it through slot/event/missing-slot writes and final target settlement.
-7. anonymous browser identity owns private Radar watch rules.
-8. current `AVAILABLE` events are matched only against watch state that already existed at the event time.
-9. superseded availability events are retired and cannot wake Radar later.
-10. matching events create durable Web Push delivery intents.
-11. immediately before Push, stale intents are invalidated if watch/source/slot truth changed.
-12. VAPID-authenticated payload-free Push wakes the PWA Service Worker.
-13. presentation performs one final current-truth check; stale wake-ups return `notification: null` and remain silent.
-14. React PWA supports search, Radar create/list/pause/resume/delete and Push enable/disable.
-15. public search/presentation never expose provider-machine booking references; human navigation uses `venues.booking_url`.
-16. `/health` is cheap liveness; `/ready` checks migrated sports schema + complete valid VAPID configuration.
-17. deploy smoke verifies readiness/public APIs and optionally Pages/source data.
+5. `MetadataRefreshingPollingStage` is the sole provider-metadata refresh owner; an empty poll-target set cannot bypass the six-hour success / 15-minute failure cadence.
+6. scheduled polling refreshes due metadata, disables invalid mappings, reapplies horizon-aware watch demand, then asks `PollingOrchestrator` to claim only already-normalized due targets.
+7. `poll_targets.last_polled_at` is the active poll-claim fence; claimed Workers propagate it through slot/event/missing-slot writes and final target settlement.
+8. anonymous browser identity owns private Radar watch rules.
+9. current `AVAILABLE` events are matched only against watch state that already existed at the event time.
+10. superseded availability events are retired and cannot wake Radar later.
+11. matching events create durable Web Push delivery intents.
+12. immediately before Push, stale intents are invalidated if watch/source/slot truth changed.
+13. VAPID-authenticated payload-free Push wakes the PWA Service Worker.
+14. presentation performs one final current-truth check; stale wake-ups return `notification: null` and remain silent.
+15. React PWA supports search, Radar create/list/pause/resume/delete and Push enable/disable.
+16. public search/presentation never expose provider-machine booking references; human navigation uses `venues.booking_url`.
+17. `/health` is cheap liveness; `/ready` checks migrated sports schema + complete valid VAPID configuration.
+18. deploy smoke verifies readiness/public APIs and optionally Pages/source data.
 
 Current migrations:
 
@@ -47,18 +48,19 @@ Current migrations:
 - `drizzle/0002_web_push_delivery_runtime.sql` — Push retry/lease/freshness/presentation runtime.
 - `drizzle/0003_source_metadata_runtime.sql` — persisted provider metadata success/retry state.
 
-No schema change was required by the current polling-fence hardening round.
+No schema change was required by the current polling/source hardening round.
 
 Current polling policy:
 
 - Cron wakes every minute.
+- provider metadata is called only by `MetadataRefreshingPollingStage` when `source_metadata_runtime.next_attempt_at` is due.
 - unwatched target requested interval: 300 seconds.
 - watch-covered target requested interval: 180 seconds, priority 100.
 - every target is clamped by source minimum interval.
 - watch demand is relevant only when the watch intersects the current 14-day polling horizon; expired/far-future watches do not keep endpoints hot.
 - demand reconciliation never shortens `next_poll_at`, because that field also acts as the active polling recovery lease.
 - `last_polled_at` identifies the Worker claim; stale Workers are fenced from critical availability slot/event writes and final health/backoff settlement.
-- source metadata normal refresh cadence is six hours; failed refreshes back off 15 minutes.
+- source metadata normal refresh cadence is six hours; failed refreshes back off 15 minutes even when there are zero enabled poll targets.
 - provider venue/sport discovery is staged before normalized venue/sport truth is changed, and an empty venue list is treated as a failed snapshot.
 - one-minute per-target polling remains disabled until deployed source behavior is measured.
 
@@ -87,11 +89,12 @@ Current polling policy:
 - per-target polling failure isolation.
 - scheduled polling/Radar/Push stage isolation.
 - periodic provider metadata synchronization backed by `source_metadata_runtime`.
+- `MetadataRefreshingPollingStage` is the only code path that owns provider metadata cadence; target polling no longer implicitly bootstraps metadata when no targets are due/present.
 - provider metadata venue/sport reads are staged before normalized mapping mutations, preventing a later provider metadata failure from leaving earlier venues half-refreshed.
 - empty venue snapshots fail closed instead of deactivating every venue.
 - source anchor is retained/updated before discovery so first-run failures can still persist metadata retry/backoff state.
 - successful metadata clock advances only after the synchronization call finishes.
-- metadata failures persist a 15-minute retry boundary.
+- metadata failures persist a 15-minute retry boundary that zero-target polling cannot bypass.
 - invalid source/venue/sport/venue-sport poll targets are disabled.
 - watch polling demand is recalculated on CRUD and scheduled passage of time from the current 14-day horizon.
 - watch demand changes priority/interval only; active target lease timestamps are left untouched.
@@ -128,16 +131,17 @@ Current polling policy:
 - `smoke.ps1`, `worker-deploy.ps1`, `pages-deploy.ps1` define deployed verification path.
 - CI uses `pnpm install --frozen-lockfile`.
 
-## Current round — provider snapshot safety + stale poll-worker fencing
+## Current round — provider snapshot safety + polling ownership/cadence hardening
 
 ### Starting state verified
 
 At round start the latest repository already contained periodic metadata refresh, current-truth Radar/Push protections, horizon-aware demand and the `0000` -> `0003` migration chain. `REBUILD_PLAN.md`, this progress file, polling stage/orchestrator, source synchronization repository/service/tests, Radar matcher, notification reconciler/dispatcher/repository/routes and current lockfile were re-read from latest `main` before changes.
 
-Two concrete correctness issues were found in source synchronization:
+Three concrete correctness issues were found:
 
 1. `syncMetadata` interleaved provider `listSports()` calls with venue/sport DB mutations. If a later provider metadata call failed, earlier venues could already have been modified/deactivated even though the refresh was recorded as failed.
 2. poll ownership was checked when loading target context and again only when settling success/failure. If a source call exceeded the target lease and another Worker reclaimed the target, the older Worker could still mutate `availability_slots`, create `availability_events`, or mark unseen slots `UNKNOWN` after ownership was lost.
+3. `PollingOrchestrator` still had an old “no enabled targets => sync metadata now” bootstrap path. After `MetadataRefreshingPollingStage` introduced persisted cadence, that fallback could bypass the 15-minute metadata failure backoff (or six-hour success cadence) on the next Cron wake whenever there were zero enabled targets.
 
 ### Code completed this round
 
@@ -150,7 +154,12 @@ Commits on `main`:
 - `22e4eff09986693f11641a001f934725efde8b5b` — test/lint cleanup.
 - `9d799d9237cfcc6519eb301e743722610d12e683` — retained source anchor before provider discovery so metadata retry runtime works on first failure.
 - `ffcf45ad377c6058fd08767550d86afe0d36e64d` — aligned failed-metadata tests with the source-anchor boundary.
-- `6fe7918aa60360a0cbcc69c48e5abc3f994de9f1` — synchronized `REBUILD_PLAN.md` with the new safety boundaries.
+- `6fe7918aa60360a0cbcc69c48e5abc3f994de9f1` — synchronized rebuild plan with snapshot/write-fence boundaries.
+- `3689385ed452ff1198d0f91bf212db7816819101` — removed metadata bootstrap ownership from `PollingOrchestrator`; it now polls normalized due targets only.
+- `d2e912d0be68a399be447942398e60e888cd62ed` — made the metadata stage authoritative so a zero-target state cannot bypass persisted retry/success cadence.
+- `fd9f3aaf9e0a22c54c71a42ec860e249af19db30` — rewrote polling tests around normalized-target-only responsibility and added the zero-target/no-source-work assertion.
+- `c0935e37b766140cf8b7ff10221b4c9959fe0c37` — removed the retired `bootstrappedMetadata` result from scheduled-run test fixtures.
+- `89adc4bcd827eff6a836847e150da4eff7f1ce08` — updated `REBUILD_PLAN.md` for sole metadata ownership/backoff behavior.
 
 Important implementation details:
 
@@ -161,18 +170,20 @@ Important implementation details:
 - the critical `availability_slots` + `availability_events` CTE uses a SQL `EXISTS` check against enabled `poll_targets.last_polled_at`, protecting the mutation even if claim ownership changes after a preliminary repository check.
 - missing-slot-to-`UNKNOWN` writes reuse the same fence.
 - final success settlement is checked; if the expected claim no longer owns the target, the old Worker terminates without writing a failure/backoff over the newer claim.
-- tests cover provider failure on a later venue, empty venue snapshot, claim propagation, lost write ownership and lost final settlement.
+- `PollingOrchestrator` no longer knows a source code or calls `syncMetadata`; an empty claim set simply returns `{ claimed: 0, succeeded: 0, failed: 0 }`.
+- metadata due/backoff logic therefore has one owner and cannot be re-entered through the target-polling layer.
+- tests cover provider failure on a later venue, empty venue snapshot, claim propagation, lost write ownership, lost final settlement, target-level failure isolation and zero-target/no-source-work behavior.
 
 ### Verification performed this round
 
 Actually performed:
 
-- re-read the changed files from latest `main` after commits and confirmed the source snapshot + poll-fence code is present.
-- confirmed no database schema/migration change is required for this round; the fence reuses existing `poll_targets.last_polled_at`.
+- re-read changed source/polling files from latest `main` after commits and confirmed the snapshot, write-fence and sole-metadata-owner changes are present.
+- confirmed no database schema/migration change is required for this round; the fence reuses existing `poll_targets.last_polled_at` and cadence reuses `source_metadata_runtime`.
 - runtime still reports Node `v22.16.0`, TypeScript `5.8.3`, Corepack `0.32.0`.
 - retried `corepack prepare pnpm@10.15.0 --activate`; it again failed fetching the pnpm tarball from `registry.npmjs.org`, so pnpm is unavailable in this runtime.
 - inspected the complete `pnpm-lock.yaml` blob and confirmed the stale `apps/admin` importer is still present; `apps/admin` itself is no longer a workspace/runtime app.
-- GitHub reports no workflow run for the latest documentation/code chain.
+- GitHub reports no workflow run for this round's code/documentation chain.
 
 Not truthfully executable here:
 
