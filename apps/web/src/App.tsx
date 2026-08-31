@@ -38,6 +38,16 @@ function watchTime(value: string | null) {
   return value ? value.slice(0, 5) : '不限';
 }
 
+function sourceFreshness(value: string) {
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return '最近已同步';
+  const ageMinutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60_000));
+  if (ageMinutes < 1) return '剛剛同步';
+  if (ageMinutes < 60) return `${ageMinutes} 分鐘前同步`;
+  const ageHours = Math.floor(ageMinutes / 60);
+  return `${ageHours} 小時前同步`;
+}
+
 export function App({ apiBaseUrl }: Props) {
   const [sports, setSports] = useState<SportOption[]>([]);
   const [venues, setVenues] = useState<VenueOption[]>([]);
@@ -89,10 +99,6 @@ export function App({ apiBaseUrl }: Props) {
             : undefined;
 
           if (matchedVenue) {
-            // Notification deep links historically carried venueId but not city.
-            // The normalized venue is authoritative, so hydrate its actual city
-            // before the one-shot Radar search instead of keeping the Taipei UI
-            // default and issuing an impossible venueId + city combination.
             setCity(matchedVenue.city);
             return currentVenueId;
           }
@@ -176,8 +182,6 @@ export function App({ apiBaseUrl }: Props) {
     if (!autoSearch || searched || !sport || sports.length === 0 || !venuesReady) return;
     if (venueId && !selectedVenue) return;
     void performSearch();
-    // The deep-link auto search intentionally runs once after sport + venue
-    // metadata are ready, so a private cross-city venue is fully hydrated first.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoSearch, searched, sport, sports.length, venuesReady, venueId, selectedVenue]);
 
@@ -411,6 +415,7 @@ export function App({ apiBaseUrl }: Props) {
                   <h3>{slot.venueName}</h3>
                   <p>{slot.courtName ?? '場地'}｜{slot.useDate}｜{slot.startTime.slice(0, 5)}–{slot.endTime.slice(0, 5)}</p>
                   {slot.price && <p className="price">NT$ {slot.price}</p>}
+                  <p className="slot-meta">資料來源：{slot.sourceName} · {sourceFreshness(slot.sourceLastSuccessAt)}</p>
                 </div>
                 {bookingUrl ? (
                   <a className="booking-link" href={bookingUrl} target="_blank" rel="noreferrer">前往官方預約</a>
