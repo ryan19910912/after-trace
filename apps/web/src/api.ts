@@ -12,6 +12,9 @@ export type AvailabilitySlot = {
   venueName: string;
   city: string;
   district: string | null;
+  sourceCode: string;
+  sourceName: string;
+  sourceLastSuccessAt: string;
   sportCode: string;
   sportName: string;
   courtName: string | null;
