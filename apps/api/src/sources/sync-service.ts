@@ -1,6 +1,7 @@
 import { TaipeiSportsCenterSourceError } from './taipei-sports-center';
 import type { SourceAdapterRegistry } from './registry';
 import type { AvailabilitySyncRepository, PollTargetContext } from './sync-repository';
+import type { SourceSport, SourceVenue } from './types';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const DEFAULT_POLL_INTERVAL_SECONDS = 300;
@@ -22,6 +23,20 @@ export type PollSyncResult = {
   staleSlotsCleared: number;
 };
 
+type VenueMetadataSnapshot = {
+  venue: SourceVenue;
+  sports: SourceSport[];
+};
+
+export class PollTargetClaimLostError extends Error {
+  readonly code = 'POLL_TARGET_CLAIM_LOST';
+
+  constructor(pollTargetId: number) {
+    super(`Poll target ${pollTargetId} claim is no longer active`);
+    this.name = 'PollTargetClaimLostError';
+  }
+}
+
 export class SourceSynchronizationService {
   private readonly enabledSportCodes: ReadonlySet<string>;
 
@@ -36,25 +51,40 @@ export class SourceSynchronizationService {
 
   async syncMetadata(sourceCode: string): Promise<MetadataSyncResult> {
     const adapter = this.registry.get(sourceCode);
+
+    // Read a complete provider snapshot before mutating normalized venue/sport
+    // state. Provider metadata calls can fail partway through a venue list; if
+    // persistence is interleaved with those calls, a transient upstream error
+    // can leave the public/Radar truth half-refreshed until the retry succeeds.
+    const sourceVenues = await adapter.listVenues();
+    if (sourceVenues.length === 0) {
+      throw new Error(`Source ${sourceCode} returned an empty venue snapshot`);
+    }
+
+    const snapshot: VenueMetadataSnapshot[] = [];
+    for (const venue of sourceVenues) {
+      const sports = (await adapter.listSports(venue.externalVenueId))
+        .filter((sport) => this.enabledSportCodes.has(sport.code));
+      snapshot.push({ venue, sports });
+    }
+
     const sourceId = await this.repository.upsertSource({
       code: adapter.code,
       name: adapter.name,
       baseUrl: adapter.baseUrl,
       minPollIntervalSeconds: adapter.minPollIntervalSeconds,
     });
-    const sourceVenues = await adapter.listVenues();
     const externalVenueIds: string[] = [];
     let venueSportsCount = 0;
     let pollTargetCount = 0;
 
-    for (const sourceVenue of sourceVenues) {
+    for (const venueSnapshot of snapshot) {
+      const sourceVenue = venueSnapshot.venue;
       externalVenueIds.push(sourceVenue.externalVenueId);
       const venueId = await this.repository.upsertVenue(sourceId, sourceVenue);
-      const sourceSports = (await adapter.listSports(sourceVenue.externalVenueId))
-        .filter((sport) => this.enabledSportCodes.has(sport.code));
       const activeSportIds: number[] = [];
 
-      for (const sourceSport of sourceSports) {
+      for (const sourceSport of venueSnapshot.sports) {
         const sportId = await this.repository.upsertSport(sourceSport);
         activeSportIds.push(sportId);
         await this.repository.upsertVenueSport(venueId, sportId, sourceSport.externalCategoryId);
@@ -90,14 +120,13 @@ export class SourceSynchronizationService {
     const polledAt = this.now();
     const context = await this.repository.getPollTargetContext(input.pollTargetId, input.claimedAt);
     if (!context) {
-      throw new Error(
-        input.claimedAt
-          ? `Poll target ${input.pollTargetId} claim is no longer active`
-          : `Poll target ${input.pollTargetId} is not active or no longer resolvable`,
-      );
+      throw new PollTargetClaimLostError(input.pollTargetId);
     }
     const adapter = this.registry.get(context.sourceCode);
     const intervalSeconds = Math.max(context.intervalSeconds, context.sourceMinPollIntervalSeconds);
+    const writeFence = input.claimedAt
+      ? { pollTargetId: context.pollTargetId, expectedClaimedAt: input.claimedAt }
+      : {};
 
     try {
       const bookableDates = adapter.listBookableDates
@@ -131,6 +160,7 @@ export class SourceSynchronizationService {
             sportId: context.sportId,
             slot,
             seenAt: polledAt,
+            ...writeFence,
           });
         }
         slotsSeen += slots.length;
@@ -141,15 +171,18 @@ export class SourceSynchronizationService {
           useDate,
           seenExternalSlotKeys: slots.map((slot) => slot.externalSlotKey),
           seenAt: polledAt,
+          ...writeFence,
         });
       }
 
-      await this.repository.markPollTargetSuccess({
+      const finalized = await this.repository.markPollTargetSuccess({
         pollTargetId: context.pollTargetId,
         polledAt,
         nextPollAt: addSeconds(polledAt, intervalSeconds),
         expectedClaimedAt: input.claimedAt,
       });
+      if (!finalized) throw new PollTargetClaimLostError(context.pollTargetId);
+
       return {
         pollTargetId: context.pollTargetId,
         datesChecked: allDates.length,
@@ -158,6 +191,10 @@ export class SourceSynchronizationService {
         staleSlotsCleared,
       };
     } catch (cause) {
+      // A newer Worker owns the target now. The old Worker must not overwrite
+      // target health/backoff owned by that newer claim.
+      if (cause instanceof PollTargetClaimLostError) throw cause;
+
       await this.repository.markPollTargetFailure({
         pollTargetId: context.pollTargetId,
         polledAt,
