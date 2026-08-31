@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
 import { notificationDeliveryRuntime } from '../db/schema-notifications';
 import {
@@ -12,6 +12,7 @@ import {
   watchRules,
   watchRuleVenues,
 } from '../db/schema';
+import { taipeiDate, taipeiTime } from '../time/taipei';
 import { matchesWatchRule } from './rules';
 
 const DELIVERY_MAX_AGE_MS = 30 * 60 * 1000;
@@ -27,6 +28,8 @@ export class DrizzleRadarMatcher {
   async matchPendingAvailableEvents(limit = 200): Promise<RadarMatchResult> {
     const boundedLimit = Math.max(1, Math.min(500, Math.trunc(limit)));
     const now = new Date();
+    const today = taipeiDate(now);
+    const currentTime = taipeiTime(now);
 
     // Once a later transition exists for the same slot, an older AVAILABLE
     // event can never be the current Radar truth again. Close it out so stale
@@ -42,6 +45,27 @@ export class DrizzleRadarMatcher {
           FROM availability_events newer
           WHERE newer.availability_slot_id = ${availabilityEvents.availabilitySlotId}
             AND newer.id > ${availabilityEvents.id}
+        )`,
+      ));
+
+    // Availability can remain persisted after its actionable wall-clock window
+    // has passed. Retire those queue events even when the provider never emitted
+    // another status transition, otherwise a delayed matcher could notify after
+    // the court time has already started.
+    await this.database
+      .update(availabilityEvents)
+      .set({ matchedAt: now })
+      .where(and(
+        eq(availabilityEvents.newStatus, 'AVAILABLE'),
+        isNull(availabilityEvents.matchedAt),
+        sql`EXISTS (
+          SELECT 1
+          FROM availability_slots expired_slot
+          WHERE expired_slot.id = ${availabilityEvents.availabilitySlotId}
+            AND (
+              expired_slot.use_date < ${today}
+              OR (expired_slot.use_date = ${today} AND expired_slot.start_time <= ${currentTime})
+            )
         )`,
       ));
 
@@ -73,6 +97,10 @@ export class DrizzleRadarMatcher {
         eq(availabilityEvents.newStatus, 'AVAILABLE'),
         isNull(availabilityEvents.matchedAt),
         eq(availabilitySlots.status, 'AVAILABLE'),
+        or(
+          gt(availabilitySlots.useDate, today),
+          and(eq(availabilitySlots.useDate, today), gt(availabilitySlots.startTime, currentTime)),
+        ),
         eq(sources.active, true),
         eq(venues.active, true),
         eq(sports.active, true),
