@@ -56,6 +56,12 @@ export type AvailabilitySourceAdapter = {
   readonly name: string;
   readonly baseUrl: string;
   readonly minPollIntervalSeconds: number;
+  /**
+   * Optional product-ingestion override for a source whose discoverable sport
+   * catalog is broader than the subset AFTERTRACE can safely normalize today.
+   * When omitted, the generic slot-sport allowlist is used.
+   */
+  readonly ingestSportCodes?: readonly string[];
   listVenues(): Promise<SourceVenue[]>;
   listSports(externalVenueId: string): Promise<SourceSport[]>;
   listBookableDates?(input: SourceBookableDateQuery): Promise<string[]>;
