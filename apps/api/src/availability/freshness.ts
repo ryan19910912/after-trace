@@ -3,11 +3,12 @@ import { pollTargets } from '../db/schema';
 
 export const MIN_AVAILABILITY_FRESHNESS_SECONDS = 15 * 60;
 export const AVAILABILITY_FRESHNESS_INTERVAL_MULTIPLIER = 3;
+const DEFAULT_AVAILABILITY_POLL_INTERVAL_SECONDS = 5 * 60;
 
 export function availabilityFreshnessSeconds(intervalSeconds: number): number {
   const normalizedInterval = Number.isFinite(intervalSeconds) && intervalSeconds > 0
     ? Math.trunc(intervalSeconds)
-    : MIN_AVAILABILITY_FRESHNESS_SECONDS;
+    : DEFAULT_AVAILABILITY_POLL_INTERVAL_SECONDS;
   return Math.max(
     MIN_AVAILABILITY_FRESHNESS_SECONDS,
     normalizedInterval * AVAILABILITY_FRESHNESS_INTERVAL_MULTIPLIER,
