@@ -1,19 +1,35 @@
 const TAIPEI_TIME_ZONE = 'Asia/Taipei';
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Returns the calendar date in Asia/Taipei for a concrete instant. */
-export function taipeiDate(value: Date): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
+function taipeiParts(value: Date) {
+  return new Intl.DateTimeFormat('en-CA', {
     timeZone: TAIPEI_TIME_ZONE,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
   }).formatToParts(value);
-  const year = parts.find((part) => part.type === 'year')?.value;
-  const month = parts.find((part) => part.type === 'month')?.value;
-  const day = parts.find((part) => part.type === 'day')?.value;
-  if (!year || !month || !day) throw new Error('Unable to resolve Asia/Taipei date');
-  return `${year}-${month}-${day}`;
+}
+
+function part(parts: Intl.DateTimeFormatPart[], type: Intl.DateTimeFormatPartTypes): string {
+  const value = parts.find((item) => item.type === type)?.value;
+  if (!value) throw new Error(`Unable to resolve Asia/Taipei ${type}`);
+  return value;
+}
+
+/** Returns the calendar date in Asia/Taipei for a concrete instant. */
+export function taipeiDate(value: Date): string {
+  const parts = taipeiParts(value);
+  return `${part(parts, 'year')}-${part(parts, 'month')}-${part(parts, 'day')}`;
+}
+
+/** Returns the local wall-clock time in Asia/Taipei as HH:mm:ss. */
+export function taipeiTime(value: Date): string {
+  const parts = taipeiParts(value);
+  return `${part(parts, 'hour')}:${part(parts, 'minute')}:${part(parts, 'second')}`;
 }
 
 /**
