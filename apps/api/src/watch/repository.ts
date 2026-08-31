@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
 import {
+  sources,
   sports,
   venueSports,
   venues,
@@ -9,7 +10,7 @@ import {
 } from '../db/schema';
 import { DrizzlePollingDemandReconciler } from '../polling/demand';
 import type { CreateWatchRuleInput, UpdateWatchRuleInput } from './rules';
-import { validateWatchWindow } from './rules';
+import { validateWatchWindow, venueMatchesWatchArea } from './rules';
 
 export class WatchRuleError extends Error {
   constructor(readonly code: string, message = code) {
@@ -81,7 +82,12 @@ export class DrizzleWatchRuleRepository {
     rule: CreateWatchRuleInput;
   }) {
     const sportId = await this.resolveSportId(input.rule.sport);
-    await this.assertVenueIdsSupportSport(sportId, input.rule.venueIds);
+    await this.assertWatchScopeAvailable(
+      sportId,
+      input.rule.city,
+      input.rule.district,
+      input.rule.venueIds,
+    );
     const venueIdsJson = JSON.stringify(input.rule.venueIds);
     const daysOfWeekJson = JSON.stringify(input.rule.daysOfWeek);
 
@@ -157,7 +163,12 @@ export class DrizzleWatchRuleRepository {
     };
     const windowError = validateWatchWindow(merged);
     if (windowError) throw new WatchRuleError('INVALID_WATCH_WINDOW', windowError);
-    await this.assertVenueIdsSupportSport(current.sportId, merged.venueIds);
+    await this.assertWatchScopeAvailable(
+      current.sportId,
+      merged.city,
+      merged.district,
+      merged.venueIds,
+    );
 
     const venueIdsJson = JSON.stringify(merged.venueIds);
     const daysOfWeekJson = JSON.stringify(merged.daysOfWeek);
@@ -216,22 +227,60 @@ export class DrizzleWatchRuleRepository {
     return sport.id;
   }
 
-  private async assertVenueIdsSupportSport(sportId: number, venueIds: number[]): Promise<void> {
-    if (venueIds.length === 0) return;
-    const rows = await this.database
-      .select({ id: venues.id })
-      .from(venues)
-      .innerJoin(venueSports, and(eq(venueSports.venueId, venues.id), eq(venueSports.sportId, sportId)))
-      .where(
-        and(
+  /**
+   * A Radar must describe a scope that exists in the current normalized source
+   * catalog. Selected venue ids must support the sport through an active source
+   * and must also sit inside the watch's city/district boundary. Area-only
+   * watches require at least one active venue/sport mapping in that area.
+   */
+  private async assertWatchScopeAvailable(
+    sportId: number,
+    city: string,
+    district: string | null,
+    venueIds: number[],
+  ): Promise<void> {
+    if (venueIds.length > 0) {
+      const rows = await this.database
+        .select({ id: venues.id, city: venues.city, district: venues.district })
+        .from(venues)
+        .innerJoin(sources, eq(sources.id, venues.sourceId))
+        .innerJoin(
+          venueSports,
+          and(eq(venueSports.venueId, venues.id), eq(venueSports.sportId, sportId)),
+        )
+        .where(and(
           inArray(venues.id, venueIds),
+          eq(sources.active, true),
           eq(venues.active, true),
           eq(venueSports.active, true),
-        ),
-      );
-    if (new Set(rows.map((row) => row.id)).size !== venueIds.length) {
-      throw new WatchRuleError('VENUE_NOT_AVAILABLE_FOR_SPORT');
+        ));
+
+      if (new Set(rows.map((row) => row.id)).size !== venueIds.length) {
+        throw new WatchRuleError('VENUE_NOT_AVAILABLE_FOR_SPORT');
+      }
+      if (rows.some((row) => !venueMatchesWatchArea(city, district, row))) {
+        throw new WatchRuleError('VENUE_OUTSIDE_WATCH_AREA');
+      }
+      return;
     }
+
+    const [areaVenue] = await this.database
+      .select({ id: venues.id })
+      .from(venues)
+      .innerJoin(sources, eq(sources.id, venues.sourceId))
+      .innerJoin(
+        venueSports,
+        and(eq(venueSports.venueId, venues.id), eq(venueSports.sportId, sportId)),
+      )
+      .where(and(
+        eq(sources.active, true),
+        eq(venues.active, true),
+        eq(venueSports.active, true),
+        eq(venues.city, city),
+        district ? eq(venues.district, district) : undefined,
+      ))
+      .limit(1);
+    if (!areaVenue) throw new WatchRuleError('WATCH_AREA_NOT_AVAILABLE_FOR_SPORT');
   }
 
   private async loadVenueIds(ruleIds: number[]): Promise<Map<number, number[]>> {
