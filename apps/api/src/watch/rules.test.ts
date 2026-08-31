@@ -2,18 +2,21 @@ import { describe, expect, it } from 'vitest';
 import {
   createWatchRuleSchema,
   matchesWatchRule,
+  normalizeTaiwanCityName,
   parseIdempotencyKey,
   updateWatchRuleSchema,
+  venueMatchesWatchArea,
 } from './rules';
 
 describe('watch rule validation', () => {
-  it('normalizes venue/day lists and HH:mm times', () => {
+  it('normalizes venue/day lists, HH:mm times and common Taiwan city spelling', () => {
     const parsed = createWatchRuleSchema.parse({
       sport: 'BADMINTON',
       venueIds: [3, 1, 3],
       daysOfWeek: [6, 1, 1],
       startTime: '18:00',
       endTime: '22:00',
+      city: ' 台北市 ',
     });
     expect(parsed.sport).toBe('badminton');
     expect(parsed.venueIds).toEqual([1, 3]);
@@ -21,6 +24,7 @@ describe('watch rule validation', () => {
     expect(parsed.startTime).toBe('18:00:00');
     expect(parsed.endTime).toBe('22:00:00');
     expect(parsed.city).toBe('臺北市');
+    expect(normalizeTaiwanCityName('台南市')).toBe('臺南市');
   });
 
   it('rejects inverted date/time windows', () => {
@@ -30,9 +34,17 @@ describe('watch rule validation', () => {
 
   it('accepts real partial updates but rejects empty no-op patches', () => {
     expect(updateWatchRuleSchema.parse({ enabled: false })).toEqual({ enabled: false });
+    expect(updateWatchRuleSchema.parse({ city: '台中市' })).toEqual({ city: '臺中市' });
     expect(updateWatchRuleSchema.safeParse({}).success).toBe(false);
     expect(parseIdempotencyKey('watch-create:1234')).toBe('watch-create:1234');
     expect(parseIdempotencyKey('tiny')).toBeNull();
+  });
+
+  it('keeps selected venues inside the declared watch area', () => {
+    expect(venueMatchesWatchArea('臺北市', null, { city: '臺北市', district: '中山區' })).toBe(true);
+    expect(venueMatchesWatchArea('臺北市', '大安區', { city: '臺北市', district: '大安區' })).toBe(true);
+    expect(venueMatchesWatchArea('臺北市', '大安區', { city: '臺北市', district: '中山區' })).toBe(false);
+    expect(venueMatchesWatchArea('臺北市', null, { city: '新北市', district: '板橋區' })).toBe(false);
   });
 });
 
