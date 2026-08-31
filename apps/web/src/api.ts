@@ -10,6 +10,7 @@ export type AvailabilitySlot = {
   slotId: number;
   venueId: number;
   venueName: string;
+  city: string;
   district: string | null;
   sportCode: string;
   sportName: string;
@@ -103,6 +104,7 @@ export async function searchAvailability(
   input: {
     sport?: string;
     venueId?: number;
+    city?: string;
     district?: string;
     date?: string;
     start?: string;
@@ -112,6 +114,7 @@ export async function searchAvailability(
   const params = new URLSearchParams();
   if (input.sport) params.set('sport', input.sport);
   if (input.venueId) params.set('venueId', String(input.venueId));
+  if (input.city) params.set('city', input.city);
   if (input.district) params.set('district', input.district);
   if (input.date) params.set('date', input.date);
   if (input.start) params.set('start', input.start);
