@@ -3,6 +3,7 @@ import {
   AVAILABILITY_FRESHNESS_INTERVAL_MULTIPLIER,
   MIN_AVAILABILITY_FRESHNESS_SECONDS,
   availabilityFreshnessSeconds,
+  availabilityObservationWasStale,
 } from './freshness';
 
 describe('availability freshness policy', () => {
@@ -21,5 +22,28 @@ describe('availability freshness policy', () => {
   it('falls back to the normal five-minute cadence for invalid interval values', () => {
     expect(availabilityFreshnessSeconds(0)).toBe(900);
     expect(availabilityFreshnessSeconds(Number.NaN)).toBe(900);
+  });
+
+  it('treats equality with the freshness boundary as still fresh', () => {
+    const lastSeenAt = new Date('2026-08-31T00:00:00.000Z');
+    expect(availabilityObservationWasStale(
+      lastSeenAt,
+      new Date('2026-08-31T00:15:00.000Z'),
+      300,
+    )).toBe(false);
+  });
+
+  it('requires reconfirmation once the observation is older than the freshness allowance', () => {
+    const lastSeenAt = new Date('2026-08-31T00:00:00.000Z');
+    expect(availabilityObservationWasStale(
+      lastSeenAt,
+      new Date('2026-08-31T00:15:00.001Z'),
+      300,
+    )).toBe(true);
+    expect(availabilityObservationWasStale(
+      lastSeenAt,
+      new Date('2026-08-31T01:00:00.001Z'),
+      1200,
+    )).toBe(true);
   });
 });
