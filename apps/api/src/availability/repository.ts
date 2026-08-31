@@ -1,6 +1,7 @@
 import { and, asc, eq, gte, lte } from 'drizzle-orm';
 import type { Database } from '../db/client';
 import { availabilitySlots, courts, sources, sports, venueSports, venues } from '../db/schema';
+import { taipeiDate } from '../time/taipei';
 import type { AvailabilitySearchQuery } from './query';
 
 export class DrizzleAvailabilityRepository {
@@ -48,7 +49,8 @@ export class DrizzleAvailabilityRepository {
       .orderBy(asc(venues.district), asc(venues.name));
   }
 
-  async search(input: AvailabilitySearchQuery) {
+  async search(input: AvailabilitySearchQuery, now = new Date()) {
+    const today = taipeiDate(now);
     return this.database
       .select({
         slotId: availabilitySlots.id,
@@ -81,6 +83,10 @@ export class DrizzleAvailabilityRepository {
       .where(
         and(
           eq(availabilitySlots.status, 'AVAILABLE'),
+          // Availability is a current-state surface. Old AVAILABLE rows may
+          // remain for audit/history after the moving polling horizon advances;
+          // never return a slot whose Taipei calendar date is already past.
+          gte(availabilitySlots.useDate, today),
           eq(sources.active, true),
           eq(venues.active, true),
           eq(sports.active, true),
