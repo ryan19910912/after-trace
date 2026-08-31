@@ -21,18 +21,21 @@ import {
   venues,
   watchRules,
 } from '../db/schema';
+import { taipeiDate, taipeiTime } from '../time/taipei';
 
 /**
  * Removes notification intents that are no longer actionable before a Push
  * request is sent. This closes the gap between Radar event creation and later
- * delivery when availability, source metadata or the user's watch state has
- * changed in the meantime.
+ * delivery when availability, source metadata, wall-clock time or the user's
+ * watch state has changed in the meantime.
  */
 export class DrizzlePendingDeliveryReconciler {
   constructor(private readonly database: Database) {}
 
   async invalidateStalePending(now = new Date(), limit = 200): Promise<number> {
     const boundedLimit = Math.max(1, Math.min(500, Math.trunc(limit)));
+    const today = taipeiDate(now);
+    const currentTime = taipeiTime(now);
     const stale = await this.database
       .select({ id: notificationDeliveries.id })
       .from(notificationDeliveries)
@@ -63,6 +66,12 @@ export class DrizzlePendingDeliveryReconciler {
           eq(sports.active, false),
           isNull(venueSports.id),
           eq(venueSports.active, false),
+          // Even without another provider status transition, a slot stops being
+          // actionable once its Taipei start time arrives.
+          sql`(
+            ${availabilitySlots.useDate} < ${today}
+            OR (${availabilitySlots.useDate} = ${today} AND ${availabilitySlots.startTime} <= ${currentTime})
+          )`,
           // A later transition for the same slot supersedes this event. Even if
           // the slot became AVAILABLE again, the newer event owns that wake-up.
           sql`EXISTS (
@@ -97,7 +106,9 @@ export class DrizzlePendingDeliveryReconciler {
    * Availability can change after Push-service acceptance but before the
    * browser fetches presentation data, so this is the final false-alert gate.
    */
-  async isDeliveryActionable(userId: number, deliveryId: number): Promise<boolean> {
+  async isDeliveryActionable(userId: number, deliveryId: number, now = new Date()): Promise<boolean> {
+    const today = taipeiDate(now);
+    const currentTime = taipeiTime(now);
     const [row] = await this.database
       .select({ id: notificationDeliveries.id })
       .from(notificationDeliveries)
@@ -121,6 +132,10 @@ export class DrizzlePendingDeliveryReconciler {
         lte(watchRules.updatedAt, notificationDeliveries.createdAt),
         eq(availabilityEvents.newStatus, 'AVAILABLE'),
         eq(availabilitySlots.status, 'AVAILABLE'),
+        sql`(
+          ${availabilitySlots.useDate} > ${today}
+          OR (${availabilitySlots.useDate} = ${today} AND ${availabilitySlots.startTime} > ${currentTime})
+        )`,
         eq(sources.active, true),
         eq(venues.active, true),
         eq(sports.active, true),
