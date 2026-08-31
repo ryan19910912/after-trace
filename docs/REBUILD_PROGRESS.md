@@ -1,42 +1,31 @@
 # AFTERTRACE Rebuild Progress
 
-This file is the durable handoff between rebuild rounds. Every round must read this file, `docs/REBUILD_PLAN.md`, and the actual latest `main` before changing code. Repository state wins over older notes.
+This is the durable handoff between rebuild rounds. Every round must read this file, `docs/REBUILD_PLAN.md`, and actual latest `main`; repository state wins over older notes.
 
 ## Current product target
 
-AFTERTRACE is a public sports venue availability search + Radar product.
+AFTERTRACE is a Taipei sports venue availability search + Radar PWA. V1 is no-AI, never books/pays for users and never stores venue credentials. It normalizes current availability from public **and private official booking sources**, searches across them, continuously monitors matching conditions and sends Web Push only after current truth is revalidated.
 
-V1 principles:
-
-- Web/PWA first.
-- Cloudflare Worker + Hono backend.
-- Neon PostgreSQL + Drizzle.
-- No AI.
-- Do not book/pay for users or store venue credentials; direct users to official human booking channels.
-- Public-source polling + normalized current availability + conditional Web Push are the core.
-- Badminton is the first launch sport; the domain/source model remains generic for table tennis, squash, tennis, pickleball, basketball and other slot-based sports.
+Public sports-center coverage is baseline. Source-layer V1 is no longer considered complete until at least one private official booking source is actually registered through the same metadata/polling/search/Radar/Push pipeline.
 
 ## Actual current `main`
 
-The retired LINE-first product is absent from application runtime. `apps/` contains only `api` and `web`. LINE group ingestion, LIFF, Group Memory, Gemini/AI, Energy/Credit, Rewarded Ad, Commerce, Reminder, Proactive Push, old admin/auth/retention runtime and legacy schema modules have been removed.
+Retired LINE-first runtime is absent. `apps/` contains only `api` and `web`; LINE group/LIFF, Group Memory, Gemini/AI, Energy/Credit, rewarded ads, commerce, Reminder, Proactive Push, old admin/auth/retention runtime and legacy schema modules are removed.
 
-Current runtime flow:
+Current core flow:
 
-1. Registered `AvailabilitySourceAdapter`s provide provider-specific venue/sport/calendar/availability reads; the first live adapter is `TaipeiSportsCenterAdapter`.
-2. `MetadataRefreshingPollingStage` receives source codes from the adapter registry. Metadata cadence/backoff is per-source and persisted in `source_metadata_runtime`.
-3. Provider metadata discovery stages a complete non-empty venue + enabled-sport snapshot before normalized mutations. One provider metadata failure does not stop healthy providers or already-normalized availability polling.
-4. Polling claims normalized `poll_targets`; `last_polled_at` is the claim fence and `last_success_at` is the freshness anchor.
-5. Court + slot + event writes are serialized behind the active poll claim. Stale workers cannot write current availability or overwrite target health.
+1. `AvailabilitySourceAdapter` isolates provider shapes. `SourceAdapterRegistry` is multi-source; the only live adapter today is `TaipeiSportsCenterAdapter`.
+2. `AvailabilitySourceError` is now the common typed provider-error contract. Synchronization/retry code no longer imports Taipei-specific error types, so a private adapter can preserve its own provider error codes without adding source-specific branching to orchestration.
+3. `MetadataRefreshingPollingStage` owns registry-driven, per-source metadata cadence/backoff through `source_metadata_runtime`.
+4. Provider metadata is staged as a complete non-empty snapshot before normalized venue/sport mutations; one provider metadata failure does not stop other providers or already-normalized availability polling.
+5. Polling claims `poll_targets`; `last_polled_at` is the claim fence and `last_success_at` the freshness anchor. Court + slot + event + missing-slot + final target writes are fenced against stale Workers.
 6. Search/Radar/Push require exact-target freshness within `max(15 minutes, 3 × target interval)` and Taipei-local actionability.
-7. A persisted AVAILABLE slot re-confirmed after a gap longer than the freshness allowance emits a new AVAILABLE recovery event.
-8. Anonymous browser identities own Radar rules. Watch rules validate active catalog/geographic scope and canonicalize common Taiwan `台`/`臺` spellings.
-9. Radar matching uses activation boundaries, current source/slot truth, freshness and event supersession rules.
-10. Matching creates durable Web Push deliveries. Pre-dispatch reconciliation rejects stale truth before send.
-11. Bare Web Push wakes the Service Worker, which authenticates with the anonymous token + current endpoint and asks `/api/v1/push/presentation` for one contextual notification.
-12. Presentation scans through stale claimed candidates within the same browser wake instead of letting an older stale delivery hide a later actionable delivery.
-13. The Service Worker retries transient presentation HTTP/network failures briefly, but fails closed if current truth cannot be revalidated; it no longer emits a generic fallback notification on errors or missing context.
-14. Public search exposes only actionable AVAILABLE rows and uses normalized venue `booking_url`; provider-machine `external_booking_ref` remains ingestion/provenance only.
-15. `/health` is liveness and `/ready` checks sports schema reachability plus complete valid VAPID configuration.
+7. An AVAILABLE slot re-confirmed after a gap longer than freshness allowance emits a new recovery AVAILABLE event.
+8. Anonymous browser identities own Radar rules. Watch rules validate current active catalog/geography and canonicalize common `台`/`臺` city spellings.
+9. Radar matching uses activation boundaries, current slot/source truth, event supersession and freshness; matching creates durable Web Push deliveries.
+10. Pre-dispatch reconciliation and final browser presentation both fail closed on stale truth. The Service Worker no longer shows generic unverified fallback notifications and drains stale presentation candidates within the same wake.
+11. Public search exposes only actionable AVAILABLE rows and uses normalized venue `booking_url`; provider machine `external_booking_ref` remains ingestion/provenance only.
+12. Web/PWA includes search, Radar CRUD, Push subscription, notification deep-link, `/ready`, deploy and smoke scripts.
 
 Current migration chain:
 
@@ -45,7 +34,7 @@ Current migration chain:
 - `drizzle/0002_web_push_delivery_runtime.sql`
 - `drizzle/0003_source_metadata_runtime.sql`
 
-No schema migration was required in this round.
+No schema migration was required this round.
 
 ## Completed rebuild areas
 
@@ -55,20 +44,23 @@ No schema migration was required in this round.
 - [x] conversation extraction/Group Memory/Gemini/AI removed.
 - [x] Energy/Credit/Rewarded Ad/Commerce/Reminder/Proactive Push removed.
 - [x] old admin/auth/retention schema/runtime removed.
-- [x] reusable pnpm/Hono/Workers/React/Vite/Neon/Drizzle/tooling kept.
+- [x] reusable pnpm/Hono/Workers/React/Vite/Neon/Drizzle tooling kept.
 
 ### Sports availability + polling
 
-- [x] Generic `AvailabilitySourceAdapter` + Taipei sports-center adapter.
+- [x] generic adapter + registry.
+- [x] generic `AvailabilitySourceError` provider-failure contract.
+- [x] Taipei sports-center adapter.
 - [x] normalized source/sport/venue/venue-sport/court/slot/event domain.
 - [x] public sports/venue/actionable availability APIs.
-- [x] staged periodic metadata refresh + persisted success/backoff state.
-- [x] registry-driven multi-source metadata cadence and provider-failure isolation.
-- [x] 300-second unwatched / 180-second watched demand, source minimum clamp and 14-day watch horizon.
-- [x] complete poll claim fencing through court/slot/event/missing-slot/final target settlement.
+- [x] staged periodic metadata refresh + persisted per-source success/backoff.
+- [x] registry-driven multi-source metadata cadence + provider-failure isolation.
+- [x] 300-second unwatched / 180-second watched demand, source minimum clamp, 14-day watch horizon.
+- [x] poll claim fencing through court/slot/event/missing-slot/final settlement.
 - [x] shared Taipei date/time actionability.
 - [x] prolonged provider-outage freshness fail-closed policy.
-- [x] stale-gap AVAILABLE re-confirmation events on first trustworthy recovery observation.
+- [x] stale-gap AVAILABLE re-confirmation events.
+- [ ] one private official booking adapter actually integrated.
 
 ### Radar + Web Push
 
@@ -76,111 +68,124 @@ No schema migration was required in this round.
 - [x] watch active-catalog/geographic validation + city canonicalization.
 - [x] create/edit/resume activation boundary.
 - [x] superseded/already-started event retirement.
-- [x] Radar matching requires current AVAILABLE + exact-target freshness.
+- [x] current AVAILABLE + exact-target freshness matching.
 - [x] durable Push delivery/retry/expiry/dispatch lease fencing.
-- [x] pre-dispatch stale delivery invalidation.
-- [x] final presentation-time current-truth validation.
+- [x] pre-dispatch stale invalidation + final presentation truth check.
 - [x] Worker-native VAPID + Service Worker flow.
-- [x] presentation requires the active subscription endpoint.
-- [x] provider-machine booking refs are absent from presentation/public navigation contracts.
-- [x] stale presentation candidates are drained within one wake so they cannot mask the next actionable delivery.
-- [x] Service Worker presentation failures are fail-closed; no unverified generic notification is shown.
+- [x] active subscription endpoint required for presentation.
+- [x] provider-machine booking refs absent from presentation/public navigation.
+- [x] stale presentation candidates drained in one wake.
+- [x] Service Worker presentation failures fail closed.
+- [ ] overlapping bare-Push wake/delivery correlation review remains.
 
-### Web/PWA + release path
+### Web/PWA
 
-- [x] mobile search + official booking handoff.
+- [x] mobile availability search + official booking handoff.
 - [x] anonymous identity bootstrap + Radar management UI.
 - [x] manifest + Service Worker + Push subscription/deep link.
 - [x] `/ready`, `smoke.ps1`, `worker-deploy.ps1`, `pages-deploy.ps1`.
-- [x] CI frozen-lockfile install policy.
+- [ ] final source-inspection pass of full V1 flow after private source integration.
 
-## Current round — fail-closed Push presentation + stale candidate draining
+## Current round — private booking-system research + source contract decoupling
 
 ### Starting state verified
 
-At round start latest `main` was `0716b76ce6a2996e5ae96fe482a3821c13caf6df`. `docs/REBUILD_PLAN.md`, this progress file, notification repository/reconciler/routes, the PWA Service Worker and the latest commit history were re-read before changes.
+At round start latest `main` was `405aaf124df228fcedd78190d006e3e21d3286a6`. `docs/REBUILD_PLAN.md`, this progress file, source adapter types/registry, Taipei adapter, synchronization service/tests and current source composition were re-read before changing code.
 
-Concrete issues confirmed:
+Current truth was confirmed: `createDefaultSourceRegistry()` registers only `TaipeiSportsCenterAdapter`; no private adapter exists yet.
 
-1. `/push/presentation` called `claimPresentation()` first. That marks a candidate as presented, then the route checked current truth. If that candidate had gone stale, the route immediately returned `notification: null`; a later actionable delivery for the same endpoint could therefore remain unpresented even though the browser wake had already happened.
-2. `sw.js` showed a generic Radar notification when presentation API calls failed, browser context was missing, or subscription/context could not be resolved. The wording was neutral, but this still violated the product rule that a user-visible notification must only be shown after current availability truth has been revalidated.
+A source-layer coupling was also confirmed: `SourceSynchronizationService` imported `TaipeiSportsCenterSourceError` only to preserve provider error codes. That would force every new private adapter either to lose useful error codes or add another concrete-source branch in generic orchestration.
 
 ### Code completed this round
 
-Files added/changed:
-
-- `apps/api/src/notifications/presentation.ts`
-  - added `claimFirstActionablePresentation()`;
-  - consumes stale claimed candidates but continues scanning in the same presentation request;
-  - hard-caps scanning to avoid an unbounded Service Worker request when queue state is pathological.
-- `apps/api/src/notifications/presentation.test.ts`
-  - tests stale-stale-actionable draining;
-  - tests empty queue behavior;
-  - tests the hard scan cap.
-- `apps/api/src/notifications/routes.ts`
-  - presentation route now uses one captured `now` for claim/current-truth checks;
-  - stale candidates no longer force an immediate null response; the same wake can proceed to the next candidate.
-- `apps/web/public/sw.js`
-  - removed generic notification fallback entirely;
-  - transient presentation HTTP/network failures are retried up to three times with short bounded delays;
-  - a missing browser identity/context/subscription, successful `notification: null`, or exhausted API/network failure stays silent because current availability was not verified.
+- `apps/api/src/sources/types.ts`
+  - added generic runtime `AvailabilitySourceError(message, code, status?)`.
+- `apps/api/src/sources/taipei-sports-center.ts`
+  - `TaipeiSportsCenterSourceError` now extends the common source error while retaining its current adapter-specific class/name and behavior.
+- `apps/api/src/sources/sync-service.ts`
+  - removed concrete Taipei error import;
+  - poll failure classification now accepts any `AvailabilitySourceError`, so future private adapters preserve typed provider failure codes without orchestration branching.
+- `docs/REBUILD_PLAN.md`
+  - changed source-layer definition-of-done to require public + private official sources;
+  - documented private-source eligibility rules and AiNFOLiNK as the current highest-priority system-level candidate;
+  - explicitly deferred build/test/release work until feature/source completion.
 - `docs/REBUILD_PROGRESS.md`
-  - records this batch and remaining verification/deployment work.
+  - records this research, code batch and next source-integration step.
 
-No product scope or data-model decision changed, so `docs/REBUILD_PLAN.md` already describes the intended fail-closed presentation behavior and did not require a semantic change this round.
+Commits before this progress update:
 
-Commits in this round before this progress update:
+- `eeb32df104f53887ca568582bb24070a251c3e2e` — `Generalize availability source errors`
+- `91073887f7e311a482e786fae4536a2dfb23608d` — `Use generic source error contract`
+- `60969774ad478513999f45a408aa29a2274f1a72` — `Decouple synchronization from Taipei source errors`
+- `c195d5f4de987670aa3c2f4d333f573013deba89` — `Prioritize private venue source integration`
 
-- `cc8316c7c7c05811fa86b601b60d63b3394145d0` — `Drain stale Push presentation candidates`
-- `b768a6199afea18386133b7b8bcd8ce6d3e8ff47` — `Keep stale Push candidates from consuming a wake`
-- `c3e3aed983ee751167f21240e056ad3fa15d91fe` — `Test stale Push presentation draining`
-- `9f64ed8f31511d6e3a02468aecfc9d17d232b949` — `Make Push presentation fail closed`
+### Private source research performed this round
 
-### Verification actually performed
+#### 1. AiNFOLiNK — highest-priority system candidate
 
-- Global TypeScript strict compile of the exact new `presentation.ts` helper completed with no diagnostics.
-- Independent Node behavior vectors for stale-candidate draining and scan capping passed `2/2`.
-- `node --check` on the updated Service Worker control flow completed successfully.
-- Retried `corepack prepare pnpm@10.15.0 --activate`; it still fails fetching `https://registry.npmjs.org/pnpm/-/pnpm-10.15.0.tgz`.
-- GitHub combined status for `9f64ed8f31511d6e3a02468aecfc9d17d232b949` contains no completed status checks.
+**Status: strong system-level candidate; official venue relationship confirmed; anonymous availability transport still unresolved.**
 
-Not truthfully executable in this environment:
+- PicklePickle Taipei is a private indoor pickleball venue in Taipei Neihu. Its own official `picklepickle.tw` site has a `Book Court / 訂球場` action that links directly to `https://pickleball.ainfolink.net/`.
+- This is important because it establishes AiNFOLiNK as the venue's actual booking operator, not a third-party availability aggregator.
+- AiNFOLiNK's own site describes a sports-venue SaaS covering online reservation, booking/order management, payments, memberships and venue automation. It publishes customer testimonials naming `格恩羽球館`, `佛雷斯羽球館` and `動智AI羽球館`, so the platform potentially gives one adapter access to multiple private sports venues rather than one-off scraping.
+- The PicklePickle booking SPA itself is publicly reachable without an authentication redirect, but the web crawler returns no rendered body and this execution environment cannot resolve the domain through container DNS. The exact XHR/REST/GraphQL availability transport therefore has **not** been safely identified yet.
+- Decision: do not ship a guessed/non-functional AiNFOLiNK adapter. Next round should continue endpoint discovery from the public booking flow; once date/court/slot availability can be anonymously read, implement the real adapter immediately.
 
-- `pnpm typecheck`
-- `pnpm lint`
-- `pnpm test`
-- `pnpm build`
-- `pnpm db:schema:check`
-- PowerShell deploy/smoke script execution
+#### 2. PicklePickle Taipei
 
-Full repository verification remains **unverified**, not green.
+**Status: high-value private venue; use through AiNFOLiNK if anonymous availability is validated.**
 
-## Remaining work — highest priority first
+- Official site identifies the venue in Taipei Neihu and explicitly describes an automated reservation system.
+- Official booking handoff is AiNFOLiNK, making it the best current Taipei test tenant for a system-level adapter.
 
-### Repository correctness / cleanup
+#### 3. SNOWPICK
 
-- [ ] Regenerate `pnpm-lock.yaml` with the actual current workspace using pnpm so stale `apps/admin` importer metadata is removed by the package manager rather than hand editing generated lock state.
-- [ ] Run frozen-lockfile `typecheck`, `lint`, `test`, `build`, `db:schema:check`; fix real failures.
-- [ ] Run PowerShell syntax/execution checks for deploy/smoke scripts on a normal Windows development environment.
-- [ ] Full retired-term/source-boundary scan from a dependency-complete/local checkout.
-- [ ] Review SQL-level integration of stale-gap recovery against a real PostgreSQL/Neon database.
-- [ ] Review whether allowing a `PENDING + dispatchClaimKey` delivery to be selected by presentation is sufficiently correlated when multiple pushes for one endpoint overlap. Bare payload-free Push cannot carry a delivery id, so this remains the main notification concurrency area to scrutinize before declaring Push final.
+**Status: technically promising fallback/proof, but New Taipei rather than Taipei City.**
 
-### Deployment / database
+- Private indoor pickleball venue in Xinzhuang.
+- Public site exposes online date/time selection and a current slot matrix without requiring login merely to view availability; booking/payment is a later step.
+- It demonstrates that anonymous private availability sources exist, but because the current first-city scope is Taipei and an official AiNFOLiNK Taipei tenant has been found, Snowpick is secondary for now.
 
-- [ ] Point dev/prod at a fresh Neon branch/database.
-- [ ] Execute/review migrations `0000`→`0003` against a clean target.
-- [ ] Configure Worker `DATABASE_URL` and VAPID public/private/subject values.
-- [ ] Deploy Worker + HTTPS PWA and confirm `/ready` = 200.
-- [ ] Run deployed smoke with real source data.
-- [ ] Run live source polling → normal transition + prolonged-outage re-confirmation → Radar match → Push → presentation → click.
-- [ ] Measure live source latency/rate-limit behavior before considering one-minute watched polling.
+#### 4. SP Pickleball Club court finder / Project Smash / similar aggregators
 
-### Optional only after release verification
+**Status: research aid only, not a source.**
 
-- [ ] Detailed watch-editing UX / PWA install guidance if live smoke shows it is useful.
-- [ ] Add additional sports/sources only after each source is independently validated.
+- These sites aggregate other venues' availability and are useful for discovering venue names/operator systems.
+- Per product policy, competitor/aggregator data is not used as an upstream availability source unless an official venue relationship is independently established.
+
+#### 5. LINE/phone-only venue flows
+
+**Status: not realtime source candidates.**
+
+- Current searches still surface venues such as Ahhh and several traditional badminton/tennis facilities whose booking path is LINE/phone/manual rather than a publicly readable availability matrix.
+- These may later become catalog-only entries, but they cannot power Radar without a reliable public current-truth source.
+
+### Verification policy this round
+
+Per current product priority, full dependency/build/test verification was deliberately not retried. The previous pnpm-registry blocker remains recorded but is not consuming feature-development rounds.
+
+No migration was added. Source-level inspection was performed for the files changed above. Full typecheck/lint/test/build/schema checks remain explicitly **deferred**, not green.
+
+## Remaining work — function/source completion first
+
+1. Continue AiNFOLiNK public booking-flow discovery, preferably from PicklePickle's official tenant. Identify the anonymous date/court/slot availability request shape and determine whether it is stable enough for polling.
+2. If validated, implement/register an `AvailabilitySourceAdapter` for AiNFOLiNK (system-level if possible, tenant-specific configuration only where metadata demands it) and send it through metadata sync → poll targets → normalized slots/events → search → Radar → Push.
+3. If AiNFOLiNK transport is not anonymously available, continue private booking-SaaS discovery rather than bypassing auth/security. Keep Snowpick as a technically proven fallback outside the initial city boundary.
+4. After a private adapter is live, source-inspect the full Web/PWA user flow with mixed public/private results and official booking handoff.
+5. Finish the remaining overlapping payload-free Push correlation/concurrency review and other source/Radar correctness gaps found during that pass.
+6. Only after feature/source completion switch to concentrated lockfile/typecheck/lint/test/build/schema/migration/deploy/live-smoke work.
+
+## Deferred release verification
+
+- regenerate `pnpm-lock.yaml` so removed `apps/admin` importer disappears through pnpm rather than hand editing;
+- frozen-lockfile typecheck/lint/test/build/db:schema:check;
+- PowerShell deploy/smoke checks;
+- fresh Neon database and migrations `0000` → `0003` (plus any later migration if function work requires one);
+- configure Worker `DATABASE_URL` + VAPID values;
+- deploy Worker + HTTPS PWA and confirm `/ready`;
+- live public + private source polling → transition/outage recovery → Radar → Push → presentation → click;
+- rate-limit/latency measurements before one-minute watched polling.
 
 ## Next round priority
 
-First retry dependency-complete verification and regenerate the lockfile if pnpm becomes available. If registry access remains unavailable, inspect the remaining bare-Push correlation problem around `PENDING + dispatchClaimKey` candidates and overlapping deliveries for one endpoint; prefer correctness/idempotency hardening over new V1 features.
+Keep feature work moving, but make private-source integration the first source task. Start from the now-confirmed official PicklePickle → AiNFOLiNK booking relationship and resolve the anonymous availability transport. If a stable public request is found, implement the private adapter in the same round rather than stopping at research notes. If not, continue researching other multi-venue private booking systems while finishing the remaining Push correlation correctness work; do not return to repeated build/test attempts yet.
