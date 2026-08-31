@@ -217,11 +217,9 @@ export class DrizzleNotificationRepository {
   }
 
   async settleAccepted(deliveryId: number, claimKey: string, now = new Date()): Promise<boolean> {
-    // Normally the dispatcher writes SENT first, then clears its lease. A Push
-    // service may however wake the Service Worker before the POST response gets
-    // back to this Worker; claimPresentation can therefore mark the same row
-    // SENT first. Treat both paths as one successful settlement as long as this
-    // dispatcher still owns the runtime claim.
+    // Settlement is fenced by the dispatch claim. Treat an already SENT/OPENED
+    // row as idempotent success only while this dispatcher still owns that
+    // claim; presentation itself never promotes an unsettled delivery.
     const [claim] = await this.database
       .select({ deliveryId: notificationDeliveryRuntime.deliveryId })
       .from(notificationDeliveryRuntime)
@@ -354,6 +352,28 @@ export class DrizzleNotificationRepository {
     return Boolean(runtime);
   }
 
+  async hasActiveDispatchForEndpoint(userId: number, endpoint: string, now = new Date()): Promise<boolean> {
+    const [active] = await this.database
+      .select({ deliveryId: notificationDeliveryRuntime.deliveryId })
+      .from(notificationDeliveryRuntime)
+      .innerJoin(notificationDeliveries, eq(notificationDeliveries.id, notificationDeliveryRuntime.deliveryId))
+      .innerJoin(notificationSubscriptions, eq(notificationSubscriptions.id, notificationDeliveries.subscriptionId))
+      .innerJoin(watchRules, eq(watchRules.id, notificationDeliveries.watchRuleId))
+      .where(and(
+        eq(watchRules.userId, userId),
+        eq(notificationSubscriptions.endpoint, endpoint),
+        eq(notificationSubscriptions.channel, 'WEB_PUSH'),
+        eq(notificationSubscriptions.active, true),
+        eq(notificationDeliveries.channel, 'WEB_PUSH'),
+        eq(notificationDeliveries.status, 'PENDING'),
+        isNotNull(notificationDeliveryRuntime.dispatchClaimKey),
+        gt(notificationDeliveryRuntime.nextAttemptAt, now),
+        gt(notificationDeliveryRuntime.expiresAt, now),
+      ))
+      .limit(1);
+    return Boolean(active);
+  }
+
   async claimPresentation(userId: number, endpoint: string, now = new Date()) {
     const candidates = await this.database
       .select({
@@ -381,15 +401,9 @@ export class DrizzleNotificationRepository {
         eq(watchRules.userId, userId),
         eq(notificationSubscriptions.endpoint, endpoint),
         eq(notificationSubscriptions.active, true),
+        eq(notificationDeliveries.status, 'SENT'),
         isNull(notificationDeliveryRuntime.presentedAt),
         gt(notificationDeliveryRuntime.expiresAt, now),
-        or(
-          eq(notificationDeliveries.status, 'SENT'),
-          and(
-            eq(notificationDeliveries.status, 'PENDING'),
-            isNotNull(notificationDeliveryRuntime.dispatchClaimKey),
-          ),
-        ),
       ))
       .orderBy(asc(notificationDeliveries.sentAt), asc(notificationDeliveries.id))
       .limit(5);
@@ -402,20 +416,13 @@ export class DrizzleNotificationRepository {
           eq(notificationDeliveryRuntime.deliveryId, candidate.deliveryId),
           isNull(notificationDeliveryRuntime.presentedAt),
           gt(notificationDeliveryRuntime.expiresAt, now),
+          sql`EXISTS (
+            SELECT 1 FROM notification_deliveries d
+            WHERE d.id = ${candidate.deliveryId} AND d.status = 'SENT'
+          )`,
         ))
         .returning({ deliveryId: notificationDeliveryRuntime.deliveryId });
       if (!claimed) continue;
-
-      // Seeing the Push event is stronger evidence than waiting for the
-      // dispatching Worker to receive the Push service's HTTP response. Close
-      // that race by allowing presentation to settle PENDING -> SENT itself.
-      await this.database
-        .update(notificationDeliveries)
-        .set({ status: 'SENT', errorCode: null, sentAt: now, updatedAt: now })
-        .where(and(
-          eq(notificationDeliveries.id, candidate.deliveryId),
-          eq(notificationDeliveries.status, 'PENDING'),
-        ));
 
       const params = new URLSearchParams({
         sport: candidate.sportCode,
