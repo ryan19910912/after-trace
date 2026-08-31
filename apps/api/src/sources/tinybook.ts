@@ -15,6 +15,8 @@ const BOOTSTRAP_CACHE_MILLISECONDS = 5 * 60 * 1000;
 
 export const PICKLE_DAY_A11_PRODUCT_URL =
   'https://tinybot.cc/pickledaysocial/product/%E6%96%B0%E5%85%89a11%E5%B0%88%E5%8D%80-%E5%8C%B9%E5%85%8B%E7%90%83%E5%A0%B4%E7%A7%9F%E5%80%9F/';
+export const PICKLE_DAY_ZHONGHE_PRODUCT_URL =
+  'https://tinybot.cc/pickledaysocial/product/%E7%90%83%E5%A0%B4%E7%A7%9F%E5%80%9F-61%E8%B5%B7%E9%80%A3%E8%A8%82%E5%85%A9%E5%B0%8F%E6%99%82%E6%89%93%E4%B9%9D%E6%8A%98/';
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -66,6 +68,22 @@ const TINYBOOK_VENUES: readonly TinyBookVenueConfig[] = [
     pricePerSlot: '699',
     requireResources: true,
   },
+  {
+    externalVenueId: 'pickleday-zhonghe',
+    name: 'Pickle Day 中和俱樂部',
+    city: '新北市',
+    district: '中和區',
+    address: '新北市中和區錦和路388號2樓',
+    bookingUrl: PICKLE_DAY_ZHONGHE_PRODUCT_URL,
+    sport: {
+      externalCategoryId: 'pickle-day-zhonghe-court-rental',
+      code: 'pickleball',
+      name: '匹克球',
+    },
+    bookingHorizonHours: 21 * 24,
+    slotMinutes: 60,
+    requireResources: true,
+  },
 ] as const;
 
 export class TinyBookSourceError extends AvailabilitySourceError {
@@ -76,10 +94,10 @@ export class TinyBookSourceError extends AvailabilitySourceError {
 }
 
 /**
- * TinyBook currently renders its public court-rental products with the standard
+ * TinyBook currently renders public court-rental products with the standard
  * WooCommerce Bookings front-end contract. The adapter only reads the same
- * anonymous product page + admin-ajax availability call used by the consumer
- * booking UI; it never logs in, adds to cart, books or pays.
+ * anonymous product page + availability AJAX call used by the consumer booking
+ * UI; it never logs in, adds to cart, books or pays.
  *
  * Venue/product entries are deliberately curated. TinyBook is a multi-tenant
  * platform, so discovering an arbitrary tenant is not permission to ingest it.
@@ -240,9 +258,9 @@ export class TinyBookAdapter implements AvailabilitySourceAdapter {
     form.set('wc_bookings_field_start_date_day', day);
     form.set('wc_bookings_field_resource', resourceId);
 
-    // A11 is a customer-defined duration product whose minimum purchasable unit
-    // is 30 minutes. Asking for one unit gives the product's actual start-slot
-    // availability; longer bookings are still completed on the official page.
+    // Curated products define their normalized minimum slot length separately.
+    // Asking WooCommerce for one duration unit exposes which start blocks the
+    // official consumer flow currently permits for that minimum booking unit.
     form.set('wc_bookings_field_duration', '1');
     form.delete('wc_bookings_field_start_date_time');
 
@@ -384,21 +402,27 @@ function parseOptions(selectHtml: string): Array<BookingResource & { selected: b
 }
 
 function findBookingAjaxUrl(html: string, productUrl: string): string {
+  const product = new URL(productUrl);
   const marker = html.indexOf('booking_form_params');
   const scope = marker >= 0 ? html.slice(marker, marker + 8_000) : html;
   const match = scope.match(/["']ajax_url["']\s*:\s*"((?:\\.|[^"])*)"/i);
   if (match) {
     try {
       const decoded = JSON.parse(`"${match[1]}"`) as string;
-      return new URL(decoded, productUrl).toString();
+      const resolved = new URL(decoded, product);
+      if (resolved.protocol === 'https:' && resolved.origin === product.origin) return resolved.toString();
     } catch {
-      // Fall through to the standard WordPress sub-site path.
+      // Fall through to the standard WordPress installation path.
     }
   }
 
-  const product = new URL(productUrl);
-  const firstSegment = product.pathname.split('/').filter(Boolean)[0];
-  const basePath = firstSegment ? `/${firstSegment}/` : '/';
+  // TinyBook supports both path tenants (`/tenant/product/...`) and root/custom
+  // domain WordPress installs (`/product/...`). The WordPress base is the path
+  // before the product segment, not blindly the first URL segment.
+  const segments = product.pathname.split('/').filter(Boolean);
+  const productSegment = segments.findIndex((segment) => segment.toLowerCase() === 'product');
+  const baseSegments = productSegment >= 0 ? segments.slice(0, productSegment) : [];
+  const basePath = baseSegments.length > 0 ? `/${baseSegments.join('/')}/` : '/';
   return new URL(`${basePath}wp-admin/admin-ajax.php`, product.origin).toString();
 }
 
@@ -449,8 +473,6 @@ function parseAvailableTimeBlocks(html: string): string[] {
     if (formatted) times.add(formatted);
   }
 
-  // Some WooCommerce Bookings themes customize the <li> attributes but keep
-  // the standard anchor data-value. Accept ISO-like values as a safe fallback.
   if (times.size === 0) {
     const pattern = /data-value=["']([^"']+)["']/gi;
     let match: RegExpExecArray | null;
