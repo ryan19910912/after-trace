@@ -3,7 +3,6 @@ import { SourceAdapterRegistry } from './registry';
 import { PollTargetClaimLostError, SourceSynchronizationService } from './sync-service';
 import type {
   AvailabilitySyncRepository,
-  PersistableAvailabilitySlot,
   PollTargetClaim,
   PollTargetContext,
 } from './sync-repository';
