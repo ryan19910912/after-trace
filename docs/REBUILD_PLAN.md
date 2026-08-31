@@ -7,14 +7,14 @@ AFTERTRACE is a Taipei sports venue availability search + Radar product rebuilt 
 V1 goals:
 
 - Search normalized, actionable sports venue availability across supported **public and private** Taipei sources.
-- Launch the first proven flow with badminton while keeping the domain/source model generic for table tennis, squash, tennis, pickleball, basketball and other slot-based sports.
+- Launch the first proven public flow with badminton while keeping the domain/source model generic for table tennis, squash, tennis, pickleball, basketball and other slot-based sports.
 - Let users watch sport + venue/area + date/day-of-week + time conditions.
 - Poll booking sources with explicit source-specific limits and fail closed when current truth is stale.
 - Notify only when matching availability is newly observed or re-confirmed after a prolonged source outage and still remains actionable before its Taipei-local start time.
 - Never book, pay, store venue credentials, or add AI in V1; send users to the venue/operator's official human booking channel.
 - Web/PWA first.
 
-Public sports-center data is the baseline, not the moat. V1 source-layer completion now requires at least one real private booking source to be normalized through the same adapter/polling/Radar pipeline.
+Public sports-center data is the baseline, not the moat. V1 source-layer completion requires at least one real private official booking source to be normalized through the same adapter/polling/Radar pipeline.
 
 ## Architecture kept vs retired
 
@@ -61,6 +61,8 @@ Deployment must point `DATABASE_URL` at a fresh Neon branch/database and apply/r
 
 All providers implement `AvailabilitySourceAdapter`; domain/search/watch logic never consumes provider response shapes directly.
 
+The global product ingestion allowlist covers the generic slot sports currently modeled by V1: badminton, table tennis, squash, tennis, pickleball and basketball. An adapter may define `ingestSportCodes` to narrow that list for provider-specific discovery quality. This lets a private pickleball/tennis adapter ingest its real catalog without forcing the Taipei public adapter to claim sports whose venue-specific discovery is not yet normalized.
+
 The first live adapter is `TaipeiSportsCenterAdapter`, around the verified Taipei sports-center endpoint family:
 
 - `/Home/loadLocationBlock`
@@ -68,7 +70,9 @@ The first live adapter is `TaipeiSportsCenterAdapter`, around the verified Taipe
 - `/Location/findAllowBookingCalendars`
 - `/Location/findAllowBookingList`
 
-The source layer must remain provider-neutral. `AvailabilitySourceError` is the common typed provider-failure contract so synchronization/retry code does not import one concrete adapter's error type.
+Until venue-specific `/Home/loadSportBlock` discovery is fully normalized, the Taipei public adapter intentionally narrows production ingestion to badminton. That restriction is source-local, not a product-wide badminton restriction.
+
+The source layer remains provider-neutral. `AvailabilitySourceError` is the common typed provider-failure contract so synchronization/retry code does not import concrete adapter errors.
 
 ### Private-source acquisition policy
 
@@ -81,17 +85,31 @@ Prioritize sources in this order:
 3. a stable public HTML/JSON/XHR surface used by the venue's normal consumer flow;
 4. venue-specific parsing only when it is durable and high-value.
 
-Do not use a competitor's closed aggregation feed as a source. Do not bypass login, CAPTCHA, access controls or other security boundaries. A candidate becomes eligible for an adapter only when current availability can be read through the normal public/anonymous consumer flow without storing venue/customer credentials.
+Do not use a competitor's closed aggregation feed as a source. Do not bypass login, CAPTCHA, access controls or other security boundaries. A candidate becomes eligible for a live adapter only when current availability can be read through the normal public/anonymous consumer flow without storing venue/customer credentials.
 
-Current highest-priority private-system candidate is **AiNFOLiNK**:
+Current highest-priority system candidates are **BookFast** and **AiNFOLiNK**.
 
-- PicklePickle Taipei's own official site links its “Book Court / 訂球場” action directly to `pickleball.ainfolink.net`, establishing that AiNFOLiNK is the venue's booking operator rather than an unrelated aggregator.
-- AiNFOLiNK publicly positions itself as a sports-venue reservation/operations SaaS and names multiple badminton-hall customers, making a system-level adapter materially more valuable than a one-venue scraper.
-- The public booking SPA is reachable anonymously, but the exact anonymous availability transport/API still needs to be identified and validated before code is registered as a live adapter. Do not guess undocumented payloads or ship a non-functional compatibility shell.
+#### BookFast
 
-Secondary research candidates include other public booking SaaS surfaces and venue-owned systems. LINE/phone-only venues remain catalog candidates but are not realtime-availability sources.
+- BookFast publicly positions itself as a sports/fitness venue SaaS and states that more than one thousand brands use its platform. Its consumer surface supports online reservation and the product explicitly includes venue-rental/場租 management.
+- A current Taipei private tenant, **花博匹克庭園**, is publicly hosted at `https://ec.bookfastpos.com/BJ9EWNbnyX/`; the page is branded for that venue, exposes `找場地 / 找活動 / 找方案`, and identifies itself as Powered by BookFast.
+- A second private sports tenant, **水獺綠洲匹克球俱樂部**, uses the same `ec.bookfastpos.com` tenant pattern, demonstrating that a BookFast adapter could be system-level rather than one-off. That venue is in New Taipei and is research evidence, not the Taipei launch tenant.
+- Search indexing also exposes BookFast's demo venue catalog with badminton/tennis-style venue resources, confirming that the SaaS data model has first-class rentable venues.
+- The exact anonymous current-slot transport for the Taipei tenant is still unresolved. `?type=venue` currently renders no rentable courts for 花博匹克庭園 even though the public tenant exposes activities. Do not infer availability from scheduled activities or ship a guessed endpoint.
 
-At least one private source must be actually registered and flow through metadata sync → poll target → normalized slot/event → search → Radar → Push before source-layer V1 is considered complete.
+#### AiNFOLiNK
+
+- PicklePickle Taipei's official consumer flow uses `https://pickleball.ainfolink.net/`, and the tenant is publicly indexed as a Taipei professional pickleball booking site with 24-hour reservation messaging.
+- AiNFOLiNK publicly positions itself as a sports-venue reservation/operations SaaS; additional tenant subdomains exist, so it remains a strong system-level candidate.
+- The exact anonymous date/court/slot availability request still needs to be identified before a live adapter is registered.
+
+#### Proven fallback evidence
+
+- SnowPick in New Taipei exposes a public anonymous date/time slot matrix and proves that private current availability can be consumer-visible without login. It is useful fallback research but does not satisfy the current Taipei-private-source completion target by itself.
+- Aggregators such as Project Smash, SP Pickleball Club and similar directories may be used to discover official venue/operator links only; their own aggregated availability must not become upstream source truth.
+- LINE/phone-only venues may become catalog entries later but cannot power realtime Radar until a reliable public current-truth source exists.
+
+At least one private official booking source must be actually registered and flow through metadata sync → poll target → normalized slot/event → search → Radar → Push before source-layer V1 is considered complete.
 
 ## Metadata refresh
 
@@ -174,15 +192,17 @@ Flow:
 
 1. Radar creates durable PENDING delivery only from fresh source truth.
 2. pre-dispatch reconciliation invalidates changed watch/source/slot truth, stale target truth and deliveries whose slot start time arrived.
-3. dispatcher claims with a fenced lease and sends an empty VAPID Push.
-4. Push-service acceptance settles the durable delivery without allowing stale claims to overwrite newer state.
+3. dispatcher claims with a fenced lease, binds the concrete active endpoint and sends an empty VAPID Push.
+4. only Push-service acceptance settles the durable delivery to `SENT`; browser presentation is never allowed to promote an in-flight `PENDING` row.
 5. Service Worker wakes and requests `/api/v1/push/presentation` using browser identity + current endpoint.
-6. presentation considers only the active subscription endpoint and performs the final exact truth check; stale wake-ups stay silent.
-7. presentation returns display fields + search deep-link only; booking URL comes from normal current availability after the app opens.
+6. presentation may consume any unpresented `SENT` delivery for that endpoint, because a bare Push has no delivery id. Stale accepted deliveries are drained until an actionable one is found.
+7. if the wake arrives before Push-service HTTP acceptance has been persisted and the same endpoint still has a live fenced `PENDING` dispatch, presentation returns HTTP `425 PUSH_SETTLEMENT_PENDING`; the Service Worker retries for a short bounded window.
+8. if there is neither an actionable accepted delivery nor an active in-flight dispatch, `notification: null` is authoritative and the browser stays silent.
+9. presentation returns display fields + search deep-link only; booking URL comes from normal current availability after the app opens.
 
-Retry rules: network/408/425/429/5xx => bounded retry inside freshness window; 404/410 => deactivate exact dead subscription; other HTTP failures => terminal; missing/invalid VAPID => dispatch disabled, never false-success.
+This accepted-only presentation rule resolves the overlapping payload-free wake correlation problem without requiring encrypted delivery ids: wakes are fungible, but only durably accepted sends can be presented, so wake A can never falsely settle delivery B.
 
-The remaining concurrency review is correlation of multiple overlapping payload-free wakes for one endpoint. Correctness/idempotency wins over maximizing notification count.
+Retry rules: network/408/425/429/5xx => bounded retry inside freshness window; 404/410 from Push service => deactivate exact dead subscription; other HTTP failures => terminal/fail-closed; missing/invalid VAPID => dispatch disabled, never false-success.
 
 ## API surface
 
@@ -250,12 +270,13 @@ Once feature/source work is complete, switch to concentrated verification:
 ### Source/search/polling
 - [x] Generic adapter contract + registry.
 - [x] Generic source-error contract; synchronization no longer imports Taipei-specific errors.
+- [x] Source-specific generic sport ingestion policy; private pickleball/tennis sources are no longer blocked by the Taipei adapter's badminton launch scope.
 - [x] Taipei sports-center adapter.
 - [x] Normalized domain + actionable public search.
 - [x] staged registry-driven metadata refresh + provider-failure isolation.
 - [x] horizon-aware watch demand + poll claim fencing.
 - [x] Taipei actionability + stale-source freshness + recovery re-confirmation.
-- [ ] Identify and validate anonymous availability transport for an official private booking system.
+- [ ] Identify and validate anonymous current-slot transport for an official Taipei private booking system (BookFast and AiNFOLiNK are current top candidates).
 - [ ] Implement/register at least one private `AvailabilitySourceAdapter` and prove it flows through the same normalized pipeline.
 
 ### Radar + Web Push
@@ -263,7 +284,7 @@ Once feature/source work is complete, switch to concentrated verification:
 - [x] active-catalog/geographic validation + city canonicalization.
 - [x] durable Push retry/lease/freshness/presentation runtime.
 - [x] fail-closed Service Worker presentation and stale candidate draining.
-- [ ] Finish overlapping payload-free Push correlation review.
+- [x] overlapping bare-Push correlation hardened with accepted-only presentation + bounded `425` settlement retry.
 
 ### Web/PWA
 - [x] Mobile search + official booking handoff.
@@ -279,4 +300,4 @@ Once feature/source work is complete, switch to concentrated verification:
 
 ## Definition of done
 
-The rebuild is complete only when the retired LINE/AI product cannot run and is absent from application schema; at least one public source and at least one **private official booking source** are registered through the same normalized metadata/polling/search/Radar/Push pipeline; provider outages fail closed and recover deterministically; past/already-started/stale slots cannot appear or alert; Push cannot leak provider-machine booking references; booking always hands off to the official human flow; and after feature completion all executable repository, migration, readiness and deployed smoke verification passes.
+The rebuild is complete only when the retired LINE/AI product cannot run and is absent from application schema; at least one public source and at least one **private official booking source** are registered through the same normalized metadata/polling/search/Radar/Push pipeline; provider outages fail closed and recover deterministically; past/already-started/stale slots cannot appear or alert; Push cannot leak provider-machine booking references or promote unaccepted sends; booking always hands off to the official human flow; and after feature completion all executable repository, migration, readiness and deployed smoke verification passes.
