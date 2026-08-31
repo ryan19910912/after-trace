@@ -1,4 +1,8 @@
 import { and, asc, desc, eq, inArray, lte, notInArray, sql } from 'drizzle-orm';
+import {
+  AVAILABILITY_FRESHNESS_INTERVAL_MULTIPLIER,
+  MIN_AVAILABILITY_FRESHNESS_SECONDS,
+} from '../availability/freshness';
 import type { Database } from '../db/client';
 import {
   availabilitySlots,
@@ -306,6 +310,7 @@ export class DrizzleAvailabilitySyncRepository implements AvailabilitySyncReposi
     // slot/event fence, which allowed an expired Worker to reactivate or rename
     // a court even when its later slot write was correctly rejected.
     const writeFence = pollWriteFenceSql(input);
+    const reconfirmedAfterStaleGap = availabilityReconfirmationSql(input, input.seenAt);
     const courtUpsert = input.slot.externalCourtId
       ? sql`
         court_upsert AS (
@@ -343,7 +348,7 @@ export class DrizzleAvailabilitySyncRepository implements AvailabilitySyncReposi
       WITH
       ${courtUpsert}
       previous AS MATERIALIZED (
-        SELECT id, status
+        SELECT id, status, last_seen_at
         FROM availability_slots
         WHERE source_id = ${input.sourceId}
           AND external_slot_key = ${input.slot.externalSlotKey}
@@ -412,6 +417,7 @@ export class DrizzleAvailabilitySyncRepository implements AvailabilitySyncReposi
       WHERE
         (previous.id IS NULL AND upserted.status = 'AVAILABLE'::availability_status)
         OR (previous.id IS NOT NULL AND previous.status IS DISTINCT FROM upserted.status)
+        OR ${reconfirmedAfterStaleGap}
     `);
 
     // If ownership changed immediately after a legitimate write, stop this old
@@ -556,5 +562,25 @@ function pollWriteFenceSql(input: PollWriteFence) {
       AND claim_target.enabled = TRUE
       AND claim_target.last_polled_at = ${input.expectedClaimedAt}
     FOR UPDATE
+  )`;
+}
+
+function availabilityReconfirmationSql(input: PollWriteFence, seenAt: Date) {
+  if (!input.expectedClaimedAt || input.pollTargetId === undefined) return sql`FALSE`;
+  return sql`(
+    previous.id IS NOT NULL
+    AND previous.status = 'AVAILABLE'::availability_status
+    AND upserted.status = 'AVAILABLE'::availability_status
+    AND previous.last_seen_at
+      + (GREATEST(
+          (
+            SELECT recovery_target.interval_seconds * ${AVAILABILITY_FRESHNESS_INTERVAL_MULTIPLIER}
+            FROM poll_targets recovery_target
+            WHERE recovery_target.id = ${input.pollTargetId}
+              AND recovery_target.enabled = TRUE
+              AND recovery_target.last_polled_at = ${input.expectedClaimedAt}
+          ),
+          ${MIN_AVAILABILITY_FRESHNESS_SECONDS}
+        ) * INTERVAL '1 second') < ${seenAt}
   )`;
 }
