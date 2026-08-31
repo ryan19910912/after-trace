@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { AnonymousIdentityService, parseBearerToken } from '../auth/anonymous';
 import { createDatabase } from '../db/client';
 import type { Bindings } from '../env';
+import { claimFirstActionablePresentation } from './presentation';
 import { DrizzlePendingDeliveryReconciler } from './reconciler';
 import { DrizzleNotificationRepository } from './repository';
 import { pushEndpointSchema, pushSubscriptionSchema } from './validation';
@@ -96,16 +97,19 @@ export function createNotificationRoutes() {
 
     const database = c.get('database');
     const userId = c.get('userId');
+    const now = new Date();
     const repository = new DrizzleNotificationRepository(database);
-    const notification = await repository.claimPresentation(userId, parsed.data.endpoint);
-    if (!notification) return c.json({ ok: true, notification: null });
+    const reconciler = new DrizzlePendingDeliveryReconciler(database);
 
-    // Push-service acceptance and browser wake-up can race with a newer source
-    // transition or a watch edit/pause. Recheck the exact delivery after claim;
-    // a successful null response means the wake-up is stale and must stay silent.
-    const actionable = await new DrizzlePendingDeliveryReconciler(database)
-      .isDeliveryActionable(userId, notification.deliveryId);
-    if (!actionable) return c.json({ ok: true, notification: null });
+    // A bare Push carries no delivery id. Multiple durable deliveries can race
+    // for one endpoint, and an older candidate may have become stale after the
+    // Push service accepted it. Consume stale candidates but keep scanning in
+    // the same browser wake so they cannot hide a later actionable delivery.
+    const notification = await claimFirstActionablePresentation({
+      claim: () => repository.claimPresentation(userId, parsed.data.endpoint, now),
+      isActionable: (deliveryId) => reconciler.isDeliveryActionable(userId, deliveryId, now),
+    });
+    if (!notification) return c.json({ ok: true, notification: null });
 
     // Keep provider-machine booking references inside synchronization storage.
     // Browser presentation only receives the search deep-link and display data;
