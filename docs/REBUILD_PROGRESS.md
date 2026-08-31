@@ -23,182 +23,156 @@ The retired LINE-first product is absent from application runtime. `apps/` conta
 Current runtime flow:
 
 1. `TaipeiSportsCenterAdapter` reads the public Taipei sports-center booking source.
-2. `MetadataRefreshingPollingStage` owns provider metadata freshness/backoff.
-3. metadata discovery stages a complete venue/enabled-sport snapshot before normalized venue/sport changes are applied; empty venue snapshots fail closed.
-4. `source_metadata_runtime` keeps six-hour successful refresh cadence and 15-minute failure retry state independently from source-row timestamps.
-5. Polling claims already-normalized targets only. Cron may wake every minute, while each target has its own interval and source minimum.
-6. `poll_targets.last_polled_at` is the active poll-claim fence. Critical court + slot + status-event writes are all guarded by the same row-locking claim fence.
-7. `poll_targets.last_success_at` is also the current availability freshness anchor. Search/Radar/Push require a successful target poll within `max(15 minutes, 3 × current target interval)`.
-8. stale Workers stop when ownership changes and cannot overwrite newer polling health/backoff.
-9. anonymous browser identity owns Radar watch rules.
-10. watch creation/update validates the active normalized catalog: area-only watches need an active venue/sport mapping, selected venues must support the sport through an active source and must remain inside the declared city/district.
-11. common Taiwan top-level city spellings such as `台北市` are canonicalized to `臺北市` before fingerprint/storage so equivalent scope does not become a silent never-match rule.
-12. matching requires a new/current AVAILABLE transition, current active source mapping, fresh successful target truth, an actionable future slot start, and a watch activation boundary that predates the event.
-13. matching creates durable Web Push delivery intents; pre-dispatch and presentation-time current-truth checks suppress stale alerts, including prolonged-source-outage truth and slots whose Taipei start time has already arrived.
-14. payload-free VAPID Push wakes the PWA Service Worker, which fetches one owner-isolated presentation and deep-links back to search.
-15. public search exposes only fresh actionable AVAILABLE rows: future Taipei dates, or today's slots whose start time is still in the future.
-16. provider-machine booking references stay internal; public/shared search contracts use verified human `booking_url` only.
-17. `/health` is liveness and `/ready` checks sports schema reachability plus complete valid VAPID configuration.
+2. `MetadataRefreshingPollingStage` exclusively owns provider metadata freshness/backoff.
+3. metadata discovery stages a complete non-empty venue + enabled-sport snapshot before normalized metadata mutation.
+4. `source_metadata_runtime` keeps six-hour success refresh cadence and 15-minute failure retry state.
+5. polling claims already-normalized targets only; each target has its own interval/source minimum.
+6. `poll_targets.last_polled_at` is the active poll-claim fence. Court + slot + event writes are serialized behind the same row-locking fence.
+7. `poll_targets.last_success_at` is the current availability freshness anchor. Search/Radar/Push require successful exact-target truth within `max(15 minutes, 3 × target interval)`.
+8. if a persisted AVAILABLE slot was not observed for longer than that same freshness allowance and an owned poll confirms it AVAILABLE again, synchronization emits a new AVAILABLE re-confirmation event even though the status value stayed AVAILABLE.
+9. anonymous browser identity owns Radar rules; watches validate active source/sport/venue geography and canonicalize common Taiwan `台`/`臺` city spellings.
+10. Radar matching requires fresh actionable slot truth, activation boundary ordering and current active source mappings.
+11. matching creates durable Web Push intents. Pre-dispatch and browser presentation recheck source/slot/watch truth and Taipei slot-start actionability.
+12. Push presentation only accepts the active endpoint. It returns display fields + search deep-link only; provider-machine `external_booking_ref` is no longer selected/computed in the notification repository.
+13. public search exposes only fresh actionable AVAILABLE rows and supplies the normalized venue human `booking_url`.
+14. `/health` is liveness and `/ready` checks sports schema reachability plus complete valid VAPID configuration.
 
-Current migration chain:
+Current migration chain remains:
 
-- `drizzle/0000_aftertrace_rebuild.sql` — clean sports-radar baseline; refuses detected legacy LINE/AI tables.
-- `drizzle/0001_radar_watch_foundation.sql` — Radar matching/watch idempotency.
-- `drizzle/0002_web_push_delivery_runtime.sql` — Push retry/lease/freshness/presentation runtime.
-- `drizzle/0003_source_metadata_runtime.sql` — provider metadata success/retry state.
+- `drizzle/0000_aftertrace_rebuild.sql`
+- `drizzle/0001_radar_watch_foundation.sql`
+- `drizzle/0002_web_push_delivery_runtime.sql`
+- `drizzle/0003_source_metadata_runtime.sql`
 
-No schema change was required in the current round.
+No schema migration was required in this round.
 
 ## Completed rebuild areas
 
 ### Retired product cleanup
 
-- [x] Remove LINE/group/LIFF runtime.
-- [x] Remove conversation extraction/Group Memory/Gemini/AI runtime.
-- [x] Remove Energy/Credit/Rewarded Ad/Commerce/Reminder/Proactive Push runtime.
-- [x] Remove old admin/auth/retention schema/runtime modules.
-- [x] Keep reusable pnpm/Hono/Workers/React/Vite/Neon/Drizzle/tooling base.
+- [x] LINE/group/LIFF runtime removed.
+- [x] conversation extraction/Group Memory/Gemini/AI removed.
+- [x] Energy/Credit/Rewarded Ad/Commerce/Reminder/Proactive Push removed.
+- [x] old admin/auth/retention schema/runtime removed.
+- [x] reusable pnpm/Hono/Workers/React/Vite/Neon/Drizzle/tooling kept.
 
-### Sports availability + source normalization
+### Sports availability + polling
 
-- [x] Generic `AvailabilitySourceAdapter` boundary.
-- [x] Taipei sports-center adapter.
-- [x] Normalized source/sport/venue/venue-sport/court/slot/event domain.
-- [x] Public sports/venue/actionable-current-availability APIs.
-- [x] Human booking handoff separated from provider-machine API references.
-- [x] Periodic staged metadata refresh with persisted success/backoff state.
-- [x] Disable/hide inactive source mappings.
-- [x] Prolonged provider-failure freshness gate based on exact poll-target successful truth.
-
-### Polling correctness
-
-- [x] Priority + lease based due-target claiming.
-- [x] 300-second unwatched and 180-second watched requested intervals, clamped by source minimum.
-- [x] 14-day watch-aware polling demand horizon.
-- [x] Demand reconciliation never shortens active `next_poll_at` lease.
-- [x] Failure isolation by target and scheduled stage.
-- [x] `last_polled_at` claim fencing through slot/event/missing-slot writes and final settlement.
-- [x] Row-lock critical availability writes against concurrent reclaim.
-- [x] Court discovery/upsert is inside the same claim-fenced SQL statement as slot/event mutation, so an expired Worker cannot rename/reactivate a court after losing ownership.
-- [x] Shared Taipei date/time helpers are used wherever wall-clock actionability affects polling/search/Radar/Push.
+- [x] Generic `AvailabilitySourceAdapter` + Taipei sports-center adapter.
+- [x] normalized source/sport/venue/venue-sport/court/slot/event domain.
+- [x] public sports/venue/actionable availability APIs.
+- [x] provider-machine booking references isolated from public/shared contracts.
+- [x] staged periodic metadata refresh with persisted success/backoff state.
+- [x] 300-second unwatched / 180-second watched demand, source minimum clamp and 14-day watch horizon.
+- [x] demand reconciliation never shortens active `next_poll_at` lease.
+- [x] complete `last_polled_at` claim fencing through court/slot/event/missing-slot/final target settlement.
+- [x] shared Taipei date/time actionability.
+- [x] prolonged provider-outage freshness fail-closed policy.
+- [x] stale-gap AVAILABLE re-confirmation events on first trustworthy recovery observation.
 
 ### Radar + Web Push
 
-- [x] Anonymous identity with only SHA-256 token subject stored server-side.
-- [x] Watch CRUD, user isolation and idempotent creation.
-- [x] Venue/district/date/day/time matching.
-- [x] Watch create/edit/resume activation boundary prevents retroactive alerts.
-- [x] Watch area + selected venue validation against active source/venue/sport mappings.
-- [x] Common Taiwan `台`/`臺` top-level city canonicalization.
-- [x] Superseded event retirement.
-- [x] Already-started AVAILABLE events are retired instead of creating late Radar notifications.
-- [x] Radar matching requires fresh exact poll-target truth.
-- [x] Durable Push delivery ledger, retry, expiry and dispatch lease fencing.
-- [x] Pre-dispatch stale intent reconciliation includes target freshness and Taipei slot start-time expiry.
-- [x] Final presentation-time current-truth validation includes target freshness and Taipei slot start-time expiry.
-- [x] Worker-native VAPID + PWA Service Worker presentation/click flow.
+- [x] anonymous identity + watch CRUD/idempotency/user isolation.
+- [x] watch area/selected-venue active-catalog validation + city canonicalization.
+- [x] create/edit/resume activation boundary.
+- [x] superseded/already-started event retirement.
+- [x] Radar matching requires current AVAILABLE + exact-target freshness.
+- [x] durable Push delivery/retry/expiry/lease fencing.
+- [x] pre-dispatch stale delivery invalidation.
+- [x] final presentation-time current-truth validation.
+- [x] Worker-native VAPID + Service Worker flow.
+- [x] presentation now requires an active subscription endpoint.
+- [x] presentation repository no longer selects/returns `external_booking_ref` or internally derived `officialBookingUrl`.
 
 ### Web/PWA + release path
 
-- [x] Mobile search and official booking links.
-- [x] Anonymous identity storage/bootstrap.
-- [x] Radar create/list/pause/resume/delete UI.
-- [x] manifest + Service Worker + Push subscription UI.
+- [x] mobile search + official booking handoff.
+- [x] anonymous identity bootstrap + Radar management UI.
+- [x] manifest + Service Worker + Push subscription/deep link.
 - [x] `/ready`, `smoke.ps1`, `worker-deploy.ps1`, `pages-deploy.ps1`.
 - [x] CI frozen-lockfile install policy.
-- [x] README migration list synchronized through `0003`.
 
-## Current round — watch scope correctness + prolonged-source-outage freshness
+## Current round — outage recovery semantics + Push presentation cleanup
 
 ### Starting state verified
 
-At round start, latest `main` already contained the clean 0000→0003 schema, staged metadata refresh, sole metadata ownership, horizon-aware polling demand, complete poll mutation fencing, Taipei date/start-time actionability, current-truth Radar/Push protections and the React PWA.
+At round start latest `main` was `e90db6ed689d6abb51c19d1d3c0040557fd0aa79`. The rebuild plan/progress, recursive repository tree, availability freshness policy, source synchronization repository, Radar matcher, notification repository/routes/reconciler and current lockfile were re-read.
 
-`docs/REBUILD_PLAN.md`, this progress file, current watch rules/repository, availability search, poll-target schema, Radar matcher, Push reconciler, README and current repository tree were re-read before changes.
+Concrete remaining issues confirmed:
 
-Concrete issues found:
-
-1. A watch could select venue IDs that support the sport but contradict its declared city/district. The rule would be accepted and then silently never match.
-2. An area-only watch could name a city/district with no current active source/venue/sport coverage and still be persisted as if it were usable.
-3. Venue validation checked venue + venue-sport activity but did not require the underlying source itself to be active.
-4. API callers could submit `台北市` while normalized source data uses `臺北市`, producing an equivalent human scope that failed exact matching.
-5. Public search, Radar matching and Push final truth checks trusted an AVAILABLE row indefinitely during a prolonged provider outage as long as no newer status transition arrived.
-6. README still listed migrations only through `0002` even though `0003_source_metadata_runtime.sql` is part of current `main`.
+1. prolonged provider outage correctly made old AVAILABLE truth disappear, but recovery behavior was accidental: if the provider later confirmed the same slot was still AVAILABLE, no new event was emitted because status stayed AVAILABLE. An active watch could therefore remain notification-silent after truth became trustworthy again.
+2. notification `claimPresentation` still selected `availability_slots.external_booking_ref`, selected venue `booking_url`, and computed an internal `officialBookingUrl` even though the route intentionally never exposed that field. This was a future machine-reference misuse footgun.
+3. presentation did not require `notification_subscriptions.active = true`, so an already deactivated/replaced endpoint could still be considered for a late wake-up.
+4. dependency-complete verification remains unavailable because Corepack still cannot download pnpm from npm registry.
 
 ### Code completed this round
 
-Commits on `main`:
+Commits on `main` before this progress update:
 
-- `3b3fca893354b118fad39d4b8b63a916c6fe7a47` — normalize watch place names and add explicit selected-venue geographic rule.
-- `41873586ffbfc208a2d342c755474d9e5848eab0` — validate watch area/selected venues against active source + venue + venue-sport catalog.
-- `e3c7cab9a06fe703f406ec08820139b9a3c47b9d` — add watch normalization/geographic-scope tests.
-- `e42177f95ccbec04a4451756beacd068145e3391` — add deterministic poll-derived availability freshness policy.
-- `fbb280809e77994d77aa6c10ad936522d3792b82` — add initial freshness-policy tests.
-- `07195fab46bca0df9e594701aae2363955a07b19` — align invalid interval fallback with the SQL minimum policy.
-- `90b5a548edb601a69aad050bbe70834a75854d2d` — correct freshness fallback test expectations.
-- `e76633e99b0127b7f3eb80e53c3eea889a2cad63` — require fresh exact poll-target truth in public availability search.
-- `4219cecc77e9d4706232d58ec5d99aa719f7282c` — require fresh exact poll-target truth before Radar creates deliveries.
-- `f9967c22129f63b9cd9cb683142561511d8c078e` — invalidate/suppress Push when the target has become operationally stale.
-- `c72b41cad28074b5b1447a4932cb52e6f1b0e236` — update rebuild plan with watch scope and source-freshness invariants.
-- `adf765a3ec30cf9c575c24e1fee422e1e94c85a5` — align README with migration `0003`, watch scope and freshness behavior.
+- `2460faae3c34bc3b06288ee72083dcd8124752f8` — define shared stale-gap observation policy in `availability/freshness.ts`.
+- `20f76fd4f3df602ad0750cebcaf4f2aefd181f1f` — add freshness-boundary/reconfirmation unit cases.
+- `f39c426ab9e49a65c9dbb35acc152f3fe0295318` — emit a same-status AVAILABLE recovery event when an owned poll observes a slot after a strictly stale observation gap.
+- `8040b7be4a2ef3cc87b64bc1ca0f8f71f3203293` — remove provider-machine booking data from Push presentation repository and require active Push endpoint.
+- `0474d840bbcdb20042e89b700ff1409280546757` — update rebuild plan with explicit recovery/presentation boundaries.
 
-Important behavior after this round:
+Important behavior now:
 
-- `台北市`, `台中市`, `台南市`, `台東縣` are canonicalized to normalized `臺` forms before watch fingerprint/storage.
-- selecting venue IDs is now a narrowing constraint inside `city/district`, not a way to create contradictory scope.
-- selected venues must be active, have an active venue-sport mapping and belong to an active source.
-- area-only Radar creation/update fails when no active normalized venue supports the sport in that area.
-- target current truth is fresh for at least 15 minutes, or three configured poll intervals when the source cadence is slower.
-- a target with no successful poll, a disabled target or a target beyond that freshness allowance cannot power public search/Radar/Push truth.
-- short provider failures are tolerated; prolonged provider failures fail closed rather than falsely claiming old availability.
-- no migration was needed because freshness uses existing `poll_targets.last_success_at`, `interval_seconds` and `enabled` state.
+- freshness and stale-gap recovery use the same allowance: `max(900 seconds, 3 × poll target interval)`.
+- an observation exactly on the freshness boundary remains fresh; re-confirmation requires a strictly longer gap.
+- normal repeated AVAILABLE polls do not create duplicate events.
+- after a prolonged outage, the first owned poll that re-confirms a still-AVAILABLE slot creates an AVAILABLE→AVAILABLE event. Older slot events are then superseded by existing Radar current-truth logic.
+- a watch active before that recovery event may receive a new notification because the product had intentionally stopped claiming the slot was actionable while stale and now has new trustworthy truth.
+- direct/unfenced synchronization does not create stale-gap recovery events; a real poll target/claim is required so source cadence remains authoritative.
+- Push presentation no longer has an `external_booking_ref -> officialBookingUrl` path at all.
+- a deactivated/replaced Push endpoint cannot claim a presentation candidate.
+
+No migration was added; existing `availability_slots.last_seen_at`, `poll_targets.interval_seconds` and event tables are sufficient.
 
 ### Verification actually performed
 
-- Re-read the latest recursive `main` tree after code/doc commits and confirmed the new `availability/freshness.ts`, test file and modified watch/search/Radar/Push files are present.
-- Executed independent Node 22 vectors for city canonicalization, selected-venue geographic matching and freshness-window calculations: **11/11 passed**.
-- Runtime reports Node `v22.16.0`, TypeScript `5.8.3` and Corepack `0.32.0`.
-- Retried `corepack prepare pnpm@10.15.0 --activate`; it still fails while fetching `https://registry.npmjs.org/pnpm/-/pnpm-10.15.0.tgz` in this environment.
-- Re-read `pnpm-lock.yaml`; stale `apps/admin` importer metadata is still present while `apps/admin` is absent from the repository tree.
-- GitHub combined status for current code/docs head exposes no completed status checks; do not infer CI success.
+- Retried `corepack prepare pnpm@10.15.0 --activate` in the runtime. It still fails fetching `https://registry.npmjs.org/pnpm/-/pnpm-10.15.0.tgz`.
+- Runtime still reports Node `v22.16.0` and Corepack `0.32.0`.
+- Executed independent Node vectors mirroring the new stale-gap helper: **7/7 passed**, including exact-boundary and slower-source cases.
+- Re-read latest `main` after code commits and confirmed the new recovery SQL and cleaned Push presentation projection are present.
+- Confirmed `pnpm-lock.yaml` still contains an `apps/admin` importer while `apps/admin` is absent from the repository tree.
+- GitHub combined status for code head `8040b7be4a2ef3cc87b64bc1ca0f8f71f3203293` exposes no completed statuses.
 
-Not truthfully executable here:
+Not truthfully executable in this environment:
 
 - `pnpm typecheck`
 - `pnpm lint`
 - `pnpm test`
 - `pnpm build`
 - `pnpm db:schema:check`
-- PowerShell execution of deploy/smoke scripts.
+- PowerShell deploy/smoke script execution
 
-Full repository verification remains **unverified**, not green. Committed Vitest cases have not yet run in a dependency-complete environment.
+Full repository verification remains **unverified**, not green. The committed Vitest cases have not run in a dependency-complete checkout.
 
 ## Remaining work — highest priority first
 
 ### Repository correctness / cleanup
 
-- [ ] Regenerate `pnpm-lock.yaml` from the actual current workspace in a dependency-complete environment so stale `apps/admin` importer metadata is removed by pnpm itself.
-- [ ] Run frozen-lockfile `typecheck`, `lint`, `test`, `build`, `db:schema:check`; fix actual failures.
-- [ ] Run PowerShell syntax/execution checks for deployment/smoke scripts on the normal Windows development machine.
-- [ ] Repeat a full retired-term/source-boundary scan from a dependency-complete/local checkout.
-- [ ] Clean the remaining notification presentation repository surface that still computes an internal `officialBookingUrl` from provider-machine `external_booking_ref` even though the HTTP route intentionally does not expose it; remove that dead machine-reference path rather than leaving a future misuse footgun.
-- [ ] Review recovery semantics after a provider outage longer than the freshness window: decide whether a re-confirmed still-AVAILABLE slot should emit a new availability event or safely remain notification-silent until the next real transition. Prefer explicit deterministic behavior over accidental old-event expiry.
+- [ ] Regenerate `pnpm-lock.yaml` with actual current workspace using pnpm so stale `apps/admin` importer metadata is removed by the package manager rather than hand editing a generated file.
+- [ ] Run frozen-lockfile `typecheck`, `lint`, `test`, `build`, `db:schema:check`; fix real failures.
+- [ ] Run PowerShell syntax/execution checks for deploy/smoke scripts on normal Windows development environment.
+- [ ] Full retired-term/source-boundary scan from a dependency-complete/local checkout.
+- [ ] Review SQL-level integration of stale-gap recovery against a real PostgreSQL/Neon database; current logic is source-reviewed and pure timing policy tested, but no DB integration test has executed here.
 
 ### Deployment / database
 
 - [ ] Point dev/prod at a fresh Neon branch/database.
-- [ ] Execute/review migrations `0000`→`0003` against the clean target.
+- [ ] Execute/review migrations `0000`→`0003` against clean target.
 - [ ] Configure Worker `DATABASE_URL` and VAPID public/private/subject values.
 - [ ] Deploy Worker + HTTPS PWA and confirm `/ready` = 200.
 - [ ] Run deployed smoke with real source data.
-- [ ] Run live source polling → availability transition → Radar match → Push → presentation → click flow.
+- [ ] Run live source polling → normal transition + prolonged-outage re-confirmation → Radar match → Push → presentation → click.
 - [ ] Measure live source latency/rate-limit behavior before considering one-minute watched polling.
 
-### Optional after release verification
+### Optional only after release verification
 
-- [ ] Detailed watch-editing UX / PWA install guidance if useful after live smoke.
-- [ ] Add additional sports/sources only after each source is independently validated; do not hard-code the domain to badminton.
+- [ ] Detailed watch-editing UX / PWA install guidance if live smoke shows it is useful.
+- [ ] Add additional sports/sources only after each source is independently validated.
 
 ## Next round priority
 
-First retry dependency-complete verification. If pnpm remains externally unavailable, remove the dead notification presentation machine-booking surface and review long-outage recovery/re-confirmation event semantics. Keep prioritizing stale-state/race/security correctness over speculative product scope.
+First retry dependency-complete verification. If pnpm remains externally unavailable, inspect current SQL/notification concurrency for another concrete correctness issue rather than expanding product scope. In particular, review whether stale-gap recovery event creation should gain DB-level idempotency protection for crash/retry edge cases and whether notification presentation claiming can be made more atomic with final current-truth validation without increasing false negatives.
