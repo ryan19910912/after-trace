@@ -30,10 +30,10 @@ Current runtime flow:
 6. `poll_targets.last_polled_at` is the active poll-claim fence. Critical court + slot + status-event writes are all guarded by the same row-locking claim fence.
 7. stale Workers stop when ownership changes and cannot overwrite newer polling health/backoff.
 8. anonymous browser identity owns Radar watch rules.
-9. matching requires a new/current AVAILABLE transition, current active source mapping and a watch activation boundary that predates the event.
-10. matching creates durable Web Push delivery intents; pre-dispatch and presentation-time current-truth checks suppress stale alerts.
+9. matching requires a new/current AVAILABLE transition, current active source mapping, an actionable future slot start, and a watch activation boundary that predates the event.
+10. matching creates durable Web Push delivery intents; pre-dispatch and presentation-time current-truth checks suppress stale alerts, including slots whose Taipei start time has already arrived.
 11. payload-free VAPID Push wakes the PWA Service Worker, which fetches one owner-isolated presentation and deep-links back to search.
-12. public search exposes only current/future Taipei-date AVAILABLE rows; historical AVAILABLE rows outside the moving polling horizon are not returned.
+12. public search exposes only actionable AVAILABLE rows: future Taipei dates, or today's slots whose start time is still in the future.
 13. provider-machine booking references stay internal; public/shared search contracts use verified human `booking_url` only.
 14. `/health` is liveness and `/ready` checks sports schema reachability plus complete valid VAPID configuration.
 
@@ -61,7 +61,7 @@ No schema change was required in the current round.
 - [x] Generic `AvailabilitySourceAdapter` boundary.
 - [x] Taipei sports-center adapter.
 - [x] Normalized source/sport/venue/venue-sport/court/slot/event domain.
-- [x] Public sports/venue/current-availability APIs.
+- [x] Public sports/venue/actionable-current-availability APIs.
 - [x] Human booking handoff separated from provider-machine API references.
 - [x] Periodic staged metadata refresh with persisted success/backoff state.
 - [x] Disable/hide inactive source mappings.
@@ -75,8 +75,8 @@ No schema change was required in the current round.
 - [x] Failure isolation by target and scheduled stage.
 - [x] `last_polled_at` claim fencing through slot/event/missing-slot writes and final settlement.
 - [x] Row-lock critical availability writes against concurrent reclaim.
-- [x] Court discovery/upsert is now inside the same claim-fenced SQL statement as slot/event mutation, so an expired Worker cannot rename/reactivate a court after losing ownership.
-- [x] Shared Taipei calendar helpers used by polling horizon and demand logic.
+- [x] Court discovery/upsert is inside the same claim-fenced SQL statement as slot/event mutation, so an expired Worker cannot rename/reactivate a court after losing ownership.
+- [x] Shared Taipei date/time helpers are used wherever wall-clock actionability affects polling/search/Radar/Push.
 
 ### Radar + Web Push
 
@@ -85,9 +85,10 @@ No schema change was required in the current round.
 - [x] Venue/district/date/day/time matching.
 - [x] Watch create/edit/resume activation boundary prevents retroactive alerts.
 - [x] Superseded event retirement.
+- [x] Already-started AVAILABLE events are retired instead of creating late Radar notifications.
 - [x] Durable Push delivery ledger, retry, expiry and dispatch lease fencing.
-- [x] Pre-dispatch stale intent reconciliation.
-- [x] Final presentation-time current-truth validation.
+- [x] Pre-dispatch stale intent reconciliation includes Taipei slot start-time expiry.
+- [x] Final presentation-time current-truth validation includes Taipei slot start-time expiry.
 - [x] Worker-native VAPID + PWA Service Worker presentation/click flow.
 
 ### Web/PWA + release path
@@ -99,52 +100,62 @@ No schema change was required in the current round.
 - [x] `/ready`, `smoke.ps1`, `worker-deploy.ps1`, `pages-deploy.ps1`.
 - [x] CI frozen-lockfile install policy.
 
-## Current round — calendar/current-search cleanup + complete poll mutation fencing
+## Current round — actionable-time correctness + complete poll mutation fencing
 
 ### Starting state verified
 
 At round start, latest `main` already contained the 0000→0003 migration chain, staged metadata refresh, sole metadata ownership, horizon-aware demand, slot/event row-lock claim fencing, current-truth Radar/Push protections and the React PWA.
 
-The latest `REBUILD_PLAN.md`, `REBUILD_PROGRESS.md`, repository tree, polling/source synchronization, public availability, notification, watch and shared-contract files were re-read before changes.
+The latest plan/progress, repository tree, polling/source synchronization, public availability, notification, watch and shared-contract files were re-read before changes.
 
-Three concrete issues were found:
+Concrete issues found:
 
-1. Taipei date arithmetic was duplicated between polling orchestration and demand reconciliation, creating unnecessary drift risk around the product's calendar boundary.
-2. public availability search filtered `status = AVAILABLE` but did not impose a current Taipei-date floor. Because historical slot rows are retained after the moving polling horizon advances, an old `AVAILABLE` row could still appear when the caller omitted a date.
-3. court upsert happened after a non-locking ownership precheck but before the authoritative row-locked slot/event fence. A slow Worker could therefore lose its poll claim, then still reactivate/rename a court even though its subsequent slot write was rejected.
-
-A stale provider-machine `externalBookingRef` also remained in the shared public `AvailabilitySearchItem` type even though the actual API/Web flow had already removed it.
+1. Taipei date arithmetic was duplicated between polling orchestration and demand reconciliation.
+2. public availability search could return historical `AVAILABLE` rows once they fell outside the moving polling horizon.
+3. even after a date floor, a same-day slot whose start time had already passed could still appear/actionably notify if the provider row remained AVAILABLE.
+4. Radar matching and Push revalidation had no wall-clock slot-start gate, so delayed processing could alert after the court time began.
+5. court upsert happened after a non-locking ownership precheck but before the authoritative row-locked slot/event fence, allowing a stale Worker to mutate court metadata after losing its poll claim.
+6. the shared public `AvailabilitySearchItem` still exposed stale provider-machine `externalBookingRef` type surface.
 
 ### Code completed this round
 
 Commits on `main`:
 
-- `50832538881b2e39e4a3e4ad27436b2f6e396114` — add shared `time/taipei.ts` calendar helpers.
-- `a4d760773aa8642fb98a23c630e8777d53dfbc95` — add Taipei midnight/month/leap-day/invalid-date tests.
-- `9522d6aaf387a647efc42d0836e3bafcef199e23` — polling orchestrator reuses shared Taipei helpers.
+- `50832538881b2e39e4a3e4ad27436b2f6e396114` — add shared Taipei calendar helpers.
+- `a4d760773aa8642fb98a23c630e8777d53dfbc95` — add date/month/leap-day/invalid-input tests.
+- `9522d6aaf387a647efc42d0836e3bafcef199e23` — polling orchestrator reuses shared helpers.
 - `456fc0aa09d43476f5735e517c6e31ff42ea2d24` — polling demand reuses the same calendar arithmetic.
-- `387496b3236fcaa0cc38b1f0c03bf39d77be8f5c` — public search excludes slot dates earlier than the current Asia/Taipei date.
-- `7fcb87d1fd7add790306086f784992e8f8eb70f5` — remove provider-machine booking ref from the shared public search type.
+- `387496b3236fcaa0cc38b1f0c03bf39d77be8f5c` — public search receives a Taipei-date current floor.
+- `7fcb87d1fd7add790306086f784992e8f8eb70f5` — remove provider-machine booking ref from shared public search type.
 - `b9e88e208bb40e2284ff7cdf6bc97f0066731bc6` — move court upsert into the same row-locking poll-claim-fenced SQL statement as slot/event mutation.
+- `3297e069e38f783b495036833c3a1eb01c959ee9` — add shared `taipeiTime()` wall-clock helper.
+- `da721444466de072f91232e9813888379129455f` — extend helper tests across Taipei midnight clock transition.
+- `9585f39cc827d5182dc6eb155bb7f83458c2cea9` — public search excludes same-day slots once their start time has arrived.
+- `9ecdbbf3c55b6eb279e830377ca6e0569421637e` — Radar retires already-started AVAILABLE events and filters them before matching.
+- `66df41e7a7f2bf4a9696b10a3843e5725bae152d` — Push pre-dispatch and final presentation gates invalidate deliveries once slot start time arrives.
 
 Important behavior after this round:
 
-- all product calendar-day computations used by polling demand/orchestration share one Asia/Taipei implementation;
-- `/api/v1/availability` cannot expose past-date slots even if an old row is still marked AVAILABLE;
-- an explicit search for a past date naturally returns no rows because it must also satisfy the current-date floor;
-- court metadata derived from availability polling is no longer an unfenced side effect;
+- all product calendar-day/wall-clock comparisons in these paths use Asia/Taipei;
+- `/api/v1/availability` cannot expose past dates or already-started slots today even if the DB row still says AVAILABLE;
+- delayed Radar processing cannot create a delivery after a slot's start time;
+- pending Push delivery becomes stale at slot start even without another provider transition;
+- browser presentation performs the same final wall-clock current-truth gate;
+- court metadata derived from polling is no longer an unfenced side effect;
 - direct/manual synchronization without a poll fence still works because the write fence resolves to `TRUE`;
-- no new migration was necessary.
+- no migration was needed.
 
 ### Verification actually performed
 
-- Re-read the modified source from latest `main` after commits and confirmed the current-date floor, shared date imports and court CTE claim fence are present.
-- Executed independent Node 22 vectors for the new calendar logic: **8/8 passed**, including the Asia/Taipei midnight transition, month crossing, leap day and invalid input rejection.
+- Re-read modified files from latest `main` after commits and confirmed the new court CTE fence, public actionable-time filter and Push wall-clock gates are present.
+- Executed independent Node 22 vectors for the shared Taipei helpers: **10/10 passed**, including Asia/Taipei midnight date/time, month crossing, leap day and invalid input rejection.
+- Ran standalone strict TypeScript compilation of the new Taipei helper shape with global `tsc`; it completed without diagnostics.
 - Runtime reports Node `v22.16.0` and Corepack `0.32.0`.
-- `pnpm` is still unavailable in this runtime; previous/retried Corepack resolution is blocked by transient DNS/network access to `registry.npmjs.org`.
-- `pnpm-lock.yaml` still contains the stale `apps/admin` importer; `apps/admin` itself is absent from the repository.
+- Retried `corepack prepare pnpm@10.15.0 --activate`; it still fails fetching `https://registry.npmjs.org/pnpm/-/pnpm-10.15.0.tgz` in this environment.
+- `pnpm-lock.yaml` still contains the stale `apps/admin` importer while `apps/admin` itself is absent.
+- GitHub combined status for the current code commits exposes no completed status checks; do not infer CI success.
 
-Not truthfully executable in this runtime:
+Not truthfully executable here:
 
 - `pnpm typecheck`
 - `pnpm lint`
@@ -153,15 +164,15 @@ Not truthfully executable in this runtime:
 - `pnpm db:schema:check`
 - PowerShell execution of deploy/smoke scripts.
 
-Full repository verification therefore remains **unverified**, not green. The committed Vitest cases have not yet run in a dependency-complete environment.
+Full repository verification remains **unverified**, not green. Committed Vitest cases have not yet run in a dependency-complete environment.
 
 ## Remaining work — highest priority first
 
 ### Repository correctness / cleanup
 
-- [ ] Regenerate `pnpm-lock.yaml` from the actual current workspace in a dependency-complete environment so the stale `apps/admin` importer is removed by pnpm itself.
+- [ ] Regenerate `pnpm-lock.yaml` from the actual current workspace in a dependency-complete environment so stale `apps/admin` importer metadata is removed by pnpm itself.
 - [ ] Run frozen-lockfile `typecheck`, `lint`, `test`, `build`, `db:schema:check`; fix actual failures.
-- [ ] Run PowerShell syntax/execution checks for `smoke.ps1`, `worker-deploy.ps1`, `pages-deploy.ps1` on the normal Windows development machine.
+- [ ] Run PowerShell syntax/execution checks for deployment/smoke scripts on the normal Windows development machine.
 - [ ] Repeat a full retired-term/source-boundary scan from a dependency-complete/local checkout.
 - [ ] Continue correctness review while package execution is blocked; prioritize stale-state/race/security behavior over speculative features.
 
@@ -182,4 +193,4 @@ Full repository verification therefore remains **unverified**, not green. The co
 
 ## Next round priority
 
-First retry dependency-complete verification. If pnpm remains externally unavailable, continue source review around remaining state/race boundaries (especially watch/source geographic validation, prolonged provider-failure freshness semantics, and notification presentation cleanup) rather than adding new product scope.
+First retry dependency-complete verification. If pnpm remains externally unavailable, continue source review around remaining state/race boundaries (especially watch/source geographic validation, prolonged provider-failure freshness semantics and notification presentation cleanup) rather than adding new product scope.
