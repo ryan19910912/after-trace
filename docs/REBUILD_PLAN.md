@@ -42,7 +42,7 @@ Retire completely, without compatibility runtime:
 - `notification_subscriptions`: Web Push subscription state; V1 keeps one active endpoint per anonymous browser identity.
 - `notification_deliveries`: durable idempotent watch/event delivery ledger.
 - `notification_delivery_runtime`: dispatch attempts, recovery lease, freshness expiry and Service Worker presentation state.
-- `poll_targets`: source/venue/sport polling schedule and health.
+- `poll_targets`: source/venue/sport polling schedule and health. `last_polled_at` is also the current poll-claim fence token.
 
 `availability_slots` uses `(source_id, external_slot_key)` as provider identity. `external_booking_ref` is internal provider-machine provenance only. User-facing booking uses normalized venue `booking_url`, which must point at a human booking flow.
 
@@ -86,18 +86,26 @@ Metadata bootstrap is not one-time forever. The scheduled polling stage now:
 
 1. checks `source_metadata_runtime`;
 2. refreshes provider venue/sport metadata when `next_attempt_at` is due;
-3. advances the successful refresh clock only after the whole synchronization call succeeds;
-4. schedules the next normal metadata refresh six hours later;
-5. on failure, persists a 15-minute retry boundary instead of calling metadata endpoints every minute;
-6. disables poll targets whose source/venue/sport/venue-sport mapping is no longer active;
-7. reapplies watch-driven polling demand after metadata refresh, because metadata upsert may reset a target to the source/default interval.
+3. keeps/updates the source anchor first so a first-run provider failure can still persist a retry boundary;
+4. reads the complete provider venue + enabled-sport snapshot **before** mutating normalized venue/sport/venue-sport truth;
+5. rejects an empty venue snapshot instead of interpreting it as authoritative removal of every known venue;
+6. applies normalized metadata/deactivation only after all provider metadata reads for the snapshot succeed;
+7. advances the successful refresh clock only after the whole synchronization call succeeds;
+8. schedules the next normal metadata refresh six hours later;
+9. on failure, persists a 15-minute retry boundary instead of calling metadata endpoints every minute;
+10. disables poll targets whose source/venue/sport/venue-sport mapping is no longer active;
+11. reapplies watch-driven polling demand after metadata refresh, because metadata upsert may reset a target to the source/default interval.
 
-A partial metadata refresh therefore never masquerades as a successful fresh snapshot merely because `sources.updated_at` changed.
+A provider failure halfway through venue discovery therefore cannot leave public/Radar normalized venue/sport truth half-refreshed. A failed refresh may touch the source anchor/runtime bookkeeping, but does not partially apply venue/sport deactivations.
 
-### Polling demand
+### Polling demand + claim fencing
 
 - Cron wakes every minute, but targets have independent intervals.
 - `next_poll_at` doubles as the target recovery lease; demand reconciliation **must not shorten it**.
+- `last_polled_at` is the current poll-claim fence. A reclaimed target changes this token.
+- A claimed Worker must carry its expected `last_polled_at` token through **every availability-slot/status-event/missing-slot write**, not only final success/failure settlement.
+- Critical slot/event upsert uses a SQL `EXISTS` claim fence so an older Worker cannot write stale availability even if it loses the lease between a preliminary claim check and the actual SQL statement.
+- When claim ownership is lost, the old Worker stops and must not overwrite failure/backoff/health state owned by the newer Worker.
 - unwatched target request interval: 300 seconds.
 - watch-covered target request interval: 180 seconds, priority `100`, clamped to source minimum.
 - watch-driven hot polling is recalculated from the same 14-day availability horizon used by polling.
@@ -225,8 +233,10 @@ Do not add AI chat, feeds, teams, automatic booking/payment or credential storag
 - [x] slot synchronization, status diff/events and target health/backoff.
 - [x] separate provider-machine refs from human booking navigation.
 - [x] periodic provider metadata refresh with persisted success/backoff state.
+- [x] stage provider metadata before applying normalized venue/sport changes; fail closed on empty venue snapshot.
 - [x] deactivate invalid source mappings and hide them from public/Radar truth.
 - [x] horizon-aware watch polling demand without mutating active target leases.
+- [x] fence slot/event/missing-slot writes with the active poll claim, not only final target settlement.
 
 ### Phase 4 — Radar backend/Web Push
 - [x] Anonymous ownership + watch CRUD/idempotency.
