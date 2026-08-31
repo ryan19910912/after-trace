@@ -1,4 +1,5 @@
 import { TaipeiSportsCenterAdapter } from './taipei-sports-center';
+import { TinyBookAdapter } from './tinybook';
 import type { AvailabilitySourceAdapter } from './types';
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -29,5 +30,8 @@ export class SourceAdapterRegistry {
 }
 
 export function createDefaultSourceRegistry(fetcher: Fetcher = fetch): SourceAdapterRegistry {
-  return new SourceAdapterRegistry([new TaipeiSportsCenterAdapter(fetcher)]);
+  return new SourceAdapterRegistry([
+    new TaipeiSportsCenterAdapter(fetcher),
+    new TinyBookAdapter(fetcher),
+  ]);
 }
