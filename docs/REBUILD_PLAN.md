@@ -74,9 +74,24 @@ Current curated products:
    - official site states four dedicated courts, one-hour booking units and a three-week booking horizon;
    - peak/off-peak pricing varies, so normalized slots intentionally do not invent one fixed price.
 
-TinyBook minimum polling interval remains 300 seconds. The adapter now derives the WordPress AJAX base from the path before `/product/`, supporting both path tenants and root/custom-domain installs, and only trusts same-origin HTTPS AJAX URLs parsed from product markup.
+TinyBook minimum polling interval remains 300 seconds. The adapter derives the WordPress AJAX base from the path before `/product/`, supports both path tenants and root/custom-domain installs, and only trusts same-origin HTTPS AJAX URLs parsed from product markup.
 
 **Verification boundary:** adapter code is integrated, but this tool environment still has not executed the tenants' live anonymous POST/XHR end-to-end. Real network smoke remains a release gate.
+
+### Private-source candidate — AiNFOLiNK
+
+AiNFOLiNK is now a concrete, high-value system candidate rather than only a vendor lead.
+
+Verified public consumer evidence as of 2026-08-31:
+
+- AiNFOLiNK officially advertises consumer court booking plus venue booking/payment/member/order management and names sports-venue customers such as 格恩羽球館、佛雷斯羽球館、動智 AI 羽球館;
+- the official 動智 AI 羽球竹科館 site links its public `訂場地` action directly to `https://sportxai-hsp.ainfolink.net/guestBooking`;
+- search-engine rendered snapshots of AiNFOLiNK `guestBooking` pages expose a booking calendar, sold-out dates, booking-window wording and current availability presentation without requiring an AFTERTRACE credential;
+- `https://pickleball.ainfolink.net/` is an official AiNFOLiNK consumer tenant for **Pickle Pickle 台北專業匹克球場**, at 臺北市內湖區堤頂大道二段409號1F, advertising 24-hour booking.
+
+This makes AiNFOLiNK especially valuable because one system can potentially cover both badminton and pickleball and already has a verified Taipei private venue tenant.
+
+**Current blocker:** the browser-side XHR/REST transport used by `guestBooking` has not yet been resolved from this tool environment. Do not implement a guessed adapter from rendered search snapshots. Promote AiNFOLiNK to a real adapter only after the normal anonymous consumer request contract can be identified and reproduced without bypassing login, CAPTCHA or access controls.
 
 ### Private-source acquisition policy
 
@@ -91,14 +106,18 @@ Never use a competitor's closed aggregation feed or bypass login, CAPTCHA, acces
 
 Research priorities after TinyBook:
 
+- resolve AiNFOLiNK's anonymous `guestBooking` availability transport, now that official consumer tenant URLs are known;
+- prioritize the Taipei Pickle Pickle tenant because it directly validates private Taipei coverage on AiNFOLiNK;
 - find more verified Taipei sports tenants using TinyBook;
-- resolve AiNFOLiNK's anonymous consumer availability transport because it serves multiple badminton venues;
 - keep BookFast as a system candidate where true venue-slot transport can be proven;
+- use third-party venue directories only for discovery, never as the normalized availability source;
 - do not count phone/LINE-only venues as real-time sources.
 
 ## Mixed-city search behavior
 
-The domain is not hardcoded to Taipei. Search now accepts `city` in addition to sport/venue/district/date/time. Availability responses expose venue city, and the PWA derives city choices from active venues. Radar creation stores the selected/actual venue city rather than forcing `臺北市`.
+The domain is not hardcoded to Taipei. Search accepts `city` in addition to sport/venue/district/date/time. Availability responses expose venue city, and the PWA derives city choices from active venues. Radar creation stores the selected/actual venue city rather than forcing `臺北市`.
+
+Notification deep-link restoration is venue-authoritative: when a Radar deep link carries a `venueId`, the PWA waits for venue metadata before its one-shot search and hydrates the actual venue city from the normalized venue. This preserves older links that did not include a `city` parameter and prevents an impossible New Taipei venue + Taipei city query.
 
 This is required so public Taipei + private Taipei/New Taipei sources can coexist without a New Taipei watch becoming an impossible Taipei rule.
 
@@ -138,6 +157,7 @@ Web Push flow:
 6. Stale accepted candidates are drained within the same wake.
 7. Final presentation revalidates current truth and fails closed; no generic fallback notification is shown.
 8. Click deep-links back to normalized search context; booking URL is resolved from current search data.
+9. PWA deep-link auto-search waits for venue metadata and restores the venue's real city before searching.
 
 ## API / PWA V1 flow
 
@@ -173,8 +193,10 @@ Function/source completion requires:
 - [x] at least one private booking-system adapter (TinyBook);
 - [x] mixed-source normalized search/polling/Radar/Push pipeline;
 - [x] mixed-city search/Radar behavior;
+- [x] mixed-city notification deep-link restoration;
 - [x] mobile PWA search, official handoff, Radar management and Push flow;
 - [ ] continue private-source expansion/research until no obvious high-value V1 source gap remains;
+- [ ] resolve AiNFOLiNK anonymous availability transport or document a concrete external blocker after exhausting public consumer paths;
 - [ ] source-inspect remaining mixed-source edge cases before switching phases.
 
 After functional work is complete, switch to concentrated verification:
@@ -183,6 +205,7 @@ After functional work is complete, switch to concentrated verification:
 - typecheck/lint/test/build/schema check;
 - clean Neon migrations;
 - live TinyBook A11 + Zhonghe product/resource/time-block smoke;
+- live AiNFOLiNK smoke if its adapter is promoted during functional work;
 - Worker/PWA deploy and VAPID config;
 - `/ready` and real-device public/private polling → Radar → Push → click smoke;
 - final retired-term/deployment-leftover scan and provider rate-limit measurements.
