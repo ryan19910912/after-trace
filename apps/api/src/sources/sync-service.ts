@@ -154,7 +154,7 @@ export class SourceSynchronizationService {
 
         for (const slot of slots) {
           assertSlotMatchesTarget(slot, context, useDate);
-          await this.repository.upsertAvailabilitySlot({
+          const written = await this.repository.upsertAvailabilitySlot({
             sourceId: context.sourceId,
             venueId: context.venueId,
             sportId: context.sportId,
@@ -162,6 +162,7 @@ export class SourceSynchronizationService {
             seenAt: polledAt,
             ...writeFence,
           });
+          if (!written) throw new PollTargetClaimLostError(context.pollTargetId);
         }
         slotsSeen += slots.length;
         staleSlotsCleared += await this.repository.markMissingSlotsUnknown({
