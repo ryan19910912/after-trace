@@ -50,6 +50,7 @@ Current migrations:
 - `0000_aftertrace_rebuild.sql` — clean sports-radar baseline.
 - `0001_radar_watch_foundation.sql` — anonymous Radar ownership/matching state.
 - `0002_web_push_delivery_runtime.sql` — Push retry lease, expiry and presentation state.
+- `0003_source_metadata_runtime.sql` — provider metadata refresh success/backoff state.
 
 ## Web Push configuration
 
@@ -120,11 +121,13 @@ Private Radar/Push endpoints use the anonymous browser bearer token. The raw tok
 
 ## Radar behavior
 
-Watch conditions support sport, venue IDs, city/district, date range, day-of-week (`0` Sunday through `6` Saturday) and time window.
+Watch conditions support sport, venue IDs, city/district, date range, day-of-week (`0` Sunday through `6` Saturday) and time window. The API validates that the requested area currently has an active source/venue/sport mapping; explicitly selected venue IDs must support the sport and must remain inside the declared city/district. Common top-level Taiwan `台` spellings such as `台北市` are canonicalized to the normalized `臺` form before storage/idempotency fingerprinting.
 
 The Worker Cron wakes every minute, but poll targets are individually scheduled and claimed in bounded batches. Unwatched targets default to five-minute polling; targets covered by an enabled watch are raised to higher scheduler priority and a three-minute interval, still clamped by each source's minimum interval. One-minute per-target polling remains disabled until live source behavior is measured.
 
-A newly `AVAILABLE` event is matched once against watches. A matching watch/event pair creates an idempotent delivery. Push dispatch uses a recovery lease, bounded retries and a 30-minute freshness window; expired work becomes terminal instead of notifying about stale availability. A 404/410 Push response deactivates the dead subscription instead of repeatedly retrying it.
+Current availability is also freshness-gated. Search, Radar matching, Push dispatch reconciliation and the final Service Worker presentation check require the exact source/venue/sport target to have completed a successful poll within at least the last 15 minutes, or within three configured poll intervals when that is longer. Short provider/network incidents therefore do not immediately blank the product, while prolonged outages fail closed instead of leaving old `AVAILABLE` rows visible or notifying from stale truth.
+
+A newly `AVAILABLE` event is matched once against watches. A matching watch/event pair creates an idempotent delivery. Push dispatch uses a recovery lease, bounded retries and a 30-minute delivery freshness window; expired work becomes terminal instead of notifying about stale availability. A 404/410 Push response deactivates the dead subscription instead of repeatedly retrying it.
 
 Launch synchronization is badminton-first; additional sports stay behind the generic source/domain model until live per-venue coverage is verified.
 
