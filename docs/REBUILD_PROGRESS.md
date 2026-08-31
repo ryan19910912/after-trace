@@ -1,239 +1,193 @@
 # AFTERTRACE Rebuild Progress
 
-This is the durable handoff between rebuild rounds. Every round must read this file, `docs/REBUILD_PLAN.md`, and actual latest `main`; repository state wins over older notes.
+This is the durable handoff between rebuild rounds. Every round must read this file, `docs/REBUILD_PLAN.md`, and the actual latest `main`; repository state wins over older notes.
 
 ## Current product target
 
-AFTERTRACE is a Taipei sports venue availability search + Radar PWA. V1 is no-AI, never books/pays for users and never stores venue credentials. It normalizes current availability from public **and private official booking sources**, searches across them, continuously monitors matching conditions and sends Web Push only after current truth is revalidated.
+AFTERTRACE is a Taipei sports venue availability search + Radar PWA. V1 has no AI, never books/pays for users and never stores venue credentials. It normalizes current availability from public **and private official booking sources**, searches across them, continuously monitors matching conditions and sends Web Push only after current truth is revalidated.
 
-Public sports-center coverage is baseline. Source-layer V1 is not complete until at least one private official booking source is actually registered through the same metadata/polling/search/Radar/Push pipeline.
+Public sports-center coverage is baseline. Private official booking coverage is a core V1 source requirement.
 
-## Actual current `main`
+## Actual current architecture
 
-Retired LINE-first runtime is absent. `apps/` contains only `api` and `web`; LINE group/LIFF, Group Memory, Gemini/AI, Energy/Credit, rewarded ads, commerce, Reminder, Proactive Push, old admin/auth/retention runtime and legacy schema modules are removed.
+The retired LINE-first product is absent from runtime. `apps/` contains only `api` and `web`; LINE group/LIFF, Group Memory, Gemini/AI, Energy/Credit, rewarded ads, commerce, Reminder, Proactive Push, old admin/auth/retention runtime and legacy schema modules are removed.
 
-Current core flow:
+Current main flow:
 
-1. `AvailabilitySourceAdapter` isolates provider shapes. `SourceAdapterRegistry` is multi-source; the only registered live source today is `TaipeiSportsCenterAdapter`.
-2. `AvailabilitySourceError` is the common typed provider-error contract; generic synchronization no longer imports a Taipei-specific error class.
-3. Generic slot-sport ingestion now allows badminton, table tennis, squash, tennis, pickleball and basketball, while each adapter may narrow its own safe catalog with `ingestSportCodes`. Taipei public ingestion remains intentionally badminton-only until its venue-specific sport discovery is normalized; a future private pickleball/tennis adapter is no longer blocked by that public-source restriction.
-4. `MetadataRefreshingPollingStage` owns registry-driven, per-source metadata cadence/backoff through `source_metadata_runtime`.
-5. Provider metadata is staged as a complete non-empty snapshot before normalized mutations; one provider metadata failure does not stop other providers or already-normalized availability polling.
-6. Polling claims `poll_targets`; `last_polled_at` is the claim fence and `last_success_at` the freshness anchor. Court + slot + event + missing-slot + final target writes are fenced against stale Workers.
-7. Search/Radar/Push require exact-target freshness within `max(15 minutes, 3 × target interval)` and Taipei-local actionability. An AVAILABLE slot re-confirmed after a longer gap emits a recovery AVAILABLE event.
-8. Anonymous browser identities own Radar rules. Watch rules validate current active catalog/geography and canonicalize common `台`/`臺` city spellings.
-9. Radar matching uses activation boundaries, current slot/source truth, event supersession and freshness; matching creates durable Web Push deliveries.
-10. Push dispatch is claim-fenced. Only Push-service acceptance may settle a durable delivery to `SENT`; browser presentation never promotes `PENDING` anymore.
-11. Bare Push wakes are treated as fungible presentation capacity for the active endpoint, but `/push/presentation` only claims already-accepted `SENT` deliveries. If a wake races ahead of dispatch settlement while that endpoint still has a live fenced PENDING dispatch, the API returns HTTP 425 and the Service Worker retries briefly. This prevents wake A from falsely settling overlapping delivery B.
-12. Pre-dispatch reconciliation and final browser presentation fail closed on stale truth. Stale accepted presentation candidates are drained within the same wake; generic unverified fallback notifications are absent.
-13. Public search exposes only actionable AVAILABLE rows and uses normalized venue `booking_url`; provider-machine `external_booking_ref` remains ingestion/provenance only.
-14. Web/PWA includes search, Radar CRUD, Push subscription, notification deep-link, `/ready`, deploy and smoke scripts.
+1. `AvailabilitySourceAdapter` isolates provider response shapes. `SourceAdapterRegistry` is multi-source.
+2. Registered sources are now `TaipeiSportsCenterAdapter` and `TinyBookAdapter`.
+3. Generic product ingestion supports badminton/table-tennis/squash/tennis/pickleball/basketball while each adapter can narrow `ingestSportCodes`.
+4. `MetadataRefreshingPollingStage` owns registry-driven per-source metadata cadence/backoff through `source_metadata_runtime`; one provider failure cannot stop another provider.
+5. Polling uses `poll_targets`; `last_polled_at` is the claim fence and `last_success_at` the freshness anchor. Court + slot + event + missing-slot + settlement writes are fenced against stale workers.
+6. Search/Radar/Push require exact-target freshness within `max(15 minutes, 3 × target interval)` and Taipei-local actionability. AVAILABLE after a longer stale gap emits a re-confirmation event.
+7. Anonymous browser identities own Radar rules; create/edit/resume activation boundaries prevent old backlog from notifying.
+8. Radar produces durable Push deliveries. Only Push-service acceptance can settle PENDING → SENT; browser presentation only consumes accepted SENT deliveries and fails closed on stale truth.
+9. Web/PWA provides search, official booking handoff, Radar CRUD, Push subscription and notification deep links.
 
-Current migration chain:
-
-- `drizzle/0000_aftertrace_rebuild.sql`
-- `drizzle/0001_radar_watch_foundation.sql`
-- `drizzle/0002_web_push_delivery_runtime.sql`
-- `drizzle/0003_source_metadata_runtime.sql`
-
-No schema migration was required in this round.
+Migration chain remains `0000` → `0003`; no migration was needed this round.
 
 ## Completed rebuild areas
 
 ### Retired product cleanup
-
 - [x] LINE/group/LIFF runtime removed.
 - [x] conversation extraction/Group Memory/Gemini/AI removed.
 - [x] Energy/Credit/Rewarded Ad/Commerce/Reminder/Proactive Push removed.
 - [x] old admin/auth/retention schema/runtime removed.
-- [x] reusable pnpm/Hono/Workers/React/Vite/Neon/Drizzle tooling kept.
+- [x] reusable pnpm/Hono/Workers/React/Vite/Neon/Drizzle foundation retained.
 
-### Sports availability + polling
-
-- [x] generic adapter + registry.
-- [x] generic `AvailabilitySourceError` provider-failure contract.
-- [x] source-specific generic sport ingestion policy.
-- [x] Taipei sports-center adapter.
+### Sports availability / polling
+- [x] generic adapter + registry + provider-error contract.
+- [x] generic multi-sport ingestion with source-specific narrowing.
+- [x] Taipei sports-center public adapter.
 - [x] normalized source/sport/venue/venue-sport/court/slot/event domain.
 - [x] public sports/venue/actionable availability APIs.
-- [x] staged periodic metadata refresh + persisted per-source success/backoff.
-- [x] registry-driven multi-source metadata cadence + provider-failure isolation.
-- [x] 300-second unwatched / 180-second watched demand, source minimum clamp, 14-day watch horizon.
-- [x] poll claim fencing through court/slot/event/missing-slot/final settlement.
-- [x] shared Taipei date/time actionability.
-- [x] prolonged provider-outage freshness fail-closed policy.
-- [x] stale-gap AVAILABLE re-confirmation events.
-- [ ] one private Taipei official booking adapter actually integrated.
+- [x] registry-driven metadata refresh and provider-failure isolation.
+- [x] poll demand, source interval clamp, 14-day watch horizon and complete claim fencing.
+- [x] Taipei time actionability, stale-source fail closed and stale-gap recovery events.
+- [x] **TinyBook private adapter implemented and registered with a verified Taipei private sports booking product.**
+- [ ] TinyBook live POST/XHR smoke still must prove the tenant returns parsable resource/time blocks in a dependency/network-complete environment.
 
-### Radar + Web Push
-
-- [x] anonymous identity + watch CRUD/idempotency/user isolation.
-- [x] watch active-catalog/geographic validation + city canonicalization.
-- [x] create/edit/resume activation boundary.
-- [x] superseded/already-started event retirement.
+### Radar / Web Push
+- [x] anonymous identity + watch CRUD/idempotency/isolation.
+- [x] active catalog/geographic validation + city canonicalization.
 - [x] current AVAILABLE + exact-target freshness matching.
-- [x] durable Push delivery/retry/expiry/dispatch lease fencing.
-- [x] pre-dispatch stale invalidation + final presentation truth check.
-- [x] Worker-native VAPID + Service Worker flow.
-- [x] active subscription endpoint required for presentation.
-- [x] provider-machine booking refs absent from presentation/public navigation.
-- [x] stale presentation candidates drained in one wake.
-- [x] Service Worker presentation failures fail closed.
-- [x] overlapping payload-free wake/delivery correlation hardened with accepted-only presentation and bounded settlement retry.
+- [x] durable delivery/retry/expiry/dispatch lease fencing.
+- [x] pre-dispatch and final presentation current-truth validation.
+- [x] accepted-only presentation resolves overlapping payload-free wake correlation.
+- [x] Service Worker transient settlement retry and fail-closed notification behavior.
 
 ### Web/PWA
-
 - [x] mobile availability search + official booking handoff.
 - [x] anonymous identity bootstrap + Radar management UI.
 - [x] manifest + Service Worker + Push subscription/deep link.
-- [x] `/ready`, `smoke.ps1`, `worker-deploy.ps1`, `pages-deploy.ps1`.
-- [ ] final source-inspection pass of the mixed public/private V1 flow after private integration.
+- [x] `/ready`, deploy scripts and smoke script exist.
+- [ ] final mixed-source source-inspection pass after TinyBook live smoke.
 
-## Current round — private-source expansion + accepted-only Push presentation
+## Current round — first private Taipei source implementation
 
 ### Starting state verified
 
-At the beginning of this development round, the previous completed Push batch ended at `405aaf124df228fcedd78190d006e3e21d3286a6`. The latest `main`, `docs/REBUILD_PLAN.md`, this file, source adapter types/registry/synchronization and notification repository/dispatcher/routes/Service Worker were re-read before changes. Repository state was checked again during the round because several source-layer commits were made before the final handoff update.
+At round start latest `main` was `723961d981768ff6676207557d0079c7cdfde59a` (`Record private-source and Push correlation round`). `docs/REBUILD_PLAN.md`, this file, source adapter contract/registry, Taipei adapter, synchronization service and scheduled registry construction were re-read before changes.
 
-Initial truth:
+Starting truth:
 
 - only `TaipeiSportsCenterAdapter` was registered;
-- generic synchronization still carried a provider-specific error coupling and a product-wide badminton ingestion assumption that would have blocked a private pickleball/tennis adapter;
-- presentation could claim `PENDING + dispatchClaimKey` deliveries and promote them to SENT from the browser, leaving an ambiguous correlation when two payload-free Push sends overlapped for the same endpoint;
-- private-source research had confirmed AiNFOLiNK/PicklePickle but had not yet found an anonymous slot transport suitable for a real adapter.
+- BookFast and AiNFOLiNK were strong research candidates but their exact anonymous current-slot transports were unresolved;
+- the architecture was already ready for another adapter, but V1 had no private source implementation;
+- build/test/release verification was intentionally deferred by current development policy.
+
+### Private-source research this round
+
+#### TinyBook / Pickle Day A11 — promoted and implemented
+
+A much stronger private source was identified than the previously unresolved BookFast/AiNFOLiNK candidates.
+
+Verified public evidence as of 2026-08-31:
+
+- `https://tinybot.cc/pickledaysocial/` is Pickle Day Social Club's official consumer booking site and explicitly says reservations are handled through that website.
+- Its product `[新光A11專區] 匹克球場租借` is a real Taipei private court-rental product at New Taipei? No: the booked facility is **新光三越信義 A11 4F, Taipei City, Xinyi District**; the operator's corporate/contact address shown in the site footer is in Zhonghe and must not be confused with the booked venue.
+- The product advertises NT$699 per 30 minutes / NT$1,300 per hour and says A11 products open only within a 72-hour reservation window.
+- The public booking widget exposes a `服務提供者` resource selector, date fields and dynamic available-time UI. It explicitly requires JavaScript for the booking service.
+- The page footer identifies the system as TinyBook.
+- TinyBook's own product pages describe anonymous/no-registration venue booking by time/date and live scheduling.
+- Search also found other TinyBook sports tenants/products using the same booking UI, including badminton/basketball/pickleball examples. This makes TinyBook valuable as a **system-level adapter**, not merely a Pickle Day page parser.
+
+The underlying booking transport was identified as the standard public WooCommerce Bookings consumer flow:
+
+- WooCommerce's current troubleshooting documentation says the front-end calendar obtains booking availability through public `wc-ajax` requests.
+- A current 2026 WooCommerce issue documents that selecting a date populates start times through `admin-ajax.php?action=wc_bookings_get_blocks`.
+- Public WooCommerce booking-form examples show the standard serialized field names (`wc_bookings_field_resource`, start date year/month/day, duration, hidden `add-to-cart` product id) and the time-block response uses `<li class="block" data-block="HHmm">` style entries.
+
+No login, CAPTCHA, credential, checkout or security bypass is involved; the adapter reads only the same anonymous product page and availability request used by the normal browser UI.
 
 ### Code completed this round
 
-#### Source-layer preparation for private adapters
+#### `apps/api/src/sources/tinybook.ts` — new
 
-- `apps/api/src/sources/types.ts`
-  - added common `AvailabilitySourceError`;
-  - added optional `AvailabilitySourceAdapter.ingestSportCodes` so each provider can safely narrow the generic V1 sport allowlist.
-- `apps/api/src/sources/taipei-sports-center.ts`
-  - `TaipeiSportsCenterSourceError` extends the generic source error;
-  - Taipei source explicitly narrows ingestion to badminton while its current sport discovery remains static/provider-wide.
-- `apps/api/src/sources/sync-service.ts`
-  - removed concrete Taipei error dependency;
-  - generic product ingestion now recognizes badminton/table-tennis/squash/tennis/pickleball/basketball;
-  - source overrides can narrow that list without allowing unsupported product sports;
-  - this removes the previous architectural contradiction where the data model was multi-sport but the synchronization default silently dropped every non-badminton private source.
+Added `TinyBookAdapter` with the first curated venue config:
 
-Relevant commits:
+- source code `tinybook`;
+- source minimum poll interval 300 seconds;
+- current ingestion `pickleball`;
+- venue `pickleday-a11` / `Pickle Day 新光 A11 4F`;
+- city `臺北市`, district `信義區`, address `臺北市信義區松壽路11號4樓`;
+- official TinyBook A11 court-rental product as `bookingUrl`;
+- provider booking horizon 72 hours;
+- normalized minimum slot 30 minutes, current public price `699` per minimum slot.
 
-- `eeb32df104f53887ca568582bb24070a251c3e2e` — `Generalize availability source errors`
-- `91073887f7e311a482e786fae4536a2dfb23608d` — `Use generic source error contract`
-- `60969774ad478513999f45a408aa29a2274f1a72` — `Decouple synchronization from Taipei source errors`
-- `ce778541a2dbaec0bd479eb46966dbc21cafe3db` — `Support source-specific sport ingestion`
-- `de9d43790fcb329b4ce9b45b4328e713bfcbb85a` — `Keep Taipei ingestion badminton scoped`
-- `16af9bc316038c30af6291b6a6c684a0bf9616cd` — `Allow source-specific generic sport ingestion`
+Runtime implementation is not an adapter shell:
 
-#### Push payload-free correlation hardening
+1. fetches the official public product page;
+2. finds the WooCommerce booking form;
+3. serializes default input/select values and resolves the product id;
+4. parses the public `wc_bookings_field_resource` options as courts/resources;
+5. resolves `booking_form_params.ajax_url` when present, with a same-site WordPress sub-site fallback;
+6. posts `action=wc_bookings_get_blocks` with the selected date/resource and one minimum duration unit;
+7. parses available start blocks and normalizes them into AVAILABLE `SourceAvailabilitySlot`s;
+8. uses missing-resource/form/explicit WordPress AJAX errors as fail-closed provider errors;
+9. caches page bootstrap briefly within the adapter to avoid refetching form metadata for every date/resource in one run;
+10. never adds to cart, authenticates, pays or derives a fake human booking URL.
 
-- `apps/api/src/notifications/repository.ts`
-  - `claimPresentation()` now selects only durable `SENT` deliveries; it cannot consume or promote an in-flight PENDING delivery;
-  - presentation claim itself rechecks that the durable delivery is still SENT before setting `presented_at`;
-  - added `hasActiveDispatchForEndpoint()` to detect a still-live fenced PENDING send bound to the current active endpoint;
-  - updated accepted-settlement semantics/comments so only dispatch settlement owns PENDING → SENT.
-- `apps/api/src/notifications/routes.ts`
-  - presentation still drains stale already-accepted candidates in the same wake;
-  - if none is present but an active dispatch for this endpoint is still settling, returns `425 PUSH_SETTLEMENT_PENDING` instead of guessing which PENDING row caused the wake;
-  - if no accepted actionable candidate and no in-flight dispatch exists, returns authoritative `notification: null`.
-- `apps/web/public/sw.js`
-  - increased the bounded presentation window from three to five attempts;
-  - retries only transient `408/425/429/5xx` or network failures;
-  - auth/validation/other terminal responses fail closed immediately;
-  - generic notification fallback remains removed.
+`listBookableDates()` conservatively bounds A11 polling to its documented 72-hour booking horizon instead of hitting private infrastructure for the full product 14-day window.
 
-Relevant commits:
+#### `apps/api/src/sources/registry.ts`
 
-- `f3783cd89cce224c7511bda8f8e6878291c50e38` — `Correlate Push presentation with accepted deliveries`
-- `0b531df5a617cd512fb34b39cbdc8f0e1c05a286` — `Retry presentation while Push settlement is in flight`
-- `466af4f00bc8c35d041a6f9ded39d3565fbbdc17` — `Retry transient Push presentation settlement`
+The default registry now contains both:
 
-#### Documentation/product contract
+- `TaipeiSportsCenterAdapter`
+- `TinyBookAdapter`
 
-- `docs/REBUILD_PLAN.md`
-  - now records source-specific generic sport ingestion;
-  - promotes BookFast alongside AiNFOLiNK as the highest-priority Taipei private booking-system research targets;
-  - records accepted-only Push presentation as the intended concurrency rule and marks the previous correlation issue resolved at source level.
+Therefore metadata refresh, normalized poll target creation, availability sync, search, Radar and Push will automatically see TinyBook through the existing provider-neutral pipeline once its live booking request is executed successfully.
 
-Relevant documentation commits before this handoff update include `c195d5f4de987670aa3c2f4d333f573013deba89`, `191ec056f453c23bd13c8495f7d557a8bd2146e1` and `d9f40be69f440902f35464484ead5ab6c012f721`.
+Relevant commits before this progress update:
 
-### Private source research performed this round
+- `9b0e245344388297ca53a78fa2cb807c57f25c65` — `Add TinyBook private booking adapter`
+- `1c0f1f114379cf020b54280f482bfc6f694647a8` — `Register TinyBook private source`
+- `a5fa77f3e8bda5a28f800b09ab26ac9e9ccb82d7` — `Promote TinyBook private source integration`
 
-#### 1. BookFast — promoted to top-tier system candidate
+### Architecture/product decisions updated
 
-**Status: strong multi-venue SaaS candidate with a current Taipei private sports tenant; exact anonymous current-slot transport still unresolved.**
+`docs/REBUILD_PLAN.md` was updated because private-source strategy changed materially:
 
-Evidence established this round:
+- TinyBook is now the first implemented/registered private source rather than a research-only candidate;
+- the adapter is system-level with curated verified products, so additional TinyBook sports venues can be added without creating per-venue crawler classes;
+- TinyBook is intentionally clamped to 300-second polling for now;
+- private source code is functionally integrated but **live network verification remains a release gate** because this execution environment cannot POST the tenant XHR and observe the raw response.
 
-- BookFast's own public product site describes a sports/fitness venue system with online reservation, venue-rental/場租 management and more than one thousand brands using the platform.
-- `https://ec.bookfastpos.com/BJ9EWNbnyX/` is a live public tenant branded **花博匹克庭園**. It exposes `找場地 / 找活動 / 找方案`, and its footer states the site is Powered by BookFast.
-- The same tenant is actively indexed with current/future pickleball activities, instructors, dates and times, proving this is a live consumer booking surface rather than a dead marketing page.
-- A second private sports tenant, **水獺綠洲匹克球俱樂部**, is publicly hosted under the same `ec.bookfastpos.com/<tenant>` pattern. It is in New Taipei, so it is evidence of system reuse rather than the launch-city source.
-- BookFast search indexing exposes a demo venue catalog containing first-class venue resources such as badminton courts and tennis halls. This supports the hypothesis that a single system-level adapter could eventually cover multiple court sports.
+BookFast and AiNFOLiNK remain useful future sources but are no longer blocking the first private adapter.
 
-Blocker:
+### Verification intentionally deferred
 
-- On the current 花博匹克庭園 tenant, `?type=venue` presently renders `目前沒有場地～`; the exact anonymous date/court/current-slot request used by BookFast's venue-rental module was not exposed by the available crawler, and this environment cannot perform browser DevTools/XHR capture against that tenant.
-- Scheduled activities are not treated as substitute court availability. No guessed BookFast adapter was registered.
+Per the current development strategy, this round did **not** spend time on pnpm installation, lockfile regeneration, full typecheck/lint/test/build/schema checks, PowerShell deployment rehearsal, Neon migration or Cloudflare deployment.
 
-Decision:
+The available web tooling could read the official TinyBook product page and current WooCommerce documentation but cannot execute the tenant's browser POST/XHR flow. Therefore:
 
-- keep BookFast as a highest-priority private system candidate because it has a verified Taipei consumer tenant and broad SaaS reuse;
-- next rounds should discover the actual venue-rental transport from a BookFast tenant that publicly exposes rentable courts, then validate whether the same request shape works for a Taipei sports tenant.
+- source-level integration is present on `main`;
+- the exact A11 `wc_bookings_get_blocks` response has **not yet been live-smoked by this environment**;
+- repository build/test status remains unverified, not green;
+- no migration was added.
 
-#### 2. AiNFOLiNK / PicklePickle Taipei
-
-**Status: still a strong system candidate; public tenant confirmed; exact anonymous current-slot API unresolved.**
-
-- `https://pickleball.ainfolink.net/` is directly indexed as PicklePickle's Taipei professional pickleball booking site and advertises 24-hour reservation access.
-- AiNFOLiNK is a sports-venue reservation/operations platform with multiple tenant subdomains, so a system-level adapter remains valuable.
-- Available tooling still does not expose the SPA's anonymous XHR/REST/GraphQL current-slot request, and container DNS cannot reach the tenant for raw JS/network inspection.
-- No authentication/security bypass was attempted and no guessed adapter was added.
-
-#### 3. SnowPick
-
-**Status: proven anonymous private availability fallback, but New Taipei rather than Taipei City.**
-
-- `snowpick.club/booking` publicly renders a date/time availability matrix without login, including booked/free states and pricing in 30-minute units.
-- This is useful proof that private current truth can be anonymously consumed through an official venue flow.
-- It does not by itself satisfy the current Taipei-private-source completion criterion; avoid expanding city scope only to make the checkbox green.
-
-#### 4. Research-only sources
-
-- SP Pickleball Club, Project Smash, PickleTown and similar directories remain discovery aids for finding venue names and official booking links only. Their aggregated data is not upstream truth.
-- LINE/phone/manual venues remain non-realtime candidates until an official public current-availability surface exists.
-
-### Verification policy this round
-
-Per the current development policy, dependency-complete build/test/release verification was deliberately deferred so source/function work could continue. No pnpm-registry retries, lockfile regeneration, full typecheck/lint/test/build/schema run, PowerShell deployment rehearsal or live Neon/Cloudflare smoke was performed in this round.
-
-No migration was added.
-
-Source inspection was performed on every file changed, but the repository is still **not declared build/test green**. The accepted-only Push changes in particular still need database-backed concurrency/integration tests during the concentrated verification phase.
+Do not claim release-ready private coverage until a real network smoke confirms resource names and time blocks parse as expected.
 
 ## Remaining work — function/source completion first
 
-1. **Private source first:** continue BookFast venue-rental transport discovery. Find a public tenant whose `找場地` flow actually exposes rentable resources and inspect the anonymous current-slot request shape; then determine whether that transport can support 花博匹克庭園 or another Taipei private court venue.
-2. Continue AiNFOLiNK endpoint discovery in parallel; first stable anonymous Taipei private source wins. Do not wait for one vendor if the other becomes integratable sooner.
-3. Once a real transport is validated, implement/register the private `AvailabilitySourceAdapter` immediately and send it through metadata sync → poll target → normalized slot/event → public search → Radar → Push. Do not stop at a research-only adapter shell.
-4. After private integration, source-inspect the full mixed-source PWA flow: search → official booking handoff → Radar CRUD → Push enable/disable → current-truth notification → deep-link back to the correct source/venue/date/time.
-5. Revisit any source/Radar/Push correctness gaps exposed by real private provider semantics (different slot lengths, prices, resource naming, booking horizons, rate limits).
-6. Only after the functional/private-source work is complete switch to the concentrated verification/release phase.
+1. Source-inspect the newly registered TinyBook path for any provider semantics that should be handled before verification (resource naming, empty-day response, product markup variants, price/duration changes) without spending rounds on general build/test.
+2. Continue private-source research in parallel. TinyBook has demonstrated a reusable sports booking system; identify more Taipei TinyBook court products if available, and keep AiNFOLiNK as the next distinct system candidate so the product is not dependent on one private SaaS.
+3. Check the complete mixed-source user flow at source level: public badminton + private pickleball → venue search → availability → official booking URL → Radar creation/management → Push → deep-link search context.
+4. Fix any functional gaps found by having sources with different booking horizons, slot lengths, sports and source minimum intervals.
+5. Once source/function work is genuinely complete, switch to concentrated verification.
 
 ## Deferred release verification
 
-- regenerate `pnpm-lock.yaml` so removed `apps/admin` importer disappears through pnpm rather than hand editing;
-- frozen-lockfile typecheck/lint/test/build/db:schema:check;
-- database-backed notification concurrency checks for accepted-only presentation + 425 settlement races;
-- PowerShell deploy/smoke checks;
-- fresh Neon database and migrations `0000` → `0003` (plus any later migration if function work requires one);
-- configure Worker `DATABASE_URL` + VAPID values;
-- deploy Worker + HTTPS PWA and confirm `/ready`;
-- live public + private source polling → transition/outage recovery → Radar → Push → presentation → click;
-- rate-limit/latency measurements before one-minute watched polling.
+- regenerate `pnpm-lock.yaml` and remove stale workspace metadata through pnpm.
+- full `typecheck`, `lint`, `test`, `build`, `db:schema:check`.
+- run migrations `0000`→`0003` against a fresh Neon target.
+- configure Worker `DATABASE_URL` + VAPID values.
+- **live TinyBook A11 smoke:** public product page → resource options → `wc_bookings_get_blocks` → normalized court/time slots.
+- deploy Worker + PWA and confirm `/ready = 200`.
+- live public + private polling → transition/re-confirmation → Radar → Push → presentation → click.
+- measure source latency/rate limits before reducing any private polling interval.
 
 ## Next round priority
 
-Do not return to build/test work yet. Start with **BookFast rentable-venue endpoint discovery**, using its system-level venue-rental capability and current Taipei tenant as the lead. Keep AiNFOLiNK discovery running in parallel. As soon as either exposes a stable anonymous current-slot transport, implement the actual private adapter in that same round. The source layer remains the main unfinished V1 feature; the previous bare-Push correlation concern is now source-level hardened and no longer the first feature priority.
+Do not return to general build/test yet. First inspect and harden the TinyBook adapter around real WooCommerce/TinyBook empty/error response semantics and continue finding additional Taipei private booking products/systems. Prefer another concrete private-source expansion or mixed-source functional fix over verification-only work.
