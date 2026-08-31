@@ -107,8 +107,9 @@ A provider failure halfway through venue discovery therefore cannot leave public
 - `next_poll_at` doubles as the target recovery lease; demand reconciliation **must not shorten it**.
 - `last_polled_at` is the current poll-claim fence. A reclaimed target changes this token.
 - A claimed Worker must carry its expected `last_polled_at` token through **every availability-slot/status-event/missing-slot write**, not only final success/failure settlement.
-- Critical slot/event upsert uses a SQL `EXISTS` claim fence so an older Worker cannot write stale availability even if it loses the lease between a preliminary claim check and the actual SQL statement.
-- When claim ownership is lost, the old Worker stops and must not overwrite failure/backoff/health state owned by the newer Worker.
+- Critical slot/event upsert uses a row-locking SQL `EXISTS (... SELECT ... FOR UPDATE)` claim fence. The selected `poll_targets` row remains protected for the mutation statement, so a concurrent reclaim either wins before the statement and rejects the stale write or waits for the legitimate write to finish.
+- After a critical write, the Worker rechecks ownership and stops before further provider/date work if the claim changed.
+- When claim ownership is lost, the old Worker must not overwrite failure/backoff/health state owned by the newer Worker.
 - unwatched target request interval: 300 seconds.
 - watch-covered target request interval: 180 seconds, priority `100`, clamped to source minimum.
 - watch-driven hot polling is recalculated from the same 14-day availability horizon used by polling.
@@ -241,6 +242,7 @@ Do not add AI chat, feeds, teams, automatic booking/payment or credential storag
 - [x] deactivate invalid source mappings and hide them from public/Radar truth.
 - [x] horizon-aware watch polling demand without mutating active target leases.
 - [x] fence slot/event/missing-slot writes with the active poll claim, not only final target settlement.
+- [x] serialize critical availability writes against concurrent poll reclaim with a row-locking claim fence.
 
 ### Phase 4 — Radar backend/Web Push
 - [x] Anonymous ownership + watch CRUD/idempotency.
