@@ -1,5 +1,6 @@
 import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import type { Database } from '../db/client';
+import { sourceMetadataRuntime } from '../db/schema-source-runtime';
 import { pollTargets, sources, sports, venueSports, venues } from '../db/schema';
 import type { PollingOrchestrator, PollingRunResult } from './orchestrator';
 import type { PollingDemandResult } from './demand';
@@ -7,30 +8,28 @@ import type { SourceSynchronizationService } from '../sources/sync-service';
 
 const DEFAULT_SOURCE_CODE = 'taipei-sports-center';
 const DEFAULT_METADATA_REFRESH_MS = 6 * 60 * 60 * 1000;
+const METADATA_FAILURE_RETRY_MS = 15 * 60 * 1000;
 
 type MetadataState = {
   active: boolean;
-  updatedAt: Date;
+  nextAttemptAt: Date | null;
 };
 
 type PollingDemandReconciler = {
   reconcile(now?: Date): Promise<PollingDemandResult>;
 };
 
-export function metadataRefreshDue(
-  state: MetadataState | null,
-  now: Date,
-  refreshMs = DEFAULT_METADATA_REFRESH_MS,
-): boolean {
-  if (!state || !state.active) return true;
-  return state.updatedAt.getTime() <= now.getTime() - Math.max(60_000, refreshMs);
+export function metadataRefreshDue(state: MetadataState | null, now: Date): boolean {
+  if (!state) return true;
+  if (!state.active) return false;
+  return !state.nextAttemptAt || state.nextAttemptAt <= now;
 }
 
 /**
  * Keeps provider metadata and poll targets aligned without calling metadata
- * endpoints every minute. Provider venue/sport mappings are refreshed on a
- * bounded cadence, invalid targets are disabled, and current Radar demand is
- * reapplied before availability polling proceeds.
+ * endpoints every minute. A dedicated runtime row records only completed
+ * metadata refreshes, so a partial/failed refresh never advances the success
+ * clock. Failures back off before retrying the provider metadata endpoints.
  */
 export class MetadataRefreshingPollingStage {
   constructor(
@@ -50,15 +49,36 @@ export class MetadataRefreshingPollingStage {
     const now = this.now();
     const sourceCode = DEFAULT_SOURCE_CODE;
     const [state] = await this.database
-      .select({ active: sources.active, updatedAt: sources.updatedAt })
+      .select({
+        sourceId: sources.id,
+        active: sources.active,
+        nextAttemptAt: sourceMetadataRuntime.nextAttemptAt,
+      })
       .from(sources)
+      .leftJoin(sourceMetadataRuntime, eq(sourceMetadataRuntime.sourceId, sources.id))
       .where(eq(sources.code, sourceCode))
       .limit(1);
 
     let metadataRefreshed = false;
-    if (metadataRefreshDue(state ?? null, now)) {
-      await this.synchronizer.syncMetadata(sourceCode);
-      metadataRefreshed = true;
+    if (metadataRefreshDue(state ? { active: state.active, nextAttemptAt: state.nextAttemptAt } : null, now)) {
+      try {
+        await this.synchronizer.syncMetadata(sourceCode);
+        metadataRefreshed = true;
+        await this.setMetadataRuntime(sourceCode, {
+          lastSuccessfulAt: now,
+          nextAttemptAt: new Date(now.getTime() + DEFAULT_METADATA_REFRESH_MS),
+          lastErrorCode: null,
+        }, now);
+      } catch (error) {
+        // `syncMetadata` upserts the source before provider venue/sport work, so
+        // the source row normally exists even on a partial refresh. Persist a
+        // bounded retry instead of hammering metadata endpoints every minute.
+        await this.setMetadataRuntime(sourceCode, {
+          nextAttemptAt: new Date(now.getTime() + METADATA_FAILURE_RETRY_MS),
+          lastErrorCode: 'SOURCE_METADATA_REFRESH_FAILED',
+        }, now).catch(() => undefined);
+        throw error;
+      }
     }
 
     const invalidTargetsDisabled = await this.disableInvalidPollTargets(now);
@@ -71,6 +91,42 @@ export class MetadataRefreshingPollingStage {
       demandTargetsUpdated: demand.targetsUpdated,
       watchedTargets: demand.watchedTargets,
     };
+  }
+
+  private async setMetadataRuntime(
+    sourceCode: string,
+    patch: {
+      lastSuccessfulAt?: Date;
+      nextAttemptAt: Date;
+      lastErrorCode: string | null;
+    },
+    now: Date,
+  ): Promise<void> {
+    const [source] = await this.database
+      .select({ id: sources.id })
+      .from(sources)
+      .where(eq(sources.code, sourceCode))
+      .limit(1);
+    if (!source) return;
+
+    await this.database
+      .insert(sourceMetadataRuntime)
+      .values({
+        sourceId: source.id,
+        lastSuccessfulAt: patch.lastSuccessfulAt ?? null,
+        nextAttemptAt: patch.nextAttemptAt,
+        lastErrorCode: patch.lastErrorCode,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: sourceMetadataRuntime.sourceId,
+        set: {
+          ...(patch.lastSuccessfulAt ? { lastSuccessfulAt: patch.lastSuccessfulAt } : {}),
+          nextAttemptAt: patch.nextAttemptAt,
+          lastErrorCode: patch.lastErrorCode,
+          updatedAt: now,
+        },
+      });
   }
 
   private async disableInvalidPollTargets(now: Date): Promise<number> {
