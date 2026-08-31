@@ -70,25 +70,50 @@ TinyBook minimum polling interval remains 300 seconds. The adapter supports path
 
 ### High-value candidate — AiNFOLiNK
 
-Verified public consumer evidence:
+AiNFOLiNK is now beyond transport discovery and is the highest-priority next system adapter.
 
-- official material describes online court booking/payment/member/order management;
-- official venue consumers link to `guestBooking`/`booking` frontends;
-- known hosts include `pickleball.ainfolink.net`, `sportxai-hsp.ainfolink.net`, `sportxai.ainfolink.net` and `longtan.ainfolink.net`;
-- Pickle Pickle 台北專業匹克球場 is a verified Taipei tenant and the system also serves badminton venues.
+Verified anonymous availability endpoint family:
 
-**Current blocker:** the normal anonymous browser XHR/REST transport has not been resolved from this tool environment. Do not implement a guessed adapter or bypass login/CAPTCHA/access controls.
+`https://<tenant>-backend.ainfolink.net/api/booking-item/available?booking_date=YYYY-MM-DD&booking_period_id=1,2,3`
+
+Known backend tenants include:
+
+- `flex-backend.ainfolink.net`
+- `sunny-backend.ainfolink.net`
+- `pickleball-backend.ainfolink.net`
+
+Verified availability contract:
+
+- top-level `content[]` represents courts/resources;
+- `venue_id` is the court/resource ID;
+- `display_name` is the court/resource name;
+- `booking_type` and `shared_capacity` are resource metadata;
+- each `available[]` row exposes `booking_date`, `booking_hours_code`, `time_slot`, `unit_price`, `quantity`;
+- `quantity > 0` is AVAILABLE and `quantity = 0` is UNAVAILABLE;
+- `unit_price` is authoritative provider price;
+- provider results may contain rows for dates other than the requested date, so adapters must filter by each row's `booking_date`;
+- external slot identity must include `booking_date + booking_hours_code + time_slot` rather than assuming one field is globally unique.
+
+The same contract has been observed for pickleball, badminton, billiards and multi-purpose resources. Some tenants return `time_slot = null`; others use values such as `1`/`2`. Therefore AiNFOLiNK must be implemented as one config-driven system adapter, not one parser per venue.
+
+**Remaining integration blocker:** obtain the normal anonymous consumer mapping from `booking_hours_code + time_slot` to actual `startTime/endTime`. Do not assume a numeric booking-hours code is equal to its clock hour. Do not assume `time_slot=1/2` means first/second half-hour. The mapping must come from a public booking-period / booking-hours / time-slot / setting / config API or equivalent normal-frontend response.
+
+When the mapping is reproducible, implement `AiNFOLiNKAdapter` in one round:
+
+`tenant config → registry → metadata sync → courts → date availability → normalized slots/prices → polling → Radar → Push`.
+
+Tenant configuration should hold venue identity, city/district/address, booking URL, backend origin, sport mapping, booking period IDs and any verified provider mapping identifiers. Provider time definitions should be loaded from the normal consumer contract rather than duplicated as guessed application constants whenever a public config endpoint exists.
 
 ### High-value candidate — PickleBook / PickleTown
 
-PickleBook is now a parallel high-priority private source candidate:
+PickleBook remains a parallel high-priority private source candidate:
 
 - its official product page states multiple partner venues already use the system;
 - its consumer UI is explicitly a `court × time` matrix with available/booked/held/activity states and peak/off-peak prices;
 - official case-study venue **DOPE 水獺綠洲** exposes a public `/booking` page whose rendered consumer view contains four courts, hourly availability and live prices;
 - the vendor positions the same booking engine as reusable across partner venues, making a system-level adapter much more valuable than a one-off scraper.
 
-Promotion criterion is the same as AiNFOLiNK: reproduce the normal anonymous availability transport, or identify a stable server-rendered contract that can be parsed conservatively and fail closed. Do not infer hidden bookings or use account-only data.
+Promotion criterion is now narrower than AiNFOLiNK because AiNFOLiNK transport is already known: reproduce PickleBook's normal anonymous availability transport, or identify a stable server-rendered contract that can be parsed conservatively and fail closed. Do not infer hidden bookings or use account-only data.
 
 ### Private-source acquisition policy
 
@@ -180,8 +205,9 @@ Function/source completion requires:
 - [x] mixed-city search/Radar/deep-link behavior;
 - [x] source provenance/freshness visible to consumers;
 - [x] mobile PWA search, official handoff, one-venue Radar create/edit/pause/delete and Push flow;
+- [ ] resolve AiNFOLiNK public time mapping and implement the config-driven adapter;
 - [ ] continue private-source expansion/research until no obvious high-value V1 source gap remains;
-- [ ] resolve AiNFOLiNK or PickleBook public availability transport, or record a concrete external blocker after exhausting normal public paths;
+- [ ] resolve PickleBook public availability transport or record a concrete external blocker after exhausting normal public paths;
 - [ ] source-inspect remaining duration/price/horizon semantics before switching phases.
 
 After functional work is complete, switch to concentrated verification: regenerate lockfile, typecheck/lint/test/build/schema check, clean Neon migrations, live private-source smoke, Worker/PWA deploy + VAPID, `/ready`, real-device Radar/Push/click smoke and final provider rate-limit measurements.
