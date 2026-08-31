@@ -1,21 +1,25 @@
 import type { SourceSynchronizationService } from '../sources/sync-service';
 import type { AvailabilitySyncRepository, PollTargetClaim } from '../sources/sync-repository';
 
-const DEFAULT_SOURCE_CODE = 'taipei-sports-center';
 const DEFAULT_BATCH_SIZE = 3;
 const DEFAULT_LEASE_SECONDS = 300;
 const DEFAULT_HORIZON_DAYS = 14;
 
 export type PollingRunResult = {
-  bootstrappedMetadata: boolean;
   claimed: number;
   succeeded: number;
   failed: number;
 };
 
-type PollingRepository = Pick<AvailabilitySyncRepository, 'hasEnabledPollTargets' | 'claimDuePollTargets'>;
-type PollingSynchronizer = Pick<SourceSynchronizationService, 'syncMetadata' | 'syncPollTarget'>;
+type PollingRepository = Pick<AvailabilitySyncRepository, 'claimDuePollTargets'>;
+type PollingSynchronizer = Pick<SourceSynchronizationService, 'syncPollTarget'>;
 
+/**
+ * Polls only already-normalized due targets. Provider metadata ownership lives
+ * exclusively in MetadataRefreshingPollingStage so an empty target set can
+ * never bypass source_metadata_runtime success/retry cadence by triggering an
+ * implicit metadata bootstrap on every Cron wake-up.
+ */
 export class PollingOrchestrator {
   constructor(
     private readonly repository: PollingRepository,
@@ -24,19 +28,10 @@ export class PollingOrchestrator {
   ) {}
 
   async run(input: {
-    sourceCode?: string;
     batchSize?: number;
     leaseSeconds?: number;
     horizonDays?: number;
   } = {}): Promise<PollingRunResult> {
-    const sourceCode = input.sourceCode ?? DEFAULT_SOURCE_CODE;
-    let bootstrappedMetadata = false;
-
-    if (!(await this.repository.hasEnabledPollTargets())) {
-      await this.synchronizer.syncMetadata(sourceCode);
-      bootstrappedMetadata = true;
-    }
-
     const claimedAt = this.now();
     const claims = await this.repository.claimDuePollTargets({
       claimedAt,
@@ -44,7 +39,7 @@ export class PollingOrchestrator {
       limit: clampInteger(input.batchSize ?? DEFAULT_BATCH_SIZE, 1, 6),
     });
     if (claims.length === 0) {
-      return { bootstrappedMetadata, claimed: 0, succeeded: 0, failed: 0 };
+      return { claimed: 0, succeeded: 0, failed: 0 };
     }
 
     const startDate = taipeiDate(claimedAt);
@@ -56,7 +51,6 @@ export class PollingOrchestrator {
     const succeeded = settled.filter((result) => result.status === 'fulfilled').length;
 
     return {
-      bootstrappedMetadata,
       claimed: claims.length,
       succeeded,
       failed: claims.length - succeeded,
