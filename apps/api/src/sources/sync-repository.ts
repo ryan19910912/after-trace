@@ -18,6 +18,11 @@ export type PollTargetClaim = {
   claimedAt: Date;
 };
 
+export type PollWriteFence = {
+  pollTargetId?: number;
+  expectedClaimedAt?: Date;
+};
+
 export type PollTargetContext = {
   pollTargetId: number;
   sourceId: number;
@@ -62,7 +67,7 @@ export type AvailabilitySyncRepository = {
     sportId: number;
     slot: PersistableAvailabilitySlot;
     seenAt: Date;
-  }): Promise<void>;
+  } & PollWriteFence): Promise<boolean>;
   markMissingSlotsUnknown(input: {
     sourceId: number;
     venueId: number;
@@ -70,7 +75,7 @@ export type AvailabilitySyncRepository = {
     useDate: string;
     seenExternalSlotKeys: string[];
     seenAt: Date;
-  }): Promise<number>;
+  } & PollWriteFence): Promise<number>;
   markPollTargetSuccess(input: {
     pollTargetId: number;
     polledAt: Date;
@@ -303,7 +308,9 @@ export class DrizzleAvailabilitySyncRepository implements AvailabilitySyncReposi
     sportId: number;
     slot: PersistableAvailabilitySlot;
     seenAt: Date;
-  }): Promise<void> {
+  } & PollWriteFence): Promise<boolean> {
+    if (!(await this.isPollWriteFenceActive(input))) return false;
+
     let courtId: number | null = null;
     if (input.slot.externalCourtId) {
       const [court] = await this.database
@@ -328,6 +335,11 @@ export class DrizzleAvailabilitySyncRepository implements AvailabilitySyncReposi
       courtId = court?.id ?? null;
     }
 
+    // The initial claim check avoids unnecessary court/slot work once a lease
+    // is already lost. The SQL write fence below is authoritative: if another
+    // Worker reclaims this target between that check and this statement, the
+    // stale Worker cannot mutate slot truth or create transition events.
+    const writeFence = pollWriteFenceSql(input);
     await this.database.execute(sql`
       WITH previous AS MATERIALIZED (
         SELECT id, status
@@ -351,7 +363,8 @@ export class DrizzleAvailabilitySyncRepository implements AvailabilitySyncReposi
           first_seen_at,
           last_seen_at,
           updated_at
-        ) VALUES (
+        )
+        SELECT
           ${input.sourceId},
           ${input.venueId},
           ${input.sportId},
@@ -366,7 +379,7 @@ export class DrizzleAvailabilitySyncRepository implements AvailabilitySyncReposi
           ${input.seenAt},
           ${input.seenAt},
           ${input.seenAt}
-        )
+        WHERE ${writeFence}
         ON CONFLICT (source_id, external_slot_key)
         DO UPDATE SET
           venue_id = EXCLUDED.venue_id,
@@ -399,6 +412,7 @@ export class DrizzleAvailabilitySyncRepository implements AvailabilitySyncReposi
         (previous.id IS NULL AND upserted.status = 'AVAILABLE'::availability_status)
         OR (previous.id IS NOT NULL AND previous.status IS DISTINCT FROM upserted.status)
     `);
+    return true;
   }
 
   async markMissingSlotsUnknown(input: {
@@ -408,7 +422,9 @@ export class DrizzleAvailabilitySyncRepository implements AvailabilitySyncReposi
     useDate: string;
     seenExternalSlotKeys: string[];
     seenAt: Date;
-  }): Promise<number> {
+  } & PollWriteFence): Promise<number> {
+    if (!(await this.isPollWriteFenceActive(input))) return 0;
+
     const base = and(
       eq(availabilitySlots.sourceId, input.sourceId),
       eq(availabilitySlots.venueId, input.venueId),
@@ -438,11 +454,13 @@ export class DrizzleAvailabilitySyncRepository implements AvailabilitySyncReposi
     let changed = 0;
     for (const candidate of candidates) {
       if (candidate.status === 'UNKNOWN') continue;
-      await this.upsertAvailabilitySlot({
+      const written = await this.upsertAvailabilitySlot({
         sourceId: input.sourceId,
         venueId: input.venueId,
         sportId: input.sportId,
         seenAt: input.seenAt,
+        pollTargetId: input.pollTargetId,
+        expectedClaimedAt: input.expectedClaimedAt,
         slot: {
           externalSlotKey: candidate.externalSlotKey,
           externalCourtId: candidate.externalCourtId ?? undefined,
@@ -455,6 +473,7 @@ export class DrizzleAvailabilitySyncRepository implements AvailabilitySyncReposi
           externalBookingRef: candidate.externalBookingRef ?? undefined,
         },
       });
+      if (!written) break;
       changed += 1;
     }
     return changed;
@@ -507,4 +526,29 @@ export class DrizzleAvailabilitySyncRepository implements AvailabilitySyncReposi
       .returning({ id: pollTargets.id });
     return rows.length === 1;
   }
+
+  private async isPollWriteFenceActive(input: PollWriteFence): Promise<boolean> {
+    if (!input.expectedClaimedAt || input.pollTargetId === undefined) return true;
+    const [active] = await this.database
+      .select({ id: pollTargets.id })
+      .from(pollTargets)
+      .where(and(
+        eq(pollTargets.id, input.pollTargetId),
+        eq(pollTargets.enabled, true),
+        eq(pollTargets.lastPolledAt, input.expectedClaimedAt),
+      ))
+      .limit(1);
+    return Boolean(active);
+  }
+}
+
+function pollWriteFenceSql(input: PollWriteFence) {
+  if (!input.expectedClaimedAt || input.pollTargetId === undefined) return sql`TRUE`;
+  return sql`EXISTS (
+    SELECT 1
+    FROM poll_targets claim_target
+    WHERE claim_target.id = ${input.pollTargetId}
+      AND claim_target.enabled = TRUE
+      AND claim_target.last_polled_at = ${input.expectedClaimedAt}
+  )`;
 }
