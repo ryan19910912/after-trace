@@ -52,6 +52,17 @@ export class SourceSynchronizationService {
   async syncMetadata(sourceCode: string): Promise<MetadataSyncResult> {
     const adapter = this.registry.get(sourceCode);
 
+    // Keep the source anchor current before provider discovery so the metadata
+    // stage can persist retry/backoff state even on the first failed refresh.
+    // Venue/sport truth is still staged and is not mutated until every provider
+    // metadata read succeeds.
+    const sourceId = await this.repository.upsertSource({
+      code: adapter.code,
+      name: adapter.name,
+      baseUrl: adapter.baseUrl,
+      minPollIntervalSeconds: adapter.minPollIntervalSeconds,
+    });
+
     // Read a complete provider snapshot before mutating normalized venue/sport
     // state. Provider metadata calls can fail partway through a venue list; if
     // persistence is interleaved with those calls, a transient upstream error
@@ -68,12 +79,6 @@ export class SourceSynchronizationService {
       snapshot.push({ venue, sports });
     }
 
-    const sourceId = await this.repository.upsertSource({
-      code: adapter.code,
-      name: adapter.name,
-      baseUrl: adapter.baseUrl,
-      minPollIntervalSeconds: adapter.minPollIntervalSeconds,
-    });
     const externalVenueIds: string[] = [];
     let venueSportsCount = 0;
     let pollTargetCount = 0;
