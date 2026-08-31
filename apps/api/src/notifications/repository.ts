@@ -44,9 +44,6 @@ export class DrizzleNotificationRepository {
     const normalized = normalizePushSubscription(input);
     const now = new Date();
 
-    // An anonymous identity represents one browser profile in V1. Keep one
-    // active push endpoint for that identity so one Radar event produces one
-    // user-visible notification instead of duplicate device fan-out.
     await this.database
       .update(notificationSubscriptions)
       .set({ active: false, updatedAt: now })
@@ -217,9 +214,6 @@ export class DrizzleNotificationRepository {
   }
 
   async settleAccepted(deliveryId: number, claimKey: string, now = new Date()): Promise<boolean> {
-    // Settlement is fenced by the dispatch claim. Treat an already SENT/OPENED
-    // row as idempotent success only while this dispatcher still owns that
-    // claim; presentation itself never promotes an unsettled delivery.
     const [claim] = await this.database
       .select({ deliveryId: notificationDeliveryRuntime.deliveryId })
       .from(notificationDeliveryRuntime)
@@ -319,10 +313,6 @@ export class DrizzleNotificationRepository {
       .limit(1);
     if (!ownedClaim) return false;
 
-    // 404/410 is authoritative for this concrete endpoint. Deactivating it is
-    // safe even if the lease later expires. Only unbind the delivery when it
-    // still points at the same dead subscription, so a newer worker cannot
-    // have its replacement binding erased by an older response.
     await this.database
       .update(notificationSubscriptions)
       .set({ active: false, updatedAt: now })
@@ -380,6 +370,7 @@ export class DrizzleNotificationRepository {
         deliveryId: notificationDeliveries.id,
         venueId: availabilitySlots.venueId,
         venueName: venues.name,
+        city: venues.city,
         district: venues.district,
         sportCode: sports.code,
         sportName: sports.name,
@@ -427,6 +418,7 @@ export class DrizzleNotificationRepository {
       const params = new URLSearchParams({
         sport: candidate.sportCode,
         venueId: String(candidate.venueId),
+        city: candidate.city,
         date: candidate.useDate,
         start: candidate.startTime.slice(0, 5),
         end: candidate.endTime.slice(0, 5),
