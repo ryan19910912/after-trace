@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { ScheduledRadarRunner } from './run';
 
 const pollingOk = {
-  bootstrappedMetadata: false,
   claimed: 2,
   succeeded: 2,
   failed: 0,
+  metadataRefreshed: false,
 };
 
 const radarOk = {
