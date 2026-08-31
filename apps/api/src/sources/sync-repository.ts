@@ -336,9 +336,10 @@ export class DrizzleAvailabilitySyncRepository implements AvailabilitySyncReposi
     }
 
     // The initial claim check avoids unnecessary court/slot work once a lease
-    // is already lost. The SQL write fence below is authoritative: if another
-    // Worker reclaims this target between that check and this statement, the
-    // stale Worker cannot mutate slot truth or create transition events.
+    // is already lost. The SQL write fence is authoritative and row-locks the
+    // claim while the slot/event mutation runs: a concurrent reclaim either
+    // happens before this statement (and the fence rejects the write) or waits
+    // until this legitimate write completes.
     const writeFence = pollWriteFenceSql(input);
     await this.database.execute(sql`
       WITH previous AS MATERIALIZED (
@@ -412,7 +413,11 @@ export class DrizzleAvailabilitySyncRepository implements AvailabilitySyncReposi
         (previous.id IS NULL AND upserted.status = 'AVAILABLE'::availability_status)
         OR (previous.id IS NOT NULL AND previous.status IS DISTINCT FROM upserted.status)
     `);
-    return true;
+
+    // If ownership changed immediately after a legitimate write, stop this old
+    // poll before it performs more provider/date work. If there is no fence
+    // (manual/direct synchronization), this remains true.
+    return this.isPollWriteFenceActive(input);
   }
 
   async markMissingSlotsUnknown(input: {
@@ -550,5 +555,6 @@ function pollWriteFenceSql(input: PollWriteFence) {
     WHERE claim_target.id = ${input.pollTargetId}
       AND claim_target.enabled = TRUE
       AND claim_target.last_polled_at = ${input.expectedClaimedAt}
+    FOR UPDATE
   )`;
 }
