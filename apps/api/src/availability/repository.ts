@@ -1,7 +1,8 @@
 import { and, asc, eq, gt, gte, lte, or } from 'drizzle-orm';
 import type { Database } from '../db/client';
-import { availabilitySlots, courts, sources, sports, venueSports, venues } from '../db/schema';
+import { availabilitySlots, courts, pollTargets, sources, sports, venueSports, venues } from '../db/schema';
 import { taipeiDate, taipeiTime } from '../time/taipei';
+import { pollTargetFreshAt } from './freshness';
 import type { AvailabilitySearchQuery } from './query';
 
 export class DrizzleAvailabilityRepository {
@@ -80,6 +81,14 @@ export class DrizzleAvailabilityRepository {
           eq(venueSports.sportId, availabilitySlots.sportId),
         ),
       )
+      .innerJoin(
+        pollTargets,
+        and(
+          eq(pollTargets.sourceId, availabilitySlots.sourceId),
+          eq(pollTargets.venueId, availabilitySlots.venueId),
+          eq(pollTargets.sportId, availabilitySlots.sportId),
+        ),
+      )
       .leftJoin(courts, eq(courts.id, availabilitySlots.courtId))
       .where(
         and(
@@ -92,6 +101,10 @@ export class DrizzleAvailabilityRepository {
             gt(availabilitySlots.useDate, today),
             and(eq(availabilitySlots.useDate, today), gt(availabilitySlots.startTime, currentTime)),
           ),
+          // A prolonged provider outage must not leave an old AVAILABLE row on
+          // the public surface indefinitely. Require a recent successful full
+          // poll of this exact source/venue/sport target.
+          pollTargetFreshAt(now),
           eq(sources.active, true),
           eq(venues.active, true),
           eq(sports.active, true),
