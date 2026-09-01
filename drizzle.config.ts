@@ -29,6 +29,7 @@ export default defineConfig({
     drizzlePath('apps/api/src/db/schema-round20.ts'),
     drizzlePath('apps/api/src/db/schema-worklog.ts'),
     drizzlePath('apps/api/src/db/schema-worklog-quota.ts'),
+    drizzlePath('apps/api/src/db/schema-worklog-bootstrap.ts'),
   ],
   out: drizzlePath('drizzle'),
   dialect: 'postgresql',
