@@ -147,6 +147,39 @@ describe('OA bootstrap', () => {
     expect(repository.usersByLineId.get('U1')?.isOaFriend).toBe(true);
     expect(repository.privateSources.size).toBe(1);
   });
+
+  it('reuses the stable personal source for an active OA friend interaction', async () => {
+    const repository = new FakeRepository();
+    const service = new WorklogBootstrapService(repository);
+    const followed = await service.handleOaFollow({ lineUserId: 'U1' });
+
+    const interaction = await service.bootstrapPrivateInteraction({
+      lineUserId: 'U1',
+      at: new Date('2026-09-02T01:00:00Z'),
+    });
+
+    expect(interaction).toEqual({
+      status: 'READY',
+      userId: followed.userId,
+      workspaceId: followed.workspaceId,
+      sourceId: followed.sourceId,
+    });
+    expect(repository.privateSources.size).toBe(1);
+  });
+
+  it('does not recreate a personal source after unfollow until friendship is active again', async () => {
+    const repository = new FakeRepository();
+    const service = new WorklogBootstrapService(repository);
+    await service.handleOaFollow({ lineUserId: 'U1' });
+    await service.handleOaUnfollow({ lineUserId: 'U1' });
+    const workspaceCallsBefore = repository.workspaceEnsureCalls.length;
+
+    const interaction = await service.bootstrapPrivateInteraction({ lineUserId: 'U1' });
+
+    expect(interaction).toEqual({ status: 'NOT_OA_FRIEND', userId: 1 });
+    expect(repository.workspaceEnsureCalls).toHaveLength(workspaceCallsBefore);
+    expect(repository.privateSources.size).toBe(1);
+  });
 });
 
 describe('group bootstrap', () => {
