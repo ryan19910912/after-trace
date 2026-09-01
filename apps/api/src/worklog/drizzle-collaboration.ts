@@ -33,8 +33,8 @@ export class DrizzleWorklogCollaborationRepository implements WorklogCollaborati
         member.recording_enabled,
         subscription.plan_code,
         COALESCE(plan.capabilities, '{}'::jsonb) AS capabilities,
-        COALESCE(plan.ai_allowance_units, 0) AS ai_allowance_units,
-        COALESCE(usage.consumed_units, 0) AS consumed_units
+        COALESCE(balance.allowance_units, plan.ai_allowance_units, 0) AS ai_allowance_units,
+        COALESCE(balance.used_units, 0) + COALESCE(balance.reserved_units, 0) AS consumed_units
       FROM worklog_sources AS source
       LEFT JOIN worklog_source_members AS member
         ON member.source_id = source.id
@@ -45,16 +45,9 @@ export class DrizzleWorklogCollaborationRepository implements WorklogCollaborati
       LEFT JOIN worklog_subscription_plans AS plan
         ON plan.code = subscription.plan_code
        AND plan.enabled = TRUE
-      LEFT JOIN LATERAL (
-        SELECT COALESCE(SUM(event.ai_units_consumed), 0)::integer AS consumed_units
-        FROM worklog_ai_usage_events AS event
-        WHERE event.charged_user_id = source.owner_user_id
-          AND event.created_at >= COALESCE(subscription.current_period_start, to_timestamp(0))
-          AND (
-            subscription.current_period_end IS NULL
-            OR event.created_at < subscription.current_period_end
-          )
-      ) AS usage ON TRUE
+      LEFT JOIN worklog_ai_quota_balances AS balance
+        ON balance.user_id = source.owner_user_id
+       AND balance.period_start = subscription.current_period_start
       WHERE source.id = ${sourceId}
         AND source.type = 'GROUP'
       LIMIT 1
