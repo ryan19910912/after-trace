@@ -73,13 +73,16 @@ export class DrizzleWorklogSubscriptionRepository implements WorklogSubscription
         subscription.effective_at,
         subscription.current_period_start,
         subscription.current_period_end,
-        subscription.ai_units_used,
-        subscription.ai_units_reserved,
+        COALESCE(balance.used_units, 0) AS ai_units_used,
+        COALESCE(balance.reserved_units, 0) AS ai_units_reserved,
         COALESCE(plan.enabled, FALSE) AS plan_enabled,
-        COALESCE(plan.ai_allowance_units, 0) AS ai_allowance_units,
+        COALESCE(balance.allowance_units, plan.ai_allowance_units, 0) AS ai_allowance_units,
         COALESCE(plan.capabilities, '{}'::jsonb) AS capabilities
       FROM worklog_user_subscriptions AS subscription
       LEFT JOIN worklog_subscription_plans AS plan ON plan.code = subscription.plan_code
+      LEFT JOIN worklog_ai_quota_balances AS balance
+        ON balance.user_id = subscription.user_id
+       AND balance.period_start = subscription.current_period_start
       WHERE subscription.user_id = ${userId}
       LIMIT 1
     `);
@@ -93,7 +96,7 @@ export class DrizzleWorklogSubscriptionRepository implements WorklogSubscription
     const metadataJson = JSON.stringify(input.metadata ?? {});
     const result = await this.db.execute(sql`
       WITH selected_plan AS (
-        SELECT code
+        SELECT code, ai_allowance_units
         FROM worklog_subscription_plans
         WHERE code = ${input.planCode}
           AND enabled = TRUE
@@ -112,8 +115,6 @@ export class DrizzleWorklogSubscriptionRepository implements WorklogSubscription
           effective_at,
           current_period_start,
           current_period_end,
-          ai_units_used,
-          ai_units_reserved,
           created_at,
           updated_at
         )
@@ -125,8 +126,6 @@ export class DrizzleWorklogSubscriptionRepository implements WorklogSubscription
           ${input.effectiveAt},
           ${input.currentPeriodStart},
           ${input.currentPeriodEnd},
-          0,
-          0,
           NOW(),
           NOW()
         FROM selected_plan
@@ -138,8 +137,35 @@ export class DrizzleWorklogSubscriptionRepository implements WorklogSubscription
           effective_at = EXCLUDED.effective_at,
           current_period_start = EXCLUDED.current_period_start,
           current_period_end = EXCLUDED.current_period_end,
-          ai_units_used = 0,
-          ai_units_reserved = 0,
+          updated_at = NOW()
+        RETURNING *
+      ),
+      quota_balance AS (
+        INSERT INTO worklog_ai_quota_balances (
+          user_id,
+          period_start,
+          period_end,
+          allowance_units,
+          used_units,
+          reserved_units,
+          created_at,
+          updated_at
+        )
+        SELECT
+          changed.user_id,
+          changed.current_period_start,
+          changed.current_period_end,
+          selected_plan.ai_allowance_units,
+          0,
+          0,
+          NOW(),
+          NOW()
+        FROM changed
+        INNER JOIN selected_plan ON selected_plan.code = changed.plan_code
+        ON CONFLICT (user_id, period_start) DO UPDATE
+        SET
+          period_end = EXCLUDED.period_end,
+          allowance_units = EXCLUDED.allowance_units,
           updated_at = NOW()
         RETURNING *
       ),
@@ -184,10 +210,12 @@ export class DrizzleWorklogSubscriptionRepository implements WorklogSubscription
             'planCode', changed.plan_code,
             'source', changed.source,
             'periodStart', changed.current_period_start,
-            'periodEnd', changed.current_period_end
+            'periodEnd', changed.current_period_end,
+            'aiAllowanceUnits', quota_balance.allowance_units
           ),
           NOW()
         FROM changed
+        INNER JOIN quota_balance ON quota_balance.user_id = changed.user_id
         RETURNING id
       )
       SELECT
@@ -198,12 +226,15 @@ export class DrizzleWorklogSubscriptionRepository implements WorklogSubscription
         changed.effective_at,
         changed.current_period_start,
         changed.current_period_end,
-        changed.ai_units_used,
-        changed.ai_units_reserved,
+        quota_balance.used_units AS ai_units_used,
+        quota_balance.reserved_units AS ai_units_reserved,
         plan.enabled AS plan_enabled,
-        plan.ai_allowance_units,
+        quota_balance.allowance_units AS ai_allowance_units,
         plan.capabilities
       FROM changed
+      INNER JOIN quota_balance
+        ON quota_balance.user_id = changed.user_id
+       AND quota_balance.period_start = changed.current_period_start
       INNER JOIN worklog_subscription_plans AS plan ON plan.code = changed.plan_code
       WHERE EXISTS (SELECT 1 FROM history)
         AND EXISTS (SELECT 1 FROM audit)
@@ -223,21 +254,25 @@ export class DrizzleWorklogSubscriptionRepository implements WorklogSubscription
         WHERE charged_user_id = ${chargedUserId}
           AND status = 'RESERVED'
           AND expires_at <= ${at}
-        RETURNING units_reserved
+        RETURNING charged_user_id, period_start, units_reserved
       ),
       totals AS (
-        SELECT COALESCE(SUM(units_reserved), 0)::integer AS released_units
+        SELECT
+          charged_user_id,
+          period_start,
+          COALESCE(SUM(units_reserved), 0)::integer AS released_units
         FROM expired
+        GROUP BY charged_user_id, period_start
       ),
       adjusted AS (
-        UPDATE worklog_user_subscriptions AS subscription
+        UPDATE worklog_ai_quota_balances AS balance
         SET
-          ai_units_reserved = GREATEST(0, subscription.ai_units_reserved - totals.released_units),
+          reserved_units = GREATEST(0, balance.reserved_units - totals.released_units),
           updated_at = NOW()
         FROM totals
-        WHERE subscription.user_id = ${chargedUserId}
-          AND totals.released_units > 0
-        RETURNING subscription.user_id
+        WHERE balance.user_id = totals.charged_user_id
+          AND balance.period_start = totals.period_start
+        RETURNING balance.id
       )
       SELECT COUNT(*)::integer AS expired_count
       FROM expired
@@ -250,13 +285,16 @@ export class DrizzleWorklogSubscriptionRepository implements WorklogSubscription
   ): Promise<WorklogAiReservationSnapshot | null> {
     const result = await this.db.execute(sql`
       WITH reserved AS (
-        UPDATE worklog_user_subscriptions AS subscription
+        UPDATE worklog_ai_quota_balances AS balance
         SET
-          ai_units_reserved = subscription.ai_units_reserved + ${input.requestedUnits},
+          reserved_units = balance.reserved_units + ${input.requestedUnits},
           updated_at = NOW()
-        FROM worklog_subscription_plans AS plan
-        WHERE subscription.user_id = ${input.chargedUserId}
+        FROM worklog_user_subscriptions AS subscription,
+             worklog_subscription_plans AS plan
+        WHERE balance.user_id = ${input.chargedUserId}
+          AND subscription.user_id = balance.user_id
           AND subscription.plan_code = plan.code
+          AND balance.period_start = subscription.current_period_start
           AND subscription.status = 'ACTIVE'
           AND plan.enabled = TRUE
           AND subscription.effective_at <= ${input.at}
@@ -265,12 +303,12 @@ export class DrizzleWorklogSubscriptionRepository implements WorklogSubscription
             subscription.current_period_end IS NULL
             OR ${input.at} < subscription.current_period_end
           )
-          AND subscription.ai_units_used + subscription.ai_units_reserved + ${input.requestedUnits}
-            <= plan.ai_allowance_units
+          AND balance.used_units + balance.reserved_units + ${input.requestedUnits}
+            <= balance.allowance_units
         RETURNING
-          subscription.user_id,
-          subscription.current_period_start,
-          subscription.current_period_end
+          balance.user_id,
+          balance.period_start,
+          balance.period_end
       ),
       inserted AS (
         INSERT INTO worklog_ai_quota_reservations (
@@ -295,8 +333,8 @@ export class DrizzleWorklogSubscriptionRepository implements WorklogSubscription
           ${input.requestedUnits},
           0,
           'RESERVED',
-          reserved.current_period_start,
-          reserved.current_period_end,
+          reserved.period_start,
+          reserved.period_end,
           ${input.expiresAt},
           NOW(),
           NOW()
@@ -360,19 +398,15 @@ export class DrizzleWorklogSubscriptionRepository implements WorklogSubscription
         RETURNING *
       ),
       adjusted AS (
-        UPDATE worklog_user_subscriptions AS subscription
+        UPDATE worklog_ai_quota_balances AS balance
         SET
-          ai_units_reserved = GREATEST(0, subscription.ai_units_reserved - claimed.units_reserved),
-          ai_units_used = subscription.ai_units_used + claimed.units_committed,
+          reserved_units = GREATEST(0, balance.reserved_units - claimed.units_reserved),
+          used_units = balance.used_units + claimed.units_committed,
           updated_at = NOW()
         FROM claimed
-        WHERE subscription.user_id = claimed.charged_user_id
-          AND subscription.current_period_start = claimed.period_start
-          AND (
-            (subscription.current_period_end IS NULL AND claimed.period_end IS NULL)
-            OR subscription.current_period_end = claimed.period_end
-          )
-        RETURNING subscription.user_id
+        WHERE balance.user_id = claimed.charged_user_id
+          AND balance.period_start = claimed.period_start
+        RETURNING balance.id
       ),
       usage_event AS (
         INSERT INTO worklog_ai_usage_events (
@@ -457,18 +491,14 @@ export class DrizzleWorklogSubscriptionRepository implements WorklogSubscription
         RETURNING *
       ),
       adjusted AS (
-        UPDATE worklog_user_subscriptions AS subscription
+        UPDATE worklog_ai_quota_balances AS balance
         SET
-          ai_units_reserved = GREATEST(0, subscription.ai_units_reserved - released.units_reserved),
+          reserved_units = GREATEST(0, balance.reserved_units - released.units_reserved),
           updated_at = NOW()
         FROM released
-        WHERE subscription.user_id = released.charged_user_id
-          AND subscription.current_period_start = released.period_start
-          AND (
-            (subscription.current_period_end IS NULL AND released.period_end IS NULL)
-            OR subscription.current_period_end = released.period_end
-          )
-        RETURNING subscription.user_id
+        WHERE balance.user_id = released.charged_user_id
+          AND balance.period_start = released.period_start
+        RETURNING balance.id
       )
       SELECT
         released.token,
