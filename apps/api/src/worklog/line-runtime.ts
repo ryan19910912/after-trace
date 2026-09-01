@@ -121,16 +121,19 @@ export class WorklogLineRuntime {
       };
     }
 
+    // Recording permission controls creation only. A member who was blocked from adding
+    // new records must still be able to open the group's historical records. The Web
+    // entry exchange independently verifies current LINE membership before a session is issued.
+    if (command.kind === 'QUERY') {
+      return { status: 'QUERY', sourceId: group.sourceId, userId: group.userId };
+    }
+
     const authorization = await this.collaboration.authorizeGroupRecord({
       sourceId: group.sourceId,
       actorUserId: group.userId,
       requestedAiUnits: 0,
     });
     if (authorization.status !== 'OK') return rejectedAuthorization(authorization.status);
-
-    if (command.kind === 'QUERY') {
-      return { status: 'QUERY', sourceId: group.sourceId, userId: group.userId };
-    }
 
     if (command.kind === 'RECORD_QUOTED') {
       return {
