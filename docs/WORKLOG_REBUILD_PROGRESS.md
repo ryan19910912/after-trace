@@ -36,8 +36,12 @@ Every development run must:
 - AI model/provider and input/output pricing must be DB-backed/admin-editable so future model/pricing changes do not require a code deploy.
 - AI usage events must preserve model/token/media/cost snapshots for historical cost audit even after prices change.
 - FREE is personal-only; collaboration/group access requires an enabled paid capability.
-- Internal admin must support system anomaly monitoring, feedback review, user list/filter/sort/detail, plan config, AI model/pricing config, AI usage analytics, and manual plan assignment.
-- Main user list/detail must show current AI usage plus TEXT/AUDIO/IMAGE/FILE record counts.
+- Group owner is the user who adds/binds the Bot to that group when that actor can be identified reliably; do not guess if LINE does not expose it.
+- Group AI usage is charged to the group owner's/subscriber's AI allowance while preserving the triggering member as actor attribution.
+- Group owner PWA must show owner AI quota/usage/remaining plus per-member TEXT/AUDIO/IMAGE/FILE record counts and AI usage.
+- Group owner can disable recording permission for individual group members to prevent unrelated/noisy users from creating records or burning AI quota.
+- Internal admin must support system anomaly monitoring, feedback review, user list/filter/sort/detail, plan config, AI model/pricing config, AI usage analytics, group ownership/usage visibility, member recording permission visibility, and manual plan assignment.
+- Main user list/detail must show current AI quota, usage, remaining balance, plus TEXT/AUDIO/IMAGE/FILE record counts.
 - Admin security is intentionally lightweight for MVP: one configured username/password; no complex RBAC/SSO/MFA.
 - Customer/project schemas stay minimal; industry-specific information goes in free-text notes.
 - No custom-field builder in MVP.
@@ -60,103 +64,55 @@ Every development run must:
 - The new parser is intentionally not wired into the old webhook runtime yet; integration should happen after the new worklog persistence schema exists so we do not route records into legacy memory tables.
 - Expanded `docs/WORKLOG_PRODUCT_SPEC.md` with internal admin, OA Rich Menu, OA friendship tracking, human-support fallback, personal/group PWA separation, plan/permission management, feedback fields, user-list/detail requirements, and manual subscription administration.
 - Added admin-editable AI quota per plan, AI provider/model configuration, input/output pricing, separate media pricing where needed, historical usage cost snapshots, and per-user AI usage plus TEXT/AUDIO/IMAGE/FILE record counts.
+- Added group owner/AI-billing/member-permission rules: group usage burns owner allowance, actor attribution is retained, owner can block individual members from recording, and PWA/admin must surface owner/member usage details.
 
 ### 2026-09-02 worklog data foundation
 
 - Added an isolated `apps/api/src/db/schema-worklog.ts` instead of mutating legacy LINE/Memory tables before the new runtime is ready.
-- Added core worklog tables/enums for:
-  - LINE/OA users and OA friendship state
-  - workspace
-  - private/group source contexts and group membership
-  - customer/project
-  - record with normalized `TEXT` / `AUDIO` / `IMAGE` / `FILE` input type and broad record category
-  - fixed numeric transactions
-  - subscription plans with JSON capability flags and bounded AI allowance
-  - current user subscription plus assignment history
-  - singleton AI runtime model/provider/pricing configuration
-  - immutable AI usage events with pricing/model/token/media/cost snapshots
-  - feedback
-  - anomaly/error events
-  - worklog/admin audit log
-- Registered the worklog schema in `schema-all.ts` and `drizzle.config.ts`.
-- Added `drizzle/0001_worklog_foundation.sql` and registered it in the Drizzle migration journal.
-- Added a root `db:migrate` command and fixed its config path.
-- Switched the database client to register `schema-all.ts`, so new worklog schema is available to runtime code without discarding legacy tables during migration.
-- Added `apps/api/src/worklog/entitlements.ts` with explicit policy that FREE can never enable group collaboration even if bad capability JSON says otherwise.
-- Added bounded AI allowance helpers and an immutable AI pricing/cost snapshot helper.
-- Added unit tests for FREE/group entitlement, capability JSON sanitization, quota remaining/over-consumption, historical pricing snapshots, token/media cost computation, and negative-price rejection.
+- Added core worklog tables/enums for LINE/OA users, workspace, sources, membership, customer/project, records, transactions, plans/capabilities, subscriptions/history, AI runtime config, AI usage snapshots, feedback, anomaly events, and audit log.
+- Registered the worklog schema and added the first migration.
+- Added explicit FREE/group entitlement policy and bounded AI allowance helpers.
+- Added immutable AI pricing/cost snapshot helpers and tests.
 
 ### 2026-09-02 scoped record-read layer
 
-- Added `WorklogRecordReadService` and a repository contract that make source scoping explicit before PWA routes exist.
-- Personal records are available only when the viewer is an OA friend and only through that viewer's active private source.
-- Group records require an active membership check for the exact requested group source before any record query executes.
-- PWA surface discovery returns personal and group surfaces separately instead of merging them into one ambiguous timeline.
-- Added `DrizzleWorklogRecordReadRepository` using the new worklog tables and filtering inactive members/sources at the query boundary.
-- Added tests covering:
-  - non-OA users cannot read personal records
-  - OA friends can read only their private source
-  - arbitrary group source IDs are rejected before querying records
-  - exact active group membership grants only that group's records
-  - OA friend + group participant receives separate personal/group surfaces
-  - group access alone does not create personal access
+- Added `WorklogRecordReadService` and repository contract with explicit personal/group source scoping.
+- Personal records require OA friendship/private source; group records require exact active membership.
+- PWA surface discovery returns personal and group surfaces separately.
+- Added tests for personal/group isolation and combined OA+group surfaces.
 
-## Validation performed in this round
+## Validation / caution
 
-- Compared branch before/after the data-foundation changes and confirmed it moved strictly forward from the starting HEAD with schema, migration, entitlement, and scope-layer changes committed on `revive/line-worklog`.
-- Performed static consistency review of schema/table names, indexes, migration names, the corrected `db:migrate` relative config path, and group/private query predicates.
-- Tests/typecheck were added but were not executed in this connector-only run because there is no checked-out repository/runtime available to execute pnpm. A future run with an executable checkout should run `pnpm typecheck`, `pnpm test`, `pnpm db:schema:check`, and migration against a disposable DB before production use.
-
-## Known blocker / migration caution
-
-- `0001_worklog_foundation.sql` is hand-authored and journaled because this run cannot execute Drizzle Kit generation. The existing Drizzle snapshot metadata has not been regenerated for the new schema. Do not use `drizzle-kit generate` for the next migration until the snapshot is regenerated from an executable checkout; meanwhile migrations can remain explicitly hand-authored/journaled. Before first real DB deployment, verify exported schema and migration on a disposable Neon branch/database.
+- Connector-only development cannot execute pnpm/typecheck/tests/migrations directly.
+- Before first real DB deployment, run `pnpm typecheck`, `pnpm test`, `pnpm db:schema:check`, and migrations against a disposable Neon DB.
+- The first worklog migration is hand-authored/journaled; regenerate/verify Drizzle snapshot before relying on generated follow-up migrations.
 
 ## Next prioritized implementation batch
 
-1. Add reliable admin/user usage aggregation for:
-   - current-cycle AI units/cost from `worklog_ai_usage_events`
-   - TEXT/AUDIO/IMAGE/FILE record counts from `worklog_records`
+1. Extend worklog schema/domain for the newly locked collaboration model:
+   - stable group `owner_user_id` / ownership binding metadata
+   - per-group-member `recording_enabled` / `can_record`
+   - AI usage `actor_user_id` separate from `charged_user_id` / billing owner
+   - indexes needed for owner/member usage aggregation
+2. Add reliable usage aggregation for admin and owner PWA:
+   - current AI quota, used, remaining for owner/user
+   - personal vs group AI usage
+   - per-member AI usage within group
+   - TEXT/AUDIO/IMAGE/FILE record counts per member
    - last interaction / updated time
-2. Add subscription-plan repository/service with:
-   - current plan lookup
-   - capability parsing
-   - manual admin plan assignment + history/audit
-   - AI allowance cycle computation and safe over-consumption preflight
-   - group-source activation check that refuses FREE or plans without collaboration capability
-3. Add source/user bootstrap write service for the new runtime:
-   - resolve/create LINE user
-   - resolve/create private OA source
-   - resolve/create group source
-   - maintain active group membership
-   - update OA friendship/display name/last interaction
-4. Wire the new worklog command parser into the LINE webhook incrementally so worklog commands bypass legacy Energy/Memory flow and persist to new worklog tables.
-5. Reuse LINE content fetch for quoted audio/image; return expired-content UX on fetch failure.
-6. Add `@AFTERTRACE 查詢` entry-token/redirect path without LIFF dependency.
-7. Reshape PWA around records, customers, projects, personal/group tabs, feedback, subscription UI, mobile/desktop responsive browsing.
-8. Repurpose/rebuild internal admin around:
-   - login with one configured username/password
-   - overview/anomaly feed
-   - feedback list with user id, display name, channel, time
-   - user list filters (plan, user id, nickname, individual/group-enabled), updated-time sorting
-   - per-user AI usage + TEXT/AUDIO/IMAGE/FILE counts
-   - user detail showing quota/usage and related group users excluding self
-   - plan price/capability/AI-quota config
-   - AI model/provider/input/output/media-price config
-   - global/recent AI usage and cost view for quota tuning
-   - manual user plan change
-9. Add OA Rich Menu configuration/setup for 使用教學 / 查看紀錄 / 付款訂閱 / 意見回饋 and keep normal OA text for human service unless `@AFTERTRACE` is used.
-10. Add payment-provider-neutral checkout intent/API and subscription UI only; do not choose provider or implement real payment settlement yet.
-11. After the new runtime works end-to-end, remove old Energy/Memory/commerce/reminder/proactive product code that is no longer needed, but keep generic reusable utilities/tests.
-
-## Later MVP batch
-
-- AI record normalization and multimodal ingestion behind a narrow structured contract.
-- Customer/project fuzzy association with confirmation when ambiguous.
-- Fixed financial transactions and simple received/expense views.
-- Workspace owner settings/export if real users need export.
-- Richer anomaly resolution workflow if admin usage proves useful.
-- Real payment-provider integration after provider choice.
-- Usage dashboards/alerts for unexpectedly high AI cost or quota burn.
+3. Add subscription-plan repository/service with current plan lookup, capability parsing, manual admin assignment/history/audit, quota-cycle computation, safe over-consumption preflight, and group activation checks.
+4. Add group-owner/member-permission service:
+   - bind owner from reliable LINE add/join actor context or explicit claim flow when unavailable
+   - authorize group record command before provider call
+   - owner can enable/disable member recording
+   - never charge a blocked member action
+5. Add source/user bootstrap write service for LINE/OA friendship, private/group sources, active membership, display name, and last interaction.
+6. Wire new worklog commands into webhook, then quoted audio/image content fetch with expired-content UX.
+7. Add `@AFTERTRACE 查詢` entry-token/redirect without LIFF.
+8. Reshape PWA around personal/group records plus owner group-usage/member-permission screen.
+9. Repurpose admin around anomaly feed, feedback, user list/detail, AI quota/usage/balance, record counts, group owner/member details, plans/capabilities/AI quota, AI model pricing, and manual plan changes.
+10. Add OA Rich Menu setup and payment-provider-neutral subscription UI/backend boundary.
+11. After end-to-end worklog runtime is proven, remove legacy Energy/Memory/commerce/reminder/proactive product code while keeping reusable utilities/tests.
 
 ## Bug-audit phase checklist
 
@@ -164,6 +120,12 @@ After core features are complete, repeatedly audit:
 - duplicate LINE webhook delivery/idempotency
 - quoted content expiration and wrong content type
 - group leave/rejoin and inactive contexts
+- group owner binding ambiguity or accidental ownership reassignment
+- owner transfer edge cases if introduced
+- blocked member still consuming AI or creating records
+- AI usage charged to wrong user/owner
+- owner quota exhausted while member submits work
+- per-member usage attribution drift
 - OA friend/unfriend/link state drift
 - ordinary OA support messages accidentally routed to AI
 - user/group token leakage or cross-group record access
@@ -175,14 +137,11 @@ After core features are complete, repeatedly audit:
 - AI model/pricing configuration changes during in-flight calls
 - historical AI cost snapshots changing incorrectly after admin price edits
 - record-type counters drifting from actual records
-- ambiguous customer/project association
 - concurrent edits and audit trail
 - AI parse failures/fallback to raw record
 - transaction consistency and duplicate financial records
-- feedback channel/user attribution correctness
-- anomaly logging volume/noise and missing critical failures
-- mobile WebView usability, font/button size, old Android browsers
-- desktop responsive layout
-- admin user-list filtering/sorting correctness
-- error recovery and user-visible error messages
-- migration safety and fresh database bootstrap
+- feedback attribution correctness
+- anomaly logging noise/missing critical failures
+- mobile WebView usability and desktop responsive layout
+- admin filtering/sorting correctness
+- error recovery and migration/bootstrap safety
