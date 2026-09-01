@@ -31,9 +31,13 @@ Every development run must:
 - Track LINE OA friendship/link state in DB.
 - Ordinary private OA text without `@AFTERTRACE` is human-customer-service traffic, not automatic AI recording.
 - OA bottom menu/Rich Menu needs: 使用教學, 查看紀錄, 付款訂閱, 意見回饋.
-- Subscription plans are data-driven and operator-configurable (`FREE`, `SUB1`, `SUB2`, future codes), including price and capability flags.
+- Subscription plans are data-driven and operator-configurable (`FREE`, `SUB1`, `SUB2`, future codes), including price, AI quota, and capability flags.
+- Every plan has bounded AI usage; no unlimited AI by default.
+- AI model/provider and input/output pricing must be DB-backed/admin-editable so future model/pricing changes do not require a code deploy.
+- AI usage events must preserve model/token/media/cost snapshots for historical cost audit even after prices change.
 - FREE is personal-only; collaboration/group access requires an enabled paid capability.
-- Internal admin must support system anomaly monitoring, feedback review, user list/filter/sort/detail, plan config, and manual plan assignment.
+- Internal admin must support system anomaly monitoring, feedback review, user list/filter/sort/detail, plan config, AI model/pricing config, AI usage analytics, and manual plan assignment.
+- Main user list/detail must show current AI usage plus TEXT/AUDIO/IMAGE/FILE record counts.
 - Admin security is intentionally lightweight for MVP: one configured username/password; no complex RBAC/SSO/MFA.
 - Customer/project schemas stay minimal; industry-specific information goes in free-text notes.
 - No custom-field builder in MVP.
@@ -55,6 +59,7 @@ Every development run must:
 - Added unit tests covering query, text record, quoted audio/image-style record instructions, and ignoring normal group chat.
 - The new parser is intentionally not wired into the old webhook runtime yet; integration should happen after the new worklog persistence schema exists so we do not route records into legacy memory tables.
 - Expanded `docs/WORKLOG_PRODUCT_SPEC.md` with internal admin, OA Rich Menu, OA friendship tracking, human-support fallback, personal/group PWA separation, plan/permission management, feedback fields, user-list/detail requirements, and manual subscription administration.
+- Added admin-editable AI quota per plan, AI provider/model configuration, input/output pricing, separate media pricing where needed, historical usage cost snapshots, and per-user AI usage plus TEXT/AUDIO/IMAGE/FILE record counts.
 
 ## Next prioritized implementation batch
 
@@ -64,34 +69,42 @@ Every development run must:
    - group/private source context
    - customer
    - project
-   - record
+   - record + normalized input/media type (`TEXT`, `AUDIO`, `IMAGE`, `FILE`)
    - transaction
-   - subscription plan + capability flags
+   - subscription plan + capability flags + AI allowance
    - user subscription assignment/history
+   - AI runtime configuration (provider/model/pricing/optional FX)
+   - AI usage ledger with immutable per-call pricing/cost snapshots
    - feedback
    - application anomaly/error events
    - edit/admin audit metadata
-2. Add repository/service tests for source scoping:
+2. Add repository/service tests for source scoping and entitlement/usage behavior:
    - group reads only its own records
    - OA friend gets personal records
    - OA friend + group participant can see separate personal/group surfaces
    - FREE cannot activate group capability
-3. Wire the new worklog command parser into the webhook path incrementally so worklog commands bypass legacy Energy/Memory flow.
-4. Track OA friend/add/remove/link events where LINE webhook/API allows it and preserve display name + last interaction.
-5. Reuse LINE content fetch for quoted audio/image; return expired-content UX on fetch failure.
-6. Add `@AFTERTRACE 查詢` entry-token/redirect path without LIFF dependency.
-7. Reshape PWA around records, customers, projects, personal/group tabs, feedback, subscription UI, mobile/desktop responsive browsing.
-8. Repurpose/rebuild internal admin around:
+   - AI usage consumes the configured plan allowance
+   - changing current AI pricing does not mutate historical cost snapshots
+3. Add reliable aggregation or counters for per-user record counts by TEXT/AUDIO/IMAGE/FILE and expose them for admin/user detail.
+4. Wire the new worklog command parser into the webhook path incrementally so worklog commands bypass legacy Energy/Memory flow.
+5. Track OA friend/add/remove/link events where LINE webhook/API allows it and preserve display name + last interaction.
+6. Reuse LINE content fetch for quoted audio/image; return expired-content UX on fetch failure.
+7. Add `@AFTERTRACE 查詢` entry-token/redirect path without LIFF dependency.
+8. Reshape PWA around records, customers, projects, personal/group tabs, feedback, subscription UI, mobile/desktop responsive browsing.
+9. Repurpose/rebuild internal admin around:
    - login with one configured username/password
    - overview/anomaly feed
    - feedback list with user id, display name, channel, time
    - user list filters (plan, user id, nickname, individual/group-enabled), updated-time sorting
-   - user detail showing related group users excluding self
-   - plan price/capability config
+   - per-user AI usage + TEXT/AUDIO/IMAGE/FILE counts
+   - user detail showing quota/usage and related group users excluding self
+   - plan price/capability/AI-quota config
+   - AI model/provider/input/output/media-price config
+   - global/recent AI usage and cost view for quota tuning
    - manual user plan change
-9. Add OA Rich Menu configuration/setup for 使用教學 / 查看紀錄 / 付款訂閱 / 意見回饋 and keep normal OA text for human service unless `@AFTERTRACE` is used.
-10. Add payment-provider-neutral checkout intent/API and subscription UI only; do not choose provider or implement real payment settlement yet.
-11. After the new runtime works end-to-end, remove old Energy/Memory/commerce/reminder/proactive product code that is no longer needed, but keep generic reusable utilities/tests.
+10. Add OA Rich Menu configuration/setup for 使用教學 / 查看紀錄 / 付款訂閱 / 意見回饋 and keep normal OA text for human service unless `@AFTERTRACE` is used.
+11. Add payment-provider-neutral checkout intent/API and subscription UI only; do not choose provider or implement real payment settlement yet.
+12. After the new runtime works end-to-end, remove old Energy/Memory/commerce/reminder/proactive product code that is no longer needed, but keep generic reusable utilities/tests.
 
 ## Later MVP batch
 
@@ -101,7 +114,7 @@ Every development run must:
 - Workspace owner settings/export if real users need export.
 - Richer anomaly resolution workflow if admin usage proves useful.
 - Real payment-provider integration after provider choice.
-- Subscription/usage counters based on the new plan model; do not revive old Energy complexity by default.
+- Usage dashboards/alerts for unexpectedly high AI cost or quota burn.
 
 ## Bug-audit phase checklist
 
@@ -116,6 +129,10 @@ After core features are complete, repeatedly audit:
 - FREE user accidentally gaining collaboration access
 - manual admin plan changes and capability cache consistency
 - plan edits affecting active subscribers incorrectly
+- AI quota reset/cycle boundaries and over-consumption races
+- AI model/pricing configuration changes during in-flight calls
+- historical AI cost snapshots changing incorrectly after admin price edits
+- record-type counters drifting from actual records
 - ambiguous customer/project association
 - concurrent edits and audit trail
 - AI parse failures/fallback to raw record
