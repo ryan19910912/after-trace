@@ -26,6 +26,13 @@ import { DrizzleMemoryRequestRepository } from './memory/drizzle-request-reposit
 import { ExplicitMemoryRequestService } from './memory/requests';
 import { memoryAiRuntimeDisabledReason, UserEnergyMemoryAiRuntime } from './memory/runtime';
 import { AutomaticMemoryRequestService } from './memory/work';
+import { WorklogBootstrapService } from './worklog/bootstrap';
+import { WorklogCollaborationService } from './worklog/collaboration';
+import { DrizzleWorklogBootstrapRepository } from './worklog/drizzle-bootstrap';
+import { DrizzleWorklogCollaborationRepository } from './worklog/drizzle-collaboration';
+import { DrizzleWorklogRecordWriteRepository } from './worklog/drizzle-records';
+import { WorklogLineRuntime } from './worklog/line-runtime';
+import { WorklogRecordWriteService } from './worklog/records';
 
 export type Bindings = ProductConfigEnv & {
   DATABASE_URL: string;
@@ -80,6 +87,12 @@ app.post('/webhooks/line', async (c) => {
     return c.json({
       ok: true,
       lifecycleEvents: 0,
+      worklogCommands: 0,
+      worklogRecords: 0,
+      worklogDuplicateRecords: 0,
+      worklogRejected: 0,
+      worklogQueries: 0,
+      worklogOwnerClaims: 0,
       storedMessages: 0,
       duplicateMessages: 0,
       ignoredInactiveMessages: 0,
@@ -115,6 +128,18 @@ app.post('/webhooks/line', async (c) => {
       )
     : null;
   const lineReplyClient = new LineMessagingReplyClient(c.env.LINE_CHANNEL_ACCESS_TOKEN);
+  const worklogBootstrapService = new WorklogBootstrapService(new DrizzleWorklogBootstrapRepository(database));
+  const worklogCollaborationService = new WorklogCollaborationService(
+    new DrizzleWorklogCollaborationRepository(database),
+  );
+  const worklogRecordWriteService = new WorklogRecordWriteService(
+    new DrizzleWorklogRecordWriteRepository(database),
+  );
+  const worklogLineRuntime = new WorklogLineRuntime(
+    worklogBootstrapService,
+    worklogCollaborationService,
+    worklogRecordWriteService,
+  );
   const memoryRequestRepository = new DrizzleMemoryRequestRepository(database);
   const explicitMemoryRequestService = new ExplicitMemoryRequestService(memoryRequestRepository);
   const automaticMemoryRequestService = new AutomaticMemoryRequestService(memoryRequestRepository);
@@ -127,6 +152,12 @@ app.post('/webhooks/line', async (c) => {
   const explicitRequestTargets = new Map<number, string>();
 
   let lifecycleEvents = 0;
+  let worklogCommands = 0;
+  let worklogRecords = 0;
+  let worklogDuplicateRecords = 0;
+  let worklogRejected = 0;
+  let worklogQueries = 0;
+  let worklogOwnerClaims = 0;
   let storedMessages = 0;
   let duplicateMessages = 0;
   let ignoredInactiveMessages = 0;
@@ -143,12 +174,82 @@ app.post('/webhooks/line', async (c) => {
 
   for (const parsedEvent of parsed.events) {
     if (parsedEvent.kind === 'LIFECYCLE') {
-      await conversationService.handleLifecycle(parsedEvent.event);
+      const event = parsedEvent.event;
+      if (event.type === 'LEAVE') {
+        await worklogBootstrapService.handleGroupLeave({
+          lineGroupId: event.lineGroupId,
+          at: event.lineTimestamp,
+        });
+      } else if (event.type === 'MEMBER_JOINED' || event.type === 'MEMBER_LEFT') {
+        const isActive = event.type === 'MEMBER_JOINED';
+        for (const lineUserId of event.lineUserIds) {
+          await worklogBootstrapService.setGroupMemberPresence({
+            lineGroupId: event.lineGroupId,
+            lineUserId,
+            isActive,
+            at: event.lineTimestamp,
+          });
+        }
+      }
+      await conversationService.handleLifecycle(event);
       lifecycleEvents += 1;
       continue;
     }
 
     const message = parsedEvent.message;
+    let worklogResult: Awaited<ReturnType<WorklogLineRuntime['handle']>>;
+    try {
+      worklogResult = await worklogLineRuntime.handle(message);
+    } catch (error) {
+      console.error(JSON.stringify({
+        event: 'worklog_line_runtime_failed',
+        lineGroupId: message.lineGroupId,
+        lineMessageId: message.lineMessageId,
+        message: error instanceof Error ? error.message : 'unknown error',
+      }));
+      worklogRejected += 1;
+      if (message.replyToken) {
+        await lineReplyClient.reply(message.replyToken, 'AFTERTRACE 這次沒有成功寫入紀錄，請稍後再試。');
+      }
+      continue;
+    }
+
+    if (worklogResult.status !== 'NOT_HANDLED') {
+      worklogCommands += 1;
+      if (worklogResult.status === 'RECORDED') {
+        worklogRecords += 1;
+        if (worklogResult.duplicate) worklogDuplicateRecords += 1;
+      } else if (worklogResult.status === 'QUERY') {
+        worklogQueries += 1;
+      } else if (worklogResult.status === 'OWNER_BOUND') {
+        worklogOwnerClaims += 1;
+      } else {
+        worklogRejected += 1;
+      }
+
+      if (message.replyToken) {
+        if (worklogResult.status === 'QUERY') {
+          const url = message.lineUserId && webAuthService && c.env.WEB_APP_URL?.trim()
+            ? await webAuthService.createBotEntry({
+                webAppUrl: c.env.WEB_APP_URL,
+                lineUserId: message.lineUserId,
+                lineGroupId: message.lineGroupId,
+                at: message.lineTimestamp,
+              })
+            : null;
+          await lineReplyClient.reply(
+            message.replyToken,
+            url
+              ? `AFTERTRACE｜查看紀錄\n${url}`
+              : 'AFTERTRACE 紀錄頁目前尚未設定完成，紀錄本身不受影響。',
+          );
+        } else {
+          await lineReplyClient.reply(message.replyToken, worklogResult.replyText);
+        }
+      }
+      continue;
+    }
+
     const result = await conversationService.ingest(message);
     if (result.status === 'IGNORED_INACTIVE') {
       ignoredInactiveMessages += 1;
@@ -424,6 +525,12 @@ app.post('/webhooks/line', async (c) => {
   return c.json({
     ok: true,
     lifecycleEvents,
+    worklogCommands,
+    worklogRecords,
+    worklogDuplicateRecords,
+    worklogRejected,
+    worklogQueries,
+    worklogOwnerClaims,
     storedMessages,
     duplicateMessages,
     ignoredInactiveMessages,
