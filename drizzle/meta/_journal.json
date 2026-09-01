@@ -8,6 +8,13 @@
       "when": 1788023686641,
       "tag": "0000_tough_scalphunter",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788288732000,
+      "tag": "0001_worklog_foundation",
+      "breakpoints": true
     }
   ]
 }
