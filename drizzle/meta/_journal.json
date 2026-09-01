@@ -29,6 +29,13 @@
       "when": 1788295500000,
       "tag": "0003_worklog_ai_quota_reservations",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788299226000,
+      "tag": "0004_worklog_pending_group_bootstrap",
+      "breakpoints": true
     }
   ]
 }
