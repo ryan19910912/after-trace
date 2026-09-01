@@ -47,6 +47,10 @@ export interface WorklogBootstrapRepository {
   }): Promise<WorklogBoundGroup | null>;
 }
 
+export type PrivateBootstrapResult =
+  | { status: 'READY'; userId: number; workspaceId: number; sourceId: number }
+  | { status: 'NOT_OA_FRIEND'; userId: number };
+
 export type GroupBootstrapResult =
   | { status: 'BOUND'; userId: number; sourceId: number; ownerUserId: number | null }
   | { status: 'PENDING_OWNER'; userId: number; pendingGroupId: number };
@@ -97,6 +101,24 @@ export class WorklogBootstrapService {
       displayName: normalizeDisplayName(input.displayName),
       at: input.at ?? new Date(),
     });
+  }
+
+  async bootstrapPrivateInteraction(input: {
+    lineUserId: string;
+    displayName?: string | null;
+    at?: Date;
+  }): Promise<PrivateBootstrapResult> {
+    const at = input.at ?? new Date();
+    const user = await this.repository.upsertLineUser({
+      lineUserId: normalizeLineId(input.lineUserId, 'LINE user id'),
+      displayName: normalizeDisplayName(input.displayName),
+      at,
+    });
+    if (!user.isOaFriend) return { status: 'NOT_OA_FRIEND', userId: user.userId };
+
+    const workspaceId = await this.repository.ensureWorkspace(user.userId, at);
+    const sourceId = await this.repository.ensurePrivateSource(user.userId, workspaceId, at);
+    return { status: 'READY', userId: user.userId, workspaceId, sourceId };
   }
 
   async bootstrapGroupInteraction(input: {
