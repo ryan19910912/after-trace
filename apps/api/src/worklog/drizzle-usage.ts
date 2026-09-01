@@ -40,11 +40,15 @@ export class DrizzleWorklogUsageRepository implements WorklogUsageRepository {
     const result = await this.db.execute(sql`
       SELECT
         subscription.plan_code,
-        COALESCE(plan.ai_allowance_units, 0) AS allowance_units,
+        COALESCE(balance.allowance_units, plan.ai_allowance_units, 0) AS allowance_units,
+        COALESCE(balance.reserved_units, 0) AS reserved_units,
         subscription.current_period_start,
         subscription.current_period_end
       FROM worklog_user_subscriptions AS subscription
       LEFT JOIN worklog_subscription_plans AS plan ON plan.code = subscription.plan_code
+      LEFT JOIN worklog_ai_quota_balances AS balance
+        ON balance.user_id = subscription.user_id
+       AND balance.period_start = subscription.current_period_start
       WHERE subscription.user_id = ${userId}
         AND subscription.status = 'ACTIVE'
       LIMIT 1
@@ -52,6 +56,7 @@ export class DrizzleWorklogUsageRepository implements WorklogUsageRepository {
     const row = result.rows[0] as {
       plan_code?: string;
       allowance_units?: number | string | null;
+      reserved_units?: number | string | null;
       current_period_start?: Date | string | null;
       current_period_end?: Date | string | null;
     } | undefined;
@@ -59,6 +64,7 @@ export class DrizzleWorklogUsageRepository implements WorklogUsageRepository {
     return {
       planCode: row.plan_code,
       allowanceUnits: numeric(row.allowance_units ?? 0),
+      reservedUnits: numeric(row.reserved_units ?? 0),
       periodStart: nullableDate(row.current_period_start ?? null),
       periodEnd: nullableDate(row.current_period_end ?? null),
     };
