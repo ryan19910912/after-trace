@@ -41,21 +41,21 @@ Every development run must:
 - Created `revive/line-worklog` from legacy LINE Bot commit `bfa7221`.
 - Confirmed old branch contains the useful LINE foundations instead of rebuilding them from sports `main`.
 - Added `docs/WORKLOG_PRODUCT_SPEC.md` with the current MVP contract and scope.
+- Added `apps/api/src/worklog/command.ts`, a new narrow command parser independent of legacy Energy/Memory behavior.
+- Command parser now defines the intended V1 contract: `@AFTERTRACE 查詢`, text recording, and Reply + `@AFTERTRACE` quoted recording without requiring the word `紀錄`.
+- Added unit tests covering query, text record, quoted audio/image-style record instructions, and ignoring normal group chat.
+- The new parser is intentionally not wired into the old webhook runtime yet; integration should happen after the new worklog persistence schema exists so we do not route records into legacy memory tables.
 
 ## Next prioritized implementation batch
 
-1. Introduce a new worklog command parser independent from legacy Energy/Memory intents:
-   - QUERY (`查詢`)
-   - RECORD_TEXT
-   - RECORD_QUOTED
-   - HELP only if needed
-2. Add worklog domain/schema for workspace, source group/private context, customer, project, record, transaction, edit/audit metadata.
-3. Add Drizzle migration(s) without deleting legacy tables until the new runtime is proven.
-4. Add repository/service tests for source scoping: group reads only its own records; owner workspace can aggregate later.
-5. Wire webhook path incrementally so new commands bypass legacy Energy/Memory flow.
-6. Reuse LINE content fetch for quoted audio/image; return expired-content UX on fetch failure.
-7. Add `@AFTERTRACE 查詢` entry-token/redirect path without LIFF dependency.
-8. Replace/reshape PWA around records, customers, projects, mobile/desktop responsive browsing.
+1. Add worklog domain/schema for workspace, source group/private context, customer, project, record, transaction, edit/audit metadata.
+2. Add Drizzle migration(s) without deleting legacy tables until the new runtime is proven.
+3. Add repository/service tests for source scoping: group reads only its own records; owner workspace can aggregate later.
+4. Wire the new worklog command parser into the webhook path incrementally so worklog commands bypass legacy Energy/Memory flow.
+5. Reuse LINE content fetch for quoted audio/image; return expired-content UX on fetch failure.
+6. Add `@AFTERTRACE 查詢` entry-token/redirect path without LIFF dependency.
+7. Replace/reshape PWA around records, customers, projects, mobile/desktop responsive browsing.
+8. After the new runtime works end-to-end, remove old Energy/Memory/commerce/reminder/proactive product code that is no longer needed, but keep generic reusable utilities/tests.
 
 ## Later MVP batch
 
