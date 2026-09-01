@@ -81,14 +81,30 @@ Every development run must:
 - Registered the worklog schema in `schema-all.ts` and `drizzle.config.ts`.
 - Added `drizzle/0001_worklog_foundation.sql` and registered it in the Drizzle migration journal.
 - Added a root `db:migrate` command and fixed its config path.
+- Switched the database client to register `schema-all.ts`, so new worklog schema is available to runtime code without discarding legacy tables during migration.
 - Added `apps/api/src/worklog/entitlements.ts` with explicit policy that FREE can never enable group collaboration even if bad capability JSON says otherwise.
 - Added bounded AI allowance helpers and an immutable AI pricing/cost snapshot helper.
 - Added unit tests for FREE/group entitlement, capability JSON sanitization, quota remaining/over-consumption, historical pricing snapshots, token/media cost computation, and negative-price rejection.
 
+### 2026-09-02 scoped record-read layer
+
+- Added `WorklogRecordReadService` and a repository contract that make source scoping explicit before PWA routes exist.
+- Personal records are available only when the viewer is an OA friend and only through that viewer's active private source.
+- Group records require an active membership check for the exact requested group source before any record query executes.
+- PWA surface discovery returns personal and group surfaces separately instead of merging them into one ambiguous timeline.
+- Added `DrizzleWorklogRecordReadRepository` using the new worklog tables and filtering inactive members/sources at the query boundary.
+- Added tests covering:
+  - non-OA users cannot read personal records
+  - OA friends can read only their private source
+  - arbitrary group source IDs are rejected before querying records
+  - exact active group membership grants only that group's records
+  - OA friend + group participant receives separate personal/group surfaces
+  - group access alone does not create personal access
+
 ## Validation performed in this round
 
-- Compared branch before/after this round: 8 functional/configuration files changed plus the progress handoff, with the branch strictly ahead of the starting HEAD.
-- Performed static consistency review of schema/table names, indexes, migration names, and the corrected `db:migrate` relative config path.
+- Compared branch before/after the data-foundation changes and confirmed it moved strictly forward from the starting HEAD with schema, migration, entitlement, and scope-layer changes committed on `revive/line-worklog`.
+- Performed static consistency review of schema/table names, indexes, migration names, the corrected `db:migrate` relative config path, and group/private query predicates.
 - Tests/typecheck were added but were not executed in this connector-only run because there is no checked-out repository/runtime available to execute pnpm. A future run with an executable checkout should run `pnpm typecheck`, `pnpm test`, `pnpm db:schema:check`, and migration against a disposable DB before production use.
 
 ## Known blocker / migration caution
@@ -97,27 +113,27 @@ Every development run must:
 
 ## Next prioritized implementation batch
 
-1. Add worklog repository/service layer around the new schema, with tests/policies for source scoping:
-   - group view only reads its exact group source
-   - OA friend gets personal/private source
-   - OA friend + group participant receives separate personal/group surfaces
-   - group membership inactive state denies group data
-   - FREE cannot activate a group source even if a source row already exists
-2. Add reliable admin/user usage aggregation for:
+1. Add reliable admin/user usage aggregation for:
    - current-cycle AI units/cost from `worklog_ai_usage_events`
    - TEXT/AUDIO/IMAGE/FILE record counts from `worklog_records`
    - last interaction / updated time
-3. Add subscription-plan repository/service with:
+2. Add subscription-plan repository/service with:
    - current plan lookup
    - capability parsing
    - manual admin plan assignment + history/audit
    - AI allowance cycle computation and safe over-consumption preflight
+   - group-source activation check that refuses FREE or plans without collaboration capability
+3. Add source/user bootstrap write service for the new runtime:
+   - resolve/create LINE user
+   - resolve/create private OA source
+   - resolve/create group source
+   - maintain active group membership
+   - update OA friendship/display name/last interaction
 4. Wire the new worklog command parser into the LINE webhook incrementally so worklog commands bypass legacy Energy/Memory flow and persist to new worklog tables.
-5. Track OA friend/add/remove/link events where LINE webhook/API allows it and preserve display name + last interaction.
-6. Reuse LINE content fetch for quoted audio/image; return expired-content UX on fetch failure.
-7. Add `@AFTERTRACE 查詢` entry-token/redirect path without LIFF dependency.
-8. Reshape PWA around records, customers, projects, personal/group tabs, feedback, subscription UI, mobile/desktop responsive browsing.
-9. Repurpose/rebuild internal admin around:
+5. Reuse LINE content fetch for quoted audio/image; return expired-content UX on fetch failure.
+6. Add `@AFTERTRACE 查詢` entry-token/redirect path without LIFF dependency.
+7. Reshape PWA around records, customers, projects, personal/group tabs, feedback, subscription UI, mobile/desktop responsive browsing.
+8. Repurpose/rebuild internal admin around:
    - login with one configured username/password
    - overview/anomaly feed
    - feedback list with user id, display name, channel, time
@@ -128,9 +144,9 @@ Every development run must:
    - AI model/provider/input/output/media-price config
    - global/recent AI usage and cost view for quota tuning
    - manual user plan change
-10. Add OA Rich Menu configuration/setup for 使用教學 / 查看紀錄 / 付款訂閱 / 意見回饋 and keep normal OA text for human service unless `@AFTERTRACE` is used.
-11. Add payment-provider-neutral checkout intent/API and subscription UI only; do not choose provider or implement real payment settlement yet.
-12. After the new runtime works end-to-end, remove old Energy/Memory/commerce/reminder/proactive product code that is no longer needed, but keep generic reusable utilities/tests.
+9. Add OA Rich Menu configuration/setup for 使用教學 / 查看紀錄 / 付款訂閱 / 意見回饋 and keep normal OA text for human service unless `@AFTERTRACE` is used.
+10. Add payment-provider-neutral checkout intent/API and subscription UI only; do not choose provider or implement real payment settlement yet.
+11. After the new runtime works end-to-end, remove old Energy/Memory/commerce/reminder/proactive product code that is no longer needed, but keep generic reusable utilities/tests.
 
 ## Later MVP batch
 
