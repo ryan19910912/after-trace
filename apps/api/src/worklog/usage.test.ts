@@ -49,12 +49,13 @@ class FakeRepository implements WorklogUsageRepository {
 const cycle: ActiveUsageWindow = {
   planCode: 'SUB1',
   allowanceUnits: 100,
+  reservedUnits: 5,
   periodStart: new Date('2026-09-01T00:00:00.000Z'),
   periodEnd: new Date('2026-10-01T00:00:00.000Z'),
 };
 
 describe('WorklogUsageService user usage', () => {
-  it('returns current AI allowance, usage, balance, cost, and record-type counts', async () => {
+  it('returns current AI allowance, committed usage, reserved units, balance, cost, and record counts', async () => {
     const repository = new FakeRepository();
     repository.windows.set(100, cycle);
     repository.ai.set('100:all', {
@@ -70,7 +71,8 @@ describe('WorklogUsageService user usage', () => {
       planCode: 'SUB1',
       aiAllowanceUnits: 100,
       aiUsedUnits: 42,
-      aiRemainingUnits: 58,
+      aiReservedUnits: 5,
+      aiRemainingUnits: 53,
       providerCostUsd: 0.31,
       providerCostTwd: 9.75,
       records: { TEXT: 8, AUDIO: 2, IMAGE: 3, FILE: 1 },
@@ -130,7 +132,8 @@ describe('WorklogUsageService group owner usage', () => {
           planCode: 'SUB1',
           aiAllowanceUnits: 100,
           aiUsedUnits: 60,
-          aiRemainingUnits: 40,
+          aiReservedUnits: 5,
+          aiRemainingUnits: 35,
           providerCostUsd: 0.6,
           providerCostTwd: 18,
           records: { TEXT: 2, AUDIO: 0, IMAGE: 1, FILE: 0 },
