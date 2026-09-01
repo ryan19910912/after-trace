@@ -1,9 +1,11 @@
 import { sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
 import type {
+  StoredTextRecordIdentity,
   WorklogGroupSurface,
   WorklogRecordListItem,
   WorklogRecordReadRepository,
+  WorklogRecordWriteRepository,
 } from './records';
 
 type RecordRow = {
@@ -19,6 +21,95 @@ type RecordRow = {
   created_at: Date | string;
   updated_at: Date | string;
 };
+
+type TextWriteRow = {
+  id: string;
+  source_id: string;
+  author_user_id: string | null;
+  line_message_id: string;
+  raw_text: string | null;
+  inserted: boolean;
+};
+
+export class DrizzleWorklogRecordWriteRepository implements WorklogRecordWriteRepository {
+  constructor(private readonly db: Database) {}
+
+  async insertTextRecord(input: {
+    sourceId: number;
+    authorUserId: number;
+    lineMessageId: string;
+    rawText: string;
+    sourceTimestamp: Date;
+  }): Promise<
+    | { status: 'CREATED'; record: StoredTextRecordIdentity }
+    | { status: 'EXISTING'; record: StoredTextRecordIdentity }
+    | { status: 'SOURCE_NOT_FOUND' }
+  > {
+    const result = await this.db.execute(sql`
+      WITH active_source AS (
+        SELECT id, workspace_id
+        FROM worklog_sources
+        WHERE id = ${input.sourceId}
+          AND status = 'ACTIVE'
+        LIMIT 1
+      ), inserted AS (
+        INSERT INTO worklog_records (
+          workspace_id,
+          source_id,
+          author_user_id,
+          line_message_id,
+          input_type,
+          category,
+          raw_text,
+          source_timestamp,
+          created_at,
+          updated_at
+        )
+        SELECT
+          active_source.workspace_id,
+          active_source.id,
+          ${input.authorUserId},
+          ${input.lineMessageId},
+          'TEXT',
+          'OTHER',
+          ${input.rawText},
+          ${input.sourceTimestamp},
+          NOW(),
+          NOW()
+        FROM active_source
+        ON CONFLICT (line_message_id) DO NOTHING
+        RETURNING id, source_id, author_user_id, line_message_id, raw_text
+      )
+      SELECT
+        id::text AS id,
+        source_id::text AS source_id,
+        author_user_id::text AS author_user_id,
+        line_message_id,
+        raw_text,
+        TRUE AS inserted
+      FROM inserted
+      UNION ALL
+      SELECT
+        existing.id::text AS id,
+        existing.source_id::text AS source_id,
+        existing.author_user_id::text AS author_user_id,
+        existing.line_message_id,
+        existing.raw_text,
+        FALSE AS inserted
+      FROM worklog_records AS existing
+      WHERE existing.line_message_id = ${input.lineMessageId}
+        AND NOT EXISTS (SELECT 1 FROM inserted)
+      LIMIT 1
+    `);
+
+    const row = result.rows[0] as TextWriteRow | undefined;
+    if (!row) return { status: 'SOURCE_NOT_FOUND' };
+    const record = textRecordIdentity(row);
+    return row.inserted
+      ? { status: 'CREATED', record }
+      : { status: 'EXISTING', record };
+  }
+}
 
 export class DrizzleWorklogRecordReadRepository implements WorklogRecordReadRepository {
   constructor(private readonly db: Database) {}
@@ -113,6 +204,16 @@ export class DrizzleWorklogRecordReadRepository implements WorklogRecordReadRepo
       updatedAt: new Date(row.updated_at).toISOString(),
     }));
   }
+}
+
+function textRecordIdentity(row: TextWriteRow): StoredTextRecordIdentity {
+  return {
+    id: Number(row.id),
+    sourceId: Number(row.source_id),
+    authorUserId: nullableNumber(row.author_user_id),
+    lineMessageId: row.line_message_id,
+    rawText: row.raw_text,
+  };
 }
 
 function nullableNumber(value: string | null): number | null {
