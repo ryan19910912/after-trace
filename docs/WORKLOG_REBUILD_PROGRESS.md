@@ -61,32 +61,58 @@ Every development run must:
 - Expanded `docs/WORKLOG_PRODUCT_SPEC.md` with internal admin, OA Rich Menu, OA friendship tracking, human-support fallback, personal/group PWA separation, plan/permission management, feedback fields, user-list/detail requirements, and manual subscription administration.
 - Added admin-editable AI quota per plan, AI provider/model configuration, input/output pricing, separate media pricing where needed, historical usage cost snapshots, and per-user AI usage plus TEXT/AUDIO/IMAGE/FILE record counts.
 
+### 2026-09-02 worklog data foundation
+
+- Added an isolated `apps/api/src/db/schema-worklog.ts` instead of mutating legacy LINE/Memory tables before the new runtime is ready.
+- Added core worklog tables/enums for:
+  - LINE/OA users and OA friendship state
+  - workspace
+  - private/group source contexts and group membership
+  - customer/project
+  - record with normalized `TEXT` / `AUDIO` / `IMAGE` / `FILE` input type and broad record category
+  - fixed numeric transactions
+  - subscription plans with JSON capability flags and bounded AI allowance
+  - current user subscription plus assignment history
+  - singleton AI runtime model/provider/pricing configuration
+  - immutable AI usage events with pricing/model/token/media/cost snapshots
+  - feedback
+  - anomaly/error events
+  - worklog/admin audit log
+- Registered the worklog schema in `schema-all.ts` and `drizzle.config.ts`.
+- Added `drizzle/0001_worklog_foundation.sql` and registered it in the Drizzle migration journal.
+- Added a root `db:migrate` command and fixed its config path.
+- Added `apps/api/src/worklog/entitlements.ts` with explicit policy that FREE can never enable group collaboration even if bad capability JSON says otherwise.
+- Added bounded AI allowance helpers and an immutable AI pricing/cost snapshot helper.
+- Added unit tests for FREE/group entitlement, capability JSON sanitization, quota remaining/over-consumption, historical pricing snapshots, token/media cost computation, and negative-price rejection.
+
+## Validation performed in this round
+
+- Compared branch before/after this round: 8 functional/configuration files changed plus the progress handoff, with the branch strictly ahead of the starting HEAD.
+- Performed static consistency review of schema/table names, indexes, migration names, and the corrected `db:migrate` relative config path.
+- Tests/typecheck were added but were not executed in this connector-only run because there is no checked-out repository/runtime available to execute pnpm. A future run with an executable checkout should run `pnpm typecheck`, `pnpm test`, `pnpm db:schema:check`, and migration against a disposable DB before production use.
+
+## Known blocker / migration caution
+
+- `0001_worklog_foundation.sql` is hand-authored and journaled because this run cannot execute Drizzle Kit generation. The existing Drizzle snapshot metadata has not been regenerated for the new schema. Do not use `drizzle-kit generate` for the next migration until the snapshot is regenerated from an executable checkout; meanwhile migrations can remain explicitly hand-authored/journaled. Before first real DB deployment, verify exported schema and migration on a disposable Neon branch/database.
+
 ## Next prioritized implementation batch
 
-1. Design and add worklog domain/schema/migration for:
-   - workspace
-   - LINE user / OA friendship state
-   - group/private source context
-   - customer
-   - project
-   - record + normalized input/media type (`TEXT`, `AUDIO`, `IMAGE`, `FILE`)
-   - transaction
-   - subscription plan + capability flags + AI allowance
-   - user subscription assignment/history
-   - AI runtime configuration (provider/model/pricing/optional FX)
-   - AI usage ledger with immutable per-call pricing/cost snapshots
-   - feedback
-   - application anomaly/error events
-   - edit/admin audit metadata
-2. Add repository/service tests for source scoping and entitlement/usage behavior:
-   - group reads only its own records
-   - OA friend gets personal records
-   - OA friend + group participant can see separate personal/group surfaces
-   - FREE cannot activate group capability
-   - AI usage consumes the configured plan allowance
-   - changing current AI pricing does not mutate historical cost snapshots
-3. Add reliable aggregation or counters for per-user record counts by TEXT/AUDIO/IMAGE/FILE and expose them for admin/user detail.
-4. Wire the new worklog command parser into the webhook path incrementally so worklog commands bypass legacy Energy/Memory flow.
+1. Add worklog repository/service layer around the new schema, with tests/policies for source scoping:
+   - group view only reads its exact group source
+   - OA friend gets personal/private source
+   - OA friend + group participant receives separate personal/group surfaces
+   - group membership inactive state denies group data
+   - FREE cannot activate a group source even if a source row already exists
+2. Add reliable admin/user usage aggregation for:
+   - current-cycle AI units/cost from `worklog_ai_usage_events`
+   - TEXT/AUDIO/IMAGE/FILE record counts from `worklog_records`
+   - last interaction / updated time
+3. Add subscription-plan repository/service with:
+   - current plan lookup
+   - capability parsing
+   - manual admin plan assignment + history/audit
+   - AI allowance cycle computation and safe over-consumption preflight
+4. Wire the new worklog command parser into the LINE webhook incrementally so worklog commands bypass legacy Energy/Memory flow and persist to new worklog tables.
 5. Track OA friend/add/remove/link events where LINE webhook/API allows it and preserve display name + last interaction.
 6. Reuse LINE content fetch for quoted audio/image; return expired-content UX on fetch failure.
 7. Add `@AFTERTRACE 查詢` entry-token/redirect path without LIFF dependency.
