@@ -1,4 +1,8 @@
-import type { BufferedGroupMessage } from '../line/events';
+export type WorklogCommandMessage = {
+  messageType: string;
+  textContent: string | null;
+  quotedLineMessageId: string | null;
+};
 
 export type WorklogCommand =
   | { kind: 'QUERY' }
@@ -14,16 +18,17 @@ function stripAftertraceMention(text: string): { mentioned: boolean; body: strin
 }
 
 /**
- * Parses only the narrow V1 worklog interaction contract.
+ * Parses only the narrow V1 worklog interaction contract for either group or OA-private
+ * LINE messages. The caller decides which commands are valid in the current source.
  *
- * - @AFTERTRACE 查詢 => open current group's PWA records.
+ * - @AFTERTRACE 查詢 => open scoped PWA records.
  * - @AFTERTRACE 啟用 => explicitly claim/bind an otherwise-unowned group.
  * - @AFTERTRACE <text> => persist that text as a work record.
  * - Reply to an attachment + @AFTERTRACE => persist quoted content.
  *
  * This deliberately does not invoke AI and does not interpret accounting semantics.
  */
-export function parseWorklogCommand(message: BufferedGroupMessage): WorklogCommand | null {
+export function parseWorklogCommand(message: WorklogCommandMessage): WorklogCommand | null {
   if (message.messageType !== 'text' || !message.textContent) return null;
 
   const mention = stripAftertraceMention(message.textContent);
