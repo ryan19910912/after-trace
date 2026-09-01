@@ -9,7 +9,7 @@ The MVP deliberately separates responsibilities:
 - LINE OA private chat: owner entry point for private records, subscription, feedback, and later workspace-level management.
 - LINE group bot: lightweight shared recording surface. A group may record anything useful: money, work performed, issues, materials, photos, voice notes, or general notes.
 - Web/PWA: browsing, filtering, customer/project detail, editing, workspace settings, personal/group record views, subscription UI, and feedback.
-- Internal admin: lightweight operator console for system health, user feedback, subscription plans/permissions, user lookup, and manual subscription changes.
+- Internal admin: lightweight operator console for system health, user feedback, subscription plans/permissions/AI quotas, AI model pricing, user lookup, usage analytics, and manual subscription changes.
 - AI: used at ingestion time to turn messy human input into a concise record and optional structured metadata. AI is not required for normal PWA search/filter in V1.
 
 ## Interaction contract
@@ -134,9 +134,17 @@ A work record should retain at least:
 - normalized summary
 - record category when confidently known
 - linked customer/project when confidently resolved
+- record media/input type
 - created/edited timestamps
 
 Suggested record categories are intentionally broad: `NOTE`, `WORK`, `ISSUE`, `PAYMENT`, `EXPENSE`, `MATERIAL`, `PHOTO`, `AUDIO`, `OTHER`.
+
+Track a normalized record/input-type value so usage can be aggregated at least as:
+
+- TEXT
+- AUDIO
+- IMAGE
+- FILE
 
 ### Finance
 
@@ -169,7 +177,7 @@ Admin can configure for each level:
 - monthly/subscription price
 - enabled/disabled status
 - ordered rank/level
-- included usage limits when implemented
+- AI quota / allowance
 - feature permissions/capabilities
 
 Examples of permissions/capabilities that may be toggled per plan:
@@ -185,6 +193,20 @@ Examples of permissions/capabilities that may be toggled per plan:
 - other future paid features
 
 Do not assume the final permission matrix yet; model it flexibly enough to add capability flags without a schema rewrite for every new plan feature.
+
+### AI quota semantics
+
+Each plan must have an operator-editable AI allowance. Do not hard-code a specific unit definition into the product spec yet; the implementation may use AI units/credits derived from provider cost and input type.
+
+At minimum the system must support:
+
+- configured AI allowance per plan/billing cycle
+- current user AI usage for the active cycle
+- remaining AI allowance
+- usage events that retain enough provider/model/token information to recalculate or audit cost later
+- admin override/adjustment when needed later
+
+Do not offer unlimited AI usage by default.
 
 ### User subscription state
 
@@ -207,6 +229,34 @@ Current product rule:
 
 - FREE users are personal-only.
 - Group/collaboration use requires a paid plan that enables group capability.
+
+## AI runtime configuration
+
+AI provider/model economics must be operator-configurable so model migrations and pricing changes do not require a code deploy.
+
+Admin settings must allow editing at least:
+
+- active model/provider identifier
+- input token price per 1M tokens
+- output token price per 1M tokens
+- audio/image pricing fields if the selected provider bills them separately
+- optional exchange rate / cost conversion inputs if user-facing quota logic depends on TWD
+- effective/update timestamp
+
+The runtime should read current AI configuration from DB-backed settings (with safe deployment defaults/fallbacks if needed), not scatter model names/prices across code.
+
+Each AI usage event should record enough immutable snapshot data to understand historical cost even after admin changes the current price/model, such as:
+
+- model/provider used
+- input tokens/units
+- output tokens/units
+- media/audio input units when applicable
+- pricing snapshot or computed provider cost at execution time
+- user id
+- group/workspace/source where relevant
+- created time
+
+Changing the configured model or token pricing should affect future calls/estimates, not rewrite historical usage costs.
 
 ## Internal admin console
 
@@ -276,6 +326,11 @@ Columns:
 - LINE nickname/display name
 - current plan level
 - group id(s) if subscribed for group/collaboration
+- AI usage in the current billing/usage cycle
+- text record count
+- audio record count
+- image record count
+- file record count
 - last input/interaction time
 - updated time
 - detail action
@@ -284,12 +339,15 @@ Behavior:
 
 - allow sorting by updated time, at minimum ascending/descending.
 - user detail opens a related-user/group view.
+- usage/count columns should come from reliable stored counters or aggregates and must remain consistent with source records/usage events.
 
 ### User detail / related group users
 
 When opening a user's detail:
 
 - show the user's subscription/profile summary
+- show current AI quota/usage/remaining allowance
+- show record counts by TEXT/AUDIO/IMAGE/FILE
 - show the group(s) linked to that user's collaboration subscription when applicable
 - show all other users in the selected/related group, excluding the current user
 
@@ -299,6 +357,8 @@ Related-user list should show the same core columns as the main user list where 
 - nickname
 - plan level
 - group id
+- AI usage
+- TEXT/AUDIO/IMAGE/FILE record counts
 - last input time
 - updated time
 - detail if useful
@@ -311,11 +371,24 @@ Admin must support:
 
 - create/edit plan levels/codes such as FREE, SUB1, SUB2
 - edit displayed subscription price
+- edit AI quota/allowance per plan
 - enable/disable permissions/capabilities for each plan
 - view plan assignment on users
 - manually change a user's plan level
 
 Changes should be auditable with a lightweight admin audit log if practical.
+
+### AI model/pricing management
+
+Admin must support editing the active AI runtime economics without deploying code:
+
+- active model/provider name/id
+- input price
+- output price
+- separate audio/image/media price fields if needed by provider
+- optional FX/cost-conversion settings used for plan/quota design
+
+The admin should also surface enough recent/global AI usage and cost data to help decide whether FREE/SUB1/SUB2 AI quotas are sustainable.
 
 ## AI scope
 
@@ -346,7 +419,7 @@ Do not lock final pricing before usage data. Current product shape is:
 - FREE: personal-only baseline
 - SUB1 / SUB2 / future levels: configured by admin
 - collaboration/group access is a paid capability
-- subscription tiers include bounded AI usage rather than unlimited usage when AI limits are implemented
+- every plan has a bounded, operator-editable AI allowance rather than unlimited usage
 
 Early validation should optimize for retention and willingness to pay, not infrastructure optimization.
 
