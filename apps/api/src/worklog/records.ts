@@ -30,6 +30,70 @@ export interface WorklogRecordReadRepository {
   listRecordsBySource(sourceId: number, limit: number): Promise<WorklogRecordListItem[]>;
 }
 
+export type StoredTextRecordIdentity = {
+  id: number;
+  sourceId: number;
+  authorUserId: number | null;
+  lineMessageId: string;
+  rawText: string | null;
+};
+
+export interface WorklogRecordWriteRepository {
+  insertTextRecord(input: {
+    sourceId: number;
+    authorUserId: number;
+    lineMessageId: string;
+    rawText: string;
+    sourceTimestamp: Date;
+  }): Promise<
+    | { status: 'CREATED'; record: StoredTextRecordIdentity }
+    | { status: 'EXISTING'; record: StoredTextRecordIdentity }
+    | { status: 'SOURCE_NOT_FOUND' }
+  >;
+}
+
+export type WorklogTextRecordWriteResult =
+  | { status: 'CREATED'; recordId: number }
+  | { status: 'ALREADY_RECORDED'; recordId: number }
+  | { status: 'SOURCE_NOT_FOUND' }
+  | { status: 'IDEMPOTENCY_CONFLICT'; recordId: number };
+
+export class WorklogRecordWriteService {
+  constructor(private readonly repository: WorklogRecordWriteRepository) {}
+
+  async recordText(input: {
+    sourceId: number;
+    authorUserId: number;
+    lineMessageId: string;
+    text: string;
+    sourceTimestamp?: Date;
+  }): Promise<WorklogTextRecordWriteResult> {
+    const sourceId = positiveInteger(input.sourceId, 'source id');
+    const authorUserId = positiveInteger(input.authorUserId, 'author user id');
+    const lineMessageId = requiredTrimmed(input.lineMessageId, 'LINE message id', 64);
+    const text = requiredTrimmed(input.text, 'record text');
+    const stored = await this.repository.insertTextRecord({
+      sourceId,
+      authorUserId,
+      lineMessageId,
+      rawText: text,
+      sourceTimestamp: input.sourceTimestamp ?? new Date(),
+    });
+
+    if (stored.status === 'SOURCE_NOT_FOUND') return stored;
+    if (stored.status === 'CREATED') return { status: 'CREATED', recordId: stored.record.id };
+
+    const sameIdentity =
+      stored.record.sourceId === sourceId &&
+      stored.record.authorUserId === authorUserId &&
+      stored.record.lineMessageId === lineMessageId &&
+      stored.record.rawText === text;
+    return sameIdentity
+      ? { status: 'ALREADY_RECORDED', recordId: stored.record.id }
+      : { status: 'IDEMPOTENCY_CONFLICT', recordId: stored.record.id };
+  }
+}
+
 export class WorklogRecordReadService {
   constructor(private readonly repository: WorklogRecordReadRepository) {}
 
@@ -72,4 +136,16 @@ export class WorklogRecordReadService {
 function safeLimit(value: number): number {
   if (!Number.isFinite(value)) return 100;
   return Math.max(1, Math.min(200, Math.floor(value)));
+}
+
+function positiveInteger(value: number, label: string): number {
+  if (!Number.isInteger(value) || value <= 0) throw new Error(`${label} must be a positive integer`);
+  return value;
+}
+
+function requiredTrimmed(value: string, label: string, maxLength?: number): string {
+  const normalized = value.trim();
+  if (!normalized) throw new Error(`${label} is required`);
+  if (maxLength && normalized.length > maxLength) throw new Error(`${label} is too long`);
+  return normalized;
 }
