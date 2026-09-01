@@ -121,17 +121,20 @@ export class DrizzleWorklogCollaborationRepository implements WorklogCollaborati
     bindingMethod: string,
   ): Promise<boolean> {
     const result = await this.db.execute(sql`
-      UPDATE worklog_sources
+      UPDATE worklog_sources AS source
       SET
+        workspace_id = workspace.id,
         owner_user_id = ${ownerUserId},
-        subscription_owner_user_id = COALESCE(subscription_owner_user_id, ${ownerUserId}),
+        subscription_owner_user_id = ${ownerUserId},
         owner_binding_method = ${bindingMethod},
         owner_bound_at = NOW(),
         updated_at = NOW()
-      WHERE id = ${sourceId}
-        AND type = 'GROUP'
-        AND owner_user_id IS NULL
-      RETURNING id
+      FROM worklog_workspaces AS workspace
+      WHERE source.id = ${sourceId}
+        AND source.type = 'GROUP'
+        AND source.owner_user_id IS NULL
+        AND workspace.owner_user_id = ${ownerUserId}
+      RETURNING source.id
     `);
     return result.rows.length === 1;
   }
