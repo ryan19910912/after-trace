@@ -127,21 +127,44 @@ Every development run must:
   - quoted-command interception away from legacy Memory
 - Webhook response diagnostics now include worklog command/record/duplicate/rejected/query/owner-claim counters separately from legacy counters.
 
+### 2026-09-02 OA/private parser + runtime foundation
+
+- Added a separate `parseOaWebhook` stream instead of widening the existing group parser union immediately. This keeps the already-cut-over group webhook type stable while OA wiring is introduced incrementally.
+- Added OA/private event types for:
+  - `FOLLOW`
+  - `UNFOLLOW`
+  - one-to-one private LINE messages with reply token, quoted message id, message type, text and attachment metadata
+- Group and OA parsers intentionally ignore the other source type, preventing accidental double processing when both are called on the same LINE webhook payload.
+- Generalized `parseWorklogCommand` to a minimal message contract so the exact same narrow `@AFTERTRACE` command parser is reusable in group and OA-private contexts without depending on group identity.
+- Added `bootstrapPrivateInteraction`:
+  - requires currently active OA friendship
+  - reuses the user's stable existing workspace/private source
+  - does not recreate/activate personal scope after unfollow until friendship is active again
+- Added `WorklogOaRuntime` with explicit source behavior:
+  - ordinary private OA text only touches last interaction and remains `NOT_HANDLED` for human support
+  - only explicit `@AFTERTRACE ...` enters worklog product handling
+  - `@AFTERTRACE <text>` writes raw TEXT to the personal source using the same idempotent record writer as groups
+  - `@AFTERTRACE 查詢` returns the personal source/user target for later Web-entry wiring
+  - `@AFTERTRACE 啟用` is rejected in private chat and must be used inside a group
+  - quoted private AUDIO/IMAGE/FILE is intercepted but not yet persisted until the new content-fetch path is connected
+  - inactive OA friendship rejects explicit personal record/query commands
+- Added tests for OA parser event order/source isolation/attachment metadata, stable private bootstrap, unfollow gating, human-support bypass, personal TEXT recording, personal query target, private group-command rejection, quoted interception, lifecycle delegation and duplicate-record propagation.
+
 ## Validation performed in latest pass
 
 - Read the latest product spec and progress document before editing.
-- Inspected the latest branch commits and relevant runtime code: LINE event parser, legacy webhook, worklog command/bootstrap/collaboration/record repositories, source schema, and existing Web entry/auth service.
-- Confirmed worklog command handling now executes before legacy conversation ingestion and `continue`s after handling, preventing new `@AFTERTRACE` record commands from being double-routed into old Energy/Memory behavior.
-- Statically reviewed:
-  - pending group -> explicit owner claim behavior
-  - write-once owner conflict behavior
-  - raw record persistence before AI
-  - blocked-member rejection before record insert
-  - query/read access remaining separate from recording permission
-  - exact LINE message id replay identity checks
-  - concurrent `ON CONFLICT` snapshot fallback read
-  - existing Web entry exchange still validating current LINE group membership
-- Confirmed latest branch HEAD moved forward through the webhook cutover/fix commits; immediately before this progress update the latest code commit was `aa9a7af079c542870939e09b148d365f568cd70d`.
+- Confirmed branch HEAD at the start of this pass was `b2f94fa618c8fc371e47615af1aa309c1b66af06` and inspected the current group webhook cutover, LINE parser, bootstrap service, command parser and record writer before changing anything.
+- Kept the existing group `ParsedLineWebhook` contract unchanged, so the currently deployed-style group loop in `index.ts` is not forced into a new union before OA events are actually wired.
+- Statically reviewed the new OA flow for:
+  - group/OA parser source separation
+  - preservation of webhook event order within OA events
+  - ordinary private support text not becoming worklog records
+  - active OA-friend requirement before personal source access
+  - stable personal source reuse rather than source churn
+  - raw personal TEXT persistence before future AI normalization
+  - existing TEXT idempotency behavior being reused for private records
+  - explicit group-owner command being rejected outside group context
+- Latest code HEAD before this progress-doc update is `9277afa1e725f56307195cf0c18966dcd0646b56`.
 - Unit tests were authored/expanded but **not executed** in this connector-only environment because there is no checked-out runtime where `pnpm` can run.
 
 ## Known cautions / blockers before real DB deployment
@@ -156,18 +179,23 @@ Every development run must:
 - AI normalization is **not wired yet**. New TEXT records currently persist with raw text and `normalized_summary = NULL`; they do not consume AI quota yet.
 - The provider integration still must reserve a conservative maximum AI-unit estimate before each AI call, then commit actual usage or release on failure.
 - Reply AUDIO/IMAGE/FILE is deliberately intercepted but not persisted yet until the new content-fetch/attachment storage path is connected.
-- `parseLineWebhook` is still group-source-only. OA follow/unfollow/private-message events are not yet entering `WorklogBootstrapService`, even though the bootstrap service already supports those operations.
+- OA parsing/runtime now exists, but `/webhooks/line` still only calls the existing group parser/runtime. The next pass must wire `parseOaWebhook` + `WorklogOaRuntime` into the webhook without routing ordinary private text into legacy Energy/Memory.
+- Personal `@AFTERTRACE 查詢` now resolves a personal source/user target inside `WorklogOaRuntime`, but the external Web-entry/auth boundary still needs a private-user entry path; do not fake a group id to reuse group membership verification.
 - Ordinary non-`@AFTERTRACE` group chat still flows through the legacy conversation runtime temporarily. New worklog commands do not. Remove the old path only after the new MVP runtime is proven end-to-end.
 
 ## Next prioritized implementation batch
 
-1. Extend LINE event parsing/runtime for OA/private events without reviving legacy behavior:
-   - parse `follow` / `unfollow` user-source events
-   - call `handleOaFollow` / `handleOaUnfollow`
-   - parse private OA message identity
-   - keep ordinary OA text as human-support traffic
-   - allow only explicit `@AFTERTRACE ...` private product commands to enter worklog
-2. Add AI-assisted TEXT normalization as a **post-persistence** step:
+1. Wire the completed OA/private parser/runtime into `/webhooks/line`:
+   - process OA follow/unfollow through `handleOaFollow` / `handleOaUnfollow`
+   - route private messages through `WorklogOaRuntime`
+   - keep ordinary OA text as human-support traffic and do not send it to legacy group conversation/Energy/Memory
+   - reply only for explicit private worklog commands/results
+   - add separate OA diagnostics counters
+2. Add a **private-user Web entry/auth path** for `@AFTERTRACE 查詢`:
+   - do not invent a group id
+   - bind token/session to the LINE user and personal source
+   - continue to expose personal/group surfaces separately after login
+3. Add AI-assisted TEXT normalization as a **post-persistence** step:
    - add narrow normalized-record contract (summary/category/customer/project hints only)
    - load DB-backed active model/pricing
    - reserve conservative AI units atomically for the charged user (group owner; personal user for OA)
@@ -176,19 +204,19 @@ Every development run must:
    - update normalized fields only after provider success
    - release reservation and retain raw record on every provider/error/parse failure
    - make normalization itself idempotent on LINE redelivery/retry
-3. Reuse existing LINE content fetch for quoted AUDIO/IMAGE/FILE:
+4. Reuse existing LINE content fetch for quoted AUDIO/IMAGE/FILE:
    - resolve quoted content type safely
    - persist attachment metadata/source reference in new worklog tables
    - return resend UX when LINE content has expired
    - enforce recording permission before content fetch/provider usage where possible
-4. Expose actual worklog PWA APIs using the new scoped read service and existing Web session identity:
+5. Expose actual worklog PWA APIs using the new scoped read service and existing/new Web session identity:
    - personal/group surfaces remain separate
    - group reads require exact active membership
    - do not expose legacy Memory search as the new worklog record UI
-5. Add Owner PWA APIs/UI for quota/used/reserved/remaining, group burn, member TEXT/AUDIO/IMAGE/FILE counts, member AI attribution, and recording-permission controls.
-6. Repurpose internal admin around anomaly feed, feedback, user list/detail, quota/usage/balance, group owner/member details, plan/quota/capability management, AI model/pricing and manual plan changes.
-7. Add OA Rich Menu setup plus payment-provider-neutral subscription UI/backend boundary.
-8. After end-to-end worklog runtime is proven, remove legacy Energy/Memory/commerce/reminder/proactive product code while retaining genuinely reusable utilities/tests.
+6. Add Owner PWA APIs/UI for quota/used/reserved/remaining, group burn, member TEXT/AUDIO/IMAGE/FILE counts, member AI attribution, and recording-permission controls.
+7. Repurpose internal admin around anomaly feed, feedback, user list/detail, quota/usage/balance, group owner/member details, plan/quota/capability management, AI model/pricing and manual plan changes.
+8. Add OA Rich Menu setup plus payment-provider-neutral subscription UI/backend boundary.
+9. After end-to-end worklog runtime is proven, remove legacy Energy/Memory/commerce/reminder/proactive product code while retaining genuinely reusable utilities/tests.
 
 ## Bug-audit phase checklist
 
@@ -202,6 +230,8 @@ After core MVP flow exists, repeatedly audit:
 - quota reservation overspend/leak/double commit/release/cycle-boundary behavior
 - plan downgrade/allowance edits vs snapshotted active period
 - OA friend/unfriend drift and ordinary support messages accidentally routed to AI
+- OA parser/group parser double-processing when the webhook contains mixed source types
+- private Web-entry token accidentally gaining group scope or vice versa
 - cross-group/personal scope leakage and FREE collaboration leakage
 - historical AI price snapshots, record counters and member usage attribution drift
 - concurrent edits/audit, AI fallback, transaction duplication, feedback attribution, anomaly noise
