@@ -15,6 +15,13 @@
       "when": 1788288732000,
       "tag": "0001_worklog_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788292200000,
+      "tag": "0002_worklog_group_ownership",
+      "breakpoints": true
     }
   ]
 }
