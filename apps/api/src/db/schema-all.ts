@@ -11,3 +11,4 @@ export * from './schema-round19';
 export * from './schema-round20';
 export * from './schema-worklog';
 export * from './schema-worklog-quota';
+export * from './schema-worklog-bootstrap';
