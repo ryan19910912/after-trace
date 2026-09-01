@@ -16,6 +16,7 @@ export type AiUsageAggregate = {
 export type ActiveUsageWindow = {
   planCode: string;
   allowanceUnits: number;
+  reservedUnits: number;
   periodStart: Date | null;
   periodEnd: Date | null;
 };
@@ -25,6 +26,7 @@ export type UserUsageSummary = {
   planCode: string;
   aiAllowanceUnits: number;
   aiUsedUnits: number;
+  aiReservedUnits: number;
   aiRemainingUnits: number;
   providerCostUsd: number;
   providerCostTwd: number;
@@ -142,12 +144,14 @@ function makeUserSummary(
 ): UserUsageSummary {
   const allowance = integer(window?.allowanceUnits ?? 0);
   const used = integer(ai.aiUnits);
+  const reserved = integer(window?.reservedUnits ?? 0);
   return {
     userId,
     planCode: window?.planCode ?? 'FREE',
     aiAllowanceUnits: allowance,
     aiUsedUnits: used,
-    aiRemainingUnits: remainingAiAllowance(allowance, used),
+    aiReservedUnits: reserved,
+    aiRemainingUnits: remainingAiAllowance(allowance, used + reserved),
     providerCostUsd: finite(ai.providerCostUsd),
     providerCostTwd: finite(ai.providerCostTwd),
     records: {
