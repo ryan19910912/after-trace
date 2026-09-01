@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseLineWebhook } from './events';
+import { parseLineWebhook, parseOaWebhook } from './events';
 
 describe('parseLineWebhook', () => {
   it('keeps supported group messages with source and reply metadata', () => {
@@ -113,5 +113,87 @@ describe('parseLineWebhook', () => {
     const lifecycle = parsed.events[1];
     if (lifecycle.kind !== 'LIFECYCLE') throw new Error('Expected lifecycle event');
     expect(lifecycle.event.type).toBe('LEAVE');
+  });
+});
+
+describe('parseOaWebhook', () => {
+  it('parses follow, private message and unfollow in original order', () => {
+    const parsed = parseOaWebhook({
+      events: [
+        {
+          type: 'follow',
+          webhookEventId: 'follow-1',
+          timestamp: 1_700_000_000_000,
+          source: { type: 'user', userId: 'user-oa' },
+        },
+        {
+          type: 'message',
+          webhookEventId: 'message-1',
+          replyToken: 'reply-1',
+          timestamp: 1_700_000_001_000,
+          source: { type: 'user', userId: 'user-oa' },
+          message: {
+            id: 'private-1',
+            type: 'text',
+            text: '@AFTERTRACE 王先生今天收五千',
+            quotedMessageId: 'quoted-1',
+            quoteToken: 'quote-1',
+          },
+        },
+        {
+          type: 'unfollow',
+          webhookEventId: 'unfollow-1',
+          timestamp: 1_700_000_002_000,
+          source: { type: 'user', userId: 'user-oa' },
+        },
+        {
+          type: 'message',
+          source: { type: 'group', groupId: 'group-ignored', userId: 'user-oa' },
+          message: { id: 'group-1', type: 'text', text: '@AFTERTRACE ignored here' },
+        },
+      ],
+    });
+
+    expect(parsed.events.map((event) => event.kind)).toEqual([
+      'OA_LIFECYCLE',
+      'PRIVATE_MESSAGE',
+      'OA_LIFECYCLE',
+    ]);
+
+    const follow = parsed.events[0];
+    const message = parsed.events[1];
+    const unfollow = parsed.events[2];
+    if (follow.kind !== 'OA_LIFECYCLE' || message.kind !== 'PRIVATE_MESSAGE' || unfollow.kind !== 'OA_LIFECYCLE') {
+      throw new Error('Expected OA lifecycle/message events');
+    }
+    expect(follow.event).toMatchObject({ lineUserId: 'user-oa', type: 'FOLLOW' });
+    expect(message.message).toMatchObject({
+      webhookEventId: 'message-1',
+      replyToken: 'reply-1',
+      lineUserId: 'user-oa',
+      lineMessageId: 'private-1',
+      quotedLineMessageId: 'quoted-1',
+      messageType: 'text',
+      textContent: '@AFTERTRACE 王先生今天收五千',
+      quoteToken: 'quote-1',
+    });
+    expect(unfollow.event).toMatchObject({ lineUserId: 'user-oa', type: 'UNFOLLOW' });
+  });
+
+  it('keeps private attachment metadata but not binary data', () => {
+    const parsed = parseOaWebhook({
+      events: [
+        {
+          type: 'message',
+          timestamp: 1_700_000_000_000,
+          source: { type: 'user', userId: 'user-oa' },
+          message: { id: 'file-private', type: 'file', fileName: 'estimate.pdf', fileSize: 2048 },
+        },
+      ],
+    });
+
+    const event = parsed.events[0];
+    if (event.kind !== 'PRIVATE_MESSAGE') throw new Error('Expected private message');
+    expect(event.message.metadata).toEqual({ fileName: 'estimate.pdf', fileSize: 2048 });
   });
 });
