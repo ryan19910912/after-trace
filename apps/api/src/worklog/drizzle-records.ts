@@ -103,11 +103,33 @@ export class DrizzleWorklogRecordWriteRepository implements WorklogRecordWriteRe
     `);
 
     const row = result.rows[0] as TextWriteRow | undefined;
-    if (!row) return { status: 'SOURCE_NOT_FOUND' };
-    const record = textRecordIdentity(row);
-    return row.inserted
-      ? { status: 'CREATED', record }
-      : { status: 'EXISTING', record };
+    if (row) {
+      const record = textRecordIdentity(row);
+      return row.inserted
+        ? { status: 'CREATED', record }
+        : { status: 'EXISTING', record };
+    }
+
+    // PostgreSQL ON CONFLICT can wait on a concurrent insert that was invisible to the
+    // command's original READ COMMITTED snapshot. If that happens, the CTE above may
+    // legitimately return no row even though the winner now exists. A second command
+    // gets a fresh snapshot and makes LINE redelivery idempotent rather than reporting
+    // a false SOURCE_NOT_FOUND.
+    const replay = await this.db.execute(sql`
+      SELECT
+        id::text AS id,
+        source_id::text AS source_id,
+        author_user_id::text AS author_user_id,
+        line_message_id,
+        raw_text,
+        FALSE AS inserted
+      FROM worklog_records
+      WHERE line_message_id = ${input.lineMessageId}
+      LIMIT 1
+    `);
+    const replayRow = replay.rows[0] as TextWriteRow | undefined;
+    if (replayRow) return { status: 'EXISTING', record: textRecordIdentity(replayRow) };
+    return { status: 'SOURCE_NOT_FOUND' };
   }
 }
 
