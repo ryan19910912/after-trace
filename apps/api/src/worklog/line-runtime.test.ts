@@ -144,13 +144,28 @@ describe('WorklogLineRuntime', () => {
     });
   });
 
-  it('returns a scoped query action only after group authorization', async () => {
-    const runtime = new WorklogLineRuntime(new FakeBootstrap(), new FakeCollaboration(), new FakeRecords());
+  it('returns a scoped query action for a bound group member', async () => {
+    const collaboration = new FakeCollaboration();
+    const runtime = new WorklogLineRuntime(new FakeBootstrap(), collaboration, new FakeRecords());
     await expect(runtime.handle(message('@AFTERTRACE 查詢'))).resolves.toEqual({
       status: 'QUERY',
       sourceId: 20,
       userId: 7,
     });
+    expect(collaboration.calls).toBe(0);
+  });
+
+  it('does not let recording permission remove historical query access', async () => {
+    const collaboration = new FakeCollaboration();
+    collaboration.result = { status: 'RECORDING_DISABLED' };
+    const runtime = new WorklogLineRuntime(new FakeBootstrap(), collaboration, new FakeRecords());
+
+    await expect(runtime.handle(message('@AFTERTRACE 查詢'))).resolves.toEqual({
+      status: 'QUERY',
+      sourceId: 20,
+      userId: 7,
+    });
+    expect(collaboration.calls).toBe(0);
   });
 
   it('intercepts quoted recording so it cannot fall back into legacy Memory', async () => {
