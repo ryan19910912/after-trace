@@ -106,6 +106,9 @@ export const worklogSources = pgTable(
     status: worklogSourceStatusEnum('status').default('ACTIVE').notNull(),
     privateUserId: bigint('private_user_id', { mode: 'number' }),
     lineGroupId: varchar('line_group_id', { length: 64 }),
+    ownerUserId: bigint('owner_user_id', { mode: 'number' }),
+    ownerBindingMethod: varchar('owner_binding_method', { length: 64 }),
+    ownerBoundAt: timestamp('owner_bound_at', { withTimezone: true }),
     subscriptionOwnerUserId: bigint('subscription_owner_user_id', { mode: 'number' }),
     inactiveAt: timestamp('inactive_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -115,6 +118,7 @@ export const worklogSources = pgTable(
     uniqueIndex('worklog_source_private_user_uq').on(table.privateUserId),
     uniqueIndex('worklog_source_line_group_uq').on(table.lineGroupId),
     index('worklog_source_workspace_type_idx').on(table.workspaceId, table.type),
+    index('worklog_source_owner_idx').on(table.ownerUserId),
     index('worklog_source_subscription_owner_idx').on(table.subscriptionOwnerUserId),
   ],
 );
@@ -126,6 +130,9 @@ export const worklogSourceMembers = pgTable(
     sourceId: bigint('source_id', { mode: 'number' }).notNull(),
     userId: bigint('user_id', { mode: 'number' }).notNull(),
     isActive: boolean('is_active').default(true).notNull(),
+    recordingEnabled: boolean('recording_enabled').default(true).notNull(),
+    recordingUpdatedByUserId: bigint('recording_updated_by_user_id', { mode: 'number' }),
+    recordingUpdatedAt: timestamp('recording_updated_at', { withTimezone: true }),
     firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).defaultNow().notNull(),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).defaultNow().notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -134,6 +141,11 @@ export const worklogSourceMembers = pgTable(
   (table) => [
     uniqueIndex('worklog_source_member_uq').on(table.sourceId, table.userId),
     index('worklog_source_member_user_active_idx').on(table.userId, table.isActive),
+    index('worklog_source_member_source_recording_idx').on(
+      table.sourceId,
+      table.isActive,
+      table.recordingEnabled,
+    ),
   ],
 );
 
@@ -198,6 +210,7 @@ export const worklogRecords = pgTable(
     index('worklog_record_workspace_customer_idx').on(table.workspaceId, table.customerId),
     index('worklog_record_workspace_project_idx').on(table.workspaceId, table.projectId),
     index('worklog_record_author_type_idx').on(table.authorUserId, table.inputType),
+    index('worklog_record_source_author_type_idx').on(table.sourceId, table.authorUserId, table.inputType),
   ],
 );
 
@@ -293,7 +306,8 @@ export const worklogAiUsageEvents = pgTable(
   'worklog_ai_usage_events',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    userId: bigint('user_id', { mode: 'number' }).notNull(),
+    actorUserId: bigint('actor_user_id', { mode: 'number' }).notNull(),
+    chargedUserId: bigint('charged_user_id', { mode: 'number' }).notNull(),
     workspaceId: bigint('workspace_id', { mode: 'number' }),
     sourceId: bigint('source_id', { mode: 'number' }),
     recordId: bigint('record_id', { mode: 'number' }),
@@ -314,7 +328,9 @@ export const worklogAiUsageEvents = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    index('worklog_ai_usage_user_time_idx').on(table.userId, table.createdAt),
+    index('worklog_ai_usage_actor_time_idx').on(table.actorUserId, table.createdAt),
+    index('worklog_ai_usage_charged_time_idx').on(table.chargedUserId, table.createdAt),
+    index('worklog_ai_usage_source_actor_time_idx').on(table.sourceId, table.actorUserId, table.createdAt),
     index('worklog_ai_usage_workspace_time_idx').on(table.workspaceId, table.createdAt),
     index('worklog_ai_usage_record_idx').on(table.recordId),
   ],
