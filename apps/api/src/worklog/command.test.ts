@@ -24,6 +24,11 @@ describe('parseWorklogCommand', () => {
     expect(parseWorklogCommand(message('@AFTERTRACE 查詢'))).toEqual({ kind: 'QUERY' });
   });
 
+  it('supports an explicit group owner claim instead of guessing ownership', () => {
+    expect(parseWorklogCommand(message('@AFTERTRACE 啟用'))).toEqual({ kind: 'CLAIM_GROUP' });
+    expect(parseWorklogCommand(message('@AFTERTRACE 認領'))).toEqual({ kind: 'CLAIM_GROUP' });
+  });
+
   it('records mention text without asking user to type 紀錄', () => {
     expect(parseWorklogCommand(message('@AFTERTRACE 三重王先生二樓漏水已修復，三樓缺料下次處理'))).toEqual({
       kind: 'RECORD_TEXT',
