@@ -2,6 +2,7 @@ import type { BufferedGroupMessage } from '../line/events';
 
 export type WorklogCommand =
   | { kind: 'QUERY' }
+  | { kind: 'CLAIM_GROUP' }
   | { kind: 'RECORD_TEXT'; text: string }
   | { kind: 'RECORD_QUOTED'; quotedLineMessageId: string; instruction: string | null };
 
@@ -16,6 +17,7 @@ function stripAftertraceMention(text: string): { mentioned: boolean; body: strin
  * Parses only the narrow V1 worklog interaction contract.
  *
  * - @AFTERTRACE 查詢 => open current group's PWA records.
+ * - @AFTERTRACE 啟用 => explicitly claim/bind an otherwise-unowned group.
  * - @AFTERTRACE <text> => persist that text as a work record.
  * - Reply to an attachment + @AFTERTRACE => persist quoted content.
  *
@@ -29,6 +31,9 @@ export function parseWorklogCommand(message: BufferedGroupMessage): WorklogComma
 
   const normalized = mention.body.replace(/[！!。.]$/, '').trim();
   if (/^(?:查詢|查询|查看|records?)$/i.test(normalized)) return { kind: 'QUERY' };
+  if (/^(?:啟用|启用|啟用群組|启用群组|認領|认领|綁定|绑定)$/i.test(normalized)) {
+    return { kind: 'CLAIM_GROUP' };
+  }
 
   if (message.quotedLineMessageId) {
     return {
