@@ -8,7 +8,7 @@ The MVP deliberately separates responsibilities:
 
 - LINE OA private chat: owner entry point for private records, subscription, feedback, and later workspace-level management.
 - LINE group bot: lightweight shared recording surface. A group may record anything useful: money, work performed, issues, materials, photos, voice notes, or general notes.
-- Web/PWA: browsing, filtering, customer/project detail, editing, workspace settings, personal/group record views, subscription UI, and feedback.
+- Web/PWA: browsing, filtering, customer/project detail, editing, workspace settings, personal/group record views, subscription UI, usage/permission management, and feedback.
 - Internal admin: lightweight operator console for system health, user feedback, subscription plans/permissions/AI quotas, AI model pricing, user lookup, usage analytics, and manual subscription changes.
 - AI: used at ingestion time to turn messy human input into a concise record and optional structured metadata. AI is not required for normal PWA search/filter in V1.
 
@@ -21,6 +21,7 @@ The MVP deliberately separates responsibilities:
 - If quoted LINE content can no longer be fetched, reply with a clear expired-content message and ask the user to resend.
 - Do not ingest all ordinary group chat into permanent product records.
 - Group members can record whatever they want. AFTERTRACE does not impose a domain restriction on group-record content.
+- Recording permission is controlled by the group owner. A group member explicitly disabled by the owner must not be allowed to create new records or consume AI quota for that group.
 
 ### Open records
 
@@ -77,6 +78,33 @@ At minimum keep:
 
 This state is important because OA-friend users get a personal record surface in addition to any group record surfaces they can access.
 
+## Group ownership and AI billing
+
+### Group owner
+
+- The LINE user who causes/initiates the Bot being added to a group becomes the AFTERTRACE owner for that group when the LINE event/context allows the actor to be identified reliably.
+- Persist a stable `owner_user_id` relationship on the group/source context; do not recompute ownership from whichever member happens to interact most recently.
+- If LINE does not expose the actor for a join/add event in a reliable way, use an explicit owner-claim/binding flow rather than guessing.
+- Owner transfer can be added later if real users need it; the data model should not make transfer impossible.
+
+### AI quota charging for groups
+
+- Group AI usage is charged against the group's owner/subscriber AI allowance, not against the member who typed the record.
+- Every group AI usage event must retain both:
+  - actor user id: the member who triggered the AI work
+  - charged user id / billing owner id: the group owner whose AI allowance is consumed
+- Quota preflight must check the charged owner before calling the provider.
+- If the owner's AI allowance is exhausted, group AI recording should fail cleanly without silently charging another member.
+- Admin and owner usage views must be able to distinguish personal AI usage from group AI usage and attribute group usage to individual actors.
+
+### Member recording permission
+
+- The group owner can enable/disable whether each other group member may create AFTERTRACE records.
+- Default policy for active group members may be allowed, but owner must be able to block unrelated/noisy participants explicitly.
+- Persist per-group-member recording permission, e.g. `can_record`/`recording_enabled`.
+- A blocked member may still be shown in member usage/history if they have historical activity, but new `@AFTERTRACE` record commands must be rejected before AI/provider usage.
+- Group owner always retains recording/configuration permission unless the group subscription itself is inactive/blocked.
+
 ## PWA record surfaces
 
 ### Personal OA view
@@ -95,6 +123,25 @@ If the current user is both an OA friend and a member/participant of one or more
 - 群組紀錄
 
 Do not merge these into one ambiguous timeline by default.
+
+### Group owner usage/settings view
+
+For each owned/subscribed group, the owner PWA must show:
+
+- current owner AI allowance/quota applicable to the group
+- current-cycle AI usage
+- remaining AI allowance
+- group AI usage/cost summary where practical
+- per-member record counts:
+  - TEXT
+  - AUDIO
+  - IMAGE
+  - FILE
+- per-member AI usage attributable to that member's actions
+- member recording permission status
+- control to enable/disable each member's ability to create records
+
+The group owner view is operational/usage management, not a complex HR/role system.
 
 ## Data principles
 
@@ -203,6 +250,7 @@ At minimum the system must support:
 - configured AI allowance per plan/billing cycle
 - current user AI usage for the active cycle
 - remaining AI allowance
+- group usage charged to owner/subscriber while retaining the triggering actor
 - usage events that retain enough provider/model/token information to recalculate or audit cost later
 - admin override/adjustment when needed later
 
@@ -252,7 +300,8 @@ Each AI usage event should record enough immutable snapshot data to understand h
 - output tokens/units
 - media/audio input units when applicable
 - pricing snapshot or computed provider cost at execution time
-- user id
+- actor user id
+- charged/billing-owner user id
 - group/workspace/source where relevant
 - created time
 
@@ -326,7 +375,9 @@ Columns:
 - LINE nickname/display name
 - current plan level
 - group id(s) if subscribed for group/collaboration
-- AI usage in the current billing/usage cycle
+- current AI quota/allowance
+- current-cycle AI usage
+- remaining AI allowance
 - text record count
 - audio record count
 - image record count
@@ -349,21 +400,37 @@ When opening a user's detail:
 - show current AI quota/usage/remaining allowance
 - show record counts by TEXT/AUDIO/IMAGE/FILE
 - show the group(s) linked to that user's collaboration subscription when applicable
+- identify whether this user owns each group
 - show all other users in the selected/related group, excluding the current user
 
 Related-user list should show the same core columns as the main user list where applicable:
 
 - user id
 - nickname
-- plan level
+- plan level when applicable
 - group id
-- AI usage
+- AI usage attributable to that member's actions
 - TEXT/AUDIO/IMAGE/FILE record counts
+- recording-enabled/disabled status
 - last input time
 - updated time
 - detail if useful
 
 No filters are required inside this related-user list for MVP.
+
+### Group ownership in admin
+
+Admin must be able to see:
+
+- group id
+- group owner user id / display name
+- how ownership was established/bound
+- owner current AI quota/usage/remaining
+- group-level AI usage charged to that owner
+- member-level AI usage attribution
+- member record counts and recording permission status
+
+This is important for diagnosing unexpected quota burn or unauthorized/noisy recording.
 
 ### Subscription plan management
 
@@ -420,6 +487,7 @@ Do not lock final pricing before usage data. Current product shape is:
 - SUB1 / SUB2 / future levels: configured by admin
 - collaboration/group access is a paid capability
 - every plan has a bounded, operator-editable AI allowance rather than unlimited usage
+- group usage burns the owning subscriber's allowance
 
 Early validation should optimize for retention and willingness to pay, not infrastructure optimization.
 
