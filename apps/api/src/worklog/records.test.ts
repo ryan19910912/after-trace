@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   WorklogRecordReadService,
+  WorklogRecordWriteService,
+  type StoredTextRecordIdentity,
   type WorklogGroupSurface,
   type WorklogRecordListItem,
   type WorklogRecordReadRepository,
+  type WorklogRecordWriteRepository,
 } from './records';
 
 function record(sourceId: number, id = 1): WorklogRecordListItem {
@@ -51,6 +54,64 @@ class FakeRepository implements WorklogRecordReadRepository {
     return this.records.get(sourceId) ?? [];
   }
 }
+
+class FakeWriteRepository implements WorklogRecordWriteRepository {
+  result:
+    | { status: 'CREATED'; record: StoredTextRecordIdentity }
+    | { status: 'EXISTING'; record: StoredTextRecordIdentity }
+    | { status: 'SOURCE_NOT_FOUND' } = { status: 'SOURCE_NOT_FOUND' };
+
+  async insertTextRecord() {
+    return this.result;
+  }
+}
+
+describe('WorklogRecordWriteService', () => {
+  it('reports an identical replay as already recorded', async () => {
+    const repository = new FakeWriteRepository();
+    repository.result = {
+      status: 'EXISTING',
+      record: {
+        id: 9,
+        sourceId: 20,
+        authorUserId: 3,
+        lineMessageId: 'line-message-1',
+        rawText: '王先生二樓漏水已修復',
+      },
+    };
+
+    const service = new WorklogRecordWriteService(repository);
+    await expect(service.recordText({
+      sourceId: 20,
+      authorUserId: 3,
+      lineMessageId: 'line-message-1',
+      text: '王先生二樓漏水已修復',
+      sourceTimestamp: new Date('2026-09-02T00:00:00Z'),
+    })).resolves.toEqual({ status: 'ALREADY_RECORDED', recordId: 9 });
+  });
+
+  it('detects a LINE message id replay with different content/source as a conflict', async () => {
+    const repository = new FakeWriteRepository();
+    repository.result = {
+      status: 'EXISTING',
+      record: {
+        id: 9,
+        sourceId: 99,
+        authorUserId: 3,
+        lineMessageId: 'line-message-1',
+        rawText: 'different',
+      },
+    };
+
+    const service = new WorklogRecordWriteService(repository);
+    await expect(service.recordText({
+      sourceId: 20,
+      authorUserId: 3,
+      lineMessageId: 'line-message-1',
+      text: '王先生二樓漏水已修復',
+    })).resolves.toEqual({ status: 'IDEMPOTENCY_CONFLICT', recordId: 9 });
+  });
+});
 
 describe('WorklogRecordReadService personal scope', () => {
   it('does not expose personal records to a user who is not an OA friend', async () => {
