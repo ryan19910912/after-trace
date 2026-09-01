@@ -9,3 +9,4 @@ export * from './schema-round17';
 export * from './schema-round18';
 export * from './schema-round19';
 export * from './schema-round20';
+export * from './schema-worklog';
