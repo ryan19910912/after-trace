@@ -47,14 +47,24 @@ class FakeCollaboration {
     actorUserId: 7,
     ownerUserId: 7,
     ownerPlanCode: 'SUB1',
-    ownerCapabilities: { groupCollaboration: true },
+    ownerCapabilities: {
+      groupCollaboration: true,
+      maxGroupCount: 3,
+      aiTextRecording: true,
+      aiMediaIngestion: true,
+    },
   };
   result: GroupRecordAuthorizationResult = {
     status: 'OK',
     actorUserId: 7,
     chargedUserId: 7,
     ownerPlanCode: 'SUB1',
-    ownerCapabilities: { groupCollaboration: true },
+    ownerCapabilities: {
+      groupCollaboration: true,
+      maxGroupCount: 3,
+      aiTextRecording: true,
+      aiMediaIngestion: true,
+    },
     remainingAiUnits: 100,
   };
   calls = 0;
@@ -101,6 +111,15 @@ class FakeRecords {
     this.quotedCalls += 1;
     this.lastQuotedInput = input;
     return this.result;
+  }
+}
+
+class FakeNormalizer {
+  calls: number[] = [];
+
+  async normalizeText(recordId: number) {
+    this.calls.push(recordId);
+    return { status: 'NORMALIZED' as const };
   }
 }
 
@@ -179,6 +198,51 @@ describe('WorklogLineRuntime', () => {
     });
     expect(collaboration.requestedAiUnits).toEqual([0]);
     expect(records.calls).toBe(1);
+  });
+
+  it('keeps raw group TEXT recording when AI text normalization is disabled', async () => {
+    const collaboration = new FakeCollaboration();
+    if (collaboration.result.status === 'OK') {
+      collaboration.result.ownerCapabilities.aiTextRecording = false;
+    }
+    const records = new FakeRecords();
+    const normalizer = new FakeNormalizer();
+    const runtime = new WorklogLineRuntime(new FakeBootstrap(), collaboration, records, normalizer);
+
+    await expect(runtime.handle(message('@AFTERTRACE 王先生二樓漏水已修復'))).resolves.toMatchObject({
+      status: 'RECORDED',
+      recordId: 99,
+    });
+    expect(records.calls).toBe(1);
+    expect(normalizer.calls).toEqual([]);
+  });
+
+  it('normalizes group TEXT when the owner plan enables AI text normalization', async () => {
+    const normalizer = new FakeNormalizer();
+    const runtime = new WorklogLineRuntime(
+      new FakeBootstrap(),
+      new FakeCollaboration(),
+      new FakeRecords(),
+      normalizer,
+    );
+
+    await runtime.handle(message('@AFTERTRACE 王先生二樓漏水已修復'));
+    expect(normalizer.calls).toEqual([99]);
+  });
+
+  it('rejects quoted media before LINE/provider work when the owner plan disables AI media', async () => {
+    const collaboration = new FakeCollaboration();
+    if (collaboration.result.status === 'OK') {
+      collaboration.result.ownerCapabilities.aiMediaIngestion = false;
+    }
+    const runtime = new WorklogLineRuntime(new FakeBootstrap(), collaboration, new FakeRecords());
+
+    const result = await runtime.handle(message('@AFTERTRACE', {
+      lineMessageId: 'command-media-1',
+      quotedLineMessageId: 'quoted-media-1',
+    }));
+    expect(result.status).toBe('REJECTED');
+    if (result.status === 'REJECTED') expect(result.reason).toBe('AI_MEDIA_DISABLED');
   });
 
   it('treats LINE redelivery of the same record as a successful duplicate', async () => {
