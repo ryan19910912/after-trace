@@ -12,6 +12,7 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 import { worklogRecords } from './schema-worklog';
+import { worklogAiQuotaReservations } from './schema-worklog-quota';
 
 /**
  * Durable orchestration state for post-persistence Worklog AI normalization.
@@ -29,7 +30,10 @@ export const worklogRecordAiNormalizations = pgTable(
       .references(() => worklogRecords.id, { onDelete: 'restrict' }),
     status: varchar('status', { length: 32 }).default('PENDING').notNull(),
     claimToken: varchar('claim_token', { length: 64 }).notNull(),
-    reservationToken: varchar('reservation_token', { length: 64 }),
+    reservationToken: varchar('reservation_token', { length: 64 }).references(
+      () => worklogAiQuotaReservations.token,
+      { onDelete: 'restrict' },
+    ),
     resultJson: jsonb('result_json'),
     usageCommitJson: jsonb('usage_commit_json'),
     providerResponseId: varchar('provider_response_id', { length: 255 }),
