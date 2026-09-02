@@ -6,6 +6,7 @@ import { createDatabase } from './db/client';
 import { parseLineWebhook, parseOaWebhook } from './line/events';
 import { LineMessagingReplyClient } from './line/reply';
 import { verifyLineSignature } from './line/signature';
+import { DrizzleWorklogAnomalyRepository } from './worklog/anomalies';
 import { WorklogBootstrapService } from './worklog/bootstrap';
 import { WorklogCollaborationService } from './worklog/collaboration';
 import { DrizzleWorklogBootstrapRepository } from './worklog/drizzle-bootstrap';
@@ -93,6 +94,7 @@ app.post('/webhooks/line', async (c) => {
       )
     : null;
   const lineReplyClient = new LineMessagingReplyClient(c.env.LINE_CHANNEL_ACCESS_TOKEN);
+  const worklogAnomalies = new DrizzleWorklogAnomalyRepository(database);
   const worklogBootstrapService = new WorklogBootstrapService(new DrizzleWorklogBootstrapRepository(database));
   const worklogRecordWriteService = new WorklogRecordWriteService(new DrizzleWorklogRecordWriteRepository(database));
   const worklogTextNormalizationService = new WorklogTextNormalizationService(
@@ -118,6 +120,7 @@ app.post('/webhooks/line', async (c) => {
       bootstrap: worklogBootstrapService,
       runtime: worklogLineRuntime,
       reply: lineReplyClient,
+      anomalies: worklogAnomalies,
       createQueryUrl: webAuthService && webAppUrl
         ? (target) => webAuthService.createBotEntry({
             webAppUrl,
@@ -131,6 +134,7 @@ app.post('/webhooks/line', async (c) => {
       parsed: parsedOa,
       runtime: worklogOaRuntime,
       reply: lineReplyClient,
+      anomalies: worklogAnomalies,
       createQueryUrl: webAuthService && webAppUrl
         ? (target) => webAuthService.createPrivateBotEntry({
             webAppUrl,
