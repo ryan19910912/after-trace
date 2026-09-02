@@ -85,6 +85,30 @@ describe('parseLineWebhook', () => {
     });
   });
 
+  it('does not infer the Bot inviter from a group join source userId', () => {
+    const parsed = parseLineWebhook({
+      events: [
+        {
+          type: 'join',
+          webhookEventId: 'bot-join-1',
+          timestamp: 1_700_000_000_000,
+          // LINE documents group source.userId as message-event-only. Keep this
+          // synthetic field here to ensure we never turn it into Owner evidence.
+          source: { type: 'group', groupId: 'group-1', userId: 'synthetic-inviter' },
+        },
+      ],
+    });
+
+    expect(parsed.events).toHaveLength(1);
+    const lifecycle = parsed.events[0];
+    if (lifecycle.kind !== 'LIFECYCLE') throw new Error('Expected lifecycle event');
+    expect(lifecycle.event).toMatchObject({
+      type: 'JOIN',
+      lineGroupId: 'group-1',
+      lineUserIds: [],
+    });
+  });
+
   it('parses lifecycle events and preserves original webhook event order', () => {
     const parsed = parseLineWebhook({
       events: [
