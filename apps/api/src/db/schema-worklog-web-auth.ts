@@ -7,8 +7,12 @@ export const worklogGroupWebEntryNonces = pgTable(
   'web_auth_entry_nonces',
   {
     nonce: varchar('nonce', { length: 128 }).primaryKey(),
-    lineUserId: varchar('line_user_id', { length: 64 }).notNull(),
-    lineGroupId: varchar('line_group_id', { length: 64 }).notNull(),
+    lineUserId: varchar('line_user_id', { length: 64 })
+      .notNull()
+      .references(() => worklogUsers.lineUserId, { onDelete: 'restrict' }),
+    lineGroupId: varchar('line_group_id', { length: 64 })
+      .notNull()
+      .references(() => worklogSources.lineGroupId, { onDelete: 'restrict' }),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     consumedAt: timestamp('consumed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -23,7 +27,9 @@ export const worklogPrivateWebEntryNonces = pgTable(
   'worklog_private_web_entry_nonces',
   {
     nonce: varchar('nonce', { length: 128 }).primaryKey(),
-    lineUserId: varchar('line_user_id', { length: 64 }).notNull(),
+    lineUserId: varchar('line_user_id', { length: 64 })
+      .notNull()
+      .references(() => worklogUsers.lineUserId, { onDelete: 'restrict' }),
     userId: bigint('user_id', { mode: 'number' })
       .notNull()
       .references(() => worklogUsers.id, { onDelete: 'restrict' }),
