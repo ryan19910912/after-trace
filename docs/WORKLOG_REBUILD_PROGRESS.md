@@ -48,6 +48,7 @@ This file is the current-state handoff. Git history preserves older implementati
 - API Worker now also records best-effort anomalies for ADMIN, subscription and Worklog Web API responses >=500 plus unhandled boundary exceptions; expected 4xx validation/auth failures are not treated as operational incidents.
 - Attachment and text-normalization failures remain durably represented in their dedicated ingestion/normalization state tables and are separately surfaced by Admin.
 - Provider-neutral checkout-intent boundary exists, but payment provider/recurring renewal is not connected.
+- Customer subscription cards no longer advertise dormant `pwaEditing` / `export` capabilities as if they were currently enforced/implemented features.
 
 ## Current migration/deployment reality
 
@@ -139,24 +140,26 @@ Do not implement a permanent model until FREE `ONE_TIME` vs `MONTHLY` is decided
 
 Missing/malformed max count fails closed. Existing group-enabled plan rows should be normalized to an explicit numeric `maxGroupCount` and invalid legacy configuration should be visible in Admin.
 
-### H. AI quota unit / provider accounting — modality double-count FIXED, broader accounting still unresolved
+### H. AI quota unit / provider accounting — modality double-count FIXED, thinking and over-reservation accounting unresolved
 
-Fixed this batch:
+Fixed previously:
 - Gemini `promptTokenCount` is retained as total prompt usage for quota.
 - `promptTokensDetails` is parsed for AUDIO/IMAGE modality subsets instead of copying the entire prompt count into a media field.
 - provider-cost calculation prices ordinary input plus modality subsets exactly once;
 - when a modality-specific price is null, its units use the ordinary input rate instead of becoming free;
 - impossible media subsets larger than total prompt usage are rejected as invalid provider usage.
 
-Newly confirmed remaining risk:
-- Gemini `usageMetadata` also exposes `thoughtsTokenCount`, while current TEXT and attachment normalizers only use `candidatesTokenCount` as output usage.
-- Current Gemini pricing documents state output pricing includes thinking tokens. Therefore historical provider cost and quota accounting can under-count thinking-enabled models.
-- Gemini 3 models use dynamic thinking by default unless controlled. The current requests do not set `thinkingConfig` and also hard-code temperature `0.1`; current Gemini 3 guidance recommends model-appropriate thinking control and generally default temperature behavior.
-- Simply adding thought tokens to `actualUnits` is not enough: current preflight reservation estimates do not reserve a bounded thinking budget, so provider success could exceed the reservation and leave an awkward settlement path.
+Confirmed remaining risks:
+- Gemini `usageMetadata` exposes `thoughtsTokenCount`, while current TEXT and attachment normalizers only use `candidatesTokenCount` as output usage.
+- Current Gemini pricing documents state output pricing includes thinking tokens. Historical provider cost and quota accounting can therefore under-count thinking-enabled models.
+- Gemini 3 models use dynamic thinking by default unless controlled. Current requests do not set `thinkingConfig` and hard-code temperature `0.1`; current Gemini 3 guidance recommends model-appropriate thinking control and generally default temperature behavior.
+- Simply adding thought tokens to `actualUnits` is not enough: current preflight reservation estimates do not reserve a bounded thinking budget.
+- **New high-priority invariant breach found this audit:** both TEXT normalization and attachment ingestion explicitly release the AI reservation when the provider has already returned successfully but `actualUnits > unitsReserved`. This loses the internal quota charge/provider-cost usage event after a real provider call and contradicts the surrounding “never release after provider success” reliability rule. The attachment and TEXT catch-path comments already state the intended invariant, but the explicit over-reservation branch violates it.
 
 Required before final FREE/paid quotas:
-- decide a model-compatible thinking policy (for example low/minimal where supported) and reservation bound;
+- decide a model-compatible thinking policy (for example low/minimal where supported) and a reservation upper bound that includes any billable thought budget;
 - account billable thinking tokens exactly once in provider cost and quota semantics;
+- change provider-success over-reservation handling so a real provider call can never be treated like unused/releasable quota; persist enough provider-result/cost state for manual or deterministic settlement instead of silently releasing it;
 - keep canonical user quota units conceptually separate from provider-dollar cost even if the first implementation still uses token-equivalent units;
 - verify PDF/DOCUMENT modality treatment and real image/audio calls;
 - calculate plan allowances only after measured real calls.
@@ -169,10 +172,14 @@ Admin AI pricing UI mismatch also remains: backend fields support separate audio
 
 Admin list/detail/group SQL still directly shows subscription/balance/template allowance without the same effective-state calculation. Expired, not-yet-effective or disabled subscriptions can therefore show nonzero fields labeled as current allowance/remaining.
 
+Additional concrete Admin bug found this audit:
+- `groupDetail()` backend does not return Owner subscription status/effective-at/plan-enabled fields, while Admin client-side `groupDetail()` falls back to `'ACTIVE'` whenever an Owner plan code exists. It can therefore label an expired/inactive Owner subscription as effectively ACTIVE unless the period boundary itself happens to expose the problem.
+
 Also current `user_type = GROUP_ENABLED` really means “owns at least one ACTIVE group source,” not “has current group entitlement.” A FREE/expired owner may still be labeled GROUP_ENABLED.
 
 Recommended:
 - centralize/reuse one effective-subscription evaluator in Admin reporting;
+- return effective-state facts from the server instead of reconstructing critical entitlement state with optimistic client defaults;
 - distinguish current-cycle values from stored/historical snapshot values;
 - calculate `GROUP_ENABLED` from actual current group entitlement, or rename the factual classification to `GROUP_OWNER`;
 - add compact actual related group/source IDs to the main user list as required by product spec, not counts only.
@@ -216,9 +223,16 @@ Admin copy says `pwaEditing` means Web/PWA work-record editing, but Web routes a
 
 Need explicit scope before server-side enforcement.
 
-### N. Export capability is currently a dormant switch
+### N. Export / dormant customer-facing capabilities — customer plan copy hardened, feature still unresolved
 
-Admin can configure `export`, but no export endpoint/UI was found. Either implement later or present it as future/unavailable; do not imply the switch currently controls an existing feature.
+Admin can configure `export`, but no export endpoint/UI was found. `pwaEditing` is also not yet server-side enforced. Customer subscription cards previously advertised both switches as active benefits when their booleans were true.
+
+Current code now hides `pwaEditing` and `export` from customer plan benefit copy until the features are actually enforced/implemented. Admin configuration remains unchanged so future implementation work is not blocked.
+
+Still unresolved:
+- define and enforce `pwaEditing` scope;
+- implement export or clearly keep it future-only;
+- once implemented, re-add truthful customer-facing plan copy.
 
 ### O. LINE general-file support wording vs implementation — documentation/product ambiguity
 
@@ -246,6 +260,7 @@ Docs reflect the consolidated `0000`, but actual target DB migration history sti
 - Consolidated DB baseline includes important quota/project consistency guards.
 - Admin presentation preserves raw enum/code values and adds translated labels separately.
 - Group Web one-time entry verifies nonce/current membership; downstream group APIs enforce current paid entitlement on each protected operation.
+- Web help copy correctly describes explicit group Owner claim rather than claiming the inviter is auto-detected.
 
 ## Static validation performed in latest audit batch
 
@@ -257,31 +272,34 @@ Read before work:
 - `WORKLOG_DEPLOYMENT.md`
 
 Source areas audited this batch:
-- private OA runtime/wiring re-read to avoid premature FREE-dependent capability changes;
-- Admin current quota/group classification SQL re-read;
-- Gemini attachment `usageMetadata` and provider-cost path;
-- shared AI pricing snapshot helper;
-- Gemini text usage accounting, revealing missing thinking-token accounting;
-- Worker-level Admin/subscription/Worklog Web API error boundary.
+- private OA runtime/capability boundary;
+- Admin user/group/current-quota SQL and client-side effective-state reconstruction;
+- customer subscription plan benefit presentation;
+- Admin AI pricing editor versus backend audio/image pricing fields;
+- Gemini TEXT/attachment reservation, usage and provider-success settlement paths;
+- Gemini thinking-token compatibility and request generation assumptions.
 
-External API facts re-verified against current Google Gemini API documentation during this batch:
+External API facts re-verified against current Google Gemini documentation during this audit series:
 - `usageMetadata.promptTokenCount` is total prompt usage;
-- `promptTokensDetails[]` reports per-modality token subsets with TEXT/IMAGE/VIDEO/AUDIO/DOCUMENT modalities;
-- `usageMetadata.thoughtsTokenCount` is a separate field;
+- `promptTokensDetails[]` reports per-modality token subsets;
+- `usageMetadata.thoughtsTokenCount` is separately reported;
 - current Gemini pricing charges output including thinking tokens;
-- Gemini 3 uses dynamic thinking unless controlled and supports `thinkingConfig`/`thinkingLevel`.
+- Gemini 3 uses dynamic thinking unless controlled and supports model-specific thinking configuration; current guidance discourages blindly carrying older non-default sampling settings into Gemini 3.
 
-Completed code changes:
-- corrected historical multimodal cost calculation so AUDIO/IMAGE subsets are not added on top of the same total prompt token count;
-- added null-media-price fallback to ordinary input price;
-- Gemini attachment normalizer now parses real `promptTokensDetails` instead of copying total input into media fields;
-- added regression tests for image modality split, missing detail fallback, impossible modality totals, one-time pricing and null price fallback;
-- added API Worker 5xx/unhandled anomaly boundary for Admin, subscription and Worklog Web APIs while excluding ordinary 4xx.
+Completed code changes this batch:
+- customer subscription plan cards no longer advertise dormant `pwaEditing` / `export` flags as currently available features.
+
+New confirmed defects recorded, not yet changed because they require accounting/state design rather than a local conditional:
+- TEXT normalization can release a reservation after a successful provider call when usage exceeds the reservation;
+- attachment ingestion has the same provider-success-over-reservation release path;
+- Admin group-detail effective state can optimistically assume `ACTIVE` because required Owner subscription-state fields are missing from the backend result;
+- Admin AI editor can overwrite provider-specific audio/image pricing by saving ordinary input price into both media fields.
 
 Tests/status:
-- Tests were authored/updated but **not executed**.
+- This batch's customer-plan change did not add a new test.
+- Previously authored/updated tests remain **not executed**.
 - No typecheck, build, schema check, migration, browser smoke, Worker smoke, LINE E2E or Gemini E2E was run in this batch.
-- **GitHub Actions were not run, dispatched, rerun, enabled or modified.** Commits use `[skip ci]`.
+- **GitHub Actions were not run, dispatched, rerun, enabled or modified.** The source commit uses `[skip ci]`.
 
 ## Concentrated validation still pending
 
@@ -297,7 +315,7 @@ After remaining static/code gaps are closed, run one explicit local validation p
 8. Admin auth/plan/quota/anomaly/manual-subscription smoke;
 9. API/Web/Admin Worker local/build smoke;
 10. real LINE OA/group lifecycle, owner claim, TEXT, Reply-TEXT expiry, AUDIO/IMAGE/PDF/file flows;
-11. real Gemini text/image/audio/PDF usage/cost snapshots including prompt modality details and thinking-token accounting;
+11. real Gemini text/image/audio/PDF usage/cost snapshots including prompt modality details, thinking-token accounting and reservation-settlement invariants;
 12. capability downgrade/disable cases, maxGroupCount, subscription expiry and anomaly persistence failure cases.
 
 ## Current planning estimate
@@ -305,9 +323,9 @@ After remaining static/code gaps are closed, run one explicit local validation p
 Planning estimate only; not test results:
 
 - MVP non-provider feature implementation: **about 95–96%**.
-- Static architecture/logic audit coverage: **about 94–96%**.
-- Production readiness including still-unrun executable validation, AI-thinking accounting, migration and provider gaps: **about 81–84%**.
-- Remaining internal static/code work before concentrated validation: roughly **2–3 large batches / about 3–7 focused hours**.
+- Static architecture/logic audit coverage: **about 96–97%**.
+- Production readiness including still-unrun executable validation, AI accounting, migration and provider gaps: **about 80–83%**.
+- Remaining internal static/code work before concentrated validation: roughly **2–3 large batches / about 4–8 focused hours**.
 - After concentrated validation starts, reserve roughly **2–8 focused hours** for ordinary compile/schema/browser/runtime fixes; deeper migration or AI-accounting defects could extend this.
 - External/provider work is separate: payment provider selection, recurring authorization/webhooks, production secrets/domains/LINE configuration and production migration-history reconciliation.
 
@@ -315,11 +333,12 @@ Planning estimate only; not test results:
 
 Continue from, in order:
 
-1. fix/audit Admin effective subscription/quota presentation, `GROUP_ENABLED` semantics and actual group-id list output;
-2. resolve Gemini thinking-token accounting and model-compatible thinking/temperature/reservation policy before final AI quotas;
-3. design the private OA entitlement/capability boundary without prematurely choosing FREE virtual-vs-durable semantics;
-4. continue billing-type/renewal scaffolding only where migration/default/provider decisions are not being guessed;
-5. revisit Office-file support wording versus actual MVP implementation;
-6. harden low-level record-read layering naming/documentation if useful.
+1. fix the provider-success-over-reservation accounting invariant together with Gemini thinking-token/reservation policy; never release a successful provider call as unused quota;
+2. fix/audit Admin effective subscription/quota presentation, group-detail state, `GROUP_ENABLED` semantics and actual group-id list output;
+3. fix Admin AI pricing UI so audio/image prices are independently editable/nullable without destructive overwrite;
+4. design the private OA entitlement/capability boundary without prematurely choosing FREE virtual-vs-durable semantics;
+5. continue billing-type/renewal scaffolding only where migration/default/provider decisions are not being guessed;
+6. revisit Office-file support wording versus actual MVP implementation;
+7. harden low-level record-read layering naming/documentation if useful.
 
 Do not use GitHub Actions as validation.
