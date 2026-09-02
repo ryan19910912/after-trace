@@ -135,6 +135,9 @@ export class DrizzleWorklogRecordReadRepository implements WorklogRecordReadRepo
       INNER JOIN worklog_user_subscriptions AS subscription
         ON subscription.user_id = source.owner_user_id
        AND subscription.status = 'ACTIVE'
+       AND subscription.effective_at <= NOW()
+       AND subscription.current_period_start <= NOW()
+       AND (subscription.current_period_end IS NULL OR NOW() < subscription.current_period_end)
       INNER JOIN worklog_subscription_plans AS plan
         ON plan.code = subscription.plan_code
        AND plan.enabled = TRUE
@@ -161,6 +164,9 @@ export class DrizzleWorklogRecordReadRepository implements WorklogRecordReadRepo
         INNER JOIN worklog_user_subscriptions AS subscription
           ON subscription.user_id = source.owner_user_id
          AND subscription.status = 'ACTIVE'
+         AND subscription.effective_at <= NOW()
+         AND subscription.current_period_start <= NOW()
+         AND (subscription.current_period_end IS NULL OR NOW() < subscription.current_period_end)
         INNER JOIN worklog_subscription_plans AS plan
           ON plan.code = subscription.plan_code
          AND plan.enabled = TRUE
