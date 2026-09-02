@@ -106,15 +106,18 @@ export class DrizzleWorklogAttachmentRepository implements WorklogAttachmentRepo
     };
   }
 
-  async insertRecord(input: {
+  async persistRecordCreated(input: {
     sourceId: number;
     actorUserId: number;
     commandLineMessageId: string;
     quotedLineMessageId: string;
     sourceTimestamp: Date;
     output: WorklogAttachmentOutput;
+    reservationToken: string;
+    usage: WorklogAiUsageCommit;
   }): Promise<{ status: 'CREATED' | 'EXISTING'; recordId: number } | { status: 'SOURCE_NOT_FOUND' }> {
     const metadata = JSON.stringify(input.output.attachmentMetadata);
+    const usageJson = JSON.stringify({ ...input.usage, recordId: null });
     const result = await this.db.execute(sql`
       WITH active_source AS (
         SELECT id, workspace_id FROM worklog_sources
@@ -133,40 +136,56 @@ export class DrizzleWorklogAttachmentRepository implements WorklogAttachmentRepo
         FROM active_source
         ON CONFLICT (line_message_id) DO NOTHING
         RETURNING id
+      ), resolved AS (
+        SELECT id, TRUE AS inserted FROM inserted
+        UNION ALL
+        SELECT existing.id, FALSE AS inserted
+        FROM worklog_records existing
+        WHERE existing.line_message_id = ${input.commandLineMessageId}
+          AND existing.source_id = ${input.sourceId}
+          AND existing.author_user_id = ${input.actorUserId}
+          AND existing.quoted_line_message_id = ${input.quotedLineMessageId}
+          AND NOT EXISTS (SELECT 1 FROM inserted)
+        LIMIT 1
+      ), advanced AS (
+        UPDATE worklog_attachment_ingestions AS ingestion
+        SET status = 'RECORD_CREATED',
+            record_id = resolved.id,
+            reservation_token = ${input.reservationToken},
+            usage_commit_json = ${usageJson}::jsonb || jsonb_build_object('recordId', resolved.id),
+            last_error_code = NULL,
+            updated_at = NOW()
+        FROM resolved
+        WHERE ingestion.command_line_message_id = ${input.commandLineMessageId}
+          AND ingestion.quoted_line_message_id = ${input.quotedLineMessageId}
+          AND ingestion.source_id = ${input.sourceId}
+          AND ingestion.actor_user_id = ${input.actorUserId}
+          AND (
+            ingestion.status = 'PROCESSING'
+            OR (
+              ingestion.status = 'RECORD_CREATED'
+              AND ingestion.record_id = resolved.id
+              AND ingestion.reservation_token = ${input.reservationToken}
+            )
+          )
+        RETURNING resolved.id, resolved.inserted
       )
-      SELECT id::text AS id, TRUE AS inserted FROM inserted
-      UNION ALL
-      SELECT existing.id::text AS id, FALSE AS inserted
-      FROM worklog_records existing
-      WHERE existing.line_message_id = ${input.commandLineMessageId}
-        AND existing.source_id = ${input.sourceId}
-        AND existing.author_user_id = ${input.actorUserId}
-        AND existing.quoted_line_message_id = ${input.quotedLineMessageId}
-        AND NOT EXISTS (SELECT 1 FROM inserted)
-      LIMIT 1
+      SELECT id::text AS id, inserted FROM advanced
     `);
     const row = result.rows[0] as { id?: string; inserted?: boolean } | undefined;
-    if (!row?.id) return { status: 'SOURCE_NOT_FOUND' };
-    return { status: row.inserted ? 'CREATED' : 'EXISTING', recordId: Number(row.id) };
-  }
+    if (row?.id) {
+      return { status: row.inserted ? 'CREATED' : 'EXISTING', recordId: positiveNumber(row.id, 'record_id') };
+    }
 
-  async saveRecordCreated(input: {
-    commandLineMessageId: string;
-    recordId: number;
-    reservationToken: string;
-    usage: WorklogAiUsageCommit;
-  }): Promise<void> {
-    const usageJson = JSON.stringify(input.usage);
-    const result = await this.db.execute(sql`
-      UPDATE worklog_attachment_ingestions
-      SET status = 'RECORD_CREATED', record_id = ${input.recordId},
-          reservation_token = ${input.reservationToken}, usage_commit_json = ${usageJson}::jsonb,
-          last_error_code = NULL, updated_at = NOW()
-      WHERE command_line_message_id = ${input.commandLineMessageId}
-        AND status = 'PROCESSING'
-      RETURNING id
+    const source = await this.db.execute(sql`
+      SELECT EXISTS (
+        SELECT 1 FROM worklog_sources WHERE id = ${input.sourceId} AND status = 'ACTIVE'
+      ) AS active
     `);
-    if (result.rows.length < 1) throw new Error('ATTACHMENT_STATE_ADVANCE_FAILED');
+    if (!Boolean((source.rows[0] as { active?: boolean } | undefined)?.active)) {
+      return { status: 'SOURCE_NOT_FOUND' };
+    }
+    throw new Error('ATTACHMENT_STATE_ADVANCE_FAILED');
   }
 
   async reservationStatus(token: string) {
@@ -192,7 +211,8 @@ export class DrizzleWorklogAttachmentRepository implements WorklogAttachmentRepo
     await this.db.execute(sql`
       UPDATE worklog_attachment_ingestions
       SET status = 'FAILED', last_error_code = ${reason.slice(0, 128)}, updated_at = NOW()
-      WHERE command_line_message_id = ${commandLineMessageId} AND status <> 'SUCCEEDED'
+      WHERE command_line_message_id = ${commandLineMessageId}
+        AND status NOT IN ('RECORD_CREATED', 'SUCCEEDED')
     `);
   }
 
