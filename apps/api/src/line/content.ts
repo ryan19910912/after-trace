@@ -33,6 +33,17 @@ export class LineMessageContentResolver {
       `https://api-data.line.me/v2/bot/message/${encodeURIComponent(id)}/content`,
       { headers: { Authorization: `Bearer ${token}` } },
     );
+
+    // LINE may return 202 while large audio/video binary content is still being
+    // prepared. Treat that as a transient pre-provider state, never as attachment
+    // bytes to feed into Gemini.
+    if (response.status === 202) throw new Error('LINE_CONTENT_NOT_READY');
+
+    // The content endpoint only supports image/video/audio/file. Text can only be
+    // read from the original webhook event and can't be fetched again by message id.
+    // A 400 here commonly means the quoted message has no retrievable binary body.
+    if (response.status === 400) throw new Error('LINE_CONTENT_NOT_RETRIEVABLE');
+
     if (!response.ok) {
       const error = new Error(`LINE_CONTENT_UNAVAILABLE_${response.status}`);
       (error as Error & { status?: number }).status = response.status;
