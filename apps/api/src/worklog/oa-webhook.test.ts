@@ -37,9 +37,11 @@ class FakeRuntime {
 
 class FakeReply {
   public calls: Array<{ token: string; text: string }> = [];
+  public fail = false;
 
   async reply(token: string, text: string): Promise<void> {
     this.calls.push({ token, text });
+    if (this.fail) throw new Error('reply unavailable');
   }
 }
 
@@ -89,6 +91,32 @@ describe('processWorklogOaWebhook', () => {
       oaWorklogRejected: 0,
     });
     expect(reply.calls).toEqual([{ token: 'reply-1', text: '這則訊息已經記錄過了。' }]);
+  });
+
+  it('keeps a successful record result when LINE reply delivery fails', async () => {
+    const runtime = new FakeRuntime();
+    runtime.nextMessage = {
+      status: 'RECORDED',
+      recordId: 101,
+      duplicate: false,
+      replyText: '已記錄到你的個人 AFTERTRACE。',
+    };
+    const reply = new FakeReply();
+    reply.fail = true;
+
+    const result = await processWorklogOaWebhook({
+      parsed: parsedWithMessage(privateMessage('@AFTERTRACE 今天完成維修')),
+      runtime,
+      reply,
+    });
+
+    expect(result).toMatchObject({
+      oaWorklogCommands: 1,
+      oaWorklogRecords: 1,
+      oaWorklogRejected: 0,
+      oaErrors: 1,
+    });
+    expect(reply.calls).toHaveLength(1);
   });
 
   it('uses a private query URL callback without inventing a group id', async () => {
