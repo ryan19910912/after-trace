@@ -15,7 +15,7 @@
     "db:schema:check": "pnpm --filter @aftertrace/api exec drizzle-kit export --dialect=postgresql --schema=src/db/schema-all.ts > aftertrace-schema.sql"
   },
   "devDependencies": {
-    "eslint": "^9.34.0",
+    "eslint": "^10.9.1",
     "typescript-eslint": "^8.41.0"
   }
 }
