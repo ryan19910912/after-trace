@@ -1,3 +1,9 @@
+import {
+  WorklogLineTextCacheService,
+  type CachedLineText,
+  type WorklogLineTextCacheRepository,
+} from './line-text-cache';
+
 export type WorklogRecordListItem = {
   id: number;
   sourceId: number;
@@ -39,7 +45,7 @@ export type StoredTextRecordIdentity = {
   rawText: string | null;
 };
 
-export interface WorklogRecordWriteRepository {
+export interface WorklogRecordWriteRepository extends WorklogLineTextCacheRepository {
   insertTextRecord(input: {
     sourceId: number;
     authorUserId: number;
@@ -61,7 +67,25 @@ export type WorklogTextRecordWriteResult =
   | { status: 'IDEMPOTENCY_CONFLICT'; recordId: number };
 
 export class WorklogRecordWriteService {
-  constructor(private readonly repository: WorklogRecordWriteRepository) {}
+  private readonly textCache: WorklogLineTextCacheService;
+
+  constructor(private readonly repository: WorklogRecordWriteRepository) {
+    this.textCache = new WorklogLineTextCacheService(repository);
+  }
+
+  async remember(input: {
+    lineMessageId: string;
+    lineGroupId: string;
+    lineUserId: string | null;
+    text: string;
+    lineTimestamp: Date;
+  }): Promise<void> {
+    return this.textCache.remember(input);
+  }
+
+  async resolve(lineGroupId: string, quotedLineMessageId: string, now?: Date): Promise<CachedLineText | null> {
+    return this.textCache.resolve(lineGroupId, quotedLineMessageId, now);
+  }
 
   async recordText(input: {
     sourceId: number;
