@@ -82,11 +82,11 @@ This state is important because OA-friend users get a personal record surface in
 
 ### Group owner
 
-- The LINE user who causes/initiates the Bot being added to a group becomes the AFTERTRACE owner for that group when the LINE event/context allows the actor to be identified reliably.
-- For a LINE group `join` event, if `source.userId` is present and reliable, treat that user as the inviter/initiator and bind that user as the stable AFTERTRACE Owner immediately.
+- The intended business concept is that the person responsible for bringing AFTERTRACE into a group should become the subscription Owner when that identity can be established reliably.
+- Current LINE Messaging API group `join` webhooks do **not** identify the Bot inviter: `source.userId` for a group source is documented as message-event-only. Do not infer an inviter from a Bot `join` event or from whichever member speaks first.
+- Therefore the current MVP uses an explicit owner-claim/binding flow: after the Bot is added, the person who will own/pay for the group uses `@AFTERTRACE 啟用` to bind the group to their AFTERTRACE account.
+- If a future controlled invitation/onboarding flow can reliably associate the inviting user before the Bot is added, that evidence may be used to bind the Owner automatically; do not implement such automation by guessing from LINE webhook fields.
 - Persist a stable `owner_user_id` relationship on the group/source context; do not recompute ownership from whichever member happens to interact most recently.
-- If LINE does not expose the actor for a join/add event in a reliable way, keep the group pending and use the explicit `@AFTERTRACE 啟用` owner-claim/binding flow rather than guessing.
-- `@AFTERTRACE 啟用` is therefore a fallback/manual-recovery path for groups whose inviter could not be identified or for legacy/unbound data; it is not the normal owner-selection mechanism when the inviter is known.
 - An Owner leaving the LINE group does not silently transfer ownership to another member. Existing ownership remains stable until an explicit future owner-transfer flow is implemented.
 - A manual owner claim must never overwrite a different already-bound Owner accidentally; conflicting claims must be rejected.
 - Owner transfer can be added later if real users need it; the data model should not make transfer impossible.
@@ -291,7 +291,7 @@ Payment provider remains undecided; provider-specific token fields/webhook seman
 - `maxGroupCount = 0` means the plan cannot activate/use any LINE group for AFTERTRACE recording; FREE remains personal-only and should normally fail on the group-collaboration entitlement before showing a numeric `0 group` limit message.
 - For an entitled paid Owner, active owned groups are ordered by stable ownership/binding time (with a deterministic tie-breaker such as source id). Only the first `maxGroupCount` active groups are entitled to group access/recording.
 - If an Owner is over the limit, groups beyond the allowed ordinal must reject group usage before AI/provider work. Disabling/leaving an earlier active group allows the next group in the stable order to become entitled automatically.
-- The group-limit check applies to group read/query and group recording, so a plan cannot bypass the limit through `@AFTERTRACE 查詢`.
+- The group-limit check applies to group read/query and group recording, so a plan cannot bypass the limit through `@AFTERTRACE 查詢` or direct Web/PWA group-record API access.
 - Group entitlement failure copy should use the plan display name when available. Preferred no-capability message: `目前 {{方案顯示名稱}} 方案沒有開啟群組紀錄功能，升級方案後即可在 LINE 群組使用該功能。`
 - Preferred over-limit message should include both the plan display name and numeric limit, for example: `目前 {{方案顯示名稱}} 方案最多可使用 {{maxGroupCount}} 個 LINE 群組，已超過方案上限。請停用其他群組或升級方案。`
 
