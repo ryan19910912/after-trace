@@ -21,11 +21,10 @@ type ReservationRow = {
 };
 
 /**
- * Runtime repository with settlement guards that prevent a reservation from
- * changing state unless its matching quota-cycle balance can be updated in the
- * same SQL statement. This closes a data-modifying-CTE edge where a reservation
- * could otherwise become COMMITTED/RELEASED while the balance update matched no
- * row and the final SELECT returned nothing.
+ * Runtime repository with settlement guards that lock both the reservation and
+ * its matching quota-cycle balance before changing either row. This closes the
+ * data-modifying-CTE edge where a reservation could otherwise change state while
+ * the matching balance update matched no row or raced another settlement.
  */
 export class SafeDrizzleWorklogSubscriptionRepository extends DrizzleWorklogSubscriptionRepository {
   constructor(db: Database) {
@@ -41,22 +40,35 @@ export class SafeDrizzleWorklogSubscriptionRepository extends DrizzleWorklogSubs
     at: Date,
   ): Promise<WorklogAiReservationSnapshot | null> {
     const result = await this.database.execute(sql`
-      WITH claimed AS (
+      WITH locked AS (
+        SELECT
+          reservation.token,
+          reservation.charged_user_id,
+          reservation.actor_user_id,
+          reservation.source_id,
+          reservation.units_reserved,
+          reservation.period_start,
+          reservation.period_end,
+          reservation.expires_at
+        FROM worklog_ai_quota_reservations AS reservation
+        INNER JOIN worklog_ai_quota_balances AS balance
+          ON balance.user_id = reservation.charged_user_id
+         AND balance.period_start = reservation.period_start
+        WHERE reservation.token = ${token}
+          AND reservation.status = 'RESERVED'
+          AND reservation.units_reserved >= ${usage.actualUnits}
+          AND balance.reserved_units >= reservation.units_reserved
+        FOR UPDATE OF reservation, balance
+      ),
+      claimed AS (
         UPDATE worklog_ai_quota_reservations AS reservation
         SET status = 'COMMITTED',
             units_committed = ${usage.actualUnits},
             updated_at = NOW()
-        WHERE reservation.token = ${token}
+        FROM locked
+        WHERE reservation.token = locked.token
           AND reservation.status = 'RESERVED'
-          AND reservation.units_reserved >= ${usage.actualUnits}
-          AND EXISTS (
-            SELECT 1
-            FROM worklog_ai_quota_balances AS balance
-            WHERE balance.user_id = reservation.charged_user_id
-              AND balance.period_start = reservation.period_start
-              AND balance.reserved_units >= reservation.units_reserved
-          )
-        RETURNING *
+        RETURNING reservation.*
       ),
       adjusted AS (
         UPDATE worklog_ai_quota_balances AS balance
@@ -66,7 +78,6 @@ export class SafeDrizzleWorklogSubscriptionRepository extends DrizzleWorklogSubs
         FROM claimed
         WHERE balance.user_id = claimed.charged_user_id
           AND balance.period_start = claimed.period_start
-          AND balance.reserved_units >= claimed.units_reserved
         RETURNING balance.id
       ),
       usage_event AS (
@@ -127,19 +138,33 @@ export class SafeDrizzleWorklogSubscriptionRepository extends DrizzleWorklogSubs
     at: Date,
   ): Promise<WorklogAiReservationSnapshot | null> {
     const result = await this.database.execute(sql`
-      WITH released AS (
-        UPDATE worklog_ai_quota_reservations AS reservation
-        SET status = 'RELEASED', updated_at = ${at}
+      WITH locked AS (
+        SELECT
+          reservation.token,
+          reservation.charged_user_id,
+          reservation.actor_user_id,
+          reservation.source_id,
+          reservation.units_reserved,
+          reservation.units_committed,
+          reservation.period_start,
+          reservation.period_end,
+          reservation.expires_at
+        FROM worklog_ai_quota_reservations AS reservation
+        INNER JOIN worklog_ai_quota_balances AS balance
+          ON balance.user_id = reservation.charged_user_id
+         AND balance.period_start = reservation.period_start
         WHERE reservation.token = ${token}
           AND reservation.status = 'RESERVED'
-          AND EXISTS (
-            SELECT 1
-            FROM worklog_ai_quota_balances AS balance
-            WHERE balance.user_id = reservation.charged_user_id
-              AND balance.period_start = reservation.period_start
-              AND balance.reserved_units >= reservation.units_reserved
-          )
-        RETURNING *
+          AND balance.reserved_units >= reservation.units_reserved
+        FOR UPDATE OF reservation, balance
+      ),
+      released AS (
+        UPDATE worklog_ai_quota_reservations AS reservation
+        SET status = 'RELEASED', updated_at = ${at}
+        FROM locked
+        WHERE reservation.token = locked.token
+          AND reservation.status = 'RESERVED'
+        RETURNING reservation.*
       ),
       adjusted AS (
         UPDATE worklog_ai_quota_balances AS balance
@@ -148,7 +173,6 @@ export class SafeDrizzleWorklogSubscriptionRepository extends DrizzleWorklogSubs
         FROM released
         WHERE balance.user_id = released.charged_user_id
           AND balance.period_start = released.period_start
-          AND balance.reserved_units >= released.units_reserved
         RETURNING balance.id
       )
       SELECT
