@@ -30,7 +30,18 @@ export interface WorklogLineCollaborationPort {
   }): Promise<GroupRecordAuthorizationResult>;
 }
 
-export interface WorklogLineRecordWritePort {
+export interface WorklogLineTextCachePort {
+  remember(input: {
+    lineMessageId: string;
+    lineGroupId: string;
+    lineUserId: string | null;
+    text: string;
+    lineTimestamp: Date;
+  }): ReturnType<WorklogLineTextCacheService['remember']>;
+  resolve(lineGroupId: string, quotedLineMessageId: string, now?: Date): ReturnType<WorklogLineTextCacheService['resolve']>;
+}
+
+export interface WorklogLineRecordWritePort extends WorklogLineTextCachePort {
   recordText(input: {
     sourceId: number;
     authorUserId: number;
@@ -50,17 +61,6 @@ export interface WorklogLineRecordWritePort {
 
 export interface WorklogLineTextNormalizationPort {
   normalizeText(recordId: number): ReturnType<WorklogTextNormalizationService['normalizeText']>;
-}
-
-export interface WorklogLineTextCachePort {
-  remember(input: {
-    lineMessageId: string;
-    lineGroupId: string;
-    lineUserId: string | null;
-    text: string;
-    lineTimestamp: Date;
-  }): ReturnType<WorklogLineTextCacheService['remember']>;
-  resolve(lineGroupId: string, quotedLineMessageId: string, now?: Date): ReturnType<WorklogLineTextCacheService['resolve']>;
 }
 
 export type WorklogLineRuntimeResult =
@@ -93,7 +93,7 @@ export class WorklogLineRuntime {
     private readonly collaboration: WorklogLineCollaborationPort,
     private readonly records: WorklogLineRecordWritePort,
     private readonly textNormalization?: WorklogLineTextNormalizationPort,
-    private readonly textCache?: WorklogLineTextCachePort,
+    private readonly textCache: WorklogLineTextCachePort = records,
   ) {}
 
   async handle(message: BufferedGroupMessage): Promise<WorklogLineRuntimeResult> {
@@ -163,9 +163,11 @@ export class WorklogLineRuntime {
     if (authorization.status !== 'OK') return rejectedAuthorization(authorization.status);
 
     if (command.kind === 'RECORD_QUOTED') {
-      const cached = this.textCache
-        ? await this.textCache.resolve(message.lineGroupId, command.quotedLineMessageId, message.lineTimestamp)
-        : null;
+      const cached = await this.textCache.resolve(
+        message.lineGroupId,
+        command.quotedLineMessageId,
+        message.lineTimestamp,
+      );
       if (!cached) {
         return {
           status: 'QUOTED_NOT_READY',
@@ -226,7 +228,7 @@ export class WorklogLineRuntime {
   }
 
   private async cacheOrdinaryTextBestEffort(message: BufferedGroupMessage): Promise<void> {
-    if (!this.textCache || message.messageType !== 'text' || !message.textContent) return;
+    if (message.messageType !== 'text' || !message.textContent) return;
     try {
       await this.textCache.remember({
         lineMessageId: message.lineMessageId,
