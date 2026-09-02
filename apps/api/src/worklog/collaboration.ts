@@ -37,6 +37,23 @@ export interface WorklogCollaborationRepository {
   ): Promise<boolean>;
 }
 
+export type GroupAccessAuthorizationResult =
+  | {
+      status: 'OK';
+      actorUserId: number;
+      ownerUserId: number;
+      ownerPlanCode: string;
+      ownerCapabilities: PlanCapabilities;
+    }
+  | {
+      status:
+        | 'GROUP_NOT_FOUND'
+        | 'GROUP_INACTIVE'
+        | 'OWNER_UNBOUND'
+        | 'NOT_ACTIVE_MEMBER'
+        | 'GROUP_NOT_ENTITLED';
+    };
+
 export type GroupRecordAuthorizationResult =
   | {
       status: 'OK';
@@ -69,6 +86,34 @@ export type OwnerBindingResult =
 
 export class WorklogCollaborationService {
   constructor(private readonly repository: WorklogCollaborationRepository) {}
+
+  async authorizeGroupAccess(input: {
+    sourceId: number;
+    actorUserId: number;
+  }): Promise<GroupAccessAuthorizationResult> {
+    const context = await this.repository.getGroupAuthorizationContext(
+      input.sourceId,
+      input.actorUserId,
+    );
+    if (!context) return { status: 'GROUP_NOT_FOUND' };
+    if (context.sourceStatus !== 'ACTIVE') return { status: 'GROUP_INACTIVE' };
+    if (context.ownerUserId === null) return { status: 'OWNER_UNBOUND' };
+    if (!context.actorIsActiveMember) return { status: 'NOT_ACTIVE_MEMBER' };
+
+    const planCode = context.ownerPlanCode ?? 'FREE';
+    const capabilities = parsePlanCapabilities(context.ownerCapabilities);
+    if (!canUseGroupCollaboration(planCode, capabilities)) {
+      return { status: 'GROUP_NOT_ENTITLED' };
+    }
+
+    return {
+      status: 'OK',
+      actorUserId: input.actorUserId,
+      ownerUserId: context.ownerUserId,
+      ownerPlanCode: planCode,
+      ownerCapabilities: capabilities,
+    };
+  }
 
   async authorizeGroupRecord(input: {
     sourceId: number;

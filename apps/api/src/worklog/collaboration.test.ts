@@ -59,6 +59,34 @@ function baseContext(): GroupAuthorizationContext {
   };
 }
 
+describe('WorklogCollaborationService access authorization', () => {
+  it('allows historical group read when recording is disabled but the owner plan is entitled', async () => {
+    const repository = new FakeRepository();
+    repository.context = { ...baseContext(), actorRecordingEnabled: false };
+    const service = new WorklogCollaborationService(repository);
+
+    await expect(
+      service.authorizeGroupAccess({ sourceId: 10, actorUserId: 200 }),
+    ).resolves.toEqual({
+      status: 'OK',
+      actorUserId: 200,
+      ownerUserId: 100,
+      ownerPlanCode: 'SUB1',
+      ownerCapabilities: { groupCollaboration: true },
+    });
+  });
+
+  it('keeps FREE personal-only for group query/read access', async () => {
+    const repository = new FakeRepository();
+    repository.context = { ...baseContext(), ownerPlanCode: 'FREE' };
+    const service = new WorklogCollaborationService(repository);
+
+    await expect(
+      service.authorizeGroupAccess({ sourceId: 10, actorUserId: 200 }),
+    ).resolves.toEqual({ status: 'GROUP_NOT_ENTITLED' });
+  });
+});
+
 describe('WorklogCollaborationService authorization', () => {
   it('charges group AI usage to the group owner while retaining the actor', async () => {
     const repository = new FakeRepository();

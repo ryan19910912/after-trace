@@ -1,6 +1,6 @@
 import type { BufferedGroupMessage } from '../line/events';
 import type { GroupBootstrapResult, GroupOwnerBindResult } from './bootstrap';
-import type { GroupRecordAuthorizationResult } from './collaboration';
+import type { GroupAccessAuthorizationResult, GroupRecordAuthorizationResult } from './collaboration';
 import { parseWorklogCommand } from './command';
 import type { WorklogLineTextCacheService } from './line-text-cache';
 import { worklogAttachmentRuntime } from './attachment-runtime';
@@ -24,6 +24,10 @@ export interface WorklogLineBootstrapPort {
 }
 
 export interface WorklogLineCollaborationPort {
+  authorizeGroupAccess(input: {
+    sourceId: number;
+    actorUserId: number;
+  }): Promise<GroupAccessAuthorizationResult>;
   authorizeGroupRecord(input: {
     sourceId: number;
     actorUserId: number;
@@ -138,7 +142,14 @@ export class WorklogLineRuntime {
     if (group.status === 'PENDING_OWNER') {
       return { status: 'REJECTED', reason: 'PENDING_OWNER', replyText: '這個群組還沒有 AFTERTRACE Owner。請要負責訂閱的人輸入「@AFTERTRACE 啟用」完成綁定。' };
     }
-    if (command.kind === 'QUERY') return { status: 'QUERY', sourceId: group.sourceId, userId: group.userId };
+    if (command.kind === 'QUERY') {
+      const access = await this.collaboration.authorizeGroupAccess({
+        sourceId: group.sourceId,
+        actorUserId: group.userId,
+      });
+      if (access.status !== 'OK') return rejectedAuthorization(access.status);
+      return { status: 'QUERY', sourceId: group.sourceId, userId: group.userId };
+    }
 
     const authorization = await this.collaboration.authorizeGroupRecord({
       sourceId: group.sourceId, actorUserId: group.userId, requestedAiUnits: 0,
@@ -235,7 +246,9 @@ function attachmentFailure(reason: string): WorklogLineRuntimeResult {
   return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '這次附件沒有成功處理，請重新傳送後再試。' };
 }
 
-function rejectedAuthorization(status: Exclude<GroupRecordAuthorizationResult['status'], 'OK'>): WorklogLineRuntimeResult {
+function rejectedAuthorization(
+  status: Exclude<GroupRecordAuthorizationResult['status'], 'OK'> | Exclude<GroupAccessAuthorizationResult['status'], 'OK'>,
+): WorklogLineRuntimeResult {
   const replyText: Record<Exclude<GroupRecordAuthorizationResult['status'], 'OK'>, string> = {
     GROUP_NOT_FOUND: '找不到這個 AFTERTRACE 群組設定，請重新啟用後再試。',
     GROUP_INACTIVE: '這個 AFTERTRACE 群組目前已停用。',

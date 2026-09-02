@@ -132,11 +132,19 @@ export class DrizzleWorklogRecordReadRepository implements WorklogRecordReadRepo
       SELECT source.id::text AS source_id, source.line_group_id
       FROM worklog_source_members AS member
       INNER JOIN worklog_sources AS source ON source.id = member.source_id
+      INNER JOIN worklog_user_subscriptions AS subscription
+        ON subscription.user_id = source.owner_user_id
+       AND subscription.status = 'ACTIVE'
+      INNER JOIN worklog_subscription_plans AS plan
+        ON plan.code = subscription.plan_code
+       AND plan.enabled = TRUE
       WHERE member.user_id = ${userId}
         AND member.is_active = TRUE
         AND source.type = 'GROUP'
         AND source.status = 'ACTIVE'
         AND source.line_group_id IS NOT NULL
+        AND UPPER(subscription.plan_code) <> 'FREE'
+        AND plan.capabilities @> '{"groupCollaboration": true}'::jsonb
       ORDER BY source.updated_at DESC, source.id DESC
     `);
     return (result.rows as Array<{ source_id: string; line_group_id: string }>).map((row) => ({
@@ -147,10 +155,19 @@ export class DrizzleWorklogRecordReadRepository implements WorklogRecordReadRepo
   async isActiveGroupMember(userId: number, sourceId: number): Promise<boolean> {
     const result = await this.db.execute(sql`
       SELECT EXISTS (
-        SELECT 1 FROM worklog_source_members AS member
+        SELECT 1
+        FROM worklog_source_members AS member
         INNER JOIN worklog_sources AS source ON source.id = member.source_id
+        INNER JOIN worklog_user_subscriptions AS subscription
+          ON subscription.user_id = source.owner_user_id
+         AND subscription.status = 'ACTIVE'
+        INNER JOIN worklog_subscription_plans AS plan
+          ON plan.code = subscription.plan_code
+         AND plan.enabled = TRUE
         WHERE member.user_id = ${userId} AND member.source_id = ${sourceId}
           AND member.is_active = TRUE AND source.type = 'GROUP' AND source.status = 'ACTIVE'
+          AND UPPER(subscription.plan_code) <> 'FREE'
+          AND plan.capabilities @> '{"groupCollaboration": true}'::jsonb
       ) AS allowed
     `);
     return Boolean((result.rows[0] as { allowed?: boolean } | undefined)?.allowed);

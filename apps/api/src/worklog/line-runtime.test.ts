@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BufferedGroupMessage } from '../line/events';
 import type { GroupBootstrapResult, GroupOwnerBindResult } from './bootstrap';
-import type { GroupRecordAuthorizationResult } from './collaboration';
+import type { GroupAccessAuthorizationResult, GroupRecordAuthorizationResult } from './collaboration';
 import type { CachedLineText } from './line-text-cache';
 import { WorklogLineRuntime } from './line-runtime';
 import type { WorklogTextRecordWriteResult } from './records';
@@ -42,6 +42,13 @@ class FakeBootstrap {
 }
 
 class FakeCollaboration {
+  accessResult: GroupAccessAuthorizationResult = {
+    status: 'OK',
+    actorUserId: 7,
+    ownerUserId: 7,
+    ownerPlanCode: 'SUB1',
+    ownerCapabilities: { groupCollaboration: true },
+  };
   result: GroupRecordAuthorizationResult = {
     status: 'OK',
     actorUserId: 7,
@@ -51,7 +58,13 @@ class FakeCollaboration {
     remainingAiUnits: 100,
   };
   calls = 0;
+  accessCalls = 0;
   requestedAiUnits: number[] = [];
+
+  async authorizeGroupAccess() {
+    this.accessCalls += 1;
+    return this.accessResult;
+  }
 
   async authorizeGroupRecord(input: { requestedAiUnits?: number }) {
     this.calls += 1;
@@ -101,6 +114,7 @@ describe('WorklogLineRuntime', () => {
     await expect(runtime.handle(message('王先生今天收五千'))).resolves.toEqual({ status: 'NOT_HANDLED' });
     expect(bootstrap.bootstrapCalls).toBe(0);
     expect(collaboration.calls).toBe(0);
+    expect(collaboration.accessCalls).toBe(0);
     expect(records.calls).toBe(0);
     expect(records.remembered).toHaveLength(1);
     expect(records.remembered[0]).toMatchObject({
@@ -220,7 +234,7 @@ describe('WorklogLineRuntime', () => {
     expect(records.quotedCalls).toBe(0);
   });
 
-  it('returns a scoped query action for a bound group member', async () => {
+  it('returns a scoped query action only when the owner plan still has group collaboration', async () => {
     const collaboration = new FakeCollaboration();
     const runtime = new WorklogLineRuntime(new FakeBootstrap(), collaboration, new FakeRecords());
     await expect(runtime.handle(message('@AFTERTRACE 查詢'))).resolves.toEqual({
@@ -228,6 +242,7 @@ describe('WorklogLineRuntime', () => {
       sourceId: 20,
       userId: 7,
     });
+    expect(collaboration.accessCalls).toBe(1);
     expect(collaboration.calls).toBe(0);
   });
 
@@ -241,6 +256,19 @@ describe('WorklogLineRuntime', () => {
       sourceId: 20,
       userId: 7,
     });
+    expect(collaboration.accessCalls).toBe(1);
+    expect(collaboration.calls).toBe(0);
+  });
+
+  it('keeps FREE personal-only by rejecting group query links when entitlement is gone', async () => {
+    const collaboration = new FakeCollaboration();
+    collaboration.accessResult = { status: 'GROUP_NOT_ENTITLED' };
+    const runtime = new WorklogLineRuntime(new FakeBootstrap(), collaboration, new FakeRecords());
+
+    const result = await runtime.handle(message('@AFTERTRACE 查詢'));
+    expect(result.status).toBe('REJECTED');
+    if (result.status === 'REJECTED') expect(result.reason).toBe('GROUP_NOT_ENTITLED');
+    expect(collaboration.accessCalls).toBe(1);
     expect(collaboration.calls).toBe(0);
   });
 
