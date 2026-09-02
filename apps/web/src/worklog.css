@@ -51,6 +51,13 @@ button.danger { color:#a83232; border-color:rgba(168,50,50,.35); }
 .feedback-panel { max-width:720px; }
 .feedback-panel textarea { display:block; margin:12px 0; resize:vertical; }
 .feedback-panel h2 { margin-bottom:6px; }
+.subscription-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; margin:16px 0; }
+.subscription-card { display:flex; flex-direction:column; gap:10px; min-height:260px; }
+.subscription-card.current { border:2px solid currentColor; }
+.subscription-card h2 { margin:2px 0; }
+.subscription-card small { display:block; opacity:.78; }
+.subscription-card button { margin-top:auto; }
+.subscription-price { font-size:1.35rem; }
 @media (max-width: 940px) {
   .record-filter-grid { grid-template-columns:1fr 1fr 1fr; }
   .management-grid { grid-template-columns:1fr; }
@@ -64,4 +71,5 @@ button.danger { color:#a83232; border-color:rgba(168,50,50,.35); }
   .entity-row, .transaction-row { grid-template-columns:1fr; }
   .row-buttons { justify-content:flex-start; }
   .filter-actions { flex-direction:column; }
+  .subscription-grid { grid-template-columns:1fr; }
 }
