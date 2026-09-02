@@ -37,13 +37,15 @@ This file is the current-state handoff. Git history preserves older implementati
 - Missing/malformed `maxGroupCount` on a group-enabled plan fails closed rather than granting unlimited groups.
 - Web `/surfaces` and `/records/group/:sourceId` use the same current group entitlement boundary, preventing expired/no-capability/over-limit Web read bypass.
 - Group raw TEXT still persists when `aiTextRecording=false`; AI normalization is skipped rather than blocking the base record.
-- Group quoted media now honors `aiMediaIngestion`: LINE content is minimally resolved first so expired quoted TEXT can still be classified correctly, then real media is rejected before quota reservation/Gemini when capability is disabled.
+- Group quoted media honors `aiMediaIngestion`: LINE content is minimally resolved first so expired quoted TEXT can still be classified correctly, then real media is rejected before quota reservation/Gemini when capability is disabled.
 - Raw TEXT persistence/idempotency; bounded GROUP quoted-TEXT PostgreSQL cache; direct LINE attachment fetch with no binary persistence.
 - Durable Gemini TEXT normalization and attachment ingestion with quota reservation/settlement and provider-price snapshots.
+- Gemini attachment usage now reads `usageMetadata.promptTokensDetails`: total `promptTokenCount` remains the quota input total while AUDIO/IMAGE values are stored as subsets for pricing. Provider cost subtracts modality subsets from ordinary input so a token is not priced twice; null modality-specific price falls back to the ordinary input rate rather than treating media as free.
 - GROUP/PRIVATE one-time Web entry and ordinary LINE Login; no LIFF.
 - PWA personal/group browsing, owner usage/member controls, customer/project CRUD, record organization, finance and feedback.
 - Admin username/password + HMAC session, users/groups/plans/quota/AI runtime/feedback/anomaly/audit views.
-- LINE group/OA lifecycle/message/reply/query-entry failures now have a best-effort writer into `worklog_anomaly_events`, in addition to structured console logs.
+- LINE group/OA lifecycle/message/reply/query-entry failures have best-effort writers into `worklog_anomaly_events`.
+- API Worker now also records best-effort anomalies for ADMIN, subscription and Worklog Web API responses >=500 plus unhandled boundary exceptions; expected 4xx validation/auth failures are not treated as operational incidents.
 - Attachment and text-normalization failures remain durably represented in their dedicated ingestion/normalization state tables and are separately surfaced by Admin.
 - Provider-neutral checkout-intent boundary exists, but payment provider/recurring renewal is not connected.
 
@@ -78,7 +80,7 @@ Recommended:
 - make `assignPlan()` billing-type aware;
 - do not add quarterly/yearly before actually offered.
 
-Migration/data note: existing plan rows need an explicit migration/default decision; do not silently infer cadence from price.
+Migration/data note: existing plan rows need an explicit migration/default decision; do not silently infer cadence from price. Because the branch is currently migration-squashed and existing target migration history is unresolved, do not add a production-assumed billing column migration until the reconciliation approach is decided.
 
 ### B. Monthly renewal/new quota period — confirmed, unresolved
 
@@ -102,10 +104,10 @@ After provider selection:
 
 ### D. Capability enforcement — partially fixed, high priority
 
-Fixed for GROUP in latest batch:
+Fixed for GROUP:
 - `aiTextRecording=false` preserves raw TEXT but skips Gemini normalization.
 - `aiMediaIngestion=false` prevents quota/provider work for real media.
-- Because a cache-missed quoted message has no known type, LINE content lookup is still required to distinguish an old TEXT from retrievable media. A 400/non-retrievable quoted TEXT keeps the required “re-enter original text” guidance. The media capability gate happens immediately after successful content classification and before quota/Gemini.
+- A cache-missed quoted message still performs minimal LINE content classification so old quoted TEXT retains the required re-entry guidance.
 
 Still unresolved:
 - `privateOaRecording`: private OA runtime checks OA friendship, not this capability.
@@ -117,13 +119,13 @@ Still unresolved:
 Architecture recommendation:
 - centralize effective user-plan/capability resolution rather than add ad-hoc SQL to each caller;
 - preserve historical read access when a write/AI capability is disabled;
-- normalize legacy plan capability JSON before production. Missing `aiTextRecording`/`aiMediaIngestion` now fails closed for GROUP AI behavior because capability checks require explicit `true`.
+- normalize legacy plan capability JSON before production.
 
-Private capability work should be coordinated with the unresolved FREE model so “no subscription row” is not accidentally treated inconsistently across OA recording, quota and Web presentation.
+Private capability work remains coupled to unresolved FREE semantics: OA bootstrap creates no FREE subscription row, while quota service treats no subscription as `NO_SUBSCRIPTION`. Do not accidentally lock all FREE private users by requiring a durable subscription row before the FREE model is decided.
 
 ### E. Web group entitlement bypass — FIXED IN CODE, validation pending
 
-`/records/group/:sourceId` and `/surfaces` now authorize current group entitlement instead of relying only on active membership.
+`/records/group/:sourceId` and `/surfaces` authorize current group entitlement instead of relying only on active membership.
 
 Still needs executable route/typecheck/E2E validation.
 
@@ -135,23 +137,35 @@ Do not implement a permanent model until FREE `ONE_TIME` vs `MONTHLY` is decided
 
 ### G. `maxGroupCount` legacy configuration — runtime fixed, data cleanup pending
 
-Missing/malformed max count now fails closed. Existing group-enabled plan rows should be normalized to an explicit numeric `maxGroupCount` and invalid legacy configuration should be visible in Admin.
+Missing/malformed max count fails closed. Existing group-enabled plan rows should be normalized to an explicit numeric `maxGroupCount` and invalid legacy configuration should be visible in Admin.
 
-### H. AI quota unit / modality accounting — confirmed defect, unresolved
+### H. AI quota unit / provider accounting — modality double-count FIXED, broader accounting still unresolved
 
-Current Gemini attachment response uses total `usageMetadata.promptTokenCount` as `inputTokens`, then copies the same total into `audioInputUnits` or `imageInputUnits`. Provider-cost calculation can price the total input plus that duplicated media value.
+Fixed this batch:
+- Gemini `promptTokenCount` is retained as total prompt usage for quota.
+- `promptTokensDetails` is parsed for AUDIO/IMAGE modality subsets instead of copying the entire prompt count into a media field.
+- provider-cost calculation prices ordinary input plus modality subsets exactly once;
+- when a modality-specific price is null, its units use the ordinary input rate instead of becoming free;
+- impossible media subsets larger than total prompt usage are rejected as invalid provider usage.
+
+Newly confirmed remaining risk:
+- Gemini `usageMetadata` also exposes `thoughtsTokenCount`, while current TEXT and attachment normalizers only use `candidatesTokenCount` as output usage.
+- Current Gemini pricing documents state output pricing includes thinking tokens. Therefore historical provider cost and quota accounting can under-count thinking-enabled models.
+- Gemini 3 models use dynamic thinking by default unless controlled. The current requests do not set `thinkingConfig` and also hard-code temperature `0.1`; current Gemini 3 guidance recommends model-appropriate thinking control and generally default temperature behavior.
+- Simply adding thought tokens to `actualUnits` is not enough: current preflight reservation estimates do not reserve a bounded thinking budget, so provider success could exceed the reservation and leave an awkward settlement path.
 
 Required before final FREE/paid quotas:
-- define canonical quota units independently from provider display cost;
-- parse real modality token details instead of copying total prompt tokens;
-- price every provider-billed unit exactly once;
-- make audio/image price semantics explicit instead of mirroring ordinary input price by assumption;
-- verify PDF/text-file treatment separately;
+- decide a model-compatible thinking policy (for example low/minimal where supported) and reservation bound;
+- account billable thinking tokens exactly once in provider cost and quota semantics;
+- keep canonical user quota units conceptually separate from provider-dollar cost even if the first implementation still uses token-equivalent units;
+- verify PDF/DOCUMENT modality treatment and real image/audio calls;
 - calculate plan allowances only after measured real calls.
 
-### I. Admin/current-effective quota drift — confirmed, partially fixed
+Admin AI pricing UI mismatch also remains: backend fields support separate audio/image prices, but the current Admin editor does not expose them independently and writes the ordinary input price into both fields on save. This can overwrite a provider-specific audio rate and must be corrected before cost configuration is trusted.
 
-`DrizzleWorklogUsageRepository.getActiveUsageWindow()` already requires an enabled, temporally current ACTIVE plan, so `/usage/me` does not present a disabled plan as current quota.
+### I. Admin/current-effective quota drift — confirmed, unresolved
+
+`DrizzleWorklogUsageRepository.getActiveUsageWindow()` requires an enabled, temporally current ACTIVE plan, so `/usage/me` does not present a disabled plan as current quota.
 
 Admin list/detail/group SQL still directly shows subscription/balance/template allowance without the same effective-state calculation. Expired, not-yet-effective or disabled subscriptions can therefore show nonzero fields labeled as current allowance/remaining.
 
@@ -160,22 +174,23 @@ Also current `user_type = GROUP_ENABLED` really means “owns at least one ACTIV
 Recommended:
 - centralize/reuse one effective-subscription evaluator in Admin reporting;
 - distinguish current-cycle values from stored/historical snapshot values;
-- either rename factual classification to `GROUP_OWNER` or calculate `GROUP_ENABLED` from actual entitlement.
+- calculate `GROUP_ENABLED` from actual current group entitlement, or rename the factual classification to `GROUP_OWNER`;
+- add compact actual related group/source IDs to the main user list as required by product spec, not counts only.
 
-### J. Structured anomaly coverage — LINE boundary FIXED, broader API audit remains
-
-Before latest batch, `worklog_anomaly_events` was read by Admin but LINE group/OA webhook failures were only logged with `console.error`; attachment and text AI failures lived only in their dedicated state tables.
+### J. Structured anomaly coverage — main LINE/Web/Admin boundaries FIXED, deduplication optional
 
 Current behavior:
 - group lifecycle/message/reply/query-entry failures write best-effort OPEN anomaly rows;
 - OA lifecycle/message/reply/query-entry failures write best-effort OPEN anomaly rows;
+- Admin/subscription/Worklog Web API server responses >=500 are captured at the API Worker boundary;
+- unhandled exceptions escaping those route apps are captured and return a stable 500;
+- normal 4xx validation/auth failures are deliberately not persisted as anomalies;
 - anomaly persistence failure never recursively breaks customer handling; it falls back to console logging;
-- attachment and normalization failures remain structured/durable in `worklog_attachment_ingestions` and `worklog_record_ai_normalizations`, which Admin already displays separately.
+- attachment and normalization failures remain structured/durable in their own tables, which Admin already displays separately.
 
-Still unresolved:
-- broad Web/Admin API 5xx/DB exception coverage is not centrally persisted;
-- do not log ordinary expected 4xx validation/auth failures as operational anomalies;
-- anomaly rows currently have no explicit deduplication/fingerprint, so repeated webhook failures can produce repeated incident rows. Decide whether request/category deduplication is worth a later schema/index change.
+Remaining optional hardening:
+- anomaly rows have no explicit deduplication/fingerprint, so repeated webhook or repeated 5xx failures may create repeated incident rows. Decide later whether request/category fingerprinting is worth a schema/index change.
+- boundary-level 5xx captures method/path/status but not response bodies, intentionally avoiding accidental sensitive-data logging.
 
 ### K. Owner leaves group while other members can still charge Owner — PRODUCT/CONSENT DECISION REQUIRED
 
@@ -193,7 +208,7 @@ Do not implement until approved.
 
 Product spec asks for group id(s) where collaboration applies. Main list shows owned/member group counts but not actual IDs; detail view has group lists.
 
-Recommended: add compact related group/source id array/summary, unless product spec is intentionally revised to counts-only.
+Recommended: add compact related group/source id array/summary unless product spec is intentionally revised to counts-only.
 
 ### M. PWA editing capability scope — product decision required
 
@@ -217,14 +232,14 @@ The direct Web bypass is fixed at route composition, but low-level `WorklogRecor
 
 ### Q. Migration history reconciliation — operational production blocker
 
-Docs now reflect the consolidated `0000`, but actual target DB migration history still needs inspection, one-time reconciliation design and proof on a disposable clone before production deploy helper is allowed to migrate automatically.
+Docs reflect the consolidated `0000`, but actual target DB migration history still needs inspection, one-time reconciliation design and proof on a disposable clone before production deploy helper is allowed to migrate automatically.
 
 ## Other verified good contracts
 
 - Ordinary GROUP text is bounded-cache-only and is not a permanent record without explicit trigger.
 - Ordinary private OA support text is not cached.
 - LINE attachment binaries are not persisted.
-- Cache-missed old quoted TEXT still gets explicit re-entry guidance; media capability gating must not destroy this classification.
+- Cache-missed old quoted TEXT still gets explicit re-entry guidance; media capability gating does not destroy this classification.
 - Group Owner cannot be silently overwritten by another claim.
 - Group member recording disable occurs before new group record/provider work.
 - Expired persisted `status='ACTIVE'` does not grant collaboration entitlement through collaboration service.
@@ -242,22 +257,26 @@ Read before work:
 - `WORKLOG_DEPLOYMENT.md`
 
 Source areas audited this batch:
-- private OA runtime/webhook wiring;
-- group line runtime and group collaboration capability result;
-- text-normalization service;
-- attachment ingestion and Gemini attachment usage metadata;
-- LINE content resolver semantics for quoted TEXT vs binary content;
-- Admin list/detail/group quota SQL;
-- PWA mutation routes and capability definitions;
-- structured anomaly table read/write coverage.
+- private OA runtime/wiring re-read to avoid premature FREE-dependent capability changes;
+- Admin current quota/group classification SQL re-read;
+- Gemini attachment `usageMetadata` and provider-cost path;
+- shared AI pricing snapshot helper;
+- Gemini text usage accounting, revealing missing thinking-token accounting;
+- Worker-level Admin/subscription/Worklog Web API error boundary.
+
+External API facts re-verified against current Google Gemini API documentation during this batch:
+- `usageMetadata.promptTokenCount` is total prompt usage;
+- `promptTokensDetails[]` reports per-modality token subsets with TEXT/IMAGE/VIDEO/AUDIO/DOCUMENT modalities;
+- `usageMetadata.thoughtsTokenCount` is a separate field;
+- current Gemini pricing charges output including thinking tokens;
+- Gemini 3 uses dynamic thinking unless controlled and supports `thinkingConfig`/`thinkingLevel`.
 
 Completed code changes:
-- group `aiTextRecording` server-side gate: raw text still records; normalization is skipped when disabled;
-- group `aiMediaIngestion` gate threaded into attachment ingestion;
-- corrected the first media-gate attempt after static review found it would misclassify expired quoted TEXT; final flow performs minimal LINE content classification first and blocks actual media before quota/Gemini;
-- added `DrizzleWorklogAnomalyRepository` and best-effort anomaly persistence;
-- wired group/OA lifecycle/message/reply/query-entry failures into structured anomaly rows;
-- authored/updated focused tests for group AI text/media capability behavior, quoted-TEXT classification under disabled media capability, and group/OA structured anomaly writes.
+- corrected historical multimodal cost calculation so AUDIO/IMAGE subsets are not added on top of the same total prompt token count;
+- added null-media-price fallback to ordinary input price;
+- Gemini attachment normalizer now parses real `promptTokensDetails` instead of copying total input into media fields;
+- added regression tests for image modality split, missing detail fallback, impossible modality totals, one-time pricing and null price fallback;
+- added API Worker 5xx/unhandled anomaly boundary for Admin, subscription and Worklog Web APIs while excluding ordinary 4xx.
 
 Tests/status:
 - Tests were authored/updated but **not executed**.
@@ -278,17 +297,17 @@ After remaining static/code gaps are closed, run one explicit local validation p
 8. Admin auth/plan/quota/anomaly/manual-subscription smoke;
 9. API/Web/Admin Worker local/build smoke;
 10. real LINE OA/group lifecycle, owner claim, TEXT, Reply-TEXT expiry, AUDIO/IMAGE/PDF/file flows;
-11. real Gemini text/image/audio/PDF usage/cost snapshots;
+11. real Gemini text/image/audio/PDF usage/cost snapshots including prompt modality details and thinking-token accounting;
 12. capability downgrade/disable cases, maxGroupCount, subscription expiry and anomaly persistence failure cases.
 
 ## Current planning estimate
 
 Planning estimate only; not test results:
 
-- MVP non-provider feature implementation: **about 94–96%**.
-- Static architecture/logic audit coverage: **about 91–94%**.
-- Production readiness including still-unrun executable validation and migration/provider gaps: **about 79–83%**.
-- Remaining internal static/code work before concentrated validation: roughly **2–4 large batches / about 4–8 focused hours**.
+- MVP non-provider feature implementation: **about 95–96%**.
+- Static architecture/logic audit coverage: **about 94–96%**.
+- Production readiness including still-unrun executable validation, AI-thinking accounting, migration and provider gaps: **about 81–84%**.
+- Remaining internal static/code work before concentrated validation: roughly **2–3 large batches / about 3–7 focused hours**.
 - After concentrated validation starts, reserve roughly **2–8 focused hours** for ordinary compile/schema/browser/runtime fixes; deeper migration or AI-accounting defects could extend this.
 - External/provider work is separate: payment provider selection, recurring authorization/webhooks, production secrets/domains/LINE configuration and production migration-history reconciliation.
 
@@ -296,11 +315,11 @@ Planning estimate only; not test results:
 
 Continue from, in order:
 
-1. design the private OA entitlement/capability boundary without prematurely choosing FREE virtual-vs-durable semantics;
-2. audit/fix Admin effective subscription/quota presentation and group-id list mismatch;
-3. finish AI modality accounting design/implementation so provider cost cannot double-count media;
-4. audit remaining Web/Admin 5xx/DB anomaly coverage without turning normal 4xx into incidents;
-5. continue billing-type/renewal domain scaffolding where it does not require the unresolved FREE cadence or provider selection;
-6. revisit Office-file support wording versus actual MVP implementation.
+1. fix/audit Admin effective subscription/quota presentation, `GROUP_ENABLED` semantics and actual group-id list output;
+2. resolve Gemini thinking-token accounting and model-compatible thinking/temperature/reservation policy before final AI quotas;
+3. design the private OA entitlement/capability boundary without prematurely choosing FREE virtual-vs-durable semantics;
+4. continue billing-type/renewal scaffolding only where migration/default/provider decisions are not being guessed;
+5. revisit Office-file support wording versus actual MVP implementation;
+6. harden low-level record-read layering naming/documentation if useful.
 
 Do not use GitHub Actions as validation.
