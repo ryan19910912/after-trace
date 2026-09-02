@@ -107,16 +107,27 @@ export function createAdminRoutes() {
   });
 
   app.get('/users/:id', async (c) => {
-    const detail = await repository(c).userDetail(id(c.req.param('id')));
+    const userId = positiveId(c.req.param('id'));
+    if (!userId) return c.json({ ok: false, error: 'INVALID_USER_ID' }, 400);
+    const detail = await repository(c).userDetail(userId);
     return detail ? c.json({ ok: true, detail }) : c.json({ ok: false, error: 'USER_NOT_FOUND' }, 404);
   });
 
   app.put('/users/:id/subscription', async (c) => {
-    const userId = id(c.req.param('id'));
+    const userId = positiveId(c.req.param('id'));
+    if (!userId) return c.json({ ok: false, error: 'INVALID_USER_ID' }, 400);
     const body = await jsonBody(c);
     if (!body) return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
-    const planCode = requiredPlanCode(body.planCode);
-    const end = optionalDate(body.currentPeriodEnd);
+
+    let planCode: string;
+    let end: Date | null | undefined;
+    try {
+      planCode = requiredPlanCode(body.planCode);
+      end = optionalDate(body.currentPeriodEnd);
+    } catch (error) {
+      return c.json({ ok: false, error: safeError(error, 'INVALID_SUBSCRIPTION_INPUT') }, 400);
+    }
+
     const database = createDatabase(c.env.DATABASE_URL);
     const adminRepository = new DrizzleAdminRepository(database);
     if (!(await adminRepository.userDetail(userId))) return c.json({ ok: false, error: 'USER_NOT_FOUND' }, 404);
@@ -142,7 +153,9 @@ export function createAdminRoutes() {
   });
 
   app.get('/groups/:id', async (c) => {
-    const detail = await repository(c).groupDetail(id(c.req.param('id')));
+    const groupId = positiveId(c.req.param('id'));
+    if (!groupId) return c.json({ ok: false, error: 'INVALID_GROUP_ID' }, 400);
+    const detail = await repository(c).groupDetail(groupId);
     return detail ? c.json({ ok: true, detail }) : c.json({ ok: false, error: 'GROUP_NOT_FOUND' }, 404);
   });
 
@@ -189,11 +202,13 @@ export function createAdminRoutes() {
   app.get('/anomalies', async (c) => c.json({ ok: true, anomalies: await repository(c).anomalies(limit(c.req.query('limit'))) }));
 
   app.patch('/anomalies/:id', async (c) => {
+    const anomalyId = positiveId(c.req.param('id'));
+    if (!anomalyId) return c.json({ ok: false, error: 'INVALID_ANOMALY_ID' }, 400);
     const body = await jsonBody(c);
     if (!body) return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
     const status = anomalyStatus(body.status);
     if (!status) return c.json({ ok: false, error: 'INVALID_ANOMALY_STATUS' }, 400);
-    const result = await repository(c).setAnomalyStatus(id(c.req.param('id')), status, c.get('adminUsername'));
+    const result = await repository(c).setAnomalyStatus(anomalyId, status, c.get('adminUsername'));
     return result ? c.json({ ok: true, anomaly: result }) : c.json({ ok: false, error: 'ANOMALY_NOT_FOUND' }, 404);
   });
 
@@ -215,10 +230,9 @@ async function jsonBody(c: { req: { json(): Promise<unknown> } }): Promise<Recor
   }
 }
 
-function id(value: string): number {
+function positiveId(value: string): number | null {
   const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error('INVALID_ID');
-  return parsed;
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 function limit(value: string | undefined): number {
