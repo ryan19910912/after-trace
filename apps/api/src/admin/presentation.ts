@@ -1,3 +1,5 @@
+import { ADMIN_CAPABILITY_DEFINITIONS } from './capabilities';
+
 type AdminRecord = Record<string, unknown>;
 
 const VALUE_LABELS: Record<string, string> = {
@@ -72,6 +74,9 @@ function present(value: unknown): unknown {
     if (LABELED_FIELDS.has(key) && typeof item === 'string') {
       result[`${key}_label`] = label(item);
     }
+  }
+  if ('capabilities' in source) {
+    result.capability_definitions = ADMIN_CAPABILITY_DEFINITIONS;
   }
   return result;
 }
