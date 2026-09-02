@@ -3,6 +3,7 @@ import type { GroupBootstrapResult, GroupOwnerBindResult } from './bootstrap';
 import type { GroupRecordAuthorizationResult } from './collaboration';
 import { parseWorklogCommand } from './command';
 import type { WorklogLineTextCacheService } from './line-text-cache';
+import { worklogAttachmentRuntime } from './attachment-runtime';
 import type { WorklogTextRecordWriteResult } from './records';
 import type { WorklogTextNormalizationService } from './text-normalization';
 
@@ -83,7 +84,8 @@ export type WorklogLineRuntimeResult =
         | 'GROUP_NOT_ENTITLED'
         | 'AI_QUOTA_EXHAUSTED'
         | 'SOURCE_NOT_FOUND'
-        | 'IDEMPOTENCY_CONFLICT';
+        | 'IDEMPOTENCY_CONFLICT'
+        | 'ATTACHMENT_FAILED';
       replyText: string;
     };
 
@@ -104,17 +106,14 @@ export class WorklogLineRuntime {
     }
     if (!message.lineUserId) {
       return {
-        status: 'REJECTED',
-        reason: 'USER_UNKNOWN',
+        status: 'REJECTED', reason: 'USER_UNKNOWN',
         replyText: 'AFTERTRACE 無法辨識你的 LINE 使用者身分，這次沒有建立紀錄。',
       };
     }
 
     if (command.kind === 'CLAIM_GROUP') {
       await this.bootstrap.bootstrapGroupInteraction({
-        lineGroupId: message.lineGroupId,
-        lineUserId: message.lineUserId,
-        at: message.lineTimestamp,
+        lineGroupId: message.lineGroupId, lineUserId: message.lineUserId, at: message.lineTimestamp,
       });
       const bound = await this.bootstrap.bindGroupOwner({
         lineGroupId: message.lineGroupId,
@@ -123,15 +122,10 @@ export class WorklogLineRuntime {
         at: message.lineTimestamp,
       });
       if (bound.status === 'OWNER_CONFLICT') {
-        return {
-          status: 'REJECTED',
-          reason: 'OWNER_CONFLICT',
-          replyText: '這個群組已經綁定其他 AFTERTRACE Owner；目前不會覆蓋既有 Owner。',
-        };
+        return { status: 'REJECTED', reason: 'OWNER_CONFLICT', replyText: '這個群組已經綁定其他 AFTERTRACE Owner；目前不會覆蓋既有 Owner。' };
       }
       return {
-        status: 'OWNER_BOUND',
-        sourceId: bound.sourceId,
+        status: 'OWNER_BOUND', sourceId: bound.sourceId,
         replyText: bound.status === 'ALREADY_BOUND'
           ? '這個群組已經綁定在你的 AFTERTRACE 帳號。'
           : '群組已完成 AFTERTRACE Owner 綁定；方案有開啟群組權限後即可開始記錄。',
@@ -139,134 +133,109 @@ export class WorklogLineRuntime {
     }
 
     const group = await this.bootstrap.bootstrapGroupInteraction({
-      lineGroupId: message.lineGroupId,
-      lineUserId: message.lineUserId,
-      at: message.lineTimestamp,
+      lineGroupId: message.lineGroupId, lineUserId: message.lineUserId, at: message.lineTimestamp,
     });
     if (group.status === 'PENDING_OWNER') {
-      return {
-        status: 'REJECTED',
-        reason: 'PENDING_OWNER',
-        replyText: '這個群組還沒有 AFTERTRACE Owner。請要負責訂閱的人輸入「@AFTERTRACE 啟用」完成綁定。',
-      };
+      return { status: 'REJECTED', reason: 'PENDING_OWNER', replyText: '這個群組還沒有 AFTERTRACE Owner。請要負責訂閱的人輸入「@AFTERTRACE 啟用」完成綁定。' };
     }
-
-    if (command.kind === 'QUERY') {
-      return { status: 'QUERY', sourceId: group.sourceId, userId: group.userId };
-    }
+    if (command.kind === 'QUERY') return { status: 'QUERY', sourceId: group.sourceId, userId: group.userId };
 
     const authorization = await this.collaboration.authorizeGroupRecord({
-      sourceId: group.sourceId,
-      actorUserId: group.userId,
-      requestedAiUnits: 0,
+      sourceId: group.sourceId, actorUserId: group.userId, requestedAiUnits: 0,
     });
     if (authorization.status !== 'OK') return rejectedAuthorization(authorization.status);
 
     if (command.kind === 'RECORD_QUOTED') {
-      const cached = await this.textCache.resolve(
-        message.lineGroupId,
-        command.quotedLineMessageId,
-        message.lineTimestamp,
-      );
-      if (!cached) {
+      const cached = await this.textCache.resolve(message.lineGroupId, command.quotedLineMessageId, message.lineTimestamp);
+      if (cached) {
+        const write = await this.records.recordQuotedText({
+          sourceId: group.sourceId,
+          authorUserId: group.userId,
+          lineMessageId: message.lineMessageId,
+          quotedLineMessageId: command.quotedLineMessageId,
+          text: cached.text,
+          sourceTimestamp: cached.lineTimestamp,
+        });
+        return this.finishWrite(write, message, '已記錄你回覆的文字。');
+      }
+
+      const attachments = worklogAttachmentRuntime();
+      if (!attachments) {
+        return { status: 'QUOTED_NOT_READY', replyText: '附件處理服務目前尚未啟用，這次沒有建立紀錄。' };
+      }
+      const result = await attachments.ingest({
+        sourceId: group.sourceId,
+        actorUserId: group.userId,
+        chargedUserId: authorization.chargedUserId,
+        commandLineMessageId: message.lineMessageId,
+        quotedLineMessageId: command.quotedLineMessageId,
+        sourceTimestamp: message.lineTimestamp,
+        instruction: command.instruction,
+      });
+      if (result.status === 'RECORDED') {
         return {
-          status: 'QUOTED_NOT_READY',
-          replyText: '找不到暫存文字；如果你回覆的是圖片、音檔或檔案，系統會改由 LINE content API 讀取。附件流程尚未接完，這次沒有建立紀錄。',
+          status: 'RECORDED', recordId: result.recordId, duplicate: result.duplicate,
+          replyText: result.duplicate ? '這則附件已經記錄過了。' : '已記錄你回覆的附件。',
         };
       }
-      const write = await this.records.recordQuotedText({
-        sourceId: group.sourceId,
-        authorUserId: group.userId,
-        lineMessageId: message.lineMessageId,
-        quotedLineMessageId: command.quotedLineMessageId,
-        text: cached.text,
-        sourceTimestamp: cached.lineTimestamp,
-      });
-      return this.finishWrite(write, message, '已記錄你回覆的文字。');
+      if (result.status === 'IN_PROGRESS') {
+        return { status: 'QUOTED_NOT_READY', replyText: '這則附件正在處理中，請稍後到 AFTERTRACE 紀錄頁查看。' };
+      }
+      return attachmentFailure(result.reason);
     }
 
     const write = await this.records.recordText({
-      sourceId: group.sourceId,
-      authorUserId: group.userId,
-      lineMessageId: message.lineMessageId,
-      text: command.text,
-      sourceTimestamp: message.lineTimestamp,
+      sourceId: group.sourceId, authorUserId: group.userId, lineMessageId: message.lineMessageId,
+      text: command.text, sourceTimestamp: message.lineTimestamp,
     });
     return this.finishWrite(write, message, '已記錄。');
   }
 
-  private async finishWrite(
-    write: WorklogTextRecordWriteResult,
-    message: BufferedGroupMessage,
-    createdReplyText: string,
-  ): Promise<WorklogLineRuntimeResult> {
+  private async finishWrite(write: WorklogTextRecordWriteResult, message: BufferedGroupMessage, createdReplyText: string): Promise<WorklogLineRuntimeResult> {
     if (write.status === 'CREATED') {
       await this.normalizeBestEffort(write.recordId, message);
       return { status: 'RECORDED', recordId: write.recordId, duplicate: false, replyText: createdReplyText };
     }
     if (write.status === 'ALREADY_RECORDED') {
       await this.normalizeBestEffort(write.recordId, message);
-      return {
-        status: 'RECORDED',
-        recordId: write.recordId,
-        duplicate: true,
-        replyText: '這則訊息已經記錄過了。',
-      };
+      return { status: 'RECORDED', recordId: write.recordId, duplicate: true, replyText: '這則訊息已經記錄過了。' };
     }
     if (write.status === 'IDEMPOTENCY_CONFLICT') {
-      return {
-        status: 'REJECTED',
-        reason: 'IDEMPOTENCY_CONFLICT',
-        replyText: '這則 LINE 訊息的紀錄狀態不一致，為避免寫錯資料，本次沒有覆蓋既有紀錄。',
-      };
+      return { status: 'REJECTED', reason: 'IDEMPOTENCY_CONFLICT', replyText: '這則 LINE 訊息的紀錄狀態不一致，為避免寫錯資料，本次沒有覆蓋既有紀錄。' };
     }
-    return {
-      status: 'REJECTED',
-      reason: 'SOURCE_NOT_FOUND',
-      replyText: '這個群組目前無法建立紀錄，請重新啟用 AFTERTRACE 後再試。',
-    };
+    return { status: 'REJECTED', reason: 'SOURCE_NOT_FOUND', replyText: '這個群組目前無法建立紀錄，請重新啟用 AFTERTRACE 後再試。' };
   }
 
   private async cacheOrdinaryTextBestEffort(message: BufferedGroupMessage): Promise<void> {
     if (message.messageType !== 'text' || !message.textContent) return;
     try {
       await this.textCache.remember({
-        lineMessageId: message.lineMessageId,
-        lineGroupId: message.lineGroupId,
-        lineUserId: message.lineUserId,
-        text: message.textContent,
-        lineTimestamp: message.lineTimestamp,
+        lineMessageId: message.lineMessageId, lineGroupId: message.lineGroupId,
+        lineUserId: message.lineUserId, text: message.textContent, lineTimestamp: message.lineTimestamp,
       });
     } catch (error) {
-      console.error(JSON.stringify({
-        event: 'worklog_line_text_cache_failed',
-        lineGroupId: message.lineGroupId,
-        lineMessageId: message.lineMessageId,
-        message: error instanceof Error ? error.message : 'unknown error',
-      }));
+      console.error(JSON.stringify({ event: 'worklog_line_text_cache_failed', lineGroupId: message.lineGroupId, lineMessageId: message.lineMessageId, message: error instanceof Error ? error.message : 'unknown error' }));
     }
   }
 
   private async normalizeBestEffort(recordId: number, message: BufferedGroupMessage): Promise<void> {
     if (!this.textNormalization) return;
-    try {
-      await this.textNormalization.normalizeText(recordId);
-    } catch (error) {
-      console.error(JSON.stringify({
-        event: 'worklog_text_normalization_failed_after_persist',
-        source: 'GROUP',
-        recordId,
-        lineGroupId: message.lineGroupId,
-        lineMessageId: message.lineMessageId,
-        message: error instanceof Error ? error.message : 'unknown error',
-      }));
+    try { await this.textNormalization.normalizeText(recordId); }
+    catch (error) {
+      console.error(JSON.stringify({ event: 'worklog_text_normalization_failed_after_persist', source: 'GROUP', recordId, lineGroupId: message.lineGroupId, lineMessageId: message.lineMessageId, message: error instanceof Error ? error.message : 'unknown error' }));
     }
   }
 }
 
-function rejectedAuthorization(
-  status: Exclude<GroupRecordAuthorizationResult['status'], 'OK'>,
-): WorklogLineRuntimeResult {
+function attachmentFailure(reason: string): WorklogLineRuntimeResult {
+  if (reason === 'LINE_CONTENT_EXPIRED') return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '這則內容已過期，請重新傳送後再 Reply @AFTERTRACE。' };
+  if (reason === 'LINE_CONTENT_TOO_LARGE') return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '這個附件太大，目前無法處理，請縮小檔案後重新傳送。' };
+  if (reason === 'ATTACHMENT_UNSUPPORTED') return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '目前不支援這個檔案格式，請改傳圖片、音檔、PDF 或文字檔。' };
+  if (/QUOTA|ALLOWANCE|SUBSCRIPTION/.test(reason)) return { status: 'REJECTED', reason: 'AI_QUOTA_EXHAUSTED', replyText: '目前 Owner 的 AI 額度不足，這次沒有處理附件。' };
+  return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '這次附件沒有成功處理，請重新傳送後再試。' };
+}
+
+function rejectedAuthorization(status: Exclude<GroupRecordAuthorizationResult['status'], 'OK'>): WorklogLineRuntimeResult {
   const replyText: Record<Exclude<GroupRecordAuthorizationResult['status'], 'OK'>, string> = {
     GROUP_NOT_FOUND: '找不到這個 AFTERTRACE 群組設定，請重新啟用後再試。',
     GROUP_INACTIVE: '這個 AFTERTRACE 群組目前已停用。',
