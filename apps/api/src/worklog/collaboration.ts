@@ -4,6 +4,7 @@ import {
   parsePlanCapabilities,
   type PlanCapabilities,
 } from './entitlements';
+import type { WorklogSubscriptionStatus } from './subscription';
 
 export type GroupAuthorizationContext = {
   sourceId: number;
@@ -12,6 +13,11 @@ export type GroupAuthorizationContext = {
   actorIsActiveMember: boolean;
   actorRecordingEnabled: boolean;
   ownerPlanCode: string | null;
+  ownerSubscriptionStatus: WorklogSubscriptionStatus | null;
+  ownerEffectiveAt: Date | null;
+  ownerPeriodStart: Date | null;
+  ownerPeriodEnd: Date | null;
+  ownerPlanEnabled: boolean;
   ownerCapabilities: unknown;
   ownerAllowanceUnits: number;
   ownerConsumedUnits: number;
@@ -90,6 +96,7 @@ export class WorklogCollaborationService {
   async authorizeGroupAccess(input: {
     sourceId: number;
     actorUserId: number;
+    at?: Date;
   }): Promise<GroupAccessAuthorizationResult> {
     const context = await this.repository.getGroupAuthorizationContext(
       input.sourceId,
@@ -100,18 +107,15 @@ export class WorklogCollaborationService {
     if (context.ownerUserId === null) return { status: 'OWNER_UNBOUND' };
     if (!context.actorIsActiveMember) return { status: 'NOT_ACTIVE_MEMBER' };
 
-    const planCode = context.ownerPlanCode ?? 'FREE';
-    const capabilities = parsePlanCapabilities(context.ownerCapabilities);
-    if (!canUseGroupCollaboration(planCode, capabilities)) {
-      return { status: 'GROUP_NOT_ENTITLED' };
-    }
+    const entitlement = groupEntitlement(context, input.at ?? new Date());
+    if (!entitlement) return { status: 'GROUP_NOT_ENTITLED' };
 
     return {
       status: 'OK',
       actorUserId: input.actorUserId,
       ownerUserId: context.ownerUserId,
-      ownerPlanCode: planCode,
-      ownerCapabilities: capabilities,
+      ownerPlanCode: entitlement.planCode,
+      ownerCapabilities: entitlement.capabilities,
     };
   }
 
@@ -119,6 +123,7 @@ export class WorklogCollaborationService {
     sourceId: number;
     actorUserId: number;
     requestedAiUnits?: number;
+    at?: Date;
   }): Promise<GroupRecordAuthorizationResult> {
     const context = await this.repository.getGroupAuthorizationContext(
       input.sourceId,
@@ -134,11 +139,8 @@ export class WorklogCollaborationService {
       return { status: 'RECORDING_DISABLED' };
     }
 
-    const planCode = context.ownerPlanCode ?? 'FREE';
-    const capabilities = parsePlanCapabilities(context.ownerCapabilities);
-    if (!canUseGroupCollaboration(planCode, capabilities)) {
-      return { status: 'GROUP_NOT_ENTITLED' };
-    }
+    const entitlement = groupEntitlement(context, input.at ?? new Date());
+    if (!entitlement) return { status: 'GROUP_NOT_ENTITLED' };
 
     const allowance = nonNegativeInteger(context.ownerAllowanceUnits);
     const consumed = nonNegativeInteger(context.ownerConsumedUnits);
@@ -152,8 +154,8 @@ export class WorklogCollaborationService {
       status: 'OK',
       actorUserId: input.actorUserId,
       chargedUserId: context.ownerUserId,
-      ownerPlanCode: planCode,
-      ownerCapabilities: capabilities,
+      ownerPlanCode: entitlement.planCode,
+      ownerCapabilities: entitlement.capabilities,
       remainingAiUnits: Math.max(0, remaining - requested),
     };
   }
@@ -208,6 +210,23 @@ export class WorklogCollaborationService {
       ? { status: 'ALREADY_BOUND', ownerUserId: winner }
       : { status: 'OWNER_CONFLICT', ownerUserId: winner };
   }
+}
+
+function groupEntitlement(
+  context: GroupAuthorizationContext,
+  at: Date,
+): { planCode: string; capabilities: PlanCapabilities } | null {
+  const atMs = at.getTime();
+  if (!Number.isFinite(atMs)) throw new Error('group entitlement time must be valid');
+  if (context.ownerSubscriptionStatus !== 'ACTIVE' || !context.ownerPlanEnabled) return null;
+  if (!context.ownerEffectiveAt || !context.ownerPeriodStart) return null;
+  if (atMs < context.ownerEffectiveAt.getTime() || atMs < context.ownerPeriodStart.getTime()) return null;
+  if (context.ownerPeriodEnd && atMs >= context.ownerPeriodEnd.getTime()) return null;
+
+  const planCode = context.ownerPlanCode ?? 'FREE';
+  const capabilities = parsePlanCapabilities(context.ownerCapabilities);
+  if (!canUseGroupCollaboration(planCode, capabilities)) return null;
+  return { planCode, capabilities };
 }
 
 function nonNegativeInteger(value: number): number {
