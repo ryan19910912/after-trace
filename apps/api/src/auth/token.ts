@@ -9,13 +9,22 @@ export type WebEntryClaims = {
   expiresAt: number;
 };
 
+export type PrivateWebEntryClaims = {
+  type: 'PRIVATE_WEB_ENTRY';
+  lineUserId: string;
+  userId: number;
+  sourceId: number;
+  nonce: string;
+  expiresAt: number;
+};
+
 export type WebSessionClaims = {
   type: 'WEB_SESSION';
   lineUserId: string;
   expiresAt: number;
 };
 
-type TokenClaims = WebEntryClaims | WebSessionClaims;
+type TokenClaims = WebEntryClaims | PrivateWebEntryClaims | WebSessionClaims;
 
 function base64UrlEncode(bytes: Uint8Array): string {
   let binary = '';
@@ -65,6 +74,11 @@ function nonce(value: string): string {
   return normalized;
 }
 
+function positiveDatabaseId(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) throw new Error('invalid database id');
+  return value;
+}
+
 async function issue(claims: TokenClaims, secret: string): Promise<string> {
   const payload = encoder.encode(JSON.stringify(claims));
   const signature = new Uint8Array(
@@ -95,7 +109,18 @@ async function verify(token: string, secret: string, now: Date): Promise<TokenCl
     if (parsed.type === 'WEB_SESSION') {
       return { type: 'WEB_SESSION', lineUserId: userId, expiresAt: parsed.expiresAt };
     }
-    if (parsed.type !== 'WEB_ENTRY' || typeof parsed.lineGroupId !== 'string' || typeof parsed.nonce !== 'string') return null;
+    if (typeof parsed.nonce !== 'string') return null;
+    if (parsed.type === 'PRIVATE_WEB_ENTRY') {
+      return {
+        type: 'PRIVATE_WEB_ENTRY',
+        lineUserId: userId,
+        userId: positiveDatabaseId(parsed.userId),
+        sourceId: positiveDatabaseId(parsed.sourceId),
+        nonce: nonce(parsed.nonce),
+        expiresAt: parsed.expiresAt,
+      };
+    }
+    if (parsed.type !== 'WEB_ENTRY' || typeof parsed.lineGroupId !== 'string') return null;
     return {
       type: 'WEB_ENTRY',
       lineUserId: userId,
@@ -131,6 +156,37 @@ export async function issueWebEntryToken(input: {
 export async function verifyWebEntryToken(token: string, secret: string, now = new Date()): Promise<WebEntryClaims | null> {
   const claims = await verify(token, secret, now);
   return claims?.type === 'WEB_ENTRY' ? claims : null;
+}
+
+export async function issuePrivateWebEntryToken(input: {
+  lineUserId: string;
+  userId: number;
+  sourceId: number;
+  nonce: string;
+  secret: string;
+  now?: Date;
+  ttlSeconds?: number;
+}): Promise<string> {
+  const now = input.now ?? new Date();
+  const ttlSeconds = input.ttlSeconds ?? 300;
+  if (!Number.isSafeInteger(ttlSeconds) || ttlSeconds <= 0 || ttlSeconds > 900) throw new Error('invalid private web entry ttl');
+  return issue({
+    type: 'PRIVATE_WEB_ENTRY',
+    lineUserId: lineUserId(input.lineUserId),
+    userId: positiveDatabaseId(input.userId),
+    sourceId: positiveDatabaseId(input.sourceId),
+    nonce: nonce(input.nonce),
+    expiresAt: Math.floor(now.getTime() / 1000) + ttlSeconds,
+  }, input.secret);
+}
+
+export async function verifyPrivateWebEntryToken(
+  token: string,
+  secret: string,
+  now = new Date(),
+): Promise<PrivateWebEntryClaims | null> {
+  const claims = await verify(token, secret, now);
+  return claims?.type === 'PRIVATE_WEB_ENTRY' ? claims : null;
 }
 
 export async function issueWebSessionToken(input: {
