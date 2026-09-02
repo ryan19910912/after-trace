@@ -64,6 +64,16 @@ class FakeRepository implements WorklogBootstrapRepository {
     return this.boundGroups.get(lineGroupId) ?? null;
   }
 
+  async reactivateBoundGroup(sourceId: number) {
+    for (const [lineGroupId, group] of this.boundGroups) {
+      if (group.sourceId === sourceId) {
+        this.boundGroups.set(lineGroupId, { ...group, status: 'ACTIVE' });
+        return true;
+      }
+    }
+    return false;
+  }
+
   async upsertPendingGroup(lineGroupId: string) {
     const existing = this.pendingGroups.get(lineGroupId);
     if (existing) return existing;
@@ -262,5 +272,34 @@ describe('group bootstrap', () => {
     });
 
     expect(repository.boundMembers.get(`${bound.sourceId}:2`)).toBe(true);
+  });
+
+  it('reactivates the existing source and owner when a previously-left group sends a new interaction', async () => {
+    const repository = new FakeRepository();
+    const service = new WorklogBootstrapService(repository);
+    const bound = await service.bindGroupOwner({
+      lineGroupId: 'C1',
+      ownerLineUserId: 'OWNER',
+      evidence: 'EXPLICIT_CLAIM',
+    });
+    if (bound.status !== 'BOUND') throw new Error('expected bound group');
+
+    await service.handleGroupLeave({ lineGroupId: 'C1', at: new Date('2026-09-02T03:00:00Z') });
+    expect(repository.boundGroups.get('C1')?.status).toBe('INACTIVE');
+
+    const rejoined = await service.bootstrapGroupInteraction({
+      lineGroupId: 'C1',
+      lineUserId: 'OWNER',
+      at: new Date('2026-09-02T04:00:00Z'),
+    });
+
+    expect(rejoined).toEqual({
+      status: 'BOUND',
+      userId: 1,
+      sourceId: bound.sourceId,
+      ownerUserId: bound.ownerUserId,
+    });
+    expect(repository.boundGroups.get('C1')?.status).toBe('ACTIVE');
+    expect(repository.boundGroups.get('C1')?.sourceId).toBe(bound.sourceId);
   });
 });
