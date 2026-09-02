@@ -1,4 +1,10 @@
 import type { GroupLifecycleEvent, ParsedLineWebhook } from '../line/events';
+import {
+  anomalyErrorCode,
+  anomalyErrorSummary,
+  recordAnomalySafely,
+  type WorklogAnomalyPort,
+} from './anomalies';
 import { parseWorklogCommand } from './command';
 import type { WorklogLineRuntime, WorklogLineRuntimeResult } from './line-runtime';
 
@@ -70,9 +76,11 @@ function logFailure(input: {
 
 async function replySafely(input: {
   reply: WorklogGroupReplyPort;
+  anomalies?: WorklogAnomalyPort;
   replyToken: string;
   text: string;
   lineGroupId: string;
+  lineUserId?: string | null;
   lineMessageId: string;
   webhookEventId: string | null;
   counters: WorklogGroupWebhookCounters;
@@ -87,6 +95,17 @@ async function replySafely(input: {
       lineMessageId: input.lineMessageId,
       webhookEventId: input.webhookEventId,
       error,
+    });
+    await recordAnomalySafely(input.anomalies, {
+      category: 'LINE_GROUP_REPLY',
+      errorCode: anomalyErrorCode(error, 'LINE_REPLY_FAILED'),
+      summary: anomalyErrorSummary(error, 'LINE group reply failed'),
+      lineMessageId: input.lineMessageId,
+      requestRef: input.webhookEventId,
+      metadata: {
+        lineGroupId: input.lineGroupId,
+        ...(input.lineUserId ? { lineUserId: input.lineUserId } : {}),
+      },
     });
   }
 }
@@ -124,6 +143,7 @@ export async function processWorklogGroupWebhook(input: {
   bootstrap: WorklogGroupLifecyclePort;
   runtime: Pick<WorklogLineRuntime, 'handle'>;
   reply: WorklogGroupReplyPort;
+  anomalies?: WorklogAnomalyPort;
   createQueryUrl?: (target: WorklogGroupQueryTarget) => Promise<string | null>;
 }): Promise<WorklogGroupWebhookCounters> {
   const counters = emptyCounters();
@@ -141,6 +161,16 @@ export async function processWorklogGroupWebhook(input: {
           webhookEventId: parsedEvent.event.webhookEventId,
           error,
           extra: { lifecycleType: parsedEvent.event.type },
+        });
+        await recordAnomalySafely(input.anomalies, {
+          category: 'LINE_GROUP_LIFECYCLE',
+          errorCode: anomalyErrorCode(error, 'GROUP_LIFECYCLE_FAILED'),
+          summary: anomalyErrorSummary(error, 'LINE group lifecycle failed'),
+          requestRef: parsedEvent.event.webhookEventId,
+          metadata: {
+            lineGroupId: parsedEvent.event.lineGroupId,
+            lifecycleType: parsedEvent.event.type,
+          },
         });
       }
       continue;
@@ -161,6 +191,18 @@ export async function processWorklogGroupWebhook(input: {
         error,
         extra: { explicitCommand },
       });
+      await recordAnomalySafely(input.anomalies, {
+        category: 'LINE_GROUP_WEBHOOK',
+        errorCode: anomalyErrorCode(error, 'GROUP_MESSAGE_FAILED'),
+        summary: anomalyErrorSummary(error, 'LINE group message failed'),
+        lineMessageId: message.lineMessageId,
+        requestRef: message.webhookEventId,
+        metadata: {
+          lineGroupId: message.lineGroupId,
+          ...(message.lineUserId ? { lineUserId: message.lineUserId } : {}),
+          explicitCommand,
+        },
+      });
       if (!explicitCommand) {
         counters.worklogOrdinaryMessages += 1;
         continue;
@@ -170,9 +212,11 @@ export async function processWorklogGroupWebhook(input: {
       if (message.replyToken) {
         await replySafely({
           reply: input.reply,
+          anomalies: input.anomalies,
           replyToken: message.replyToken,
           text: 'AFTERTRACE 這次沒有成功處理紀錄指令，請稍後再試。',
           lineGroupId: message.lineGroupId,
+          lineUserId: message.lineUserId,
           lineMessageId: message.lineMessageId,
           webhookEventId: message.webhookEventId,
           counters,
@@ -219,15 +263,30 @@ export async function processWorklogGroupWebhook(input: {
             webhookEventId: message.webhookEventId,
             error,
           });
+          await recordAnomalySafely(input.anomalies, {
+            category: 'LINE_GROUP_QUERY_ENTRY',
+            errorCode: anomalyErrorCode(error, 'GROUP_QUERY_ENTRY_FAILED'),
+            summary: anomalyErrorSummary(error, 'LINE group query entry failed'),
+            userId: result.userId,
+            sourceId: result.sourceId,
+            lineMessageId: message.lineMessageId,
+            requestRef: message.webhookEventId,
+            metadata: {
+              lineGroupId: message.lineGroupId,
+              lineUserId: message.lineUserId,
+            },
+          });
         }
       }
       await replySafely({
         reply: input.reply,
+        anomalies: input.anomalies,
         replyToken: message.replyToken,
         text: url
           ? `AFTERTRACE｜查看紀錄\n${url}`
           : 'AFTERTRACE 紀錄頁目前尚未設定完成，紀錄本身不受影響。',
         lineGroupId: message.lineGroupId,
+        lineUserId: message.lineUserId,
         lineMessageId: message.lineMessageId,
         webhookEventId: message.webhookEventId,
         counters,
@@ -237,9 +296,11 @@ export async function processWorklogGroupWebhook(input: {
 
     await replySafely({
       reply: input.reply,
+      anomalies: input.anomalies,
       replyToken: message.replyToken,
       text: result.replyText,
       lineGroupId: message.lineGroupId,
+      lineUserId: message.lineUserId,
       lineMessageId: message.lineMessageId,
       webhookEventId: message.webhookEventId,
       counters,
