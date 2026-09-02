@@ -1,49 +1,178 @@
 export type AdminOverview = {
   users: number;
+  oaFriends: number;
   groups: number;
   activeGroups: number;
+  records: number;
+  recordsToday: number;
   aiCallsToday: number;
   aiCostTwdToday: string;
-  platformSubsidyUnitsToday: string;
-  failedMemoryRequests: number;
-  failedChats: number;
-  scheduledReminders: number;
-  scheduledProactive: number;
+  openAnomalies: number;
+  failedAttachments: number;
+  failedNormalizations: number;
+  feedback30d: number;
 };
 
 export type Row = Record<string, unknown>;
-export type AdminSetting = {
-  key: string;
-  section: string;
-  label: string;
-  kind: 'text' | 'positive-number' | 'positive-integer';
-  value: string | null;
-  source: 'DATABASE' | 'DEFAULT' | 'UNCONFIGURED';
-  updatedBy: string | null;
-  updatedAt: string | null;
+
+export type AdminPlan = {
+  id?: string;
+  code: string;
+  display_name: string;
+  price_twd: string;
+  rank: number;
+  enabled: boolean;
+  ai_allowance_units: number;
+  capabilities: Record<string, boolean | number | string>;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type AdminAiRuntimeConfig = {
+  id?: number;
+  provider: string;
+  model: string;
+  input_usd_per_million: string;
+  output_usd_per_million: string;
+  audio_usd_per_million: string | null;
+  image_usd_per_million: string | null;
+  usd_twd_rate: string | null;
+  updated_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type AdminAnomalies = {
+  events: Row[];
+  attachments: Row[];
+  normalizations: Row[];
+};
+
+export type UserListFilters = {
+  query?: string;
+  planCode?: string;
+  userType?: '' | 'INDIVIDUAL' | 'GROUP_ENABLED';
+  sortUpdated?: 'ASC' | 'DESC';
 };
 
 export class AdminApi {
+  private sessionToken: string | null = null;
+
   constructor(private readonly baseUrl: string) {}
 
-  private async request<T>(path: string, init?: RequestInit): Promise<T> {
-    const headers = new Headers(init?.headers);
-    if (init?.body) headers.set('Content-Type', 'application/json');
-    const response = await fetch(`${this.baseUrl.replace(/\/$/, '')}/api/v1/admin${path}`, { ...init, credentials: 'include', headers });
-    const body = await response.json() as { ok?: boolean; error?: string } & T;
-    if (!response.ok) throw new Error(body.error || `Admin API failed: ${response.status}`);
-    return body;
+  setSessionToken(token: string | null) {
+    this.sessionToken = token?.trim() || null;
   }
 
-  async overview(): Promise<AdminOverview> { return (await this.request<{ overview: AdminOverview }>('/overview')).overview; }
-  async users(query = ''): Promise<Row[]> { return (await this.request<{ users: Row[] }>(`/users${query.trim() ? `?q=${encodeURIComponent(query.trim())}` : ''}`)).users; }
-  async userDetail(id: string | number): Promise<Record<string, unknown>> { return (await this.request<{ detail: Record<string, unknown> }>(`/users/${id}`)).detail; }
-  async groups(query = ''): Promise<Row[]> { return (await this.request<{ groups: Row[] }>(`/groups${query.trim() ? `?q=${encodeURIComponent(query.trim())}` : ''}`)).groups; }
-  async groupDetail(id: string | number): Promise<Record<string, unknown>> { return (await this.request<{ detail: Record<string, unknown> }>(`/groups/${id}`)).detail; }
-  async failures(): Promise<{ memory: Row[]; chat: Row[]; proactive: Row[] }> { return (await this.request<{ failures: { memory: Row[]; chat: Row[]; proactive: Row[] } }>('/failures')).failures; }
-  async settings(): Promise<AdminSetting[]> { return (await this.request<{ settings: AdminSetting[] }>('/settings')).settings; }
-  async updateSetting(key: string, value: string): Promise<void> { await this.request(`/settings/${encodeURIComponent(key)}`, { method: 'PUT', body: JSON.stringify({ value }) }); }
-  async audit(): Promise<Row[]> { return (await this.request<{ audit: Row[] }>('/audit')).audit; }
-  async retryMemoryRequest(id: string | number): Promise<void> { await this.request(`/memory-requests/${id}/retry`, { method: 'POST' }); }
-  async cancelProactive(id: string | number): Promise<void> { await this.request(`/proactive/${id}/cancel`, { method: 'POST' }); }
+  async login(username: string, password: string): Promise<{ sessionToken: string; username: string }> {
+    return this.request('/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    }, false);
+  }
+
+  async session(): Promise<{ username: string }> {
+    return this.request('/session');
+  }
+
+  async overview(): Promise<AdminOverview> {
+    return (await this.request<{ overview: AdminOverview }>('/overview')).overview;
+  }
+
+  async users(filters: UserListFilters = {}): Promise<Row[]> {
+    const params = new URLSearchParams();
+    if (filters.query?.trim()) params.set('q', filters.query.trim());
+    if (filters.planCode?.trim()) params.set('plan', filters.planCode.trim());
+    if (filters.userType) params.set('type', filters.userType);
+    params.set('sort', filters.sortUpdated ?? 'DESC');
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return (await this.request<{ users: Row[] }>(`/users${suffix}`)).users;
+  }
+
+  async userDetail(id: string | number): Promise<Record<string, unknown>> {
+    return (await this.request<{ detail: Record<string, unknown> }>(`/users/${id}`)).detail;
+  }
+
+  async updateUserSubscription(id: string | number, planCode: string, currentPeriodEnd?: string | null): Promise<void> {
+    await this.request(`/users/${id}/subscription`, {
+      method: 'PUT',
+      body: JSON.stringify({ planCode, currentPeriodEnd }),
+    });
+  }
+
+  async groups(query = ''): Promise<Row[]> {
+    const suffix = query.trim() ? `?q=${encodeURIComponent(query.trim())}` : '';
+    return (await this.request<{ groups: Row[] }>(`/groups${suffix}`)).groups;
+  }
+
+  async groupDetail(id: string | number): Promise<Record<string, unknown>> {
+    return (await this.request<{ detail: Record<string, unknown> }>(`/groups/${id}`)).detail;
+  }
+
+  async plans(): Promise<AdminPlan[]> {
+    return (await this.request<{ plans: AdminPlan[] }>('/plans')).plans;
+  }
+
+  async savePlan(input: {
+    code: string;
+    displayName: string;
+    priceTwd: string;
+    rank: number;
+    enabled: boolean;
+    aiAllowanceUnits: number;
+    capabilities: Record<string, boolean | number | string>;
+  }): Promise<void> {
+    await this.request(`/plans/${encodeURIComponent(input.code)}`, {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    });
+  }
+
+  async aiRuntime(): Promise<AdminAiRuntimeConfig | null> {
+    return (await this.request<{ config: AdminAiRuntimeConfig | null }>('/ai-runtime')).config;
+  }
+
+  async saveAiRuntime(input: {
+    provider: string;
+    model: string;
+    inputUsdPerMillion: string;
+    outputUsdPerMillion: string;
+    audioUsdPerMillion: string | null;
+    imageUsdPerMillion: string | null;
+    usdTwdRate: string | null;
+  }): Promise<void> {
+    await this.request('/ai-runtime', { method: 'PUT', body: JSON.stringify(input) });
+  }
+
+  async feedback(): Promise<Row[]> {
+    return (await this.request<{ feedback: Row[] }>('/feedback')).feedback;
+  }
+
+  async anomalies(): Promise<AdminAnomalies> {
+    return (await this.request<{ anomalies: AdminAnomalies }>('/anomalies')).anomalies;
+  }
+
+  async updateAnomaly(id: string | number, status: 'OPEN' | 'RESOLVED' | 'IGNORED'): Promise<void> {
+    await this.request(`/anomalies/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
+  }
+
+  async audit(): Promise<Row[]> {
+    return (await this.request<{ audit: Row[] }>('/audit')).audit;
+  }
+
+  private async request<T>(path: string, init?: RequestInit, authenticated = true): Promise<T> {
+    const headers = new Headers(init?.headers);
+    if (init?.body) headers.set('Content-Type', 'application/json');
+    if (authenticated && this.sessionToken) headers.set('Authorization', `Bearer ${this.sessionToken}`);
+    const response = await fetch(`${this.baseUrl.replace(/\/$/, '')}/api/v1/admin${path}`, { ...init, headers });
+    const text = await response.text();
+    let body: ({ ok?: boolean; error?: string } & T) | null = null;
+    try {
+      body = text ? JSON.parse(text) as { ok?: boolean; error?: string } & T : {} as { ok?: boolean; error?: string } & T;
+    } catch {
+      throw new Error(`ADMIN_API_INVALID_RESPONSE_${response.status}`);
+    }
+    if (!response.ok) throw new Error(body.error || `ADMIN_API_FAILED_${response.status}`);
+    return body;
+  }
 }
