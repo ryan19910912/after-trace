@@ -12,3 +12,4 @@ export * from './schema-round20';
 export * from './schema-worklog';
 export * from './schema-worklog-quota';
 export * from './schema-worklog-bootstrap';
+export * from './schema-worklog-web-auth';
