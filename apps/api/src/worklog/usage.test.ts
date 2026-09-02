@@ -15,6 +15,7 @@ class FakeRepository implements WorklogUsageRepository {
   ai = new Map<string, AiUsageAggregate>();
   records = new Map<string, RecordTypeCounts>();
   members = new Map<number, GroupMemberUsage[]>();
+  aiQueries = 0;
 
   async getActiveUsageWindow(userId: number) {
     return this.windows.get(userId) ?? null;
@@ -26,6 +27,7 @@ class FakeRepository implements WorklogUsageRepository {
     _periodEnd: Date | null,
     sourceId?: number,
   ) {
+    this.aiQueries += 1;
     return this.ai.get(`${chargedUserId}:${sourceId ?? 'all'}`) ?? {
       aiUnits: 0,
       providerCostUsd: 0,
@@ -77,6 +79,26 @@ describe('WorklogUsageService user usage', () => {
       providerCostTwd: 9.75,
       records: { TEXT: 8, AUDIO: 2, IMAGE: 3, FILE: 1 },
     });
+  });
+
+  it('does not relabel lifetime AI usage as FREE current-cycle usage when no active window exists', async () => {
+    const repository = new FakeRepository();
+    repository.ai.set('100:all', { aiUnits: 999, providerCostUsd: 9, providerCostTwd: 280 });
+    repository.records.set('100:all', { TEXT: 12, AUDIO: 1, IMAGE: 0, FILE: 2 });
+
+    const service = new WorklogUsageService(repository);
+    await expect(service.userUsage(100)).resolves.toEqual({
+      userId: 100,
+      planCode: 'FREE',
+      aiAllowanceUnits: 0,
+      aiUsedUnits: 0,
+      aiReservedUnits: 0,
+      aiRemainingUnits: 0,
+      providerCostUsd: 0,
+      providerCostTwd: 0,
+      records: { TEXT: 12, AUDIO: 1, IMAGE: 0, FILE: 2 },
+    });
+    expect(repository.aiQueries).toBe(0);
   });
 });
 
@@ -144,6 +166,39 @@ describe('WorklogUsageService group owner usage', () => {
         members: repository.members.get(10),
       },
     });
+  });
+
+  it('keeps historical member record counts but zeros cycle AI metrics after the owner has no active usage window', async () => {
+    const repository = new FakeRepository();
+    repository.owners.set(10, 100);
+    repository.records.set('100:all', { TEXT: 3, AUDIO: 0, IMAGE: 0, FILE: 0 });
+    repository.ai.set('100:all', { aiUnits: 50, providerCostUsd: 0.5, providerCostTwd: 15 });
+    repository.ai.set('100:10', { aiUnits: 40, providerCostUsd: 0.4, providerCostTwd: 12 });
+    repository.members.set(10, [{
+      userId: 200,
+      displayName: 'Worker',
+      recordingEnabled: true,
+      aiUsedUnits: 40,
+      providerCostUsd: 0.4,
+      providerCostTwd: 12,
+      records: { TEXT: 7, AUDIO: 1, IMAGE: 2, FILE: 0 },
+      lastInteractionAt: null,
+      updatedAt: '2026-09-02T00:00:00.000Z',
+    }]);
+
+    const service = new WorklogUsageService(repository);
+    const result = await service.groupOwnerUsage(100, 10);
+    expect(result.status).toBe('OK');
+    if (result.status !== 'OK') throw new Error('expected OK');
+    expect(result.value.owner.aiUsedUnits).toBe(0);
+    expect(result.value.groupAiUsedUnits).toBe(0);
+    expect(result.value.members[0]).toMatchObject({
+      aiUsedUnits: 0,
+      providerCostUsd: 0,
+      providerCostTwd: 0,
+      records: { TEXT: 7, AUDIO: 1, IMAGE: 2, FILE: 0 },
+    });
+    expect(repository.aiQueries).toBe(0);
   });
 
   it('does not expose owner/member usage to a non-owner', async () => {
