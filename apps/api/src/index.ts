@@ -18,7 +18,7 @@ import { createEnergyRoutes } from './energy/routes';
 import { DrizzleExtractionClaimRepository } from './extraction/drizzle-repository';
 import { ConversationExtractionCoordinator } from './extraction/service';
 import { aiMentionText, detectDeterministicAiCommand, isAiMention } from './line/commands';
-import { parseLineWebhook } from './line/events';
+import { parseLineWebhook, parseOaWebhook } from './line/events';
 import { LineMessagingReplyClient } from './line/reply';
 import { verifyLineSignature } from './line/signature';
 import { createManagementRoutes } from './management/routes';
@@ -32,6 +32,8 @@ import { DrizzleWorklogBootstrapRepository } from './worklog/drizzle-bootstrap';
 import { DrizzleWorklogCollaborationRepository } from './worklog/drizzle-collaboration';
 import { DrizzleWorklogRecordWriteRepository } from './worklog/drizzle-records';
 import { WorklogLineRuntime } from './worklog/line-runtime';
+import { WorklogOaRuntime } from './worklog/oa-runtime';
+import { processWorklogOaWebhook } from './worklog/oa-webhook';
 import { WorklogRecordWriteService } from './worklog/records';
 
 export type Bindings = ProductConfigEnv & {
@@ -83,7 +85,8 @@ app.post('/webhooks/line', async (c) => {
   }
 
   const parsed = parseLineWebhook(payload);
-  if (parsed.events.length === 0) {
+  const parsedOa = parseOaWebhook(payload);
+  if (parsed.events.length === 0 && parsedOa.events.length === 0) {
     return c.json({
       ok: true,
       lifecycleEvents: 0,
@@ -93,6 +96,14 @@ app.post('/webhooks/line', async (c) => {
       worklogRejected: 0,
       worklogQueries: 0,
       worklogOwnerClaims: 0,
+      oaLifecycleEvents: 0,
+      oaWorklogCommands: 0,
+      oaWorklogRecords: 0,
+      oaWorklogDuplicateRecords: 0,
+      oaWorklogRejected: 0,
+      oaWorklogQueries: 0,
+      oaHumanSupportMessages: 0,
+      oaErrors: 0,
       storedMessages: 0,
       duplicateMessages: 0,
       ignoredInactiveMessages: 0,
@@ -140,6 +151,10 @@ app.post('/webhooks/line', async (c) => {
     worklogCollaborationService,
     worklogRecordWriteService,
   );
+  const worklogOaRuntime = new WorklogOaRuntime(
+    worklogBootstrapService,
+    worklogRecordWriteService,
+  );
   const memoryRequestRepository = new DrizzleMemoryRequestRepository(database);
   const explicitMemoryRequestService = new ExplicitMemoryRequestService(memoryRequestRepository);
   const automaticMemoryRequestService = new AutomaticMemoryRequestService(memoryRequestRepository);
@@ -150,6 +165,12 @@ app.post('/webhooks/line', async (c) => {
   const chatService = chatDisabledReason ? null : new ExplicitAiChatService(database, c.env);
   const groupsWithAiWork = new Set<number>();
   const explicitRequestTargets = new Map<number, string>();
+
+  const oaCounters = await processWorklogOaWebhook({
+    parsed: parsedOa,
+    runtime: worklogOaRuntime,
+    reply: lineReplyClient,
+  });
 
   let lifecycleEvents = 0;
   let worklogCommands = 0;
@@ -531,6 +552,7 @@ app.post('/webhooks/line', async (c) => {
     worklogRejected,
     worklogQueries,
     worklogOwnerClaims,
+    ...oaCounters,
     storedMessages,
     duplicateMessages,
     ignoredInactiveMessages,
