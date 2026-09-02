@@ -4,11 +4,12 @@ This document is part of the durable development contract for branch `revive/lin
 
 ## Reply-to-text temporary cache
 
-**Only ordinary LINE TEXT messages are temporarily cached.**
+**Only ordinary LINE GROUP TEXT messages are temporarily cached.**
 
-LINE Reply provides the quoted message id, but old text cannot be fetched back from LINE later. To support users who forget to mark a text immediately and Reply several days later:
+LINE Reply provides the quoted message id, but old text cannot be fetched back from LINE later. The LINE Messaging API content endpoint supports binary user content such as image/video/audio/file; there is no API to retrieve a user's past text again after the original webhook event. To support group users who forget to mark a text immediately and Reply several days later:
 
 - Temporarily cache ordinary LINE group text in PostgreSQL only.
+- Do not cache ordinary private/OA support text.
 - Do not cache AUDIO / IMAGE / FILE content or binaries.
 - Do not add Redis for MVP.
 - Default TTL: **5 days**.
@@ -17,8 +18,9 @@ LINE Reply provides the quoted message id, but old text cannot be fetched back f
 - Cache is strictly temporary and is not a permanent work record.
 - Cached ordinary chat must not be treated as AI input or a saved AFTERTRACE record unless a user later explicitly Replies and invokes `@AFTERTRACE`.
 - Cache rows should keep at least LINE message id, group/source identity, author LINE user id when available, text, created time, expires time.
-- Reply-to-text lookup uses `quotedMessageId` against this temporary cache.
-- When the quoted text no longer exists in cache, return a clear content-expired response and ask the user to resend/re-enter it.
+- Group Reply-to-text lookup uses `quotedMessageId` against this temporary cache.
+- When the quoted group text no longer exists in cache, LINE cannot reconstruct the text from `quotedMessageId`; return a clear response asking the user to re-enter it, for example `@AFTERTRACE 原文`.
+- In OA one-to-one chat, ordinary support text is deliberately not cached. Therefore replying later to a private text cannot reconstruct the quoted text from LINE. Ask the user to send `@AFTERTRACE 原文` instead. Do not weaken the privacy/content policy by adding a private ordinary-text cache just to emulate group Reply-TEXT behavior.
 - Make TTL and per-group cap operator-configurable later if practical, but 5 days / 1000 is the MVP default.
 
 ## Attachment policy: no temporary cache
@@ -30,8 +32,10 @@ When a user Replies to an attachment and invokes `@AFTERTRACE`:
 1. Read `quotedMessageId` from the command message.
 2. Directly call the LINE message-content API using that message id.
 3. If LINE still has the content, process it immediately.
-4. If LINE no longer has the content or the content API returns unavailable/expired, reply clearly that the content has expired and ask the user to resend it.
-5. Do not fall back to a local attachment cache because there is no attachment cache in the MVP.
+4. If LINE returns `202`, the binary content is still being prepared. Do not pass the response body to AI; tell the user to wait and send a new Reply `@AFTERTRACE` against the same attachment later.
+5. If LINE no longer has the content or the content API returns unavailable/expired, reply clearly that the content has expired and ask the user to resend it.
+6. If the content endpoint reports that the quoted message has no retrievable binary body (for example a past text), do not pretend it is an attachment; ask the user to re-enter the text or resend the attachment as appropriate.
+7. Do not fall back to a local attachment cache because there is no attachment cache in the MVP.
 
 Do **not** permanently store original LINE attachment binaries:
 
@@ -89,7 +93,8 @@ Do not overwrite a different record merely because a quoted message id collides 
 ## Processing order / source-of-truth rule
 
 - For direct TEXT commands, persist raw text first; AI normalization happens after durable raw persistence.
-- For Reply-to-TEXT, resolve cached quoted text first, then persist the raw resolved text with both LINE ids before optional AI normalization.
+- For GROUP Reply-to-TEXT, resolve cached quoted text first, then persist the raw resolved text with both LINE ids before optional AI normalization.
+- For PRIVATE Reply-to-TEXT, do not create a private ordinary-text cache; when the original text is no longer present in the current webhook, ask the user to send `@AFTERTRACE 原文`.
 - For AUDIO/IMAGE/FILE, call LINE content API directly, then extract/transcribe/understand enough durable textual content before declaring the record saved, because neither a local cache nor the original binary is retained.
 - AI/provider failure must not corrupt or overwrite existing durable raw/textual content.
 
@@ -97,13 +102,16 @@ Do not overwrite a different record merely because a quoted message id collides 
 
 Development and bug-audit rounds should cover:
 
-- only TEXT enters the temporary cache;
+- only GROUP TEXT enters the temporary cache;
+- private ordinary support text is never cached;
 - no AUDIO/IMAGE/FILE cache rows or binary payloads are created;
 - 5-day TEXT TTL pruning correctness;
 - 1000-message per-group TEXT cap pruning order;
 - duplicate LINE webhook deliveries;
-- Reply-to-TEXT after cache expiry;
+- Group Reply-to-TEXT after cache expiry;
+- Private Reply-to-TEXT returns explicit re-entry guidance rather than attempting binary fetch as text;
 - quoted AUDIO/IMAGE/FILE expired at LINE;
+- LINE content `202` preparation state never reaches Gemini as attachment bytes;
 - attachment content API unavailable/error handling;
 - file too large / unsupported format;
 - attachment fetch succeeds but AI/parser fails;
