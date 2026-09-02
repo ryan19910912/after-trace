@@ -105,7 +105,7 @@ class FakeRepository implements WorklogBootstrapRepository {
   async promoteGroup(input: Parameters<WorklogBootstrapRepository['promoteGroup']>[0]) {
     this.promoteCalls.push(input);
     const existing = this.boundGroups.get(input.lineGroupId);
-    if (existing?.ownerUserId !== null && existing?.ownerUserId !== input.ownerUserId) return null;
+    if (existing && existing.ownerUserId !== null && existing.ownerUserId !== input.ownerUserId) return null;
     const source: WorklogBoundGroup = existing ?? {
       sourceId: this.nextSourceId++,
       lineGroupId: input.lineGroupId,
