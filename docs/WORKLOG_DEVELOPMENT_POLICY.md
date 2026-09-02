@@ -20,6 +20,21 @@ If existing workflow files are present, leave them untouched unless the user exp
 
 Commits and pushes are for preserving actual source/documentation progress, not for requesting CI execution.
 
+## Product-decision documentation policy
+
+Product decisions agreed with the user are part of the durable development contract and must not live only in chat history.
+
+During scheduled or interactive development work:
+
+- when a product rule, subscription rule, entitlement rule, LINE behavior, billing rule, user-facing copy contract, or architecture decision is agreed, update `docs/WORKLOG_PRODUCT_SPEC.md` in the same development batch;
+- when the decision changes current implementation status, known debt, validation scope, or next work, also update `docs/WORKLOG_REBUILD_PROGRESS.md`;
+- implementation-specific operating rules belong in the relevant development/content/deployment document as well when applicable;
+- future runs must read the durable documents first and must not replace an existing documented decision with assumptions reconstructed from chat memory;
+- if code and durable product documentation disagree, explicitly surface the mismatch. Do not silently redefine the product contract to match existing code unless the user has approved that behavior;
+- if a newly agreed decision requires a migration, payment-provider behavior, background renewal process, or other work that is not implemented yet, document both the desired contract and the fact that implementation is still pending.
+
+This includes subscription/pricing decisions. Current subscription design discussions must be persisted as they are agreed, including billing type, renewal behavior, quota refresh behavior, rollover rules, and payment-provider requirements.
+
 ## Development validation policy
 
 During the accelerated MVP implementation phase:
