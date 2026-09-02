@@ -1,19 +1,13 @@
 {
-  "version":"7","dialect":"postgresql","entries":[
-    {"idx":0,"version":"7","when":1788023686641,"tag":"0000_tough_scalphunter","breakpoints":true},
-    {"idx":1,"version":"7","when":1788288732000,"tag":"0001_worklog_foundation","breakpoints":true},
-    {"idx":2,"version":"7","when":1788292200000,"tag":"0002_worklog_group_ownership","breakpoints":true},
-    {"idx":3,"version":"7","when":1788295500000,"tag":"0003_worklog_ai_quota_reservations","breakpoints":true},
-    {"idx":4,"version":"7","when":1788299226000,"tag":"0004_worklog_pending_group_bootstrap","breakpoints":true},
-    {"idx":5,"version":"7","when":1788317415000,"tag":"0005_worklog_private_web_entry","breakpoints":true},
-    {"idx":6,"version":"7","when":1788321100000,"tag":"0006_worklog_text_normalization","breakpoints":true},
-    {"idx":7,"version":"7","when":1788325200000,"tag":"0007_worklog_line_text_cache","breakpoints":true},
-    {"idx":8,"version":"7","when":1788328800000,"tag":"0008_worklog_attachment_ingestion","breakpoints":true},
-    {"idx":9,"version":"7","when":1788332400000,"tag":"0009_worklog_failure_anomaly_triggers","breakpoints":true},
-    {"idx":10,"version":"7","when":1788336000000,"tag":"0010_worklog_checkout_intents","breakpoints":true},
-    {"idx":11,"version":"7","when":1788340000000,"tag":"0011_worklog_active_web_auth","breakpoints":true},
-    {"idx":12,"version":"7","when":1788343600000,"tag":"0012_worklog_quota_cycle_snapshot","breakpoints":true},
-    {"idx":13,"version":"7","when":1788347200000,"tag":"0013_worklog_project_customer_consistency","breakpoints":true},
-    {"idx":14,"version":"7","when":1788350800000,"tag":"0014_worklog_oa_friend_state_time","breakpoints":true}
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1788355164374,
+      "tag": "0000_worklog_baseline",
+      "breakpoints": true
+    }
   ]
 }
