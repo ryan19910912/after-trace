@@ -51,6 +51,9 @@ export class DrizzleWorklogUsageRepository implements WorklogUsageRepository {
        AND balance.period_start = subscription.current_period_start
       WHERE subscription.user_id = ${userId}
         AND subscription.status = 'ACTIVE'
+        AND subscription.effective_at <= NOW()
+        AND subscription.current_period_start <= NOW()
+        AND (subscription.current_period_end IS NULL OR NOW() < subscription.current_period_end)
       LIMIT 1
     `);
     const row = result.rows[0] as {
