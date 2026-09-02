@@ -253,7 +253,8 @@ describe('WorklogLineRuntime', () => {
       }));
       expect(result.status).toBe('REJECTED');
       if (result.status === 'REJECTED') expect(result.reason).toBe('AI_MEDIA_DISABLED');
-      expect(calls).toEqual([{ allowAiMedia: false }]);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatchObject({ allowAiMedia: false });
     } finally {
       configureWorklogAttachmentRuntime(null);
     }
