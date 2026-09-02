@@ -11,7 +11,7 @@ import { WorklogCollaborationService } from './worklog/collaboration';
 import { DrizzleWorklogBootstrapRepository } from './worklog/drizzle-bootstrap';
 import { DrizzleWorklogCollaborationRepository } from './worklog/drizzle-collaboration';
 import { DrizzleWorklogRecordWriteRepository } from './worklog/drizzle-records';
-import { DrizzleWorklogSubscriptionRepository } from './worklog/drizzle-subscription';
+import { SafeDrizzleWorklogSubscriptionRepository } from './worklog/drizzle-subscription-safe';
 import { DrizzleWorklogTextNormalizationRepository } from './worklog/drizzle-text-normalization';
 import { GeminiWorklogTextNormalizer } from './worklog/gemini-text-normalizer';
 import { processWorklogGroupWebhook } from './worklog/group-webhook';
@@ -97,7 +97,7 @@ app.post('/webhooks/line', async (c) => {
   const worklogRecordWriteService = new WorklogRecordWriteService(new DrizzleWorklogRecordWriteRepository(database));
   const worklogTextNormalizationService = new WorklogTextNormalizationService(
     new DrizzleWorklogTextNormalizationRepository(database),
-    new WorklogSubscriptionService(new DrizzleWorklogSubscriptionRepository(database)),
+    new WorklogSubscriptionService(new SafeDrizzleWorklogSubscriptionRepository(database)),
     new GeminiWorklogTextNormalizer({ apiKey: c.env.GEMINI_API_KEY }),
   );
   const worklogLineRuntime = new WorklogLineRuntime(
