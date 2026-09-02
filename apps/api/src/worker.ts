@@ -1,16 +1,9 @@
 import app, { type Bindings } from './index';
 import { createAdminRoutes } from './admin/routes';
 import { loadOperationalRuntimeEnv, operationalSettingDefinitions } from './config/operational-settings';
+import { disableLegacyConversationRuntime } from './conversation/service';
 import { createDatabase } from './db/client';
 import { LineMessageContentResolver } from './line/content';
-import { LineMessagingPushClient } from './line/push';
-import { DrizzleProactiveRepository } from './proactive/drizzle-repository';
-import { createProactiveRoutes } from './proactive/routes';
-import { ProactiveDeliveryService } from './proactive/service';
-import { ReminderDeliveryService } from './reminders/delivery';
-import { DrizzleUserReminderDeliveryRepository } from './reminders/drizzle-user-delivery-repository';
-import { DrizzleRetentionRepository } from './retention/drizzle-repository';
-import { GroupRetentionService } from './retention/service';
 import { WorklogAttachmentIngestionService } from './worklog/attachment-ingestion';
 import { configureWorklogAttachmentRuntime } from './worklog/attachment-runtime';
 import { DrizzleWorklogAttachmentRepository } from './worklog/drizzle-attachment-ingestion';
@@ -23,10 +16,10 @@ import { WorklogSubscriptionService } from './worklog/subscription';
 type ScheduledControllerLike = { scheduledTime: number };
 type ExecutionContextLike = { waitUntil(promise: Promise<unknown>): void };
 
-const proactiveRoutes = createProactiveRoutes();
 const adminRoutes = createAdminRoutes();
 const worklogRoutes = createWorklogRoutes();
 const worklogSubscriptionRoutes = createWorklogSubscriptionRoutes();
+const LEGACY_PREFIXES = ['/api/v1/management', '/api/v1/energy', '/api/v1/internal/commerce', '/api/v1/internal/proactive'];
 
 async function runtimeEnv(env: Bindings): Promise<Bindings> {
   const database = createDatabase(env.DATABASE_URL);
@@ -37,6 +30,9 @@ async function runtimeEnv(env: Bindings): Promise<Bindings> {
 }
 
 function configureWorklogRuntime(env: Bindings): void {
+  // Ordinary group chat has already passed through the bounded Worklog TEXT cache.
+  // Never persist it into the retired conversation/Memory/Energy product runtime.
+  disableLegacyConversationRuntime();
   const database = createDatabase(env.DATABASE_URL);
   configureWorklogAttachmentRuntime(new WorklogAttachmentIngestionService(
     new DrizzleWorklogAttachmentRepository(database),
@@ -46,20 +42,8 @@ function configureWorklogRuntime(env: Bindings): void {
   ));
 }
 
-async function runReminderSchedule(controller: ScheduledControllerLike, env: Bindings): Promise<void> {
-  const database = createDatabase(env.DATABASE_URL);
-  const service = new ReminderDeliveryService(new DrizzleUserReminderDeliveryRepository(database), new LineMessagingPushClient(env.LINE_CHANNEL_ACCESS_TOKEN));
-  console.log(JSON.stringify({ event: 'reminder_delivery_run', ...(await service.deliverDue(new Date(controller.scheduledTime))) }));
-}
-async function runProactiveSchedule(controller: ScheduledControllerLike, env: Bindings): Promise<void> {
-  const database = createDatabase(env.DATABASE_URL);
-  const service = new ProactiveDeliveryService(new DrizzleProactiveRepository(database), new LineMessagingPushClient(env.LINE_CHANNEL_ACCESS_TOKEN));
-  console.log(JSON.stringify({ event: 'proactive_delivery_run', ...(await service.deliverDue(new Date(controller.scheduledTime))) }));
-}
-async function runRetentionSchedule(controller: ScheduledControllerLike, env: Bindings): Promise<void> {
-  const database = createDatabase(env.DATABASE_URL);
-  const service = new GroupRetentionService(new DrizzleRetentionRepository(database));
-  console.log(JSON.stringify({ event: 'group_retention_run', ...(await service.purgeExpired(new Date(controller.scheduledTime))) }));
+function legacyRoute(pathname: string): boolean {
+  return LEGACY_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
 export default {
@@ -67,9 +51,9 @@ export default {
     const env = await runtimeEnv(rawEnv);
     configureWorklogRuntime(env);
     const url = new URL(request.url);
-    if (url.pathname === '/api/v1/internal/proactive') {
-      const rewritten = new URL(request.url); rewritten.pathname = '/';
-      return proactiveRoutes.fetch(new Request(rewritten, request), env as never, executionContext as never);
+
+    if (legacyRoute(url.pathname)) {
+      return Response.json({ ok: false, error: 'LEGACY_AFTERTRACE_RUNTIME_DISABLED' }, { status: 410 });
     }
     if (url.pathname === '/api/v1/admin' || url.pathname.startsWith('/api/v1/admin/')) {
       const rewritten = new URL(request.url); rewritten.pathname = url.pathname.slice('/api/v1/admin'.length) || '/';
@@ -83,12 +67,15 @@ export default {
       const rewritten = new URL(request.url); rewritten.pathname = url.pathname.slice('/api/v1/worklog'.length) || '/';
       return worklogRoutes.fetch(new Request(rewritten, request), env as never, executionContext as never);
     }
+    // /webhooks/line, /api/v1/auth and /health still live in the main Hono app.
     return app.fetch(request, env, executionContext as never);
   },
-  scheduled(controller: ScheduledControllerLike, rawEnv: Bindings, executionContext: ExecutionContextLike) {
-    executionContext.waitUntil((async () => {
-      const env = await runtimeEnv(rawEnv);
-      await Promise.all([runReminderSchedule(controller, env), runProactiveSchedule(controller, env), runRetentionSchedule(controller, env)]);
-    })());
+
+  scheduled(controller: ScheduledControllerLike, _rawEnv: Bindings, executionContext: ExecutionContextLike) {
+    // The previous scheduled reminder/proactive/legacy-retention product is retired.
+    // Keep the handler harmless until the deployed Worker cron binding is removed.
+    executionContext.waitUntil(Promise.resolve().then(() => {
+      console.log(JSON.stringify({ event: 'worklog_scheduled_legacy_noop', scheduledTime: controller.scheduledTime }));
+    }));
   },
 };
