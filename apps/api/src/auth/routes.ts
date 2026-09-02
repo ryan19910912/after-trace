@@ -195,14 +195,27 @@ export function createWebAuthRoutes() {
     if (result.status === 'INVALID_OR_EXPIRED' || result.status === 'ALREADY_USED') {
       return c.json({ ok: false, error: result.status }, 401);
     }
-    if (result.status === 'NOT_GROUP_MEMBER') return c.json({ ok: false, error: result.status }, 403);
+    if (result.status === 'NOT_GROUP_MEMBER' || result.status === 'PRIVATE_ACCESS_REVOKED') {
+      return c.json({ ok: false, error: result.status }, 403);
+    }
     if (result.status === 'LINE_UNAVAILABLE') return c.json({ ok: false, error: result.status }, 503);
+
+    if (result.entryContext.type === 'PRIVATE') {
+      return c.json({
+        ok: true,
+        sessionToken: result.sessionToken,
+        lineUserId: result.lineUserId,
+        entryContext: result.entryContext,
+      });
+    }
+
     return c.json({
       ok: true,
       sessionToken: result.sessionToken,
       lineUserId: result.lineUserId,
-      lineGroupId: result.lineGroupId,
-      groupContextToken: await issueGroupContextToken(result.lineGroupId, c.env.LINE_CHANNEL_SECRET),
+      lineGroupId: result.entryContext.lineGroupId,
+      groupContextToken: await issueGroupContextToken(result.entryContext.lineGroupId, c.env.LINE_CHANNEL_SECRET),
+      entryContext: result.entryContext,
     });
   });
 
