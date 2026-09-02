@@ -21,11 +21,11 @@ export function createWorklogFeedbackRoutes(){
     if(!text||text.length>5000)return c.json({ok:false,error:'INVALID_FEEDBACK_TEXT'},400);
     const context=typeof row.context==='object'&&row.context!==null&&!Array.isArray(row.context)?row.context:null;
     const database=createDatabase(c.env.DATABASE_URL);
-    const user=await database.execute(sql`SELECT id::text AS id FROM worklog_users WHERE line_user_id=${session.lineUserId} LIMIT 1`);
-    const userId=(user.rows[0] as {id?:string}|undefined)?.id;if(!userId)return c.json({ok:false,error:'WORKLOG_USER_NOT_FOUND'},404);
+    const user=await database.execute(sql`SELECT id::text AS id, display_name FROM worklog_users WHERE line_user_id=${session.lineUserId} LIMIT 1`);
+    const profile=user.rows[0] as {id?:string;display_name?:string|null}|undefined; if(!profile?.id)return c.json({ok:false,error:'WORKLOG_USER_NOT_FOUND'},404);
     const result=await database.execute(sql`
-      INSERT INTO worklog_feedback (user_id, channel, feedback_text, context, created_at)
-      VALUES (${Number(userId)}, 'PWA', ${text}, ${JSON.stringify(context)}::jsonb, NOW())
+      INSERT INTO worklog_feedback (user_id, display_name_snapshot, channel, text, context, created_at)
+      VALUES (${Number(profile.id)}, ${profile.display_name ?? null}, 'PWA', ${text}, ${JSON.stringify(context)}::jsonb, NOW())
       RETURNING id::text AS id, created_at
     `);
     return c.json({ok:true,feedback:result.rows[0]},201);
