@@ -45,7 +45,9 @@ export class DrizzleWorklogUsageRepository implements WorklogUsageRepository {
         subscription.current_period_start,
         subscription.current_period_end
       FROM worklog_user_subscriptions AS subscription
-      LEFT JOIN worklog_subscription_plans AS plan ON plan.code = subscription.plan_code
+      INNER JOIN worklog_subscription_plans AS plan
+        ON plan.code = subscription.plan_code
+       AND plan.enabled = TRUE
       LEFT JOIN worklog_ai_quota_balances AS balance
         ON balance.user_id = subscription.user_id
        AND balance.period_start = subscription.current_period_start
