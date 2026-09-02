@@ -13,17 +13,6 @@ const drizzlePath = (...segments: string[]) => resolve(rootDir, ...segments).rep
 
 export default defineConfig({
   schema: [
-    drizzlePath('apps/api/src/db/schema.ts'),
-    drizzlePath('apps/api/src/db/schema-round5.ts'),
-    drizzlePath('apps/api/src/db/schema-round6.ts'),
-    drizzlePath('apps/api/src/db/schema-round8.ts'),
-    drizzlePath('apps/api/src/db/schema-round9.ts'),
-    drizzlePath('apps/api/src/db/schema-round11.ts'),
-    drizzlePath('apps/api/src/db/schema-round16.ts'),
-    drizzlePath('apps/api/src/db/schema-round17.ts'),
-    drizzlePath('apps/api/src/db/schema-round18.ts'),
-    drizzlePath('apps/api/src/db/schema-round19.ts'),
-    drizzlePath('apps/api/src/db/schema-round20.ts'),
     drizzlePath('apps/api/src/db/schema-worklog.ts'),
     drizzlePath('apps/api/src/db/schema-worklog-quota.ts'),
     drizzlePath('apps/api/src/db/schema-worklog-bootstrap.ts'),
