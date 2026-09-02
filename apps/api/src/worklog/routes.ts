@@ -2,8 +2,12 @@ import { Hono } from 'hono';
 import { sql } from 'drizzle-orm';
 import { verifyWebSessionToken } from '../auth/token';
 import { createDatabase } from '../db/client';
+import { WorklogCollaborationService } from './collaboration';
+import { DrizzleWorklogCollaborationRepository } from './drizzle-collaboration';
 import { DrizzleWorklogRecordReadRepository } from './drizzle-records';
+import { DrizzleWorklogUsageRepository } from './drizzle-usage';
 import { WorklogRecordReadService } from './records';
+import { WorklogUsageService } from './usage';
 
 export type WorklogRoutesBindings = {
   DATABASE_URL: string;
@@ -41,9 +45,7 @@ export function createWorklogRoutes() {
   app.use('*', async (c, next) => {
     const origin = c.req.header('origin');
     const allowedOrigin = c.env.WEB_APP_ORIGIN?.trim();
-    if (origin && (!allowedOrigin || origin !== allowedOrigin)) {
-      return c.json({ ok: false, error: 'ORIGIN_NOT_ALLOWED' }, 403);
-    }
+    if (origin && (!allowedOrigin || origin !== allowedOrigin)) return c.json({ ok: false, error: 'ORIGIN_NOT_ALLOWED' }, 403);
     await next();
     if (origin && allowedOrigin && origin === allowedOrigin) {
       c.header('Access-Control-Allow-Origin', origin);
@@ -57,7 +59,7 @@ export function createWorklogRoutes() {
     if (!origin || !allowedOrigin || origin !== allowedOrigin) return c.body(null, 403);
     c.header('Access-Control-Allow-Origin', origin);
     c.header('Access-Control-Allow-Headers', 'Authorization, Content-Type');
-    c.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    c.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
     c.header('Access-Control-Max-Age', '600');
     c.header('Vary', 'Origin');
     return c.body(null, 204);
@@ -98,16 +100,50 @@ export function createWorklogRoutes() {
     return c.json({ ok: true, records: result.records });
   });
 
+  app.get('/usage/me', async (c) => {
+    const context = await contextFor(c.env.DATABASE_URL, c.get('lineUserId'));
+    if (!context) return c.json({ ok: false, error: 'WORKLOG_USER_NOT_FOUND' }, 404);
+    return c.json({ ok: true, usage: await context.usage.userUsage(context.userId) });
+  });
+
+  app.get('/groups/:sourceId/owner-view', async (c) => {
+    const sourceId = safePositiveInt(c.req.param('sourceId'));
+    if (!sourceId) return c.json({ ok: false, error: 'INVALID_SOURCE_ID' }, 400);
+    const context = await contextFor(c.env.DATABASE_URL, c.get('lineUserId'));
+    if (!context) return c.json({ ok: false, error: 'WORKLOG_USER_NOT_FOUND' }, 404);
+    const result = await context.usage.groupOwnerUsage(context.userId, sourceId);
+    if (result.status === 'FORBIDDEN') return c.json({ ok: false, error: 'OWNER_ONLY' }, 403);
+    if (result.status === 'OWNER_UNBOUND') return c.json({ ok: false, error: 'OWNER_UNBOUND' }, 409);
+    return c.json({ ok: true, ownerView: result.value });
+  });
+
+  app.patch('/groups/:sourceId/members/:memberUserId/recording', async (c) => {
+    const sourceId = safePositiveInt(c.req.param('sourceId'));
+    const memberUserId = safePositiveInt(c.req.param('memberUserId'));
+    if (!sourceId || !memberUserId) return c.json({ ok: false, error: 'INVALID_MEMBER_TARGET' }, 400);
+    const context = await contextFor(c.env.DATABASE_URL, c.get('lineUserId'));
+    if (!context) return c.json({ ok: false, error: 'WORKLOG_USER_NOT_FOUND' }, 404);
+    let body: unknown;
+    try { body = await c.req.json(); } catch { return c.json({ ok: false, error: 'INVALID_JSON' }, 400); }
+    const enabled = body && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>).enabled : undefined;
+    if (typeof enabled !== 'boolean') return c.json({ ok: false, error: 'ENABLED_BOOLEAN_REQUIRED' }, 400);
+    const result = await context.collaboration.setMemberRecordingPermission({
+      sourceId, actorUserId: context.userId, memberUserId, enabled,
+    });
+    if (result.status === 'FORBIDDEN') return c.json({ ok: false, error: 'OWNER_ONLY' }, 403);
+    if (result.status === 'MEMBER_NOT_FOUND') return c.json({ ok: false, error: 'MEMBER_NOT_FOUND' }, 404);
+    if (result.status === 'OWNER_CANNOT_BE_DISABLED') return c.json({ ok: false, error: 'OWNER_CANNOT_BE_DISABLED' }, 409);
+    if (result.status === 'OWNER_UNBOUND') return c.json({ ok: false, error: 'OWNER_UNBOUND' }, 409);
+    return c.json({ ok: true, recordingEnabled: enabled });
+  });
+
   return app;
 }
 
 async function contextFor(databaseUrl: string, lineUserId: string) {
   const database = createDatabase(databaseUrl);
   const result = await database.execute(sql`
-    SELECT id::text AS id
-    FROM worklog_users
-    WHERE line_user_id = ${lineUserId}
-    LIMIT 1
+    SELECT id::text AS id FROM worklog_users WHERE line_user_id = ${lineUserId} LIMIT 1
   `);
   const id = (result.rows[0] as { id?: string } | undefined)?.id;
   if (!id) return null;
@@ -116,5 +152,7 @@ async function contextFor(databaseUrl: string, lineUserId: string) {
   return {
     userId,
     records: new WorklogRecordReadService(new DrizzleWorklogRecordReadRepository(database)),
+    usage: new WorklogUsageService(new DrizzleWorklogUsageRepository(database)),
+    collaboration: new WorklogCollaborationService(new DrizzleWorklogCollaborationRepository(database)),
   };
 }
