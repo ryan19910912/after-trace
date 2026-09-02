@@ -86,6 +86,7 @@ export type WorklogLineRuntimeResult =
         | 'NOT_ACTIVE_MEMBER'
         | 'RECORDING_DISABLED'
         | 'GROUP_NOT_ENTITLED'
+        | 'GROUP_LIMIT_REACHED'
         | 'AI_QUOTA_EXHAUSTED'
         | 'SOURCE_NOT_FOUND'
         | 'IDEMPOTENCY_CONFLICT'
@@ -132,7 +133,7 @@ export class WorklogLineRuntime {
         status: 'OWNER_BOUND', sourceId: bound.sourceId,
         replyText: bound.status === 'ALREADY_BOUND'
           ? '這個群組已經綁定在你的 AFTERTRACE 帳號。'
-          : '群組已完成 AFTERTRACE Owner 綁定；方案有開啟群組權限後即可開始記錄。',
+          : '群組已完成 AFTERTRACE Owner 綁定。',
       };
     }
 
@@ -140,21 +141,25 @@ export class WorklogLineRuntime {
       lineGroupId: message.lineGroupId, lineUserId: message.lineUserId, at: message.lineTimestamp,
     });
     if (group.status === 'PENDING_OWNER') {
-      return { status: 'REJECTED', reason: 'PENDING_OWNER', replyText: '這個群組還沒有 AFTERTRACE Owner。請要負責訂閱的人輸入「@AFTERTRACE 啟用」完成綁定。' };
+      return {
+        status: 'REJECTED',
+        reason: 'PENDING_OWNER',
+        replyText: 'AFTERTRACE 無法確認當初邀請 Bot 的使用者。請要負責此群組訂閱的人輸入「@AFTERTRACE 啟用」完成 Owner 綁定。',
+      };
     }
     if (command.kind === 'QUERY') {
       const access = await this.collaboration.authorizeGroupAccess({
         sourceId: group.sourceId,
         actorUserId: group.userId,
       });
-      if (access.status !== 'OK') return rejectedAuthorization(access.status);
+      if (access.status !== 'OK') return rejectedAuthorization(access);
       return { status: 'QUERY', sourceId: group.sourceId, userId: group.userId };
     }
 
     const authorization = await this.collaboration.authorizeGroupRecord({
       sourceId: group.sourceId, actorUserId: group.userId, requestedAiUnits: 0,
     });
-    if (authorization.status !== 'OK') return rejectedAuthorization(authorization.status);
+    if (authorization.status !== 'OK') return rejectedAuthorization(authorization);
 
     if (command.kind === 'RECORD_QUOTED') {
       const cached = await this.textCache.resolve(message.lineGroupId, command.quotedLineMessageId, message.lineTimestamp);
@@ -248,17 +253,38 @@ function attachmentFailure(reason: string): WorklogLineRuntimeResult {
   return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '這次附件沒有成功處理，請重新傳送後再試。' };
 }
 
-function rejectedAuthorization(
-  status: Exclude<GroupRecordAuthorizationResult['status'], 'OK'> | Exclude<GroupAccessAuthorizationResult['status'], 'OK'>,
-): WorklogLineRuntimeResult {
-  const replyText: Record<Exclude<GroupRecordAuthorizationResult['status'], 'OK'>, string> = {
+type RejectedAuthorization =
+  | Exclude<GroupRecordAuthorizationResult, { status: 'OK' }>
+  | Exclude<GroupAccessAuthorizationResult, { status: 'OK' }>;
+
+function rejectedAuthorization(result: RejectedAuthorization): WorklogLineRuntimeResult {
+  const planLabel = 'ownerPlanDisplayName' in result && result.ownerPlanDisplayName
+    ? `${result.ownerPlanDisplayName} 方案`
+    : 'Owner 的方案';
+
+  if (result.status === 'GROUP_NOT_ENTITLED') {
+    return {
+      status: 'REJECTED',
+      reason: result.status,
+      replyText: `目前 ${planLabel}沒有開啟群組紀錄功能，升級方案後即可在 LINE 群組使用該功能。`,
+    };
+  }
+  if (result.status === 'GROUP_LIMIT_REACHED') {
+    const maxGroupCount = result.maxGroupCount ?? 0;
+    return {
+      status: 'REJECTED',
+      reason: result.status,
+      replyText: `目前 ${planLabel}最多可使用 ${maxGroupCount} 個 LINE 群組，已超過方案上限。請停用其他群組或升級方案。`,
+    };
+  }
+
+  const replyText: Record<Exclude<GroupRecordAuthorizationResult['status'], 'OK' | 'GROUP_NOT_ENTITLED' | 'GROUP_LIMIT_REACHED'>, string> = {
     GROUP_NOT_FOUND: '找不到這個 AFTERTRACE 群組設定，請重新啟用後再試。',
     GROUP_INACTIVE: '這個 AFTERTRACE 群組目前已停用。',
     OWNER_UNBOUND: '這個群組還沒有 AFTERTRACE Owner，請先輸入「@AFTERTRACE 啟用」。',
     NOT_ACTIVE_MEMBER: '你目前不是這個 AFTERTRACE 群組的有效成員。',
     RECORDING_DISABLED: '群組 Owner 已關閉你的 AFTERTRACE 紀錄權限。',
-    GROUP_NOT_ENTITLED: '目前 Owner 的方案沒有開啟群組紀錄權限。',
     AI_QUOTA_EXHAUSTED: '目前 Owner 的 AI 額度已用完。',
   };
-  return { status: 'REJECTED', reason: status, replyText: replyText[status] };
+  return { status: 'REJECTED', reason: result.status, replyText: replyText[result.status] };
 }
