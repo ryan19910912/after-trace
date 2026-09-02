@@ -19,7 +19,8 @@
 .record-filter-card { display:grid; gap:12px; }
 .record-filter-grid { display:grid; grid-template-columns:minmax(220px,2fr) repeat(4,minmax(130px,1fr)); gap:9px; }
 .record-filter-grid label, .record-editor label { display:grid; gap:5px; font-size:.8rem; }
-.record-filter-grid input, .record-filter-grid select, .record-editor select, .record-editor textarea, .entity-editor input, .entity-editor select, .entity-editor textarea, .finance-form input, .finance-form select, .feedback-panel textarea { width:100%; min-height:42px; border:1px solid rgba(127,127,127,.3); border-radius:10px; padding:8px 10px; background:transparent; color:inherit; }
+.record-filter-grid input, .record-filter-grid select, .record-editor select, .record-editor textarea, .entity-editor input, .entity-editor select, .entity-editor textarea, .finance-form input, .finance-form select, .feedback-panel textarea { width:100%; min-height:42px; border:1px solid #4a515d; border-radius:10px; padding:8px 10px; background:#242a33; color:#fff; }
+.record-filter-grid input:focus, .record-filter-grid select:focus, .record-editor select:focus, .record-editor textarea:focus, .entity-editor input:focus, .entity-editor select:focus, .entity-editor textarea:focus, .finance-form input:focus, .finance-form select:focus, .feedback-panel textarea:focus { border-color:#7b8492; background:#2a313b; outline:none; box-shadow:0 0 0 2px rgb(255 255 255 / 6%); }
 .filter-actions { display:flex; gap:8px; }
 .worklog-record-list { display: grid; gap: 12px; }
 .worklog-record-card { border: 1px solid rgba(127,127,127,.22); border-radius: 14px; padding: 14px; }
