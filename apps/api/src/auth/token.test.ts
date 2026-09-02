@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  issuePrivateWebEntryToken,
   issueWebEntryToken,
   issueWebSessionToken,
+  verifyPrivateWebEntryToken,
   verifyWebEntryToken,
   verifyWebSessionToken,
 } from './token';
@@ -11,7 +13,7 @@ const userId = 'U0123456789abcdef0123456789abcdef';
 const groupId = 'C0123456789abcdef0123456789abcdef';
 const now = new Date('2026-08-30T07:00:00.000Z');
 
- describe('web auth tokens', () => {
+describe('web auth tokens', () => {
   it('issues and verifies a short-lived group entry token', async () => {
     const token = await issueWebEntryToken({
       lineUserId: userId,
@@ -29,6 +31,39 @@ const now = new Date('2026-08-30T07:00:00.000Z');
       nonce: 'abcdefghijklmnop',
       expiresAt: Math.floor(now.getTime() / 1000) + 300,
     });
+  });
+
+  it('issues and verifies a private entry token without inventing a group id', async () => {
+    const token = await issuePrivateWebEntryToken({
+      lineUserId: userId,
+      userId: 41,
+      sourceId: 73,
+      nonce: 'private-entry-nonce',
+      secret,
+      now,
+      ttlSeconds: 300,
+    });
+
+    await expect(verifyPrivateWebEntryToken(token, secret, now)).resolves.toEqual({
+      type: 'PRIVATE_WEB_ENTRY',
+      lineUserId: userId,
+      userId: 41,
+      sourceId: 73,
+      nonce: 'private-entry-nonce',
+      expiresAt: Math.floor(now.getTime() / 1000) + 300,
+    });
+    await expect(verifyWebEntryToken(token, secret, now)).resolves.toBeNull();
+  });
+
+  it('rejects invalid private database ids before issuing a token', async () => {
+    await expect(issuePrivateWebEntryToken({
+      lineUserId: userId,
+      userId: 0,
+      sourceId: 73,
+      nonce: 'private-entry-nonce',
+      secret,
+      now,
+    })).rejects.toThrow('invalid database id');
   });
 
   it('rejects an expired entry token', async () => {
@@ -49,6 +84,7 @@ const now = new Date('2026-08-30T07:00:00.000Z');
   it('keeps entry and session token types separate', async () => {
     const session = await issueWebSessionToken({ lineUserId: userId, secret, now });
     await expect(verifyWebEntryToken(session, secret, now)).resolves.toBeNull();
+    await expect(verifyPrivateWebEntryToken(session, secret, now)).resolves.toBeNull();
     await expect(verifyWebSessionToken(session, secret, now)).resolves.toMatchObject({
       type: 'WEB_SESSION',
       lineUserId: userId,
