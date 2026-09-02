@@ -1,4 +1,5 @@
 import type { LineMessageContent } from '../line/content';
+import { snapshotAiUsage } from './entitlements';
 import type {
   AiCommitResult,
   AiReleaseResult,
@@ -19,8 +20,10 @@ export type WorklogAttachmentOutput = {
 
 export type WorklogAttachmentProviderResponse = {
   output: WorklogAttachmentOutput;
+  /** Provider-reported total prompt tokens across all modalities. */
   inputTokens: number;
   outputTokens: number;
+  /** Modality subsets of inputTokens, never additive to the total prompt count. */
   audioInputUnits: number;
   imageInputUnits: number;
   providerResponseId: string | null;
@@ -155,6 +158,8 @@ export class WorklogAttachmentIngestionService {
 
       const provider = await this.provider.analyze(content, config, input.instruction ?? null);
       providerCompleted = true;
+      // User quota remains based on total provider prompt + output tokens. Modality
+      // breakdown only changes historical provider-cost pricing, not quota counting.
       const actualUnits = provider.inputTokens + provider.outputTokens;
       if (!Number.isSafeInteger(actualUnits) || actualUnits < 0 || actualUnits > reservation.reservation.unitsReserved) {
         await this.safeRelease(reservationToken);
@@ -162,28 +167,25 @@ export class WorklogAttachmentIngestionService {
         return { status: 'FAILED', reason: 'AI_USAGE_EXCEEDED_RESERVATION' };
       }
 
-      const providerCostUsd =
-        (provider.inputTokens / 1_000_000) * config.inputUsdPerMillion +
-        (provider.outputTokens / 1_000_000) * config.outputUsdPerMillion +
-        mediaCost(provider.audioInputUnits, config.audioUsdPerMillion) +
-        mediaCost(provider.imageInputUnits, config.imageUsdPerMillion);
-      const usage: WorklogAiUsageCommit = {
-        actualUnits,
-        workspaceId: null,
-        recordId: null,
+      const pricingSnapshot = snapshotAiUsage({
         provider: config.provider,
         model: config.model,
-        inputTokens: provider.inputTokens,
-        outputTokens: provider.outputTokens,
-        audioInputUnits: provider.audioInputUnits,
-        imageInputUnits: provider.imageInputUnits,
         inputUsdPerMillion: config.inputUsdPerMillion,
         outputUsdPerMillion: config.outputUsdPerMillion,
         audioUsdPerMillion: config.audioUsdPerMillion,
         imageUsdPerMillion: config.imageUsdPerMillion,
         usdTwdRate: config.usdTwdRate,
-        providerCostUsd,
-        providerCostTwd: config.usdTwdRate === null ? null : providerCostUsd * config.usdTwdRate,
+      }, {
+        inputTokens: provider.inputTokens,
+        outputTokens: provider.outputTokens,
+        audioInputUnits: provider.audioInputUnits,
+        imageInputUnits: provider.imageInputUnits,
+      });
+      const usage: WorklogAiUsageCommit = {
+        actualUnits,
+        workspaceId: null,
+        recordId: null,
+        ...pricingSnapshot,
       };
 
       const persisted = await this.persistAfterProvider({
@@ -314,11 +316,6 @@ function attachmentErrorCode(error: unknown): string {
     return ((error as { code: string }).code || 'ATTACHMENT_INGESTION_FAILED').slice(0, 128);
   }
   return 'ATTACHMENT_INGESTION_FAILED';
-}
-
-function mediaCost(units: number, price: number | null): number {
-  if (!price || units <= 0) return 0;
-  return (units / 1_000_000) * price;
 }
 
 function positiveInteger(value: number, label: string): number {
