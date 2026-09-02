@@ -50,6 +50,13 @@
       "when": 1788321100000,
       "tag": "0006_worklog_text_normalization",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788325200000,
+      "tag": "0007_worklog_line_text_cache",
+      "breakpoints": true
     }
   ]
 }
