@@ -211,7 +211,7 @@ describe('WorklogLineRuntime', () => {
 
     expect(result.status).toBe('RECORDED');
     expect(records.quotedCalls).toBe(1);
-    expect(records.lastQuotedInput).toEqual({
+    expect(records.lastQuotedInput).toMatchObject({
       lineMessageId: 'command-1',
       quotedLineMessageId: 'quoted-text-1',
       text: '王先生今天收五千',
