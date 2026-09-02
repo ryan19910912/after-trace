@@ -51,6 +51,20 @@ export class DrizzleWorklogTextNormalizationRepository implements WorklogTextNor
   constructor(private readonly db: Database) {}
 
   async begin(recordId: number, claimToken: string): Promise<WorklogTextNormalizationBeginResult> {
+    // If a Worker disappeared after the provider may have returned but before that
+    // result became durable, never reclaim the row and call AI again. Terminalize
+    // stale PROCESSING state for operator review, matching attachment semantics.
+    await this.db.execute(sql`
+      UPDATE worklog_record_ai_normalizations
+      SET status = 'FAILED',
+          last_error_code = 'AI_NORMALIZATION_PROCESSING_STALE_UNCERTAIN',
+          last_error_detail = 'Provider execution or provider-result persistence became uncertain; automatic replay is disabled.',
+          updated_at = NOW()
+      WHERE record_id = ${recordId}
+        AND status = 'PROCESSING'
+        AND updated_at < NOW() - INTERVAL '15 minutes'
+    `);
+
     const current = await this.loadState(recordId);
     if (current) {
       if (current.status === 'PENDING') {
