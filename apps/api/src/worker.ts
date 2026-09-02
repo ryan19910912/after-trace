@@ -10,12 +10,14 @@ import { ReminderDeliveryService } from './reminders/delivery';
 import { DrizzleUserReminderDeliveryRepository } from './reminders/drizzle-user-delivery-repository';
 import { DrizzleRetentionRepository } from './retention/drizzle-repository';
 import { GroupRetentionService } from './retention/service';
+import { createWorklogRoutes } from './worklog/routes';
 
 type ScheduledControllerLike = { scheduledTime: number };
 type ExecutionContextLike = { waitUntil(promise: Promise<unknown>): void };
 
 const proactiveRoutes = createProactiveRoutes();
 const adminRoutes = createAdminRoutes();
+const worklogRoutes = createWorklogRoutes();
 
 async function runtimeEnv(env: Bindings): Promise<Bindings> {
   const database = createDatabase(env.DATABASE_URL);
@@ -54,6 +56,10 @@ export default {
     if (url.pathname === '/api/v1/admin' || url.pathname.startsWith('/api/v1/admin/')) {
       const rewritten = new URL(request.url); rewritten.pathname = url.pathname.slice('/api/v1/admin'.length) || '/';
       return adminRoutes.fetch(new Request(rewritten, request), env as never, executionContext as never);
+    }
+    if (url.pathname === '/api/v1/worklog' || url.pathname.startsWith('/api/v1/worklog/')) {
+      const rewritten = new URL(request.url); rewritten.pathname = url.pathname.slice('/api/v1/worklog'.length) || '/';
+      return worklogRoutes.fetch(new Request(rewritten, request), env as never, executionContext as never);
     }
     return app.fetch(request, env, executionContext as never);
   },
