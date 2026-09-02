@@ -10,6 +10,7 @@ export type WorklogRecord = {
   normalizedSummary: string | null;
   customerId: number | null;
   projectId: number | null;
+  sourceTimestamp: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -32,31 +33,20 @@ export type EntryExchange = {
 async function json<T>(response: Response, fallback: string): Promise<T & { error?: string }> {
   const text = await response.text();
   let body: (T & { error?: string }) | null = null;
-  try {
-    body = text ? JSON.parse(text) as T & { error?: string } : {} as T & { error?: string };
-  } catch {
-    throw new Error(`${fallback} (${response.status})`);
-  }
+  try { body = text ? JSON.parse(text) as T & { error?: string } : {} as T & { error?: string }; }
+  catch { throw new Error(`${fallback} (${response.status})`); }
   if (!response.ok) throw new Error(body.error || `${fallback} (${response.status})`);
   return body;
 }
 
 export class WorklogApi {
   constructor(private readonly baseUrl: string) {}
-
-  private base(path: string) {
-    return `${this.baseUrl.replace(/\/$/, '')}${path}`;
-  }
-
-  lineLoginUrl() {
-    return this.base('/api/v1/auth/line/start');
-  }
+  private base(path: string) { return `${this.baseUrl.replace(/\/$/, '')}${path}`; }
+  lineLoginUrl() { return this.base('/api/v1/auth/line/start'); }
 
   async exchangeEntry(token: string): Promise<EntryExchange> {
     return json<EntryExchange>(await fetch(this.base('/api/v1/auth/entry/exchange'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }),
     }), '登入連結驗證失敗');
   }
 
