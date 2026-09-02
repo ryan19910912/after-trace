@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   WorklogApi,
+  type Customer,
   type GroupOwnerView,
+  type Project,
+  type Transaction,
   type UserUsage,
   type WorklogInputType,
   type WorklogRecord,
@@ -9,178 +12,55 @@ import {
 } from './worklog-api';
 import './worklog.css';
 
-const SESSION_KEY = 'aftertrace.worklog.session';
-const ACTIVE_SCOPE_KEY = 'aftertrace.worklog.scope';
+const SESSION_KEY='aftertrace.worklog.session', ACTIVE_SCOPE_KEY='aftertrace.worklog.scope';
+type Props={apiBaseUrl:string};
+type Scope={type:'PERSONAL';sourceId:number}|{type:'GROUP';sourceId:number;lineGroupId:string};
+type Page='RECORDS'|'CUSTOMERS'|'FINANCE';
+function storedScope():Scope|null{const raw=localStorage.getItem(ACTIVE_SCOPE_KEY);if(!raw)return null;try{const v=JSON.parse(raw) as Record<string,unknown>;if(v.type==='PERSONAL'&&typeof v.sourceId==='number')return{type:'PERSONAL',sourceId:v.sourceId};if(v.type==='GROUP'&&typeof v.sourceId==='number'&&typeof v.lineGroupId==='string')return{type:'GROUP',sourceId:v.sourceId,lineGroupId:v.lineGroupId};}catch{}return null;}
 
-type Props = { apiBaseUrl: string };
-type Scope = { type: 'PERSONAL'; sourceId: number } | { type: 'GROUP'; sourceId: number; lineGroupId: string };
+export function WorklogRoot({apiBaseUrl}:Props){
+  const api=useMemo(()=>new WorklogApi(apiBaseUrl),[apiBaseUrl]); const started=useRef(false);
+  const [session,setSession]=useState<string|null>(()=>localStorage.getItem(SESSION_KEY)); const [surfaces,setSurfaces]=useState<WorklogSurfaces|null>(null); const [scope,setScope]=useState<Scope|null>(()=>storedScope());
+  const [records,setRecords]=useState<WorklogRecord[]>([]),[usage,setUsage]=useState<UserUsage|null>(null),[ownerView,setOwnerView]=useState<GroupOwnerView|null>(null);
+  const [customers,setCustomers]=useState<Customer[]>([]),[projects,setProjects]=useState<Project[]>([]),[transactions,setTransactions]=useState<Transaction[]>([]);
+  const [page,setPage]=useState<Page>('RECORDS'),[typeFilter,setTypeFilter]=useState<''|WorklogInputType>(''),[categoryFilter,setCategoryFilter]=useState(''),[query,setQuery]=useState('');
+  const [loading,setLoading]=useState(true),[error,setError]=useState<string|null>(null),[notice,setNotice]=useState<string|null>(null);
 
-function storedScope(): Scope | null {
-  const raw = localStorage.getItem(ACTIVE_SCOPE_KEY);
-  if (!raw) return null;
-  try {
-    const value = JSON.parse(raw) as Record<string, unknown>;
-    if (value.type === 'PERSONAL' && typeof value.sourceId === 'number') return { type: 'PERSONAL', sourceId: value.sourceId };
-    if (value.type === 'GROUP' && typeof value.sourceId === 'number' && typeof value.lineGroupId === 'string') {
-      return { type: 'GROUP', sourceId: value.sourceId, lineGroupId: value.lineGroupId };
-    }
-  } catch { /* stale client state */ }
-  return null;
+  useEffect(()=>{if(started.current)return;started.current=true;void bootstrap();},[]);
+  useEffect(()=>{if(!session||!scope)return;localStorage.setItem(ACTIVE_SCOPE_KEY,JSON.stringify(scope));void loadScope(session,scope);},[session,scope?.type,scope?.sourceId]);
+  useEffect(()=>{if(!session||page==='RECORDS')return;void loadOwnerData(session);},[session,page]);
+
+  async function bootstrap(){setLoading(true);setError(null);try{const hash=new URLSearchParams(location.hash.replace(/^#/,''));const callback=hash.get('session')?.trim();let token=callback||localStorage.getItem(SESSION_KEY);const url=new URL(location.href);const entry=url.searchParams.get('t')?.trim();if(entry){const exchanged=await api.exchangeEntry(entry);token=exchanged.sessionToken;localStorage.setItem(SESSION_KEY,token);setSession(token);url.searchParams.delete('t');url.searchParams.delete('openExternalBrowser');history.replaceState({},document.title,`${url.pathname}${url.search}`);}else if(callback){localStorage.setItem(SESSION_KEY,callback);setSession(callback);history.replaceState({},document.title,`${location.pathname}${location.search}`);}if(!token)return;const [nextSurfaces,nextUsage]=await Promise.all([api.surfaces(token),api.myUsage(token)]);setSurfaces(nextSurfaces);setUsage(nextUsage);const remembered=storedScope();setScope(remembered&&scopeExists(remembered,nextSurfaces)?remembered:defaultScope(nextSurfaces));}catch(cause){const text=msg(cause);if(/INVALID_WEB_SESSION|WEB_SESSION_REQUIRED/.test(text))clearSession();setError(text);}finally{setLoading(false);}}
+  async function loadScope(token:string,next:Scope){setLoading(true);setError(null);try{setRecords(next.type==='PERSONAL'?await api.personalRecords(token):await api.groupRecords(token,next.sourceId));setOwnerView(next.type==='GROUP'?await api.ownerView(token,next.sourceId):null);}catch(cause){setError(msg(cause));setRecords([]);setOwnerView(null);}finally{setLoading(false);}}
+  async function loadOwnerData(token:string){setLoading(true);setError(null);try{const [c,p,t]=await Promise.all([api.customers(token),api.projects(token),api.transactions(token)]);setCustomers(c);setProjects(p);setTransactions(t);}catch(cause){setError(msg(cause));}finally{setLoading(false);}}
+  async function toggleMember(userId:number,enabled:boolean){if(!session||scope?.type!=='GROUP')return;try{await api.setRecordingEnabled(session,scope.sourceId,userId,enabled);setOwnerView(await api.ownerView(session,scope.sourceId));}catch(cause){setError(msg(cause));}}
+  function clearSession(){localStorage.removeItem(SESSION_KEY);localStorage.removeItem(ACTIVE_SCOPE_KEY);setSession(null);setSurfaces(null);setScope(null);setRecords([]);setUsage(null);setOwnerView(null);}
+
+  const visible=records.filter(r=>{if(typeFilter&&r.inputType!==typeFilter)return false;if(categoryFilter&&r.category!==categoryFilter)return false;if(query.trim()&&!`${r.normalizedSummary??''}\n${r.rawText??''}`.toLowerCase().includes(query.trim().toLowerCase()))return false;return true;});
+  if(!session)return <main className="shell fatal-shell"><section className="fatal-card"><p className="eyebrow">AFTERTRACE</p><h1>工作紀錄中心</h1><p className="muted">使用 LINE 登入，查看與管理工作紀錄。</p>{error?<div className="error">{error}</div>:null}<button onClick={()=>{location.href=api.lineLoginUrl();}}>使用 LINE 登入</button></section></main>;
+
+  return <main className="shell worklog-shell">
+    <div className="topbar"><div><p className="eyebrow">AFTERTRACE</p><h1>工作紀錄</h1></div><button className="ghost" onClick={clearSession}>登出</button></div>
+    {error?<div className="error">{error}</div>:null}{notice?<div className="banner success">{notice}</div>:null}{usage?<UsageBar usage={usage}/>:null}
+    <nav className="worklog-main-tabs"><button className={page==='RECORDS'?'active':''} onClick={()=>setPage('RECORDS')}>紀錄</button>{surfaces?.personal?<button className={page==='CUSTOMERS'?'active':''} onClick={()=>setPage('CUSTOMERS')}>客戶 / 專案</button>:null}{surfaces?.personal?<button className={page==='FINANCE'?'active':''} onClick={()=>setPage('FINANCE')}>收支</button>:null}</nav>
+
+    {page==='RECORDS'?<>
+      <section className="panel worklog-scope-panel"><div className="worklog-scope-row">{surfaces?.personal?<button className={scope?.type==='PERSONAL'?'worklog-scope active':'worklog-scope'} onClick={()=>setScope({type:'PERSONAL',sourceId:surfaces.personal!.sourceId})}>個人紀錄</button>:null}{surfaces?.groups.map((g,i)=><button key={g.sourceId} className={scope?.type==='GROUP'&&scope.sourceId===g.sourceId?'worklog-scope active':'worklog-scope'} onClick={()=>setScope({type:'GROUP',sourceId:g.sourceId,lineGroupId:g.lineGroupId})}>群組 {i+1}</button>)}</div></section>
+      {ownerView?<OwnerPanel view={ownerView} onToggle={toggleMember}/>:null}
+      <section className="panel worklog-filter-panel"><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="搜尋紀錄文字"/><select value={typeFilter} onChange={e=>setTypeFilter(e.target.value as ''|WorklogInputType)}><option value="">全部類型</option><option value="TEXT">文字</option><option value="AUDIO">音檔</option><option value="IMAGE">圖片</option><option value="FILE">檔案</option></select><select value={categoryFilter} onChange={e=>setCategoryFilter(e.target.value)}><option value="">全部分類</option>{['NOTE','WORK','ISSUE','PAYMENT','EXPENSE','MATERIAL','OTHER'].map(v=><option key={v}>{v}</option>)}</select></section>
+      <section className="panel">{loading?<div className="empty">載入中…</div>:null}{!loading&&scope&&visible.length===0?<div className="empty">目前沒有符合條件的紀錄。</div>:null}<div className="worklog-record-list">{visible.map(r=><RecordCard key={r.id} record={r} customers={customers} projects={projects} onEdit={async input=>{if(!session)return;await api.updateRecord(session,r.id,input);await loadScope(session,scope!);setNotice('紀錄已更新。');}} onNeedOptions={async()=>{if(session&&!customers.length&&!projects.length)await loadOwnerData(session);}}/>)}</div></section>
+    </>:null}
+
+    {page==='CUSTOMERS'?<CustomerProjectPage customers={customers} projects={projects} loading={loading} onCreateCustomer={async input=>{if(!session)return;await api.createCustomer(session,input);await loadOwnerData(session);setNotice('客戶已新增。');}} onCreateProject={async input=>{if(!session)return;await api.createProject(session,input);await loadOwnerData(session);setNotice('專案已新增。');}}/>:null}
+    {page==='FINANCE'?<FinancePage transactions={transactions} customers={customers} projects={projects} loading={loading} onCreate={async input=>{if(!session)return;await api.createTransaction(session,input);await loadOwnerData(session);setNotice('收支已新增。');}} onDelete={async id=>{if(!session||!confirm('刪除這筆收支？'))return;await api.deleteTransaction(session,id);await loadOwnerData(session);}}/>:null}
+  </main>;
 }
 
-export function WorklogRoot({ apiBaseUrl }: Props) {
-  const api = useMemo(() => new WorklogApi(apiBaseUrl), [apiBaseUrl]);
-  const started = useRef(false);
-  const [session, setSession] = useState<string | null>(() => localStorage.getItem(SESSION_KEY));
-  const [surfaces, setSurfaces] = useState<WorklogSurfaces | null>(null);
-  const [scope, setScope] = useState<Scope | null>(() => storedScope());
-  const [records, setRecords] = useState<WorklogRecord[]>([]);
-  const [usage, setUsage] = useState<UserUsage | null>(null);
-  const [ownerView, setOwnerView] = useState<GroupOwnerView | null>(null);
-  const [typeFilter, setTypeFilter] = useState<'' | WorklogInputType>('');
-  const [categoryFilter, setCategoryFilter] = useState('');
-  const [query, setQuery] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+function UsageBar({usage}:{usage:UserUsage}){return <section className="panel worklog-usage"><strong>{usage.planCode}</strong><span>AI {usage.aiUsedUnits}/{usage.aiAllowanceUnits}</span><span>剩餘 {usage.aiRemainingUnits}</span><span>T {usage.records.TEXT} · A {usage.records.AUDIO} · I {usage.records.IMAGE} · F {usage.records.FILE}</span></section>}
+function OwnerPanel({view,onToggle}:{view:GroupOwnerView;onToggle:(id:number,v:boolean)=>void}){return <section className="panel"><div className="worklog-owner-title"><div><p className="eyebrow">OWNER</p><h2>群組用量與成員</h2></div><span>群組 AI {view.groupAiUsedUnits}</span></div><div className="worklog-member-list">{view.members.map(m=><div className="worklog-member" key={m.userId}><div><strong>{m.displayName||`使用者 ${m.userId}`}</strong><small>AI {m.aiUsedUnits} · T {m.records.TEXT} / A {m.records.AUDIO} / I {m.records.IMAGE} / F {m.records.FILE}</small></div><label><input type="checkbox" checked={m.recordingEnabled} disabled={m.userId===view.ownerUserId} onChange={e=>onToggle(m.userId,e.target.checked)}/> 可紀錄</label></div>)}</div></section>}
+function RecordCard({record,customers,projects,onEdit,onNeedOptions}:{record:WorklogRecord;customers:Customer[];projects:Project[];onEdit:(input:{customerId:string|null;projectId:string|null;rawText:string|null})=>Promise<void>;onNeedOptions:()=>Promise<void>}){const [editing,setEditing]=useState(false),[customerId,setCustomerId]=useState(record.customerId?String(record.customerId):''),[projectId,setProjectId]=useState(record.projectId?String(record.projectId):''),[raw,setRaw]=useState(record.rawText??'');const content=record.normalizedSummary||record.rawText||'尚無可顯示文字';const ts=record.sourceTimestamp||record.createdAt;return <article className="worklog-record-card"><div className="worklog-record-meta"><span>{inputLabel(record.inputType)}</span><span>{record.category}</span><time>{new Date(ts).toLocaleString('zh-TW')}</time><button className="link-button" onClick={()=>{setEditing(!editing);if(!editing)void onNeedOptions();}}>編輯</button></div><strong>{content}</strong>{record.normalizedSummary&&record.rawText&&record.normalizedSummary!==record.rawText?<p className="muted worklog-raw">原始內容：{record.rawText}</p>:null}{editing?<div className="record-editor"><select value={customerId} onChange={e=>setCustomerId(e.target.value)}><option value="">未指定客戶</option>{customers.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</select><select value={projectId} onChange={e=>setProjectId(e.target.value)}><option value="">未指定專案</option>{projects.map(p=><option value={p.id} key={p.id}>{p.name}</option>)}</select><textarea value={raw} onChange={e=>setRaw(e.target.value)} rows={3}/><button onClick={()=>void onEdit({customerId:customerId||null,projectId:projectId||null,rawText:raw||null}).then(()=>setEditing(false))}>儲存</button></div>:null}</article>}
 
-  useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-    void bootstrap();
-  }, []);
+function CustomerProjectPage({customers,projects,loading,onCreateCustomer,onCreateProject}:{customers:Customer[];projects:Project[];loading:boolean;onCreateCustomer:(v:{name:string;phone?:string;address?:string;note?:string})=>Promise<void>;onCreateProject:(v:{name:string;customerId?:string|null;address?:string;note?:string})=>Promise<void>}){const [customerName,setCustomerName]=useState(''),[projectName,setProjectName]=useState(''),[projectCustomer,setProjectCustomer]=useState('');return <section className="management-grid"><article className="panel"><h2>客戶</h2><div className="inline-create"><input value={customerName} onChange={e=>setCustomerName(e.target.value)} placeholder="客戶名稱"/><button disabled={!customerName.trim()} onClick={()=>void onCreateCustomer({name:customerName}).then(()=>setCustomerName(''))}>新增</button></div>{loading?<p>載入中…</p>:customers.map(c=><div className="simple-row" key={c.id}><strong>{c.name}</strong><span>{c.phone||c.address||'—'}</span></div>)}</article><article className="panel"><h2>專案</h2><div className="inline-create"><input value={projectName} onChange={e=>setProjectName(e.target.value)} placeholder="專案名稱"/><select value={projectCustomer} onChange={e=>setProjectCustomer(e.target.value)}><option value="">未指定客戶</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select><button disabled={!projectName.trim()} onClick={()=>void onCreateProject({name:projectName,customerId:projectCustomer||null}).then(()=>setProjectName(''))}>新增</button></div>{projects.map(p=><div className="simple-row" key={p.id}><strong>{p.name}</strong><span>{p.customer_name||p.status}</span></div>)}</article></section>}
+function FinancePage({transactions,customers,projects,loading,onCreate,onDelete}:{transactions:Transaction[];customers:Customer[];projects:Project[];loading:boolean;onCreate:(v:{type:Transaction['type'];amountTwd:string;occurredAt:string;customerId?:string|null;projectId?:string|null;note?:string|null})=>Promise<void>;onDelete:(id:string)=>Promise<void>}){const [type,setType]=useState<Transaction['type']>('RECEIVED'),[amount,setAmount]=useState(''),[customerId,setCustomerId]=useState(''),[projectId,setProjectId]=useState(''),[note,setNote]=useState('');return <section className="panel"><h2>收支</h2><div className="finance-form"><select value={type} onChange={e=>setType(e.target.value as Transaction['type'])}><option value="RECEIVED">已收款</option><option value="EXPENSE">支出</option><option value="RECEIVABLE">應收</option></select><input inputMode="decimal" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="金額"/><select value={customerId} onChange={e=>setCustomerId(e.target.value)}><option value="">客戶</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select><select value={projectId} onChange={e=>setProjectId(e.target.value)}><option value="">專案</option>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><input value={note} onChange={e=>setNote(e.target.value)} placeholder="備註"/><button disabled={!amount} onClick={()=>void onCreate({type,amountTwd:amount,occurredAt:new Date().toISOString(),customerId:customerId||null,projectId:projectId||null,note:note||null}).then(()=>{setAmount('');setNote('');})}>新增</button></div>{loading?<div className="empty">載入中…</div>:<div className="transaction-list">{transactions.map(t=><div className="simple-row" key={t.id}><div><strong>{transactionLabel(t.type)} NT$ {Number(t.amount_twd).toLocaleString()}</strong><small>{t.customer_name||t.project_name||new Date(t.occurred_at).toLocaleDateString('zh-TW')}</small></div><button className="ghost" onClick={()=>void onDelete(t.id)}>刪除</button></div>)}</div>}</section>}
 
-  useEffect(() => {
-    if (!session || !scope) return;
-    localStorage.setItem(ACTIVE_SCOPE_KEY, JSON.stringify(scope));
-    void loadScope(session, scope);
-  }, [session, scope?.type, scope?.sourceId]);
-
-  async function bootstrap() {
-    setLoading(true);
-    setError(null);
-    try {
-      const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-      const callbackSession = hash.get('session')?.trim();
-      let token = callbackSession || localStorage.getItem(SESSION_KEY);
-      const url = new URL(window.location.href);
-      const entryToken = url.searchParams.get('t')?.trim();
-      if (entryToken) {
-        const exchanged = await api.exchangeEntry(entryToken);
-        token = exchanged.sessionToken;
-        localStorage.setItem(SESSION_KEY, token);
-        setSession(token);
-        url.searchParams.delete('t');
-        url.searchParams.delete('openExternalBrowser');
-        window.history.replaceState({}, document.title, `${url.pathname}${url.search}`);
-      } else if (callbackSession) {
-        localStorage.setItem(SESSION_KEY, callbackSession);
-        setSession(callbackSession);
-        window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`);
-      }
-      if (!token) return;
-      const [nextSurfaces, nextUsage] = await Promise.all([api.surfaces(token), api.myUsage(token)]);
-      setSurfaces(nextSurfaces);
-      setUsage(nextUsage);
-      const remembered = storedScope();
-      const validRemembered = remembered && scopeExists(remembered, nextSurfaces) ? remembered : null;
-      setScope(validRemembered ?? defaultScope(nextSurfaces));
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : '載入失敗';
-      if (/INVALID_WEB_SESSION|WEB_SESSION_REQUIRED/.test(message)) clearSession();
-      setError(message);
-    } finally { setLoading(false); }
-  }
-
-  async function loadScope(token: string, nextScope: Scope) {
-    setLoading(true);
-    setError(null);
-    try {
-      const nextRecords = nextScope.type === 'PERSONAL'
-        ? await api.personalRecords(token)
-        : await api.groupRecords(token, nextScope.sourceId);
-      setRecords(nextRecords);
-      setOwnerView(nextScope.type === 'GROUP' ? await api.ownerView(token, nextScope.sourceId) : null);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '紀錄載入失敗');
-      setRecords([]);
-      setOwnerView(null);
-    } finally { setLoading(false); }
-  }
-
-  async function toggleMember(memberUserId: number, enabled: boolean) {
-    if (!session || scope?.type !== 'GROUP') return;
-    try {
-      await api.setRecordingEnabled(session, scope.sourceId, memberUserId, enabled);
-      const next = await api.ownerView(session, scope.sourceId);
-      setOwnerView(next);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : '成員權限更新失敗'); }
-  }
-
-  function clearSession() {
-    localStorage.removeItem(SESSION_KEY);
-    localStorage.removeItem(ACTIVE_SCOPE_KEY);
-    setSession(null); setSurfaces(null); setScope(null); setRecords([]); setUsage(null); setOwnerView(null);
-  }
-
-  const visibleRecords = records.filter((record) => {
-    if (typeFilter && record.inputType !== typeFilter) return false;
-    if (categoryFilter && record.category !== categoryFilter) return false;
-    if (query.trim()) {
-      const needle = query.trim().toLowerCase();
-      const haystack = `${record.normalizedSummary ?? ''}\n${record.rawText ?? ''}`.toLowerCase();
-      if (!haystack.includes(needle)) return false;
-    }
-    return true;
-  });
-
-  if (!session) {
-    return <main className="shell fatal-shell"><section className="fatal-card"><p className="eyebrow">AFTERTRACE</p><h1>工作紀錄中心</h1><p className="muted">使用 LINE 登入，查看你的個人與群組紀錄。</p>{error ? <div className="error">{error}</div> : null}<button type="button" onClick={() => { window.location.href = api.lineLoginUrl(); }}>使用 LINE 登入</button></section></main>;
-  }
-
-  return (
-    <main className="shell worklog-shell">
-      <div className="topbar"><div><p className="eyebrow">AFTERTRACE</p><h1>工作紀錄</h1></div><button className="ghost" type="button" onClick={clearSession}>登出</button></div>
-      {error ? <div className="error">{error}</div> : null}
-      {usage ? <UsageBar usage={usage} /> : null}
-
-      <section className="panel worklog-scope-panel"><div className="worklog-scope-row">
-        {surfaces?.personal ? <button type="button" className={scope?.type === 'PERSONAL' ? 'worklog-scope active' : 'worklog-scope'} onClick={() => setScope({ type: 'PERSONAL', sourceId: surfaces.personal!.sourceId })}>個人紀錄</button> : null}
-        {surfaces?.groups.map((group, index) => <button key={group.sourceId} type="button" className={scope?.type === 'GROUP' && scope.sourceId === group.sourceId ? 'worklog-scope active' : 'worklog-scope'} onClick={() => setScope({ type: 'GROUP', sourceId: group.sourceId, lineGroupId: group.lineGroupId })}>群組 {index + 1}</button>)}
-      </div></section>
-
-      {ownerView ? <OwnerPanel view={ownerView} onToggle={toggleMember} /> : null}
-
-      <section className="panel worklog-filter-panel">
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜尋紀錄文字" />
-        <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as '' | WorklogInputType)}><option value="">全部類型</option><option value="TEXT">文字</option><option value="AUDIO">音檔</option><option value="IMAGE">圖片</option><option value="FILE">檔案</option></select>
-        <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}><option value="">全部分類</option><option value="NOTE">備註</option><option value="WORK">施工</option><option value="ISSUE">問題</option><option value="PAYMENT">收款</option><option value="EXPENSE">支出</option><option value="MATERIAL">材料</option><option value="OTHER">其他</option></select>
-      </section>
-
-      <section className="panel">
-        {loading ? <div className="empty">載入中…</div> : null}
-        {!loading && !scope ? <div className="empty">目前沒有可查看的紀錄範圍。</div> : null}
-        {!loading && scope && visibleRecords.length === 0 ? <div className="empty">目前沒有符合條件的紀錄。</div> : null}
-        <div className="worklog-record-list">{visibleRecords.map((record) => <RecordCard key={record.id} record={record} />)}</div>
-      </section>
-    </main>
-  );
-}
-
-function UsageBar({ usage }: { usage: UserUsage }) {
-  return <section className="panel worklog-usage"><strong>{usage.planCode}</strong><span>AI {usage.aiUsedUnits} / {usage.aiAllowanceUnits}</span><span>剩餘 {usage.aiRemainingUnits}</span><span>文字 {usage.records.TEXT} · 音檔 {usage.records.AUDIO} · 圖片 {usage.records.IMAGE} · 檔案 {usage.records.FILE}</span></section>;
-}
-
-function OwnerPanel({ view, onToggle }: { view: GroupOwnerView; onToggle: (userId: number, enabled: boolean) => void }) {
-  return <section className="panel"><div className="worklog-owner-title"><div><p className="eyebrow">OWNER</p><h2>群組用量與成員</h2></div><span>群組 AI {view.groupAiUsedUnits}</span></div><div className="worklog-member-list">{view.members.map((member) => <div className="worklog-member" key={member.userId}><div><strong>{member.displayName || `使用者 ${member.userId}`}</strong><small>AI {member.aiUsedUnits} · T {member.records.TEXT} / A {member.records.AUDIO} / I {member.records.IMAGE} / F {member.records.FILE}</small></div><label><input type="checkbox" checked={member.recordingEnabled} disabled={member.userId === view.ownerUserId} onChange={(event) => onToggle(member.userId, event.target.checked)} /> 可紀錄</label></div>)}</div></section>;
-}
-
-function RecordCard({ record }: { record: WorklogRecord }) {
-  const content = record.normalizedSummary || record.rawText || '尚無可顯示文字';
-  const timestamp = record.sourceTimestamp || record.createdAt;
-  return <article className="worklog-record-card"><div className="worklog-record-meta"><span>{inputLabel(record.inputType)}</span><span>{categoryLabel(record.category)}</span><time>{new Date(timestamp).toLocaleString('zh-TW')}</time></div><strong>{content}</strong>{record.normalizedSummary && record.rawText && record.normalizedSummary !== record.rawText ? <p className="muted worklog-raw">原始內容：{record.rawText}</p> : null}</article>;
-}
-
-function defaultScope(surfaces: WorklogSurfaces): Scope | null { if (surfaces.personal) return { type: 'PERSONAL', sourceId: surfaces.personal.sourceId }; const group = surfaces.groups[0]; return group ? { type: 'GROUP', sourceId: group.sourceId, lineGroupId: group.lineGroupId } : null; }
-function scopeExists(scope: Scope, surfaces: WorklogSurfaces) { if (scope.type === 'PERSONAL') return surfaces.personal?.sourceId === scope.sourceId; return surfaces.groups.some((group) => group.sourceId === scope.sourceId && group.lineGroupId === scope.lineGroupId); }
-function inputLabel(type: WorklogInputType) { return ({ TEXT: '文字', AUDIO: '音檔', IMAGE: '圖片', FILE: '檔案' } as const)[type]; }
-function categoryLabel(category: string) { return ({ NOTE: '備註', WORK: '施工', ISSUE: '問題', PAYMENT: '收款', EXPENSE: '支出', MATERIAL: '材料', OTHER: '其他', PHOTO: '照片', AUDIO: '音訊' } as Record<string, string>)[category] ?? category; }
+function defaultScope(s:WorklogSurfaces):Scope|null{if(s.personal)return{type:'PERSONAL',sourceId:s.personal.sourceId};const g=s.groups[0];return g?{type:'GROUP',sourceId:g.sourceId,lineGroupId:g.lineGroupId}:null}function scopeExists(s:Scope,a:WorklogSurfaces){return s.type==='PERSONAL'?a.personal?.sourceId===s.sourceId:a.groups.some(g=>g.sourceId===s.sourceId&&g.lineGroupId===s.lineGroupId)}function inputLabel(t:WorklogInputType){return({TEXT:'文字',AUDIO:'音檔',IMAGE:'圖片',FILE:'檔案'} as const)[t]}function transactionLabel(t:Transaction['type']){return t==='RECEIVED'?'已收款':t==='EXPENSE'?'支出':'應收'}function msg(e:unknown){return e instanceof Error?e.message:'操作失敗'}
