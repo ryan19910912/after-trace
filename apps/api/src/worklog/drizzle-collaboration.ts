@@ -4,6 +4,7 @@ import type {
   GroupAuthorizationContext,
   WorklogCollaborationRepository,
 } from './collaboration';
+import type { WorklogSubscriptionStatus } from './subscription';
 
 type AuthorizationRow = {
   source_id: string;
@@ -12,6 +13,11 @@ type AuthorizationRow = {
   member_active: boolean | null;
   recording_enabled: boolean | null;
   plan_code: string | null;
+  subscription_status: WorklogSubscriptionStatus | null;
+  effective_at: Date | string | null;
+  current_period_start: Date | string | null;
+  current_period_end: Date | string | null;
+  plan_enabled: boolean | null;
   capabilities: unknown;
   ai_allowance_units: number | string | null;
   consumed_units: number | string | null;
@@ -32,6 +38,11 @@ export class DrizzleWorklogCollaborationRepository implements WorklogCollaborati
         member.is_active AS member_active,
         member.recording_enabled,
         subscription.plan_code,
+        subscription.status AS subscription_status,
+        subscription.effective_at,
+        subscription.current_period_start,
+        subscription.current_period_end,
+        COALESCE(plan.enabled, FALSE) AS plan_enabled,
         COALESCE(plan.capabilities, '{}'::jsonb) AS capabilities,
         COALESCE(balance.allowance_units, plan.ai_allowance_units, 0) AS ai_allowance_units,
         COALESCE(balance.used_units, 0) + COALESCE(balance.reserved_units, 0) AS consumed_units
@@ -41,10 +52,8 @@ export class DrizzleWorklogCollaborationRepository implements WorklogCollaborati
        AND member.user_id = ${actorUserId}
       LEFT JOIN worklog_user_subscriptions AS subscription
         ON subscription.user_id = source.owner_user_id
-       AND subscription.status = 'ACTIVE'
       LEFT JOIN worklog_subscription_plans AS plan
         ON plan.code = subscription.plan_code
-       AND plan.enabled = TRUE
       LEFT JOIN worklog_ai_quota_balances AS balance
         ON balance.user_id = source.owner_user_id
        AND balance.period_start = subscription.current_period_start
@@ -62,6 +71,11 @@ export class DrizzleWorklogCollaborationRepository implements WorklogCollaborati
       actorIsActiveMember: row.member_active === true,
       actorRecordingEnabled: row.recording_enabled !== false,
       ownerPlanCode: row.plan_code,
+      ownerSubscriptionStatus: row.subscription_status,
+      ownerEffectiveAt: nullableDate(row.effective_at),
+      ownerPeriodStart: nullableDate(row.current_period_start),
+      ownerPeriodEnd: nullableDate(row.current_period_end),
+      ownerPlanEnabled: row.plan_enabled === true,
       ownerCapabilities: row.capabilities,
       ownerAllowanceUnits: numeric(row.ai_allowance_units),
       ownerConsumedUnits: numeric(row.consumed_units),
@@ -142,6 +156,10 @@ export class DrizzleWorklogCollaborationRepository implements WorklogCollaborati
 
 function nullableNumber(value: string | null): number | null {
   return value === null ? null : Number(value);
+}
+
+function nullableDate(value: Date | string | null): Date | null {
+  return value === null ? null : new Date(value);
 }
 
 function numeric(value: number | string | null): number {
