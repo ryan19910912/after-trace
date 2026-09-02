@@ -8,10 +8,7 @@ const rootDir = dirname(fileURLToPath(import.meta.url));
 const envPath = resolve(rootDir, '.env');
 if (existsSync(envPath)) loadEnvFile(envPath);
 
-if (!process.env.DATABASE_URL) {
-  throw new Error('DATABASE_URL is required for Drizzle Kit');
-}
-
+if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required for Drizzle Kit');
 const drizzlePath = (...segments: string[]) => resolve(rootDir, ...segments).replaceAll('\\', '/');
 
 export default defineConfig({
@@ -34,10 +31,9 @@ export default defineConfig({
     drizzlePath('apps/api/src/db/schema-worklog-normalization.ts'),
     drizzlePath('apps/api/src/db/schema-worklog-line-text-cache.ts'),
     drizzlePath('apps/api/src/db/schema-worklog-attachment.ts'),
+    drizzlePath('apps/api/src/db/schema-worklog-checkout.ts'),
   ],
   out: drizzlePath('drizzle'),
   dialect: 'postgresql',
-  dbCredentials: {
-    url: process.env.DATABASE_URL,
-  },
+  dbCredentials: { url: process.env.DATABASE_URL },
 });
