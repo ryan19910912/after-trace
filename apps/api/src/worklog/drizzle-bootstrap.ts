@@ -74,9 +74,16 @@ export class DrizzleWorklogBootstrapRepository implements WorklogBootstrapReposi
     await this.db.execute(sql`
       UPDATE worklog_users
       SET
-        is_oa_friend = ${isOaFriend},
+        is_oa_friend = CASE
+          WHEN last_interaction_at IS NULL OR ${at} >= last_interaction_at THEN ${isOaFriend}
+          ELSE is_oa_friend
+        END,
         first_oa_added_at = CASE
-          WHEN ${isOaFriend} THEN COALESCE(first_oa_added_at, ${at})
+          WHEN ${isOaFriend} THEN
+            CASE
+              WHEN first_oa_added_at IS NULL THEN ${at}
+              ELSE LEAST(first_oa_added_at, ${at})
+            END
           ELSE first_oa_added_at
         END,
         last_interaction_at = CASE
