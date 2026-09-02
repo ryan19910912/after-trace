@@ -182,6 +182,7 @@ export class WorklogTextNormalizationService {
     }
 
     const reservationToken = reservation.reservation.token;
+    let payload: WorklogPersistedNormalizationPayload;
     try {
       const response = await this.provider.normalize(context.rawText, config);
       const actualUnits = safeActualUnits(response.inputTokens, response.outputTokens);
@@ -230,21 +231,28 @@ export class WorklogTextNormalizationService {
         providerResponseId: response.providerResponseId,
         latencyMs: nonNegativeInteger(response.latencyMs, 'latencyMs'),
       });
-
-      return this.settleProviderResult({
+      payload = {
         recordId: context.recordId,
         claimToken,
         reservationToken,
         output: response.output,
         usage,
-      });
+      };
     } catch (error) {
+      // Once provider execution is uncertain, automatic LINE redelivery must not call
+      // the provider again. Release internal quota and leave a terminal FAILED state;
+      // a future explicit/admin retry can make a deliberate new attempt.
       await this.safeRelease(reservationToken);
       const detail = errorDetail(error);
       const reason = errorCode(error);
       await this.repository.fail(context.recordId, claimToken, reason, detail);
       return { status: 'FAILED', reason };
     }
+
+    // From this point onward provider output is durable. Do not catch settlement DB
+    // failures here: PROVIDER_SUCCEEDED / USAGE_COMMITTED are resumable states, and a
+    // redelivery can finish them without another provider call or quota charge.
+    return this.settleProviderResult(payload);
   }
 
   private async settleProviderResult(
