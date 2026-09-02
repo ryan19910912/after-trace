@@ -34,10 +34,10 @@ p { line-height: 1.65; }
 .search-row { display: flex; gap: 8px; width: min(460px, 100%); }
 .search-row input { flex: 1; }
 
-input, textarea, select { width: 100%; border: 1px solid #333741; border-radius: 10px; padding: 11px 12px; color: #fff; background: #15171b; outline: none; }
-input::placeholder, textarea::placeholder { color: #777f8c; }
-input:focus, textarea:focus, select:focus { border-color: #727b8c; box-shadow: 0 0 0 2px rgb(255 255 255 / 5%); }
-select option { background: #15171b; color: #fff; }
+input, textarea, select { width: 100%; border: 1px solid #4a515d; border-radius: 10px; padding: 11px 12px; color: #fff; background: #242a33; outline: none; }
+input::placeholder, textarea::placeholder { color: #969eaa; }
+input:focus, textarea:focus, select:focus { border-color: #7b8492; background: #2a313b; box-shadow: 0 0 0 2px rgb(255 255 255 / 6%); }
+select option { background: #242a33; color: #fff; }
 textarea { min-height: 110px; resize: vertical; }
 button { border: 1px solid #3a404a; border-radius: 10px; padding: 10px 14px; color: #fff; background: #303742; }
 button:hover:not(:disabled) { background: #3a4350; }
