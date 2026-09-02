@@ -36,6 +36,13 @@
       "when": 1788299226000,
       "tag": "0004_worklog_pending_group_bootstrap",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788317415000,
+      "tag": "0005_worklog_private_web_entry",
+      "breakpoints": true
     }
   ]
 }
