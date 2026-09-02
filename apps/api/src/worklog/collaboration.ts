@@ -13,6 +13,7 @@ export type GroupAuthorizationContext = {
   actorIsActiveMember: boolean;
   actorRecordingEnabled: boolean;
   ownerPlanCode: string | null;
+  ownerPlanDisplayName?: string | null;
   ownerSubscriptionStatus: WorklogSubscriptionStatus | null;
   ownerEffectiveAt: Date | null;
   ownerPeriodStart: Date | null;
@@ -21,6 +22,7 @@ export type GroupAuthorizationContext = {
   ownerCapabilities: unknown;
   ownerAllowanceUnits: number;
   ownerConsumedUnits: number;
+  ownerGroupPosition?: number;
 };
 
 export interface WorklogCollaborationRepository {
@@ -43,6 +45,20 @@ export interface WorklogCollaborationRepository {
   ): Promise<boolean>;
 }
 
+type GroupAuthorizationFailureStatus =
+  | 'GROUP_NOT_FOUND'
+  | 'GROUP_INACTIVE'
+  | 'OWNER_UNBOUND'
+  | 'NOT_ACTIVE_MEMBER'
+  | 'GROUP_NOT_ENTITLED'
+  | 'GROUP_LIMIT_REACHED';
+
+type GroupAuthorizationFailure = {
+  status: GroupAuthorizationFailureStatus;
+  ownerPlanDisplayName?: string;
+  maxGroupCount?: number;
+};
+
 export type GroupAccessAuthorizationResult =
   | {
       status: 'OK';
@@ -51,14 +67,7 @@ export type GroupAccessAuthorizationResult =
       ownerPlanCode: string;
       ownerCapabilities: PlanCapabilities;
     }
-  | {
-      status:
-        | 'GROUP_NOT_FOUND'
-        | 'GROUP_INACTIVE'
-        | 'OWNER_UNBOUND'
-        | 'NOT_ACTIVE_MEMBER'
-        | 'GROUP_NOT_ENTITLED';
-    };
+  | GroupAuthorizationFailure;
 
 export type GroupRecordAuthorizationResult =
   | {
@@ -69,16 +78,8 @@ export type GroupRecordAuthorizationResult =
       ownerCapabilities: PlanCapabilities;
       remainingAiUnits: number;
     }
-  | {
-      status:
-        | 'GROUP_NOT_FOUND'
-        | 'GROUP_INACTIVE'
-        | 'OWNER_UNBOUND'
-        | 'NOT_ACTIVE_MEMBER'
-        | 'RECORDING_DISABLED'
-        | 'GROUP_NOT_ENTITLED'
-        | 'AI_QUOTA_EXHAUSTED';
-    };
+  | GroupAuthorizationFailure
+  | { status: 'RECORDING_DISABLED' | 'AI_QUOTA_EXHAUSTED' };
 
 export type RecordingPermissionChangeResult =
   | { status: 'UPDATED' }
@@ -108,7 +109,7 @@ export class WorklogCollaborationService {
     if (!context.actorIsActiveMember) return { status: 'NOT_ACTIVE_MEMBER' };
 
     const entitlement = groupEntitlement(context, input.at ?? new Date());
-    if (!entitlement) return { status: 'GROUP_NOT_ENTITLED' };
+    if (entitlement.status !== 'OK') return entitlement;
 
     return {
       status: 'OK',
@@ -140,7 +141,7 @@ export class WorklogCollaborationService {
     }
 
     const entitlement = groupEntitlement(context, input.at ?? new Date());
-    if (!entitlement) return { status: 'GROUP_NOT_ENTITLED' };
+    if (entitlement.status !== 'OK') return entitlement;
 
     const allowance = nonNegativeInteger(context.ownerAllowanceUnits);
     const consumed = nonNegativeInteger(context.ownerConsumedUnits);
@@ -212,21 +213,61 @@ export class WorklogCollaborationService {
   }
 }
 
+type GroupEntitlementResult =
+  | { status: 'OK'; planCode: string; capabilities: PlanCapabilities }
+  | GroupAuthorizationFailure;
+
 function groupEntitlement(
   context: GroupAuthorizationContext,
   at: Date,
-): { planCode: string; capabilities: PlanCapabilities } | null {
+): GroupEntitlementResult {
   const atMs = at.getTime();
   if (!Number.isFinite(atMs)) throw new Error('group entitlement time must be valid');
-  if (context.ownerSubscriptionStatus !== 'ACTIVE' || !context.ownerPlanEnabled) return null;
-  if (!context.ownerEffectiveAt || !context.ownerPeriodStart) return null;
-  if (atMs < context.ownerEffectiveAt.getTime() || atMs < context.ownerPeriodStart.getTime()) return null;
-  if (context.ownerPeriodEnd && atMs >= context.ownerPeriodEnd.getTime()) return null;
+  if (context.ownerSubscriptionStatus !== 'ACTIVE' || !context.ownerPlanEnabled) {
+    return notEntitled(context);
+  }
+  if (!context.ownerEffectiveAt || !context.ownerPeriodStart) return notEntitled(context);
+  if (atMs < context.ownerEffectiveAt.getTime() || atMs < context.ownerPeriodStart.getTime()) {
+    return notEntitled(context);
+  }
+  if (context.ownerPeriodEnd && atMs >= context.ownerPeriodEnd.getTime()) return notEntitled(context);
 
   const planCode = context.ownerPlanCode ?? 'FREE';
   const capabilities = parsePlanCapabilities(context.ownerCapabilities);
-  if (!canUseGroupCollaboration(planCode, capabilities)) return null;
-  return { planCode, capabilities };
+  if (!canUseGroupCollaboration(planCode, capabilities)) return notEntitled(context);
+
+  const maxGroupCount = configuredGroupLimit(capabilities);
+  const groupPosition = Math.max(1, nonNegativeInteger(context.ownerGroupPosition ?? 1));
+  if (maxGroupCount !== null && groupPosition > maxGroupCount) {
+    return {
+      status: 'GROUP_LIMIT_REACHED',
+      ...(planDisplayName(context) ? { ownerPlanDisplayName: planDisplayName(context) } : {}),
+      maxGroupCount,
+    };
+  }
+
+  return { status: 'OK', planCode, capabilities };
+}
+
+function notEntitled(context: GroupAuthorizationContext): GroupAuthorizationFailure {
+  const displayName = planDisplayName(context);
+  return {
+    status: 'GROUP_NOT_ENTITLED',
+    ...(displayName ? { ownerPlanDisplayName: displayName } : {}),
+  };
+}
+
+function planDisplayName(context: GroupAuthorizationContext): string | undefined {
+  const displayName = context.ownerPlanDisplayName?.trim();
+  if (displayName) return displayName;
+  const code = context.ownerPlanCode?.trim();
+  return code || undefined;
+}
+
+function configuredGroupLimit(capabilities: PlanCapabilities): number | null {
+  const value = capabilities.maxGroupCount;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return Math.max(0, Math.floor(value));
 }
 
 function nonNegativeInteger(value: number): number {
