@@ -10,12 +10,6 @@ export interface WorklogGroupLifecyclePort {
     isActive: boolean;
     at?: Date;
   }): Promise<void>;
-  bindGroupOwner?(input: {
-    lineGroupId: string;
-    ownerLineUserId: string;
-    evidence: 'RELIABLE_JOIN_ACTOR';
-    at?: Date;
-  }): Promise<unknown>;
 }
 
 export interface WorklogGroupReplyPort {
@@ -101,18 +95,9 @@ async function handleLifecycle(
   event: GroupLifecycleEvent,
   bootstrap: WorklogGroupLifecyclePort,
 ): Promise<void> {
-  if (event.type === 'JOIN') {
-    const inviterLineUserId = event.lineUserIds[0];
-    if (inviterLineUserId && bootstrap.bindGroupOwner) {
-      await bootstrap.bindGroupOwner({
-        lineGroupId: event.lineGroupId,
-        ownerLineUserId: inviterLineUserId,
-        evidence: 'RELIABLE_JOIN_ACTOR',
-        at: event.lineTimestamp,
-      });
-    }
-    return;
-  }
+  // LINE's Bot join event identifies the group, not the inviter. Ownership remains
+  // pending until an explicit @AFTERTRACE 啟用 claim binds a subscriber/owner.
+  if (event.type === 'JOIN') return;
   if (event.type === 'LEAVE') {
     await bootstrap.handleGroupLeave({ lineGroupId: event.lineGroupId, at: event.lineTimestamp });
     return;
