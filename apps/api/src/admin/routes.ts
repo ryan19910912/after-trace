@@ -10,6 +10,7 @@ import {
   verifyAdminSessionToken,
   type AdminAccessEnv,
 } from './auth';
+import { presentAdminPayload } from './presentation';
 import {
   DrizzleAdminRepository,
   type AdminAiRuntimeInput,
@@ -103,14 +104,14 @@ export function createAdminRoutes() {
       sortUpdated: sort(c.req.query('sort')),
       limit: limit(c.req.query('limit')),
     };
-    return c.json({ ok: true, users: await repository(c).users(input) });
+    return c.json({ ok: true, users: presentAdminPayload(await repository(c).users(input)) });
   });
 
   app.get('/users/:id', async (c) => {
     const userId = positiveId(c.req.param('id'));
     if (!userId) return c.json({ ok: false, error: 'INVALID_USER_ID' }, 400);
     const detail = await repository(c).userDetail(userId);
-    return detail ? c.json({ ok: true, detail }) : c.json({ ok: false, error: 'USER_NOT_FOUND' }, 404);
+    return detail ? c.json({ ok: true, detail: presentAdminPayload(detail) }) : c.json({ ok: false, error: 'USER_NOT_FOUND' }, 404);
   });
 
   app.put('/users/:id/subscription', async (c) => {
@@ -142,24 +143,24 @@ export function createAdminRoutes() {
         metadata: { source: 'AFTERTRACE_ADMIN' },
       });
       if (result.status !== 'ASSIGNED') return c.json({ ok: false, error: 'PLAN_NOT_AVAILABLE' }, 409);
-      return c.json({ ok: true, subscription: result.subscription });
+      return c.json({ ok: true, subscription: presentAdminPayload(result.subscription) });
     } catch (error) {
       return c.json({ ok: false, error: safeError(error, 'SUBSCRIPTION_UPDATE_FAILED') }, 400);
     }
   });
 
   app.get('/groups', async (c) => {
-    return c.json({ ok: true, groups: await repository(c).groups(query(c.req.query('q')), limit(c.req.query('limit'))) });
+    return c.json({ ok: true, groups: presentAdminPayload(await repository(c).groups(query(c.req.query('q')), limit(c.req.query('limit')))) });
   });
 
   app.get('/groups/:id', async (c) => {
     const groupId = positiveId(c.req.param('id'));
     if (!groupId) return c.json({ ok: false, error: 'INVALID_GROUP_ID' }, 400);
     const detail = await repository(c).groupDetail(groupId);
-    return detail ? c.json({ ok: true, detail }) : c.json({ ok: false, error: 'GROUP_NOT_FOUND' }, 404);
+    return detail ? c.json({ ok: true, detail: presentAdminPayload(detail) }) : c.json({ ok: false, error: 'GROUP_NOT_FOUND' }, 404);
   });
 
-  app.get('/plans', async (c) => c.json({ ok: true, plans: await repository(c).plans() }));
+  app.get('/plans', async (c) => c.json({ ok: true, plans: presentAdminPayload(await repository(c).plans()) }));
 
   app.put('/plans/:code', async (c) => {
     const body = await jsonBody(c);
@@ -172,13 +173,13 @@ export function createAdminRoutes() {
     }
     try {
       const plan = await repository(c).upsertPlan(input, c.get('adminUsername'));
-      return c.json({ ok: true, plan });
+      return c.json({ ok: true, plan: presentAdminPayload(plan) });
     } catch (error) {
       return c.json({ ok: false, error: safeError(error, 'PLAN_UPDATE_FAILED') }, 400);
     }
   });
 
-  app.get('/ai-runtime', async (c) => c.json({ ok: true, config: await repository(c).aiRuntimeConfig() }));
+  app.get('/ai-runtime', async (c) => c.json({ ok: true, config: presentAdminPayload(await repository(c).aiRuntimeConfig()) }));
 
   app.put('/ai-runtime', async (c) => {
     const body = await jsonBody(c);
@@ -191,15 +192,15 @@ export function createAdminRoutes() {
     }
     try {
       const config = await repository(c).updateAiRuntimeConfig(input, c.get('adminUsername'));
-      return c.json({ ok: true, config });
+      return c.json({ ok: true, config: presentAdminPayload(config) });
     } catch (error) {
       return c.json({ ok: false, error: safeError(error, 'AI_RUNTIME_UPDATE_FAILED') }, 400);
     }
   });
 
-  app.get('/feedback', async (c) => c.json({ ok: true, feedback: await repository(c).feedback(limit(c.req.query('limit'))) }));
+  app.get('/feedback', async (c) => c.json({ ok: true, feedback: presentAdminPayload(await repository(c).feedback(limit(c.req.query('limit')))) }));
 
-  app.get('/anomalies', async (c) => c.json({ ok: true, anomalies: await repository(c).anomalies(limit(c.req.query('limit'))) }));
+  app.get('/anomalies', async (c) => c.json({ ok: true, anomalies: presentAdminPayload(await repository(c).anomalies(limit(c.req.query('limit')))) }));
 
   app.patch('/anomalies/:id', async (c) => {
     const anomalyId = positiveId(c.req.param('id'));
@@ -209,10 +210,10 @@ export function createAdminRoutes() {
     const status = anomalyStatus(body.status);
     if (!status) return c.json({ ok: false, error: 'INVALID_ANOMALY_STATUS' }, 400);
     const result = await repository(c).setAnomalyStatus(anomalyId, status, c.get('adminUsername'));
-    return result ? c.json({ ok: true, anomaly: result }) : c.json({ ok: false, error: 'ANOMALY_NOT_FOUND' }, 404);
+    return result ? c.json({ ok: true, anomaly: presentAdminPayload(result) }) : c.json({ ok: false, error: 'ANOMALY_NOT_FOUND' }, 404);
   });
 
-  app.get('/audit', async (c) => c.json({ ok: true, audit: await repository(c).audit(limit(c.req.query('limit'))) }));
+  app.get('/audit', async (c) => c.json({ ok: true, audit: presentAdminPayload(await repository(c).audit(limit(c.req.query('limit')))) }));
 
   return app;
 }
