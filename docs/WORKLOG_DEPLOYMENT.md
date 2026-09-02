@@ -12,9 +12,8 @@ AFTERTRACE deploys as three independent Cloudflare Workers.
 - Responsibilities: LINE webhook, Worklog runtime, auth/session, PWA/Admin/subscription APIs, AI quota/provider orchestration and PostgreSQL/Drizzle.
 - Deployment config: `apps/api/wrangler.toml`.
 - Production helper: `worker-deploy.ps1` and API-only.
-- The API entrypoint is Worklog-only: LINE group traffic is terminated at the Worklog group boundary, so ordinary group chat can only hit the bounded PostgreSQL TEXT cache path and cannot fall through to retired conversation/Energy/Memory logic.
-- Legacy `/management`, `/energy`, old commerce/proactive API prefixes plus old `/auth/groups` and `/auth/memories` endpoints return HTTP 410 tombstones without mounting their old routers.
-- There is no active scheduled handler and `apps/api/wrangler.toml` has no cron trigger for the retired reminder/proactive/retention runtime.
+- The API entrypoint is Worklog-only; ordinary group traffic cannot fall through to retired Memory/Energy/conversation behavior.
+- There is no active scheduled handler/cron binding for the retired reminder/proactive runtime.
 
 ### 2. aftertrace-web
 
@@ -22,7 +21,7 @@ AFTERTRACE deploys as three independent Cloudflare Workers.
 - Config: `apps/web/wrangler.toml`; assets: `apps/web/dist`; SPA fallback enabled.
 - Production helper: `web-worker-deploy.ps1`.
 - Responsibilities: personal/group records, customers/projects, typed finance, owner usage/member permissions, feedback, help, plan/subscription UI.
-- Must call `aftertrace-api` through explicit `VITE_API_BASE_URL`.
+- Calls `aftertrace-api` through explicit `VITE_API_BASE_URL`.
 
 ### 3. aftertrace-admin
 
@@ -30,29 +29,28 @@ AFTERTRACE deploys as three independent Cloudflare Workers.
 - Config: `apps/admin/wrangler.toml`; assets: `apps/admin/dist`; SPA fallback enabled.
 - Production helper: `admin-worker-deploy.ps1`.
 - Responsibilities: username/password login, anomaly monitoring, feedback, Worklog users/groups/plans/quota, AI model/pricing, manual subscription changes and audit.
-- Must call `aftertrace-api` through explicit `VITE_API_BASE_URL`.
+- Calls `aftertrace-api` through explicit `VITE_API_BASE_URL`.
 - Do not reintroduce Pages Functions proxy or legacy Cloudflare Access JWT auth.
 
 ## Web / LINE OA destinations
 
-The Web Worker uses SPA fallback, so these stable paths can be used directly by the LINE OA Rich Menu:
+Stable Web Worker paths for LINE OA Rich Menu:
 
 - `https://<aftertrace-web>/help` → 使用教學
 - `https://<aftertrace-web>/` → 查看紀錄
 - `https://<aftertrace-web>/subscription` → 付款訂閱 / 方案
 - `https://<aftertrace-web>/feedback` → 意見回饋
 
-`/subscription` and `/feedback` use the normal LINE Login session when needed. Because LIFF is intentionally not used, the web app preserves the requested destination in local storage and moves the LINE Login callback session hash back to that path after OAuth returns to `WEB_APP_URL`.
-
-The actual Rich Menu object/image is a LINE OA external configuration step and is not a reason to add LIFF.
+`/subscription` and `/feedback` use normal LINE Login when needed. LIFF is intentionally not required for the MVP.
 
 ## Subscription / checkout deployment boundary
 
-- Admin-managed enabled `worklog_subscription_plans` are exposed to authenticated users at `GET /api/v1/subscription/plans`.
+- Enabled `worklog_subscription_plans` are exposed to authenticated users at `GET /api/v1/subscription/plans`.
 - `POST /api/v1/subscription/checkout-intents` creates an idempotent provider-neutral checkout intent.
-- Checkout intents are stored in `worklog_checkout_intents` (`0010_worklog_checkout_intents.sql`).
-- The payment provider remains intentionally undecided. Until a provider is configured, the API returns the intent with `checkoutEnabled=false` / no checkout URL; the UI must never claim payment succeeded.
-- Future payment integration should transition an existing intent to `READY` with provider/id/url, then process provider webhook completion into subscription assignment. Do not couple PWA components directly to a specific payment provider.
+- Payment provider remains undecided; until configured, the UI/API must never claim payment succeeded.
+- The current provider-neutral boundary is **not yet a complete monthly subscription system**. The product contract now requires dedicated `ONE_TIME` / `MONTHLY` plan billing type plus recurring-payment authorization and idempotent renewal success/failure events.
+- A paid monthly renewal may create the next billing/quota period only after confirmed successful provider payment. Calendar passage alone must not grant new paid quota, and unused prior-period quota does not roll forward.
+- Do not store raw card data in AFTERTRACE. Persist only provider-approved customer/subscription/authorization identifiers after a provider is selected.
 
 ## Admin authentication boundary
 
@@ -66,10 +64,10 @@ The actual Rich Menu object/image is a LINE OA external configuration step and i
 
 ## AI runtime configuration boundary
 
-- `GEMINI_API_KEY` is the only Worklog Gemini provider credential expected from Worker environment/secrets.
-- Model name, token pricing, image/audio pricing and USD/TWD conversion are stored in the Worklog runtime configuration tables and edited through Worklog Admin.
-- Retired Energy/free-budget/rewarded-ad/Memory AI environment settings are not part of the Worklog deployment contract.
-- Historical Worklog AI usage keeps its own execution snapshot; changing Admin runtime configuration must not rewrite historical cost.
+- `GEMINI_API_KEY` is the Worklog Gemini provider credential expected from Worker environment/secrets.
+- Model name, pricing and USD/TWD conversion are DB-backed Admin configuration.
+- Historical Worklog AI usage keeps its own execution snapshot; changing current configuration must not rewrite historical cost.
+- Before production pricing/quota is finalized, reconcile the exact AI-unit and modality-pricing semantics. Current code records input/output token usage plus media fields; quota and provider-cost units must not accidentally double-count the same modality usage.
 
 ## Architecture rules
 
@@ -80,86 +78,74 @@ The actual Rich Menu object/image is a LINE OA external configuration step and i
 - API secrets (LINE/Gemini/DB/Admin credentials) live only on `aftertrace-api`.
 - Web/Admin receive public build-time configuration only, primarily `VITE_API_BASE_URL`.
 
-## Migration / legacy cleanup order
+## Current migration reality
 
-The API deploy script uses the actual Drizzle journal (`drizzle-kit migrate`) rather than the retired bespoke migration helper.
+**Current branch source is authoritative for fresh databases.** As of this audit, the repository contains:
 
-Journaled migrations currently run through `0014_worklog_oa_friend_state_time.sql`:
+- `drizzle/0000_worklog_baseline.sql`
+- `drizzle/meta/0000_snapshot.json`
+- `drizzle/meta/_journal.json`
 
-- `0000` is retained as historical pre-Worklog baseline.
-- `0001`–`0010` build the Worklog domain through checkout intents.
-- `0011` makes the still-active GROUP one-time-link table `web_auth_entry_nonces` explicit for fresh databases. The physical table name is intentionally preserved for zero-downtime compatibility; its schema declaration now lives with Worklog Web auth.
-- `0012_worklog_quota_cycle_snapshot.sql` makes an existing billing-cycle AI allowance an immutable snapshot so plan-template edits or same-period reassignment cannot silently rewrite already-active quota.
-- `0013_worklog_project_customer_consistency.sql` keeps existing project-linked records/transactions aligned when a project with a fixed customer is reassigned to another customer.
-- `0014_worklog_oa_friend_state_time.sql` adds an OA friendship lifecycle timestamp so delayed/reordered FOLLOW/UNFOLLOW webhooks cannot overwrite a newer friendship state while ordinary private-message timestamps remain independent.
+The current Drizzle journal contains **one entry only: `0000_worklog_baseline`**. There are no separate journal files `0001`–`0014`, and there is no current `drizzle/post-cutover/9000_worklog_legacy_cleanup.sql` path in this branch.
 
-Retired pre-Worklog tables/types are intentionally **not** dropped by the pre-deploy journal. `drizzle/post-cutover/9000_worklog_legacy_cleanup.sql` is the explicit destructive cleanup script and must run only after the Worklog-only API Worker has been deployed and its health/Webhook smoke is good. The `9000` name is intentionally outside the normal journal sequence so it cannot be confused with journaled Worklog migrations.
+The current `0000_worklog_baseline.sql` is a consolidated Worklog baseline, not a pre-Worklog historical schema. It already includes current Worklog structures and DB-level guards including the quota-cycle allowance snapshot trigger and project/customer link synchronization; the current schema also contains `oa_friend_state_at`.
 
-Recommended cutover order:
+Older handoff text that described journaled migrations `0000`–`0014` plus `post-cutover/9000` was stale after migration-history consolidation and must not be used as an execution plan.
 
-1. Back up any legacy data that must be retained for debugging/history.
-2. Run journaled migrations through `0014`.
-3. Deploy the Worklog-only API Worker.
-4. Verify `/health`, LINE group/OA basic recording and Web auth exchange.
-5. Run `drizzle/post-cutover/9000_worklog_legacy_cleanup.sql` against the same PostgreSQL database.
-6. Re-run schema/drift checks and the focused Worklog smoke suite.
+### Fresh database
 
-The post-cutover cleanup deliberately preserves `web_auth_entry_nonces` because it is still an active Worklog GROUP auth dependency.
+For a brand-new disposable database, validation should use the migration journal that actually exists in the repository and verify `0000_worklog_baseline` against the active Drizzle schema.
 
-## Current migration state
+### Existing production/development database
 
-Completed deployment-direction work:
+**Do not blindly run the consolidated journal against an existing database until its Drizzle migration history has been inspected and reconciled.** An existing database may have been created from an older multi-migration history while the repository is now squashed to a single baseline. This can make a normal `drizzle-kit migrate` attempt unsafe or fail with already-existing objects.
 
-1. Web/Admin Workers Static Assets configs + SPA fallback.
-2. Independent Web/Admin/API deployment helpers.
-3. Removed old Pages deployment helper and Pages Admin proxy.
-4. Removed `pages.dev` assumptions from active API config.
-5. Configured username/password + HMAC Admin auth and Worklog Admin UI.
-6. Cut production Worker routing away from legacy Energy/Memory/commerce/proactive surfaces.
-7. Added user-facing `/help`, `/subscription`, `/feedback` destinations.
-8. Added provider-neutral subscription plan/checkout-intent boundary.
-9. Added DB failure-to-anomaly triggers (`0009`) for attachment and TEXT normalization failures so Admin monitoring receives structured events.
-10. Replaced the mixed legacy LINE webhook entrypoint with Worklog-only group/OA processors; ordinary group traffic no longer invokes conversation, Energy, extraction or Memory services.
-11. Removed legacy group-list/memory-search auth reads from the mounted auth router while preserving one-time GROUP/PRIVATE entry exchange and LINE Login.
-12. Deleted retired API source/test/config modules for Memory, Energy, conversation, extraction, commerce, reminders, proactive, retention and old management paths.
-13. Removed retired Drizzle schema declarations from the active schema/export configuration; historical `0000` remains migration history only.
-14. Replaced the bespoke deploy migration script with journaled Drizzle migrations and added `0011` so fresh DBs create the active GROUP Web-entry nonce table.
-15. Added journaled quota-cycle snapshot (`0012`) and project/customer consistency (`0013`) guards.
-16. Added OA friendship event-ordering state (`0014`) so FOLLOW/UNFOLLOW ordering is not conflated with ordinary private-message interaction time.
-17. Authored and clearly separated the post-cutover destructive legacy-table/type cleanup as `post-cutover/9000`.
-18. Removed the no-op scheduled Worker handler; no active cron binding remains in `apps/api/wrangler.toml`.
+Before production deployment:
 
-Still required before production cutover:
+1. Inspect the target database's Drizzle migration-history table and current schema.
+2. Compare it with the consolidated `0000_worklog_baseline` and active schema declarations.
+3. Decide and document the one-time migration-history reconciliation strategy for that database.
+4. Test that strategy on a disposable clone/backup first.
+5. Only after that proof should automated `db:deploy:migrate` remain enabled in the production deploy path.
+
+`worker-deploy.ps1` currently calls `pnpm --filter @aftertrace/api db:deploy:migrate` automatically. Until the existing target DB history is reconciled, treat this step as a **production deployment blocker**, not as a verified safe operation.
+
+## Current source/dependency state
+
+- Active pnpm workspace is `apps/*` only.
+- Current lockfile importers are root, `apps/admin`, `apps/api`, and `apps/web`.
+- There is no current `packages/shared` workspace/importer in the repository; older progress notes asking to remove it are stale.
+- Active Drizzle schema configuration points only at Worklog schema modules.
+
+## External configuration still required
 
 1. Configure actual Web/Admin custom domains or workers.dev hostnames.
 2. Set API `WEB_APP_URL` / `WEB_APP_ORIGIN` to the Web Worker origin.
-3. Set `ADMIN_WEB_ORIGIN` to Admin Worker origin.
-4. Set API Worker secrets/vars including `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET`, LINE/Gemini/DB credentials.
+3. Set `ADMIN_WEB_ORIGIN` to the Admin Worker origin.
+4. Set API Worker secrets/vars including Admin, LINE, Gemini and DB credentials.
 5. Build Web/Admin with `VITE_API_BASE_URL` pointing to `aftertrace-api`.
 6. Configure LINE OA Rich Menu links/image externally.
-7. Decide/payment provider and connect it to existing checkout-intent boundary when ready.
-8. Run concentrated local build/typecheck/test/migration validation after major MVP paths are complete.
-9. During real cutover, execute `post-cutover/9000` only after Worklog Worker smoke succeeds.
+7. Select a payment provider that supports the required recurring-payment authorization/renewal model, then implement provider webhook lifecycle.
+8. Reconcile existing database migration history before allowing the production deploy helper to run migrations automatically.
+9. Run the concentrated local build/typecheck/test/schema/migration/browser/Worker/LINE/Gemini validation pass.
 
 ## Validation expectations
 
 Before production use validate independently:
 
 - API/Web/Admin builds
-- journaled migrations `0000`–`0014`, then post-cutover `9000`, plus Drizzle schema drift
+- current consolidated migration on a fresh disposable DB
+- existing-target migration-history reconciliation on a disposable clone before production migrate
+- Drizzle schema drift
 - SPA deep links including `/help`, `/subscription`, `/feedback`
-- correct CORS origins
-- secrets absent from frontend bundles
-- Admin credential/session behavior
-- Admin malformed path/body inputs return explicit 400 rather than uncaught 500
-- subscription effective-state presentation, quota-cycle snapshot semantics and plan-disable behavior
-- subscription plan list + checkout intent idempotency / no false-success while provider disabled
-- project customer reassignment consistency across linked records/transactions
-- OA FOLLOW/UNFOLLOW ordering remains correct under delayed/reordered webhook delivery
-- deploying each Worker does not redeploy the others
-- legacy API prefixes return 410 and ordinary group chat does not enter old conversation/Memory storage
-- group command persistence remains successful even when LINE reply delivery fails
+- correct CORS origins and secrets absent from frontend bundles
+- Admin credential/session behavior and malformed-input handling
+- subscription billing-type/effective-state presentation and quota snapshot semantics
+- monthly renewal success/failure idempotency once provider integration exists
+- group Owner explicit binding, stable ownership, current entitlement and `maxGroupCount` across both LINE and Web APIs
+- capability enforcement server-side (`privateOaRecording`, AI text/media gates, PWA editing once its exact scope is finalized)
+- OA FOLLOW/UNFOLLOW ordering under delayed/reordered webhook delivery
 - LINE webhook TEXT/Reply TEXT/media E2E
-- real Gemini image/audio/PDF usage/cost snapshots
+- real Gemini text/image/audio/PDF usage and cost snapshots
 
 Workers Static Assets follows Cloudflare's SPA model: assets directory plus `not_found_handling = "single-page-application"`; no frontend Worker script is required for the current React/Vite apps.
