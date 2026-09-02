@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BufferedGroupMessage, GroupLifecycleEvent, ParsedLineWebhook } from '../line/events';
+import type { WorklogAnomalyInput } from './anomalies';
 import type { WorklogLineRuntimeResult } from './line-runtime';
 import { processWorklogGroupWebhook } from './group-webhook';
 
@@ -47,6 +48,13 @@ class FakeReply {
   }
 }
 
+class FakeAnomalies {
+  public calls: WorklogAnomalyInput[] = [];
+  async record(input: WorklogAnomalyInput): Promise<void> {
+    this.calls.push(input);
+  }
+}
+
 function parsedWithMessage(message: BufferedGroupMessage): ParsedLineWebhook {
   return { events: [{ kind: 'MESSAGE', message }] };
 }
@@ -65,19 +73,27 @@ describe('processWorklogGroupWebhook', () => {
     expect(reply.calls).toHaveLength(0);
   });
 
-  it('counts persisted commands even when LINE reply delivery later fails', async () => {
+  it('counts persisted commands and records a structured anomaly when LINE reply delivery fails', async () => {
     const runtime = new FakeRuntime();
     runtime.next = { status: 'RECORDED', recordId: 88, duplicate: false, replyText: '已記錄。' };
     const reply = new FakeReply();
     reply.fail = true;
+    const anomalies = new FakeAnomalies();
     const result = await processWorklogGroupWebhook({
       parsed: parsedWithMessage(groupMessage('@AFTERTRACE 今天完成驗收')),
       runtime,
       reply,
+      anomalies,
       bootstrap: new FakeBootstrap(),
     });
     expect(result).toMatchObject({ worklogCommands: 1, worklogRecords: 1, worklogRejected: 0, worklogErrors: 1 });
     expect(reply.calls).toHaveLength(1);
+    expect(anomalies.calls).toHaveLength(1);
+    expect(anomalies.calls[0]).toMatchObject({
+      category: 'LINE_GROUP_REPLY',
+      lineMessageId: 'message-1',
+      requestRef: 'event-1',
+    });
   });
 
   it('creates scoped query links from the exact group/user context', async () => {
@@ -106,32 +122,63 @@ describe('processWorklogGroupWebhook', () => {
     expect(reply.calls[0]?.text).toContain('https://app.example.test/?t=group-token');
   });
 
-  it('never sends product-error replies for an ordinary group message failure', async () => {
+  it('records a structured anomaly without sending a product-error reply for ordinary group failures', async () => {
     const runtime = new FakeRuntime();
     runtime.fail = true;
     const reply = new FakeReply();
+    const anomalies = new FakeAnomalies();
     const result = await processWorklogGroupWebhook({
       parsed: parsedWithMessage(groupMessage('一般群組聊天')),
       runtime,
       reply,
+      anomalies,
       bootstrap: new FakeBootstrap(),
     });
     expect(result).toMatchObject({ worklogOrdinaryMessages: 1, worklogCommands: 0, worklogErrors: 1 });
     expect(reply.calls).toHaveLength(0);
+    expect(anomalies.calls).toHaveLength(1);
+    expect(anomalies.calls[0]).toMatchObject({
+      category: 'LINE_GROUP_WEBHOOK',
+      errorCode: 'GROUP_MESSAGE_FAILED',
+      lineMessageId: 'message-1',
+    });
   });
 
-  it('returns a safe retry message when an explicit command throws', async () => {
+  it('returns a safe retry message and records the failure when an explicit command throws', async () => {
     const runtime = new FakeRuntime();
     runtime.fail = true;
     const reply = new FakeReply();
+    const anomalies = new FakeAnomalies();
     const result = await processWorklogGroupWebhook({
       parsed: parsedWithMessage(groupMessage('@AFTERTRACE 工地 A 今天停工')),
       runtime,
       reply,
+      anomalies,
       bootstrap: new FakeBootstrap(),
     });
     expect(result).toMatchObject({ worklogCommands: 1, worklogRejected: 1, worklogErrors: 1 });
     expect(reply.calls[0]?.text).toContain('沒有成功處理紀錄指令');
+    expect(anomalies.calls[0]).toMatchObject({ category: 'LINE_GROUP_WEBHOOK' });
+  });
+
+  it('records query-entry failures with user/source context', async () => {
+    const runtime = new FakeRuntime();
+    runtime.next = { status: 'QUERY', sourceId: 19, userId: 7 };
+    const anomalies = new FakeAnomalies();
+    const result = await processWorklogGroupWebhook({
+      parsed: parsedWithMessage(groupMessage('@AFTERTRACE 查詢')),
+      runtime,
+      reply: new FakeReply(),
+      anomalies,
+      bootstrap: new FakeBootstrap(),
+      createQueryUrl: async () => { throw new Error('entry failed'); },
+    });
+    expect(result.worklogErrors).toBe(1);
+    expect(anomalies.calls[0]).toMatchObject({
+      category: 'LINE_GROUP_QUERY_ENTRY',
+      userId: 7,
+      sourceId: 19,
+    });
   });
 
   it('updates Worklog member presence and leave state for lifecycle events', async () => {
