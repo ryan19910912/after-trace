@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { bigint, bigserial, check, index, jsonb, pgTable, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
 import { worklogRecords, worklogSources, worklogUsers } from './schema-worklog';
+import { worklogAiQuotaReservations } from './schema-worklog-quota';
 
 export const worklogAttachmentIngestions = pgTable(
   'worklog_attachment_ingestions',
@@ -15,7 +16,10 @@ export const worklogAttachmentIngestions = pgTable(
       .notNull()
       .references(() => worklogUsers.id, { onDelete: 'restrict' }),
     status: varchar('status', { length: 32 }).notNull(),
-    reservationToken: varchar('reservation_token', { length: 64 }),
+    reservationToken: varchar('reservation_token', { length: 64 }).references(
+      () => worklogAiQuotaReservations.token,
+      { onDelete: 'restrict' },
+    ),
     recordId: bigint('record_id', { mode: 'number' }).references(() => worklogRecords.id, {
       onDelete: 'restrict',
     }),
