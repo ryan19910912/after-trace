@@ -29,6 +29,7 @@ export interface WorklogBootstrapRepository {
   ensureWorkspace(ownerUserId: number, at: Date): Promise<number>;
   ensurePrivateSource(userId: number, workspaceId: number, at: Date): Promise<number>;
   findBoundGroupByLineId(lineGroupId: string): Promise<WorklogBoundGroup | null>;
+  reactivateBoundGroup(sourceId: number, at: Date): Promise<boolean>;
   upsertPendingGroup(lineGroupId: string, at: Date): Promise<WorklogPendingGroup>;
   upsertPendingGroupMember(
     pendingGroupId: number,
@@ -137,6 +138,10 @@ export class WorklogBootstrapService {
 
     const bound = await this.repository.findBoundGroupByLineId(lineGroupId);
     if (bound) {
+      if (bound.status === 'INACTIVE') {
+        const reactivated = await this.repository.reactivateBoundGroup(bound.sourceId, at);
+        if (!reactivated) throw new Error('failed to reactivate known Worklog group');
+      }
       await this.repository.upsertBoundGroupMember(bound.sourceId, user.userId, true, at);
       return {
         status: 'BOUND',
@@ -168,6 +173,10 @@ export class WorklogBootstrapService {
 
     const bound = await this.repository.findBoundGroupByLineId(lineGroupId);
     if (bound) {
+      if (input.isActive && bound.status === 'INACTIVE') {
+        const reactivated = await this.repository.reactivateBoundGroup(bound.sourceId, at);
+        if (!reactivated) throw new Error('failed to reactivate known Worklog group');
+      }
       await this.repository.upsertBoundGroupMember(bound.sourceId, user.userId, input.isActive, at);
       return;
     }
