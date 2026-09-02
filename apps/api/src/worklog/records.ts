@@ -35,6 +35,7 @@ export type StoredTextRecordIdentity = {
   sourceId: number;
   authorUserId: number | null;
   lineMessageId: string;
+  quotedLineMessageId: string | null;
   rawText: string | null;
 };
 
@@ -43,6 +44,7 @@ export interface WorklogRecordWriteRepository {
     sourceId: number;
     authorUserId: number;
     lineMessageId: string;
+    quotedLineMessageId?: string | null;
     rawText: string;
     sourceTimestamp: Date;
   }): Promise<
@@ -68,14 +70,40 @@ export class WorklogRecordWriteService {
     text: string;
     sourceTimestamp?: Date;
   }): Promise<WorklogTextRecordWriteResult> {
+    return this.recordTextInternal({ ...input, quotedLineMessageId: null });
+  }
+
+  async recordQuotedText(input: {
+    sourceId: number;
+    authorUserId: number;
+    lineMessageId: string;
+    quotedLineMessageId: string;
+    text: string;
+    sourceTimestamp?: Date;
+  }): Promise<WorklogTextRecordWriteResult> {
+    return this.recordTextInternal(input);
+  }
+
+  private async recordTextInternal(input: {
+    sourceId: number;
+    authorUserId: number;
+    lineMessageId: string;
+    quotedLineMessageId?: string | null;
+    text: string;
+    sourceTimestamp?: Date;
+  }): Promise<WorklogTextRecordWriteResult> {
     const sourceId = positiveInteger(input.sourceId, 'source id');
     const authorUserId = positiveInteger(input.authorUserId, 'author user id');
     const lineMessageId = requiredTrimmed(input.lineMessageId, 'LINE message id', 64);
+    const quotedLineMessageId = input.quotedLineMessageId
+      ? requiredTrimmed(input.quotedLineMessageId, 'quoted LINE message id', 64)
+      : null;
     const text = requiredTrimmed(input.text, 'record text');
     const stored = await this.repository.insertTextRecord({
       sourceId,
       authorUserId,
       lineMessageId,
+      quotedLineMessageId,
       rawText: text,
       sourceTimestamp: input.sourceTimestamp ?? new Date(),
     });
@@ -87,6 +115,7 @@ export class WorklogRecordWriteService {
       stored.record.sourceId === sourceId &&
       stored.record.authorUserId === authorUserId &&
       stored.record.lineMessageId === lineMessageId &&
+      stored.record.quotedLineMessageId === quotedLineMessageId &&
       stored.record.rawText === text;
     return sameIdentity
       ? { status: 'ALREADY_RECORDED', recordId: stored.record.id }
