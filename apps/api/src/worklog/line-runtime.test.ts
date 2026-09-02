@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { BufferedGroupMessage } from '../line/events';
 import type { GroupBootstrapResult, GroupOwnerBindResult } from './bootstrap';
 import type { GroupRecordAuthorizationResult } from './collaboration';
+import type { CachedLineText } from './line-text-cache';
 import { WorklogLineRuntime } from './line-runtime';
 import type { WorklogTextRecordWriteResult } from './records';
 
@@ -62,15 +63,36 @@ class FakeCollaboration {
 class FakeRecords {
   result: WorklogTextRecordWriteResult = { status: 'CREATED', recordId: 99 };
   calls = 0;
+  quotedCalls = 0;
+  remembered: Array<{ lineMessageId: string; lineGroupId: string; text: string }> = [];
+  cached: CachedLineText | null = null;
+  lastQuotedInput: { lineMessageId: string; quotedLineMessageId: string; text: string } | null = null;
+
+  async remember(input: { lineMessageId: string; lineGroupId: string; text: string }) {
+    this.remembered.push(input);
+  }
+
+  async resolve(lineGroupId: string, lineMessageId: string) {
+    if (!this.cached) return null;
+    return this.cached.lineGroupId === lineGroupId && this.cached.lineMessageId === lineMessageId
+      ? this.cached
+      : null;
+  }
 
   async recordText() {
     this.calls += 1;
     return this.result;
   }
+
+  async recordQuotedText(input: { lineMessageId: string; quotedLineMessageId: string; text: string }) {
+    this.quotedCalls += 1;
+    this.lastQuotedInput = input;
+    return this.result;
+  }
 }
 
 describe('WorklogLineRuntime', () => {
-  it('does not touch worklog dependencies for ordinary group chat', async () => {
+  it('temporarily caches ordinary group TEXT without bootstrapping or creating a record', async () => {
     const bootstrap = new FakeBootstrap();
     const collaboration = new FakeCollaboration();
     const records = new FakeRecords();
@@ -80,6 +102,19 @@ describe('WorklogLineRuntime', () => {
     expect(bootstrap.bootstrapCalls).toBe(0);
     expect(collaboration.calls).toBe(0);
     expect(records.calls).toBe(0);
+    expect(records.remembered).toHaveLength(1);
+    expect(records.remembered[0]).toMatchObject({
+      lineMessageId: 'message-1',
+      lineGroupId: 'group-1',
+      text: '王先生今天收五千',
+    });
+  });
+
+  it('does not cache non-text ordinary messages', async () => {
+    const records = new FakeRecords();
+    const runtime = new WorklogLineRuntime(new FakeBootstrap(), new FakeCollaboration(), records);
+    await runtime.handle(message('', { messageType: 'image', textContent: null, charCount: 0 }));
+    expect(records.remembered).toHaveLength(0);
   });
 
   it('keeps an unowned group pending and tells the subscriber to claim it explicitly', async () => {
@@ -118,7 +153,7 @@ describe('WorklogLineRuntime', () => {
     expect(records.calls).toBe(0);
   });
 
-  it('persists raw TEXT without consuming AI units before normalization exists', async () => {
+  it('persists raw TEXT without reserving AI units at the authorization boundary', async () => {
     const collaboration = new FakeCollaboration();
     const records = new FakeRecords();
     const runtime = new WorklogLineRuntime(new FakeBootstrap(), collaboration, records);
@@ -142,6 +177,47 @@ describe('WorklogLineRuntime', () => {
       recordId: 99,
       duplicate: true,
     });
+  });
+
+  it('records delayed Reply TEXT from the exact group cache with both LINE ids', async () => {
+    const records = new FakeRecords();
+    records.cached = {
+      lineMessageId: 'quoted-text-1',
+      lineGroupId: 'group-1',
+      lineUserId: 'line-user-2',
+      text: '王先生今天收五千',
+      lineTimestamp: new Date('2026-09-01T12:00:00Z'),
+      expiresAt: new Date('2026-09-06T12:00:00Z'),
+    };
+    const runtime = new WorklogLineRuntime(new FakeBootstrap(), new FakeCollaboration(), records);
+    const result = await runtime.handle(message('@AFTERTRACE', {
+      lineMessageId: 'command-1',
+      quotedLineMessageId: 'quoted-text-1',
+    }));
+
+    expect(result.status).toBe('RECORDED');
+    expect(records.quotedCalls).toBe(1);
+    expect(records.lastQuotedInput).toEqual({
+      lineMessageId: 'command-1',
+      quotedLineMessageId: 'quoted-text-1',
+      text: '王先生今天收五千',
+    });
+  });
+
+  it('does not resolve a cached TEXT from another group', async () => {
+    const records = new FakeRecords();
+    records.cached = {
+      lineMessageId: 'quoted-text-1',
+      lineGroupId: 'other-group',
+      lineUserId: 'line-user-2',
+      text: '不應跨群組讀到',
+      lineTimestamp: new Date('2026-09-01T12:00:00Z'),
+      expiresAt: new Date('2026-09-06T12:00:00Z'),
+    };
+    const runtime = new WorklogLineRuntime(new FakeBootstrap(), new FakeCollaboration(), records);
+    const result = await runtime.handle(message('@AFTERTRACE', { quotedLineMessageId: 'quoted-text-1' }));
+    expect(result.status).toBe('QUOTED_NOT_READY');
+    expect(records.quotedCalls).toBe(0);
   });
 
   it('returns a scoped query action for a bound group member', async () => {
@@ -168,7 +244,7 @@ describe('WorklogLineRuntime', () => {
     expect(collaboration.calls).toBe(0);
   });
 
-  it('intercepts quoted recording so it cannot fall back into legacy Memory', async () => {
+  it('keeps cache miss on quoted content away from legacy Memory', async () => {
     const runtime = new WorklogLineRuntime(new FakeBootstrap(), new FakeCollaboration(), new FakeRecords());
     const result = await runtime.handle(message('@AFTERTRACE', { quotedLineMessageId: 'quoted-image-1' }));
     expect(result.status).toBe('QUOTED_NOT_READY');
