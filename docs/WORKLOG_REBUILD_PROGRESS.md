@@ -21,7 +21,13 @@ The accelerated MVP implementation/static-audit phase is now considered **featur
 - Ordinary OA private text remains human-support traffic unless explicitly triggered.
 - Personal/group sources are isolated.
 - FREE is personal-only; group collaboration requires current paid entitlement/capability.
+- The LINE user who reliably initiated/invited the Bot into a group becomes that group's stable AFTERTRACE Owner. If the inviter cannot be identified from the LINE join context, `@AFTERTRACE 啟用` is the explicit fallback owner-claim path.
+- Owner identity is stable and is not silently reassigned when the Owner leaves; conflicting manual claims must not overwrite an existing Owner. Explicit Owner transfer remains a future feature.
 - Group AI usage charges the stable group Owner while retaining triggering actor attribution.
+- `groupCollaboration` is the plan-level on/off gate for group use; `maxGroupCount` is an enforced runtime entitlement for both group read/query and recording.
+- For a paid entitled Owner, active owned groups are ordered by stable ownership/binding time with deterministic tie-breaking; only the first `maxGroupCount` active groups may use AFTERTRACE. If an earlier group becomes inactive, the next group becomes eligible automatically.
+- FREE / no-group-capability messaging should prefer the configured plan display name: `目前 {{方案顯示名稱}} 方案沒有開啟群組紀錄功能，升級方案後即可在 LINE 群組使用該功能。`
+- Over-limit messaging should include the plan display name and numeric limit: `目前 {{方案顯示名稱}} 方案最多可使用 {{maxGroupCount}} 個 LINE 群組，已超過方案上限。請停用其他群組或升級方案。`
 - Owner can disable future member recording without removing historical read access.
 - Customer/project stays intentionally minimal; finance is typed/deterministic.
 - Original LINE input remains immutable source-of-truth.
@@ -31,6 +37,8 @@ The accelerated MVP implementation/static-audit phase is now considered **featur
 
 - Worklog user/OA friendship/workspace/source/member/customer/project/record/transaction/plan/subscription/AI config/usage/feedback/anomaly/audit foundations.
 - Stable group ownership/bootstrap plus owner member-recording controls.
+- Group join parsing now preserves a reliable `source.userId` actor so a known Bot inviter can be bound as Owner automatically; explicit `@AFTERTRACE 啟用` remains fallback for unbound/legacy cases.
+- Group authorization now enforces `maxGroupCount` using stable active-group ordinal ordering and returns plan display-name-aware entitlement/limit messages before AI/provider work.
 - Raw TEXT persistence and LINE-message idempotency.
 - Reply TEXT temporary PostgreSQL cache: 5 days / 1000 per group, no Redis.
 - Reply AUDIO/IMAGE/FILE direct LINE content fetch, no binary persistence, expired content asks user to resend.
@@ -38,12 +46,14 @@ The accelerated MVP implementation/static-audit phase is now considered **featur
 - Secure GROUP/PRIVATE one-time Web entry plus ordinary LINE Login; no LIFF.
 - PWA personal/group record browsing, server filtering/pagination, owner usage/member controls, customer/project CRUD, record organization, typed finance and feedback.
 - Worklog Admin username/password + HMAC session, user/group/plan/quota/AI runtime/feedback/anomaly/audit surfaces.
+- Admin capability definitions are backend-defined and exposed independently of persisted plan rows, allowing dynamic Admin controls even on an empty/fresh DB.
 - Provider-neutral idempotent checkout-intent boundary; payment provider intentionally not connected yet.
 - Worklog-only API runtime; retired Memory/Energy/conversation/reminder/commerce runtime removed/tombstoned.
 
 ## Data / entitlement hardening already completed
 
 - GROUP read/record authorization checks active membership, bound Owner, non-FREE enabled plan, temporal subscription validity and `groupCollaboration=true`.
+- GROUP read/record authorization also enforces the Owner plan's numeric `maxGroupCount`; over-limit groups are rejected before provider work.
 - Expired persisted `status='ACTIVE'` does not grant GROUP access.
 - No-active-cycle usage no longer displays lifetime AI usage as a current FREE-cycle metric.
 - `0012_worklog_quota_cycle_snapshot.sql` protects current billing-cycle allowance snapshots from plan-template/same-period reassignment mutation.
@@ -126,29 +136,41 @@ Final behavior:
 - `first_oa_added_at` keeps the earliest known follow time, while `last_interaction_at` continues tracking general interaction activity.
 - Focused tests cover older delayed unfollow after a newer follow and delivery inversion where a later ordinary message arrives before the earlier FOLLOW event; tests are authored but not executed.
 
+### 8. Group Owner bootstrap and plan group-limit semantics
+
+- LINE group `join` parsing retains reliable `source.userId` when supplied; the join lifecycle binds that inviter/initiator as the stable AFTERTRACE Owner.
+- If the inviter cannot be identified, the group remains pending and `@AFTERTRACE 啟用` is the explicit fallback owner-claim flow.
+- Existing Owner binding is not silently transferred when the Owner leaves and conflicting claims remain rejected.
+- `maxGroupCount` is now enforced for group query/read and record authorization rather than existing only as plan metadata.
+- Entitled active groups use stable ownership/binding ordering; groups beyond the configured limit are rejected and later become eligible automatically when earlier groups become inactive.
+- LINE entitlement failures now prefer the plan display name in user-facing messages.
+- These changes were reviewed statically; executable tests were not run in this batch.
+
 Latest commits in this validation-stage sequence include:
 - `26619796e91361c9f2bcbfc425d360a22e708d46` — return explicit 400 for invalid Admin inputs.
 - `290bd4931344c1c2e7e9b5adbd774a9908ff13ea` — Admin invalid-input regression tests.
 - `50e7045c6b40326f77f18bc7f7bd04e3b0484ef8` — initial OA stale-event guard found during audit; superseded by dedicated lifecycle-clock hardening below.
 - `ebca0c6c49c462c3a894c2698f979e63d377f237` — add `oa_friend_state_at` to active Drizzle schema.
-- `8dc166a2031c50cf00a8ebdffe9eb9e8282c7c15` — order OA friendship changes by dedicated lifecycle timestamp.
+- `8dc166a2031c50cf00a8eb9e8282c7c15` — order OA friendship changes by dedicated lifecycle timestamp.
 - `b79e37d5f41e4b1bfe251115c51c09d4d1feee8b` — add journaled `0014_worklog_oa_friend_state_time.sql`.
 - `f1e63b94e3ed2a8f2e86c62d17e8b67a46b6628e` — journal migration `0014`.
 - `76ec4cf6be95bcaa31981011a775dfcffd205575` — OA lifecycle ordering regression tests.
 - `06ec506bcb39ba2b0d349887d3b02b961c81f901` — deployment sequence updated through `0014`.
+- `fa9c76e464b7956876142649ee39f58793407605` and subsequent Admin commits — backend-defined plan capability schema, independent capability endpoint, Chinese Admin presentation and capability UI wiring.
+- `91f8127be7032e6d9fb29e375e7794e6e0a69c78` — group Owner/entitlement user-facing message updates including plan display-name-aware rejection handling.
 
 ## Static validation performed in latest batch
 
-- Re-read current branch and durable progress/deployment contract.
-- Audited Admin route parsing and closed malformed-input 500 paths.
-- Re-audited OA friendship lifecycle ordering and rejected the first `last_interaction_at`-based fix after identifying its message/follow delivery-inversion flaw; replaced it with a dedicated lifecycle clock.
-- Confirmed group read/record authorization remains tied to active source/member + current Owner entitlement.
-- Re-checked quota settlement concurrency: the first COMMIT locks and transitions the reservation; a concurrent redelivery subsequently observes non-`RESERVED` durable state and does not insert a second usage event.
-- Re-checked private one-time nonce consumption/source/OA-friend validation after friendship-ordering changes.
-- Re-read `0001_worklog_foundation.sql`: core Worklog CRM/record/transaction relationships currently rely on application validation rather than FK constraints. This creates a potential concurrent delete/link TOCTOU risk that should be exercised during disposable-DB validation before deciding whether to add a dedicated DB constraint/locking migration.
-- Tests were authored/updated but **not executed**.
+- Re-read current branch and durable product/development contract.
+- Confirmed the product spec already required reliable join-actor ownership and explicit claim fallback rather than guessing.
+- Audited current group lifecycle parsing/bootstrap and identified that join `source.userId` had previously been discarded; code was updated to preserve/use the reliable actor.
+- Audited group entitlement and confirmed `maxGroupCount` had previously been plan metadata without runtime enforcement; runtime/repository authorization was updated to enforce it for read/query and record paths.
+- Confirmed group Owner remains stable when leaving and that manual claim cannot overwrite a different bound Owner.
+- Confirmed FREE remains personal-only and group no-capability failures take precedence over a confusing numeric `0 group` message.
+- Updated plan/capability Admin copy so worker-facing labels are backend-defined and Chinese (`LINE 私人聊天記錄`, `AI 語音／圖片／檔案處理`).
+- Tests were not executed in this batch.
 - No concentrated local typecheck/test/schema/migration/browser/Worker suite was run in this batch.
-- **GitHub Actions were not run, dispatched, rerun, enabled or otherwise triggered.** Commits use `[skip ci]`.
+- **GitHub Actions were not run, dispatched, rerun, enabled or otherwise triggered.** Source/documentation commits use `[skip ci]` where applicable.
 
 ## Concentrated validation still pending
 
@@ -170,7 +192,11 @@ High-priority cases to hit during validation:
 - Admin malformed path/body input returns 400 rather than 500;
 - OA delayed older UNFOLLOW after newer FOLLOW must not revoke friendship;
 - OA follow + immediately later ordinary message delivered message-first must still accept FOLLOW via the independent lifecycle timestamp;
-- group bot leave -> re-add -> existing source/Owner becomes ACTIVE and works again;
+- LINE group join with reliable `source.userId` binds inviter as Owner; join without user id remains pending and requires explicit claim;
+- group bot leave -> re-add -> existing source/Owner becomes ACTIVE and works again without silently transferring ownership;
+- a different user cannot steal an already-bound group through `@AFTERTRACE 啟用`;
+- FREE/no-group-capability reply includes the configured plan display name;
+- `maxGroupCount` rejects over-limit groups on both query/read and recording, and an over-limit group becomes eligible when an earlier active group is disabled/leaves;
 - delayed older `LEAVE` after a newer rejoin must not deactivate the group;
 - delayed older `memberLeft` after newer `memberJoined` must not deactivate the member;
 - TEXT provider succeeds then DB result persistence fails;
@@ -189,6 +215,8 @@ High-priority cases to hit during validation:
 ## Remaining known debt / non-blockers
 
 - Payment provider is not connected; provider-neutral boundary is complete.
+- Final subscription pricing and exact FREE/paid AI allowance matrix are intentionally not locked yet; current discussion is still product-design work and should be persisted once explicitly decided.
+- Explicit Owner transfer is not implemented; current Owner binding remains stable even if that Owner leaves the LINE group.
 - `packages/shared` still contains retired Memory/Credit constants and should be removed together with lockfile regeneration during local validation.
 - Some malformed record pagination inputs still fall back to bounded safe defaults instead of always returning HTTP 400; this is API-polish debt, not an unbounded-query or authorization issue.
 - Core Worklog CRM/record/transaction tables currently have application-level same-workspace/link validation but no FK constraints in the foundation migration. Static review found a possible concurrent delete/link TOCTOU edge; validate this on disposable PostgreSQL before deciding whether to add DB-level RESTRICT/FK or locking guards.
@@ -204,9 +232,9 @@ Planning estimates only, not test results:
 - Static logic/architecture audit: **about 99%+**.
 - Production readiness including still-unrun executable validation: **about 94%**.
 - Remaining large feature batches before validation: **0**.
-- Next work is concentrated local validation + actual failure-driven bug fixing.
+- Next work is concentrated local validation + actual failure-driven bug fixing, while subscription pricing/allowance product decisions can continue in parallel.
 - Expected validation/fix work: roughly **1–3 bug-fix batches / about 2–6 focused hours** if issues are ordinary compile/migration/browser integration defects; reserve up to roughly one working day if migration/runtime/DB-integrity validation reveals deeper problems.
 
 ## Next batch
 
-Start concentrated local validation. Do not substitute GitHub Actions. Fix actual typecheck/test/schema/migration/browser/runtime failures as they appear, with special attention to OA/group lifecycle event ordering, Admin malformed-input handling, CRM delete/link concurrency, LINE 202/400 content behavior and provider-success persistence uncertainty. Update this handoff after each validation/fix batch and keep reporting completion percentage, remaining work and time estimate.
+Continue the subscription price/allowance matrix discussion when requested. For code validation, start the concentrated local validation phase rather than substituting GitHub Actions. Give special attention to join-actor Owner binding, stable ownership after leave/rejoin, `maxGroupCount` entitlement ordering, plan-display-name messages, OA/group lifecycle ordering, Admin malformed-input handling, CRM delete/link concurrency, LINE 202/400 content behavior and provider-success persistence uncertainty. Update this handoff after each validation/fix batch and keep reporting completion percentage, remaining work and time estimate.
