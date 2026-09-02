@@ -104,6 +104,7 @@ export class WorklogAttachmentIngestionService {
     quotedLineMessageId: string;
     sourceTimestamp: Date;
     instruction?: string | null;
+    allowAiMedia?: boolean;
   }): Promise<WorklogAttachmentIngestionResult> {
     const sourceId = positiveInteger(input.sourceId, 'sourceId');
     const actorUserId = positiveInteger(input.actorUserId, 'actorUserId');
@@ -123,7 +124,15 @@ export class WorklogAttachmentIngestionService {
     let reservationToken: string | null = null;
     let providerCompleted = false;
     try {
+      // Resolve only enough LINE content to distinguish a retrievable attachment from
+      // an old quoted TEXT. The latter returns LINE_CONTENT_NOT_RETRIEVABLE and must
+      // keep the explicit re-entry guidance even when AI media capability is disabled.
       const content = await this.contentResolver.content(quotedLineMessageId);
+      if (input.allowAiMedia === false) {
+        await this.repository.fail(commandLineMessageId, 'AI_MEDIA_DISABLED');
+        return { status: 'FAILED', reason: 'AI_MEDIA_DISABLED' };
+      }
+
       const config = await this.repository.getRuntimeConfig();
       if (!config) {
         await this.repository.fail(commandLineMessageId, 'AI_RUNTIME_CONFIG_MISSING');
