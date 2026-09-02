@@ -140,7 +140,7 @@ export function App({ api }: Props) {
     try {
       await api.savePlan(input);
       setPlans(await api.plans());
-      setNotice(`${input.code} 已儲存。`);
+      setNotice(`${input.code} 已儲存。既有 billing cycle 若已有 quota balance snapshot，不會因方案模板修改而倒扣本期已用/已保留額度。`);
     } catch (cause) { setError(message(cause, '方案儲存失敗')); }
     finally { setBusy(false); }
   }
@@ -213,6 +213,7 @@ export function App({ api }: Props) {
     </section>}
 
     {tab === 'plans' && <section className="stack">
+      <article className="card"><h2>Quota cycle policy</h2><p className="muted">方案的 AI allowance 是新週期/尚未建立 balance 時的模板值。已存在的 active-cycle quota balance 是本期 snapshot；修改方案模板不會回寫或降低既有 balance，也不會吃掉已使用或 reserved quota。</p></article>
       <PlanEditor key="new-plan" plan={null} busy={busy} onSave={savePlan} />
       {plans.map((plan) => <PlanEditor key={plan.code} plan={plan} busy={busy} onSave={savePlan} />)}
     </section>}
@@ -223,7 +224,7 @@ export function App({ api }: Props) {
 
     {tab === 'anomalies' && <section className="stack">
       <article className="card"><h2>Structured anomaly events</h2><DataTable rows={anomalies.events} preferred={['id','severity','status','category','error_code','summary','user_id','source_id','line_message_id','created_at']} action={(row) => <AnomalyActions row={row} disabled={busy} onChange={updateAnomaly} />} /></article>
-      <article className="card"><h2>Attachment ingestion failures</h2><DataTable rows={anomalies.attachments} preferred={['command_line_message_id','quoted_line_message_id','source_id','actor_user_id','status','last_error_code','updated_at']} /></article>
+      <article className="card"><h2>Attachment ingestion failures</h2><p className="muted">SAFE_RETRY 只代表已知失敗點在 provider 呼叫前，可在原始內容仍可取得時安全重新嘗試；RESEND_REQUIRED 要求使用者重傳；MANUAL_REVIEW 絕不自動 replay Gemini，避免重複計費。</p><DataTable rows={anomalies.attachments.map(withAttachmentRetryDisposition)} preferred={['command_line_message_id','quoted_line_message_id','source_id','actor_user_id','status','last_error_code','retry_disposition','retry_guidance','updated_at']} /></article>
       <article className="card"><h2>TEXT normalization failures</h2><DataTable rows={anomalies.normalizations} preferred={['record_id','status','last_error_code','last_error_detail','started_at','updated_at']} /></article>
     </section>}
 
@@ -347,6 +348,15 @@ function Detail({ value }: { value: unknown }): React.ReactNode {
   if (Array.isArray(value)) return <div className="detail-list">{value.map((item,index) => <Detail key={index} value={item} />)}</div>;
   if (value && typeof value === 'object') return <div className="detail-object">{Object.entries(value as Record<string,unknown>).map(([key,item]) => <div className="detail-row" key={key}><strong>{humanize(key)}</strong>{item && typeof item === 'object' ? <Detail value={item} /> : <span>{display(item)}</span>}</div>)}</div>;
   return <span>{display(value)}</span>;
+}
+
+function withAttachmentRetryDisposition(row: Row): Row {
+  const code = String(row.last_error_code ?? '').trim().toUpperCase();
+  const safe = new Set(['AI_RUNTIME_CONFIG_MISSING','AI_QUOTA_EXHAUSTED','NO_SUBSCRIPTION','SUBSCRIPTION_INACTIVE','PLAN_DISABLED','NOT_YET_EFFECTIVE','PERIOD_NOT_STARTED','PERIOD_EXPIRED']);
+  const resend = new Set(['LINE_CONTENT_EXPIRED','LINE_CONTENT_EMPTY','LINE_CONTENT_TOO_LARGE','ATTACHMENT_UNSUPPORTED']);
+  if (safe.has(code)) return { ...row, retry_disposition: 'SAFE_RETRY', retry_guidance: '可安全重新嘗試；確認原始 LINE 內容仍可取得。' };
+  if (resend.has(code)) return { ...row, retry_disposition: 'RESEND_REQUIRED', retry_guidance: '請使用者重新傳送附件；不要 replay 舊 provider request。' };
+  return { ...row, retry_disposition: 'MANUAL_REVIEW', retry_guidance: '禁止自動 replay；provider/DB settlement 可能不確定。' };
 }
 
 function defaultCapabilities(): Record<string, boolean | number | string> {
