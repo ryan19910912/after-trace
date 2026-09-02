@@ -53,14 +53,16 @@ function baseContext(): GroupAuthorizationContext {
     actorIsActiveMember: true,
     actorRecordingEnabled: true,
     ownerPlanCode: 'SUB1',
+    ownerPlanDisplayName: '專業版',
     ownerSubscriptionStatus: 'ACTIVE',
     ownerEffectiveAt: new Date('2026-09-01T00:00:00Z'),
     ownerPeriodStart: new Date('2026-09-01T00:00:00Z'),
     ownerPeriodEnd: new Date('2026-10-01T00:00:00Z'),
     ownerPlanEnabled: true,
-    ownerCapabilities: { groupCollaboration: true },
+    ownerCapabilities: { groupCollaboration: true, maxGroupCount: 3 },
     ownerAllowanceUnits: 100,
     ownerConsumedUnits: 20,
+    ownerGroupPosition: 1,
   };
 }
 
@@ -79,18 +81,18 @@ describe('WorklogCollaborationService access authorization', () => {
       actorUserId: 200,
       ownerUserId: 100,
       ownerPlanCode: 'SUB1',
-      ownerCapabilities: { groupCollaboration: true },
+      ownerCapabilities: { groupCollaboration: true, maxGroupCount: 3 },
     });
   });
 
   it('keeps FREE personal-only for group query/read access', async () => {
     const repository = new FakeRepository();
-    repository.context = { ...baseContext(), ownerPlanCode: 'FREE' };
+    repository.context = { ...baseContext(), ownerPlanCode: 'FREE', ownerPlanDisplayName: '免費版' };
     const service = new WorklogCollaborationService(repository);
 
     await expect(
       service.authorizeGroupAccess({ sourceId: 10, actorUserId: 200, at: ACTIVE_AT }),
-    ).resolves.toEqual({ status: 'GROUP_NOT_ENTITLED' });
+    ).resolves.toEqual({ status: 'GROUP_NOT_ENTITLED', ownerPlanDisplayName: '免費版' });
   });
 
   it('blocks group read when an ACTIVE row is already past its billing period', async () => {
@@ -100,7 +102,7 @@ describe('WorklogCollaborationService access authorization', () => {
 
     await expect(
       service.authorizeGroupAccess({ sourceId: 10, actorUserId: 200, at: ACTIVE_AT }),
-    ).resolves.toEqual({ status: 'GROUP_NOT_ENTITLED' });
+    ).resolves.toEqual({ status: 'GROUP_NOT_ENTITLED', ownerPlanDisplayName: '專業版' });
   });
 
   it('blocks group read before the paid period becomes effective', async () => {
@@ -114,7 +116,34 @@ describe('WorklogCollaborationService access authorization', () => {
 
     await expect(
       service.authorizeGroupAccess({ sourceId: 10, actorUserId: 200, at: ACTIVE_AT }),
-    ).resolves.toEqual({ status: 'GROUP_NOT_ENTITLED' });
+    ).resolves.toEqual({ status: 'GROUP_NOT_ENTITLED', ownerPlanDisplayName: '專業版' });
+  });
+
+  it('fails closed when a group-enabled legacy plan omits maxGroupCount', async () => {
+    const repository = new FakeRepository();
+    repository.context = {
+      ...baseContext(),
+      ownerCapabilities: { groupCollaboration: true },
+    };
+    const service = new WorklogCollaborationService(repository);
+
+    await expect(
+      service.authorizeGroupAccess({ sourceId: 10, actorUserId: 200, at: ACTIVE_AT }),
+    ).resolves.toEqual({ status: 'GROUP_NOT_ENTITLED', ownerPlanDisplayName: '專業版' });
+  });
+
+  it('blocks a group whose stable owner ordinal is beyond maxGroupCount', async () => {
+    const repository = new FakeRepository();
+    repository.context = { ...baseContext(), ownerGroupPosition: 4 };
+    const service = new WorklogCollaborationService(repository);
+
+    await expect(
+      service.authorizeGroupAccess({ sourceId: 10, actorUserId: 200, at: ACTIVE_AT }),
+    ).resolves.toEqual({
+      status: 'GROUP_LIMIT_REACHED',
+      ownerPlanDisplayName: '專業版',
+      maxGroupCount: 3,
+    });
   });
 });
 
@@ -131,7 +160,7 @@ describe('WorklogCollaborationService authorization', () => {
       actorUserId: 200,
       chargedUserId: 100,
       ownerPlanCode: 'SUB1',
-      ownerCapabilities: { groupCollaboration: true },
+      ownerCapabilities: { groupCollaboration: true, maxGroupCount: 3 },
       remainingAiUnits: 75,
     });
   });
@@ -148,12 +177,12 @@ describe('WorklogCollaborationService authorization', () => {
 
   it('never lets FREE use group collaboration even if bad capability data says true', async () => {
     const repository = new FakeRepository();
-    repository.context = { ...baseContext(), ownerPlanCode: 'FREE' };
+    repository.context = { ...baseContext(), ownerPlanCode: 'FREE', ownerPlanDisplayName: '免費版' };
     const service = new WorklogCollaborationService(repository);
 
     await expect(
       service.authorizeGroupRecord({ sourceId: 10, actorUserId: 200, at: ACTIVE_AT }),
-    ).resolves.toEqual({ status: 'GROUP_NOT_ENTITLED' });
+    ).resolves.toEqual({ status: 'GROUP_NOT_ENTITLED', ownerPlanDisplayName: '免費版' });
   });
 
   it('blocks a stale ACTIVE subscription before quota checks or provider work', async () => {
@@ -168,7 +197,7 @@ describe('WorklogCollaborationService authorization', () => {
 
     await expect(
       service.authorizeGroupRecord({ sourceId: 10, actorUserId: 200, requestedAiUnits: 1, at: ACTIVE_AT }),
-    ).resolves.toEqual({ status: 'GROUP_NOT_ENTITLED' });
+    ).resolves.toEqual({ status: 'GROUP_NOT_ENTITLED', ownerPlanDisplayName: '專業版' });
   });
 
   it('blocks the provider call when owner allowance cannot cover requested AI units', async () => {
