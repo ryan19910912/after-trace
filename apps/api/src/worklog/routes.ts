@@ -6,6 +6,13 @@ import { WorklogCollaborationService } from './collaboration';
 import { DrizzleWorklogCollaborationRepository } from './drizzle-collaboration';
 import { DrizzleWorklogRecordReadRepository } from './drizzle-records';
 import { DrizzleWorklogUsageRepository } from './drizzle-usage';
+import {
+  DrizzleWorklogWorkspaceManagementRepository,
+  type WorklogCustomerInput,
+  type WorklogProjectInput,
+  type WorklogRecordEditInput,
+  type WorklogTransactionInput,
+} from './drizzle-workspace-management';
 import { WorklogRecordReadService } from './records';
 import { WorklogUsageService } from './usage';
 
@@ -23,27 +30,24 @@ type WorklogEnv = {
 type WorklogRouteContext = {
   userId: number;
   database: Database;
+  recordRepository: DrizzleWorklogRecordReadRepository;
   records: WorklogRecordReadService;
   usage: WorklogUsageService;
   collaboration: WorklogCollaborationService;
+  management: DrizzleWorklogWorkspaceManagementRepository;
 };
 
-function authSecret(env: WorklogRoutesBindings): string | null {
-  const value = env.WEB_AUTH_SECRET?.trim();
-  return value && value.length >= 32 ? value : null;
-}
-function bearerToken(header: string | undefined): string | null {
-  if (!header) return null;
-  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
-  if (!match) return null;
-  const value = match[1]?.trim() ?? '';
-  return value && value.length <= 8192 ? value : null;
-}
-function safePositiveInt(value: string | undefined): number | null {
-  if (!value) return null;
-  const parsed = Number(value);
-  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
-}
+type RecordFilter = {
+  query: string | null;
+  inputType: 'TEXT' | 'AUDIO' | 'IMAGE' | 'FILE' | null;
+  category: WorklogRecordEditInput['category'] | null;
+  customerId: number | null;
+  projectId: number | null;
+  from: Date | null;
+  to: Date | null;
+  limit: number;
+  offset: number;
+};
 
 export function createWorklogRoutes() {
   const app = new Hono<WorklogEnv>();
@@ -53,11 +57,13 @@ export function createWorklogRoutes() {
     const allowedOrigin = c.env.WEB_APP_ORIGIN?.trim();
     if (origin && (!allowedOrigin || origin !== allowedOrigin)) return c.json({ ok: false, error: 'ORIGIN_NOT_ALLOWED' }, 403);
     await next();
+    c.header('Cache-Control', 'no-store');
     if (origin && allowedOrigin && origin === allowedOrigin) {
       c.header('Access-Control-Allow-Origin', origin);
       c.header('Vary', 'Origin');
     }
   });
+
   app.options('*', (c) => {
     const origin = c.req.header('origin');
     const allowedOrigin = c.env.WEB_APP_ORIGIN?.trim();
@@ -69,6 +75,7 @@ export function createWorklogRoutes() {
     c.header('Vary', 'Origin');
     return c.body(null, 204);
   });
+
   app.use('*', async (c, next) => {
     const secret = authSecret(c.env);
     if (!secret) return c.json({ ok: false, error: 'WEB_AUTH_NOT_CONFIGURED' }, 503);
@@ -85,25 +92,39 @@ export function createWorklogRoutes() {
     if (!context) return c.json({ ok: false, error: 'WORKLOG_USER_NOT_FOUND' }, 404);
     return c.json({ ok: true, userId: context.userId, surfaces: await context.records.surfaces(context.userId) });
   });
+
   app.get('/records/personal', async (c) => {
     const context = await contextFor(c.env.DATABASE_URL, c.get('lineUserId'));
     if (!context) return c.json({ ok: false, error: 'WORKLOG_USER_NOT_FOUND' }, 404);
-    return c.json({ ok: true, records: await context.records.personalRecords(context.userId, safePositiveInt(c.req.query('limit')) ?? 100) });
+    const surfaces = await context.records.surfaces(context.userId);
+    if (!surfaces.personal) return c.json({ ok: false, error: 'PERSONAL_SCOPE_FORBIDDEN' }, 403);
+    const filter = recordFilter(c.req.query());
+    if ('error' in filter) return c.json({ ok: false, error: filter.error }, 400);
+    return c.json({ ok: true, ...(await filteredRecords(context.database, surfaces.personal.sourceId, filter)) });
   });
+
   app.get('/records/group/:sourceId', async (c) => {
-    const sourceId = safePositiveInt(c.req.param('sourceId'));
+    const sourceId = positiveId(c.req.param('sourceId'));
     if (!sourceId) return c.json({ ok: false, error: 'INVALID_SOURCE_ID' }, 400);
     const context = await contextFor(c.env.DATABASE_URL, c.get('lineUserId'));
     if (!context) return c.json({ ok: false, error: 'WORKLOG_USER_NOT_FOUND' }, 404);
-    const result = await context.records.groupRecords(context.userId, sourceId, safePositiveInt(c.req.query('limit')) ?? 100);
-    return result.status === 'FORBIDDEN' ? c.json({ ok: false, error: 'GROUP_SCOPE_FORBIDDEN' }, 403) : c.json({ ok: true, records: result.records });
+    if (!(await context.recordRepository.isActiveGroupMember(context.userId, sourceId))) {
+      return c.json({ ok: false, error: 'GROUP_SCOPE_FORBIDDEN' }, 403);
+    }
+    const filter = recordFilter(c.req.query());
+    if ('error' in filter) return c.json({ ok: false, error: filter.error }, 400);
+    return c.json({ ok: true, ...(await filteredRecords(context.database, sourceId, filter)) });
   });
+
   app.get('/usage/me', async (c) => {
     const context = await contextFor(c.env.DATABASE_URL, c.get('lineUserId'));
-    return context ? c.json({ ok: true, usage: await context.usage.userUsage(context.userId) }) : c.json({ ok: false, error: 'WORKLOG_USER_NOT_FOUND' }, 404);
+    return context
+      ? c.json({ ok: true, usage: await context.usage.userUsage(context.userId) })
+      : c.json({ ok: false, error: 'WORKLOG_USER_NOT_FOUND' }, 404);
   });
+
   app.get('/groups/:sourceId/owner-view', async (c) => {
-    const sourceId = safePositiveInt(c.req.param('sourceId'));
+    const sourceId = positiveId(c.req.param('sourceId'));
     if (!sourceId) return c.json({ ok: false, error: 'INVALID_SOURCE_ID' }, 400);
     const context = await contextFor(c.env.DATABASE_URL, c.get('lineUserId'));
     if (!context) return c.json({ ok: false, error: 'WORKLOG_USER_NOT_FOUND' }, 404);
@@ -112,15 +133,21 @@ export function createWorklogRoutes() {
     if (result.status === 'OWNER_UNBOUND') return c.json({ ok: false, error: 'OWNER_UNBOUND' }, 409);
     return c.json({ ok: true, ownerView: result.value });
   });
+
   app.patch('/groups/:sourceId/members/:memberUserId/recording', async (c) => {
-    const sourceId = safePositiveInt(c.req.param('sourceId'));
-    const memberUserId = safePositiveInt(c.req.param('memberUserId'));
+    const sourceId = positiveId(c.req.param('sourceId'));
+    const memberUserId = positiveId(c.req.param('memberUserId'));
     if (!sourceId || !memberUserId) return c.json({ ok: false, error: 'INVALID_MEMBER_TARGET' }, 400);
     const context = await contextFor(c.env.DATABASE_URL, c.get('lineUserId'));
     if (!context) return c.json({ ok: false, error: 'WORKLOG_USER_NOT_FOUND' }, 404);
     const body = await objectBody(c);
     if (!body || typeof body.enabled !== 'boolean') return c.json({ ok: false, error: 'ENABLED_BOOLEAN_REQUIRED' }, 400);
-    const result = await context.collaboration.setMemberRecordingPermission({ sourceId, actorUserId: context.userId, memberUserId, enabled: body.enabled });
+    const result = await context.collaboration.setMemberRecordingPermission({
+      sourceId,
+      actorUserId: context.userId,
+      memberUserId,
+      enabled: body.enabled,
+    });
     if (result.status === 'FORBIDDEN') return c.json({ ok: false, error: 'OWNER_ONLY' }, 403);
     if (result.status === 'MEMBER_NOT_FOUND') return c.json({ ok: false, error: 'MEMBER_NOT_FOUND' }, 404);
     if (result.status === 'OWNER_CANNOT_BE_DISABLED') return c.json({ ok: false, error: 'OWNER_CANNOT_BE_DISABLED' }, 409);
@@ -128,143 +155,145 @@ export function createWorklogRoutes() {
     return c.json({ ok: true, recordingEnabled: body.enabled });
   });
 
-  // Workspace-owner management. These endpoints deliberately do not expose another
-  // member's customer/project/finance data just because they share one LINE group.
+  // Customer/project/finance management is intentionally restricted to the user's
+  // own workspace. Group membership alone never grants access to another owner's CRM/finance data.
   app.get('/customers', async (c) => {
     const owner = await ownerContext(c.env.DATABASE_URL, c.get('lineUserId'));
     if (!owner) return c.json({ ok: false, error: 'PERSONAL_WORKSPACE_REQUIRED' }, 403);
-    const result = await owner.database.execute(sql`
-      SELECT id::text AS id, name, phone, address, note, created_at, updated_at
-      FROM worklog_customers WHERE workspace_id = ${owner.workspaceId}
-      ORDER BY updated_at DESC, id DESC LIMIT 500
-    `);
-    return c.json({ ok: true, customers: result.rows });
+    return c.json({ ok: true, customers: await owner.context.management.listCustomers(owner.workspaceId, query(c.req.query('q')), listLimit(c.req.query('limit'), 200)) });
   });
+
   app.post('/customers', async (c) => {
     const owner = await ownerContext(c.env.DATABASE_URL, c.get('lineUserId'));
     if (!owner) return c.json({ ok: false, error: 'PERSONAL_WORKSPACE_REQUIRED' }, 403);
     const body = await objectBody(c); if (!body) return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
-    const name = requiredText(body.name, 255); if (!name) return c.json({ ok: false, error: 'CUSTOMER_NAME_REQUIRED' }, 400);
-    const result = await owner.database.execute(sql`
-      INSERT INTO worklog_customers (workspace_id, name, phone, address, note, created_at, updated_at)
-      VALUES (${owner.workspaceId}, ${name}, ${optionalText(body.phone, 64)}, ${optionalText(body.address, 4000)}, ${optionalText(body.note, 10000)}, NOW(), NOW())
-      RETURNING id::text AS id, name, phone, address, note, created_at, updated_at
-    `);
-    return c.json({ ok: true, customer: result.rows[0] }, 201);
+    const input = customerInput(body); if ('error' in input) return c.json({ ok: false, error: input.error }, 400);
+    const customer = await owner.context.management.createCustomer(owner.workspaceId, owner.context.userId, input);
+    return c.json({ ok: true, customer }, 201);
   });
-  app.patch('/customers/:id', async (c) => {
-    const owner = await ownerContext(c.env.DATABASE_URL, c.get('lineUserId')); const customerId = safePositiveInt(c.req.param('id'));
-    if (!owner) return c.json({ ok: false, error: 'PERSONAL_WORKSPACE_REQUIRED' }, 403); if (!customerId) return c.json({ ok: false, error: 'INVALID_CUSTOMER_ID' }, 400);
+
+  app.put('/customers/:id', async (c) => {
+    const owner = await ownerContext(c.env.DATABASE_URL, c.get('lineUserId')); const customerId = positiveId(c.req.param('id'));
+    if (!owner) return c.json({ ok: false, error: 'PERSONAL_WORKSPACE_REQUIRED' }, 403);
+    if (!customerId) return c.json({ ok: false, error: 'INVALID_CUSTOMER_ID' }, 400);
     const body = await objectBody(c); if (!body) return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
-    const result = await owner.database.execute(sql`
-      UPDATE worklog_customers SET
-        name = COALESCE(${requiredText(body.name, 255)}, name),
-        phone = CASE WHEN ${body.phone !== undefined} THEN ${optionalText(body.phone, 64)} ELSE phone END,
-        address = CASE WHEN ${body.address !== undefined} THEN ${optionalText(body.address, 4000)} ELSE address END,
-        note = CASE WHEN ${body.note !== undefined} THEN ${optionalText(body.note, 10000)} ELSE note END,
-        updated_at = NOW()
-      WHERE id = ${customerId} AND workspace_id = ${owner.workspaceId}
-      RETURNING id::text AS id, name, phone, address, note, created_at, updated_at
-    `);
-    return result.rows[0] ? c.json({ ok: true, customer: result.rows[0] }) : c.json({ ok: false, error: 'CUSTOMER_NOT_FOUND' }, 404);
+    const input = customerInput(body); if ('error' in input) return c.json({ ok: false, error: input.error }, 400);
+    const customer = await owner.context.management.updateCustomer(owner.workspaceId, owner.context.userId, customerId, input);
+    return customer ? c.json({ ok: true, customer }) : c.json({ ok: false, error: 'CUSTOMER_NOT_FOUND' }, 404);
+  });
+
+  app.delete('/customers/:id', async (c) => {
+    const owner = await ownerContext(c.env.DATABASE_URL, c.get('lineUserId')); const customerId = positiveId(c.req.param('id'));
+    if (!owner) return c.json({ ok: false, error: 'PERSONAL_WORKSPACE_REQUIRED' }, 403);
+    if (!customerId) return c.json({ ok: false, error: 'INVALID_CUSTOMER_ID' }, 400);
+    const result = await owner.context.management.deleteCustomer(owner.workspaceId, owner.context.userId, customerId);
+    if (result === 'IN_USE') return c.json({ ok: false, error: 'CUSTOMER_IN_USE' }, 409);
+    if (result === 'NOT_FOUND') return c.json({ ok: false, error: 'CUSTOMER_NOT_FOUND' }, 404);
+    return c.json({ ok: true });
   });
 
   app.get('/projects', async (c) => {
-    const owner = await ownerContext(c.env.DATABASE_URL, c.get('lineUserId')); if (!owner) return c.json({ ok: false, error: 'PERSONAL_WORKSPACE_REQUIRED' }, 403);
-    const result = await owner.database.execute(sql`
-      SELECT p.id::text AS id, p.customer_id::text AS customer_id, c.name AS customer_name, p.name, p.address, p.status, p.note, p.created_at, p.updated_at
-      FROM worklog_projects p LEFT JOIN worklog_customers c ON c.id = p.customer_id
-      WHERE p.workspace_id = ${owner.workspaceId} ORDER BY p.updated_at DESC, p.id DESC LIMIT 500
-    `);
-    return c.json({ ok: true, projects: result.rows });
+    const owner = await ownerContext(c.env.DATABASE_URL, c.get('lineUserId'));
+    if (!owner) return c.json({ ok: false, error: 'PERSONAL_WORKSPACE_REQUIRED' }, 403);
+    const status = optionalProjectStatus(c.req.query('status'));
+    if (c.req.query('status') && !status) return c.json({ ok: false, error: 'INVALID_PROJECT_STATUS' }, 400);
+    return c.json({ ok: true, projects: await owner.context.management.listProjects(owner.workspaceId, query(c.req.query('q')), status, listLimit(c.req.query('limit'), 200)) });
   });
+
   app.post('/projects', async (c) => {
-    const owner = await ownerContext(c.env.DATABASE_URL, c.get('lineUserId')); if (!owner) return c.json({ ok: false, error: 'PERSONAL_WORKSPACE_REQUIRED' }, 403);
+    const owner = await ownerContext(c.env.DATABASE_URL, c.get('lineUserId'));
+    if (!owner) return c.json({ ok: false, error: 'PERSONAL_WORKSPACE_REQUIRED' }, 403);
     const body = await objectBody(c); if (!body) return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
-    const name = requiredText(body.name, 255); if (!name) return c.json({ ok: false, error: 'PROJECT_NAME_REQUIRED' }, 400);
-    const customerId = nullablePositiveId(body.customerId); if (customerId && !(await belongsToWorkspace(owner.database, 'worklog_customers', customerId, owner.workspaceId))) return c.json({ ok: false, error: 'CUSTOMER_NOT_FOUND' }, 404);
-    const status = projectStatus(body.status) ?? 'ACTIVE';
-    const result = await owner.database.execute(sql`
-      INSERT INTO worklog_projects (workspace_id, customer_id, name, address, status, note, created_at, updated_at)
-      VALUES (${owner.workspaceId}, ${customerId}, ${name}, ${optionalText(body.address, 4000)}, ${status}, ${optionalText(body.note, 10000)}, NOW(), NOW())
-      RETURNING id::text AS id, customer_id::text AS customer_id, name, address, status, note, created_at, updated_at
-    `);
-    return c.json({ ok: true, project: result.rows[0] }, 201);
+    const input = projectInput(body); if ('error' in input) return c.json({ ok: false, error: input.error }, 400);
+    const result = await owner.context.management.createProject(owner.workspaceId, owner.context.userId, input);
+    return result.status === 'CUSTOMER_NOT_FOUND'
+      ? c.json({ ok: false, error: result.status }, 404)
+      : c.json({ ok: true, project: result.project }, 201);
   });
-  app.patch('/projects/:id', async (c) => {
-    const owner = await ownerContext(c.env.DATABASE_URL, c.get('lineUserId')); const projectId = safePositiveInt(c.req.param('id'));
-    if (!owner) return c.json({ ok: false, error: 'PERSONAL_WORKSPACE_REQUIRED' }, 403); if (!projectId) return c.json({ ok: false, error: 'INVALID_PROJECT_ID' }, 400);
+
+  app.put('/projects/:id', async (c) => {
+    const owner = await ownerContext(c.env.DATABASE_URL, c.get('lineUserId')); const projectId = positiveId(c.req.param('id'));
+    if (!owner) return c.json({ ok: false, error: 'PERSONAL_WORKSPACE_REQUIRED' }, 403);
+    if (!projectId) return c.json({ ok: false, error: 'INVALID_PROJECT_ID' }, 400);
     const body = await objectBody(c); if (!body) return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
-    const customerId = body.customerId === undefined ? undefined : nullablePositiveId(body.customerId);
-    if (customerId && !(await belongsToWorkspace(owner.database, 'worklog_customers', customerId, owner.workspaceId))) return c.json({ ok: false, error: 'CUSTOMER_NOT_FOUND' }, 404);
-    const status = body.status === undefined ? undefined : projectStatus(body.status); if (body.status !== undefined && !status) return c.json({ ok: false, error: 'INVALID_PROJECT_STATUS' }, 400);
-    const result = await owner.database.execute(sql`
-      UPDATE worklog_projects SET
-        customer_id = CASE WHEN ${body.customerId !== undefined} THEN ${customerId ?? null} ELSE customer_id END,
-        name = COALESCE(${requiredText(body.name, 255)}, name),
-        address = CASE WHEN ${body.address !== undefined} THEN ${optionalText(body.address, 4000)} ELSE address END,
-        status = COALESCE(${status ?? null}::worklog_project_status, status),
-        note = CASE WHEN ${body.note !== undefined} THEN ${optionalText(body.note, 10000)} ELSE note END,
-        updated_at = NOW()
-      WHERE id = ${projectId} AND workspace_id = ${owner.workspaceId}
-      RETURNING id::text AS id, customer_id::text AS customer_id, name, address, status, note, created_at, updated_at
-    `);
-    return result.rows[0] ? c.json({ ok: true, project: result.rows[0] }) : c.json({ ok: false, error: 'PROJECT_NOT_FOUND' }, 404);
+    const input = projectInput(body); if ('error' in input) return c.json({ ok: false, error: input.error }, 400);
+    const result = await owner.context.management.updateProject(owner.workspaceId, owner.context.userId, projectId, input);
+    if (result.status === 'CUSTOMER_NOT_FOUND') return c.json({ ok: false, error: result.status }, 404);
+    if (result.status === 'NOT_FOUND') return c.json({ ok: false, error: 'PROJECT_NOT_FOUND' }, 404);
+    return c.json({ ok: true, project: result.project });
+  });
+
+  app.delete('/projects/:id', async (c) => {
+    const owner = await ownerContext(c.env.DATABASE_URL, c.get('lineUserId')); const projectId = positiveId(c.req.param('id'));
+    if (!owner) return c.json({ ok: false, error: 'PERSONAL_WORKSPACE_REQUIRED' }, 403);
+    if (!projectId) return c.json({ ok: false, error: 'INVALID_PROJECT_ID' }, 400);
+    const result = await owner.context.management.deleteProject(owner.workspaceId, owner.context.userId, projectId);
+    if (result === 'IN_USE') return c.json({ ok: false, error: 'PROJECT_IN_USE' }, 409);
+    if (result === 'NOT_FOUND') return c.json({ ok: false, error: 'PROJECT_NOT_FOUND' }, 404);
+    return c.json({ ok: true });
   });
 
   app.patch('/records/:id', async (c) => {
-    const context = await contextFor(c.env.DATABASE_URL, c.get('lineUserId')); const recordId = safePositiveInt(c.req.param('id'));
-    if (!context) return c.json({ ok: false, error: 'WORKLOG_USER_NOT_FOUND' }, 404); if (!recordId) return c.json({ ok: false, error: 'INVALID_RECORD_ID' }, 400);
+    const owner = await ownerContext(c.env.DATABASE_URL, c.get('lineUserId')); const recordId = positiveId(c.req.param('id'));
+    if (!owner) return c.json({ ok: false, error: 'PERSONAL_WORKSPACE_REQUIRED' }, 403);
+    if (!recordId) return c.json({ ok: false, error: 'INVALID_RECORD_ID' }, 400);
     const body = await objectBody(c); if (!body) return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
-    const target = await editableRecord(context, recordId); if (!target) return c.json({ ok: false, error: 'RECORD_EDIT_FORBIDDEN' }, 403);
-    const customerId = body.customerId === undefined ? undefined : nullablePositiveId(body.customerId);
-    const projectId = body.projectId === undefined ? undefined : nullablePositiveId(body.projectId);
-    if (customerId && !(await belongsToWorkspace(context.database, 'worklog_customers', customerId, target.workspaceId))) return c.json({ ok: false, error: 'CUSTOMER_NOT_FOUND' }, 404);
-    if (projectId && !(await belongsToWorkspace(context.database, 'worklog_projects', projectId, target.workspaceId))) return c.json({ ok: false, error: 'PROJECT_NOT_FOUND' }, 404);
-    const result = await context.database.execute(sql`
-      UPDATE worklog_records SET
-        customer_id = CASE WHEN ${body.customerId !== undefined} THEN ${customerId ?? null} ELSE customer_id END,
-        project_id = CASE WHEN ${body.projectId !== undefined} THEN ${projectId ?? null} ELSE project_id END,
-        raw_text = CASE WHEN ${body.rawText !== undefined} THEN ${optionalText(body.rawText, 50000)} ELSE raw_text END,
-        edited_at = NOW(), updated_at = NOW()
-      WHERE id = ${recordId}
-      RETURNING id::text AS id, source_id::text AS source_id, customer_id::text AS customer_id, project_id::text AS project_id, raw_text, normalized_summary, edited_at, updated_at
-    `);
-    return c.json({ ok: true, record: result.rows[0] });
+    const input = recordEditInput(body); if ('error' in input) return c.json({ ok: false, error: input.error }, 400);
+    const result = await owner.context.management.updateRecord(owner.workspaceId, owner.context.userId, recordId, input);
+    if (result.status === 'CUSTOMER_NOT_FOUND' || result.status === 'PROJECT_NOT_FOUND') return c.json({ ok: false, error: result.status }, 404);
+    if (result.status === 'NOT_FOUND') return c.json({ ok: false, error: 'RECORD_NOT_FOUND' }, 404);
+    return c.json({ ok: true, record: result.record });
   });
 
   app.get('/transactions', async (c) => {
-    const owner = await ownerContext(c.env.DATABASE_URL, c.get('lineUserId')); if (!owner) return c.json({ ok: false, error: 'PERSONAL_WORKSPACE_REQUIRED' }, 403);
-    const result = await owner.database.execute(sql`
-      SELECT t.id::text AS id, t.record_id::text AS record_id, t.customer_id::text AS customer_id, t.project_id::text AS project_id,
-             t.type, t.amount_twd::text AS amount_twd, t.occurred_at, t.note, t.created_at, t.updated_at,
-             c.name AS customer_name, p.name AS project_name
-      FROM worklog_transactions t LEFT JOIN worklog_customers c ON c.id=t.customer_id LEFT JOIN worklog_projects p ON p.id=t.project_id
-      WHERE t.workspace_id=${owner.workspaceId} ORDER BY t.occurred_at DESC, t.id DESC LIMIT 500
-    `);
-    return c.json({ ok: true, transactions: result.rows });
+    const owner = await ownerContext(c.env.DATABASE_URL, c.get('lineUserId'));
+    if (!owner) return c.json({ ok: false, error: 'PERSONAL_WORKSPACE_REQUIRED' }, 403);
+    const projectId = optionalPositiveId(c.req.query('projectId'));
+    if (c.req.query('projectId') && projectId === null) return c.json({ ok: false, error: 'INVALID_PROJECT_ID' }, 400);
+    return c.json({ ok: true, transactions: await owner.context.management.listTransactions(owner.workspaceId, projectId, listLimit(c.req.query('limit'), 200)) });
   });
+
   app.post('/transactions', async (c) => {
-    const owner = await ownerContext(c.env.DATABASE_URL, c.get('lineUserId')); if (!owner) return c.json({ ok: false, error: 'PERSONAL_WORKSPACE_REQUIRED' }, 403);
+    const owner = await ownerContext(c.env.DATABASE_URL, c.get('lineUserId'));
+    if (!owner) return c.json({ ok: false, error: 'PERSONAL_WORKSPACE_REQUIRED' }, 403);
     const body = await objectBody(c); if (!body) return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
-    const type = transactionType(body.type); const amount = amountTwd(body.amountTwd); const occurredAt = dateValue(body.occurredAt);
-    if (!type || amount === null || !occurredAt) return c.json({ ok: false, error: 'INVALID_TRANSACTION' }, 400);
-    const customerId = nullablePositiveId(body.customerId), projectId = nullablePositiveId(body.projectId), recordId = nullablePositiveId(body.recordId);
-    if (customerId && !(await belongsToWorkspace(owner.database,'worklog_customers',customerId,owner.workspaceId))) return c.json({ok:false,error:'CUSTOMER_NOT_FOUND'},404);
-    if (projectId && !(await belongsToWorkspace(owner.database,'worklog_projects',projectId,owner.workspaceId))) return c.json({ok:false,error:'PROJECT_NOT_FOUND'},404);
-    if (recordId && !(await belongsToWorkspace(owner.database,'worklog_records',recordId,owner.workspaceId))) return c.json({ok:false,error:'RECORD_NOT_FOUND'},404);
-    const result = await owner.database.execute(sql`
-      INSERT INTO worklog_transactions (workspace_id, record_id, customer_id, project_id, type, amount_twd, occurred_at, note, created_at, updated_at)
-      VALUES (${owner.workspaceId}, ${recordId}, ${customerId}, ${projectId}, ${type}, ${amount}, ${occurredAt}, ${optionalText(body.note,10000)}, NOW(), NOW())
-      RETURNING id::text AS id, record_id::text AS record_id, customer_id::text AS customer_id, project_id::text AS project_id, type, amount_twd::text AS amount_twd, occurred_at, note, created_at, updated_at
-    `);
-    return c.json({ok:true,transaction:result.rows[0]},201);
+    const input = transactionInput(body); if ('error' in input) return c.json({ ok: false, error: input.error }, 400);
+    const result = await owner.context.management.createTransaction(owner.workspaceId, owner.context.userId, input);
+    return transactionResult(c, result, 201);
   });
+
+  app.put('/transactions/:id', async (c) => {
+    const owner = await ownerContext(c.env.DATABASE_URL, c.get('lineUserId')); const transactionId = positiveId(c.req.param('id'));
+    if (!owner) return c.json({ ok: false, error: 'PERSONAL_WORKSPACE_REQUIRED' }, 403);
+    if (!transactionId) return c.json({ ok: false, error: 'INVALID_TRANSACTION_ID' }, 400);
+    const body = await objectBody(c); if (!body) return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
+    const input = transactionInput(body); if ('error' in input) return c.json({ ok: false, error: input.error }, 400);
+    const result = await owner.context.management.updateTransaction(owner.workspaceId, owner.context.userId, transactionId, input);
+    return transactionResult(c, result, 200);
+  });
+
   app.delete('/transactions/:id', async (c) => {
-    const owner = await ownerContext(c.env.DATABASE_URL,c.get('lineUserId')); const transactionId=safePositiveInt(c.req.param('id'));
-    if(!owner)return c.json({ok:false,error:'PERSONAL_WORKSPACE_REQUIRED'},403); if(!transactionId)return c.json({ok:false,error:'INVALID_TRANSACTION_ID'},400);
-    const result=await owner.database.execute(sql`DELETE FROM worklog_transactions WHERE id=${transactionId} AND workspace_id=${owner.workspaceId} RETURNING id`);
-    return result.rows.length ? c.json({ok:true}) : c.json({ok:false,error:'TRANSACTION_NOT_FOUND'},404);
+    const owner = await ownerContext(c.env.DATABASE_URL, c.get('lineUserId')); const transactionId = positiveId(c.req.param('id'));
+    if (!owner) return c.json({ ok: false, error: 'PERSONAL_WORKSPACE_REQUIRED' }, 403);
+    if (!transactionId) return c.json({ ok: false, error: 'INVALID_TRANSACTION_ID' }, 400);
+    return await owner.context.management.deleteTransaction(owner.workspaceId, owner.context.userId, transactionId)
+      ? c.json({ ok: true })
+      : c.json({ ok: false, error: 'TRANSACTION_NOT_FOUND' }, 404);
+  });
+
+  app.post('/feedback', async (c) => {
+    const context = await contextFor(c.env.DATABASE_URL, c.get('lineUserId'));
+    if (!context) return c.json({ ok: false, error: 'WORKLOG_USER_NOT_FOUND' }, 404);
+    const body = await objectBody(c); if (!body) return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
+    const text = requiredText(body.text, 5000); if (!text) return c.json({ ok: false, error: 'FEEDBACK_TEXT_REQUIRED' }, 400);
+    const contextJson = safeFeedbackContext(body.context);
+    const result = await context.database.execute(sql`
+      INSERT INTO worklog_feedback (user_id, display_name_snapshot, channel, text, context, created_at)
+      SELECT id, display_name, 'PWA', ${text}, ${JSON.stringify(contextJson)}::jsonb, NOW()
+      FROM worklog_users WHERE id = ${context.userId}
+      RETURNING id::text AS id, channel, created_at
+    `);
+    return c.json({ ok: true, feedback: result.rows[0] }, 201);
   });
 
   return app;
@@ -272,40 +301,160 @@ export function createWorklogRoutes() {
 
 async function contextFor(databaseUrl: string, lineUserId: string): Promise<WorklogRouteContext | null> {
   const database = createDatabase(databaseUrl);
-  const result = await database.execute(sql`SELECT id::text AS id FROM worklog_users WHERE line_user_id=${lineUserId} LIMIT 1`);
-  const raw=(result.rows[0] as {id?:string}|undefined)?.id; const userId=raw?Number(raw):0;
-  if(!Number.isSafeInteger(userId)||userId<=0)return null;
-  return { userId, database, records:new WorklogRecordReadService(new DrizzleWorklogRecordReadRepository(database)), usage:new WorklogUsageService(new DrizzleWorklogUsageRepository(database)), collaboration:new WorklogCollaborationService(new DrizzleWorklogCollaborationRepository(database)) };
+  const result = await database.execute(sql`SELECT id::text AS id FROM worklog_users WHERE line_user_id = ${lineUserId} LIMIT 1`);
+  const raw = (result.rows[0] as { id?: string } | undefined)?.id;
+  const userId = raw ? Number(raw) : 0;
+  if (!Number.isSafeInteger(userId) || userId <= 0) return null;
+  const recordRepository = new DrizzleWorklogRecordReadRepository(database);
+  return {
+    userId,
+    database,
+    recordRepository,
+    records: new WorklogRecordReadService(recordRepository),
+    usage: new WorklogUsageService(new DrizzleWorklogUsageRepository(database)),
+    collaboration: new WorklogCollaborationService(new DrizzleWorklogCollaborationRepository(database)),
+    management: new DrizzleWorklogWorkspaceManagementRepository(database),
+  };
 }
-async function ownerContext(databaseUrl:string,lineUserId:string){
-  const context=await contextFor(databaseUrl,lineUserId); if(!context)return null;
-  const result=await context.database.execute(sql`SELECT w.id::text AS workspace_id FROM worklog_workspaces w INNER JOIN worklog_users u ON u.id=w.owner_user_id WHERE w.owner_user_id=${context.userId} AND u.is_oa_friend=TRUE LIMIT 1`);
-  const raw=(result.rows[0] as {workspace_id?:string}|undefined)?.workspace_id; const workspaceId=raw?Number(raw):0;
-  return Number.isSafeInteger(workspaceId)&&workspaceId>0 ? {...context,workspaceId} : null;
+
+async function ownerContext(databaseUrl: string, lineUserId: string) {
+  const context = await contextFor(databaseUrl, lineUserId);
+  if (!context) return null;
+  const surfaces = await context.records.surfaces(context.userId);
+  if (!surfaces.personal) return null;
+  const workspaceId = await context.management.ownedWorkspaceId(context.userId);
+  return workspaceId ? { context, workspaceId } : null;
 }
-async function editableRecord(context:WorklogRouteContext,recordId:number){
-  const result=await context.database.execute(sql`
-    SELECT r.workspace_id::text AS workspace_id, r.author_user_id::text AS author_user_id,
-           EXISTS(SELECT 1 FROM worklog_workspaces w WHERE w.id=r.workspace_id AND w.owner_user_id=${context.userId}) AS workspace_owner,
-           EXISTS(SELECT 1 FROM worklog_source_members m WHERE m.source_id=r.source_id AND m.user_id=${context.userId} AND m.is_active=TRUE) AS active_member
-    FROM worklog_records r WHERE r.id=${recordId} LIMIT 1
+
+async function filteredRecords(database: Database, sourceId: number, filter: RecordFilter) {
+  const result = await database.execute(sql`
+    SELECT record.id::text AS id, record.source_id::text AS source_id, record.author_user_id::text AS author_user_id,
+           record.input_type, record.category, record.raw_text, record.normalized_summary,
+           record.customer_id::text AS customer_id, customer.name AS customer_name,
+           record.project_id::text AS project_id, project.name AS project_name,
+           record.source_timestamp, record.edited_at, record.created_at, record.updated_at
+    FROM worklog_records record
+    LEFT JOIN worklog_customers customer ON customer.id = record.customer_id
+    LEFT JOIN worklog_projects project ON project.id = record.project_id
+    WHERE record.source_id = ${sourceId}
+      AND (${filter.query}::text IS NULL OR COALESCE(record.normalized_summary, '') ILIKE '%' || ${filter.query} || '%' OR COALESCE(record.raw_text, '') ILIKE '%' || ${filter.query} || '%' OR COALESCE(customer.name, '') ILIKE '%' || ${filter.query} || '%' OR COALESCE(project.name, '') ILIKE '%' || ${filter.query} || '%')
+      AND (${filter.inputType}::text IS NULL OR record.input_type::text = ${filter.inputType})
+      AND (${filter.category}::text IS NULL OR record.category::text = ${filter.category})
+      AND (${filter.customerId}::bigint IS NULL OR record.customer_id = ${filter.customerId})
+      AND (${filter.projectId}::bigint IS NULL OR record.project_id = ${filter.projectId})
+      AND (${filter.from}::timestamptz IS NULL OR COALESCE(record.source_timestamp, record.created_at) >= ${filter.from})
+      AND (${filter.to}::timestamptz IS NULL OR COALESCE(record.source_timestamp, record.created_at) < ${filter.to})
+    ORDER BY COALESCE(record.source_timestamp, record.created_at) DESC, record.id DESC
+    LIMIT ${filter.limit + 1} OFFSET ${filter.offset}
   `);
-  const row=result.rows[0] as {workspace_id?:string;author_user_id?:string|null;workspace_owner?:boolean;active_member?:boolean}|undefined;
-  if(!row?.workspace_id)return null; const author=row.author_user_id?Number(row.author_user_id):null;
-  if(!row.workspace_owner && author!==context.userId)return null;
-  return {workspaceId:Number(row.workspace_id)};
+  const rows = result.rows;
+  const hasMore = rows.length > filter.limit;
+  const records = hasMore ? rows.slice(0, filter.limit) : rows;
+  return {
+    records,
+    page: {
+      limit: filter.limit,
+      offset: filter.offset,
+      hasMore,
+      nextOffset: hasMore ? filter.offset + filter.limit : null,
+    },
+  };
 }
-async function belongsToWorkspace(database:Database,table:'worklog_customers'|'worklog_projects'|'worklog_records',id:number,workspaceId:number){
-  const result = table==='worklog_customers' ? await database.execute(sql`SELECT 1 FROM worklog_customers WHERE id=${id} AND workspace_id=${workspaceId}`)
-    : table==='worklog_projects' ? await database.execute(sql`SELECT 1 FROM worklog_projects WHERE id=${id} AND workspace_id=${workspaceId}`)
-    : await database.execute(sql`SELECT 1 FROM worklog_records WHERE id=${id} AND workspace_id=${workspaceId}`);
-  return result.rows.length>0;
+
+function recordFilter(params: Record<string, string>): RecordFilter | { error: string } {
+  const inputType = params.type ? inputTypeValue(params.type) : null;
+  if (params.type && !inputType) return { error: 'INVALID_INPUT_TYPE' };
+  const category = params.category ? categoryValue(params.category) : null;
+  if (params.category && !category) return { error: 'INVALID_RECORD_CATEGORY' };
+  const customerId = params.customerId ? positiveId(params.customerId) : null;
+  if (params.customerId && !customerId) return { error: 'INVALID_CUSTOMER_ID' };
+  const projectId = params.projectId ? positiveId(params.projectId) : null;
+  if (params.projectId && !projectId) return { error: 'INVALID_PROJECT_ID' };
+  const from = params.from ? dateValue(params.from) : null;
+  if (params.from && !from) return { error: 'INVALID_FROM_DATE' };
+  const to = params.to ? dateValue(params.to) : null;
+  if (params.to && !to) return { error: 'INVALID_TO_DATE' };
+  if (from && to && from >= to) return { error: 'INVALID_DATE_RANGE' };
+  return {
+    query: query(params.q),
+    inputType,
+    category,
+    customerId,
+    projectId,
+    from,
+    to,
+    limit: listLimit(params.limit, 50),
+    offset: offsetValue(params.offset),
+  };
 }
-async function objectBody(c:{req:{json():Promise<unknown>}}){try{const v=await c.req.json();return v&&typeof v==='object'&&!Array.isArray(v)?v as Record<string,unknown>:null;}catch{return null;}}
-function requiredText(value:unknown,max:number){if(value===undefined)return null;if(typeof value!=='string')return null;const v=value.trim();return v&&v.length<=max?v:null;}
-function optionalText(value:unknown,max:number){if(value===null||value===undefined)return null;if(typeof value!=='string')return null;const v=value.trim();return v?v.slice(0,max):null;}
-function nullablePositiveId(value:unknown){if(value===null||value===undefined||value==='')return null;const n=Number(value);return Number.isSafeInteger(n)&&n>0?n:null;}
-function projectStatus(value:unknown){return value==='ACTIVE'||value==='COMPLETED'||value==='ARCHIVED'?value:null;}
-function transactionType(value:unknown){return value==='RECEIVED'||value==='EXPENSE'||value==='RECEIVABLE'?value:null;}
-function amountTwd(value:unknown){const n=typeof value==='number'?value:Number(value);return Number.isFinite(n)&&n>=0&&n<=999999999999?n.toFixed(2):null;}
-function dateValue(value:unknown){if(typeof value!=='string')return null;const d=new Date(value);return Number.isNaN(d.getTime())?null:d;}
+
+function customerInput(body: Record<string, unknown>): WorklogCustomerInput | { error: string } {
+  const name = requiredText(body.name, 255); if (!name) return { error: 'CUSTOMER_NAME_REQUIRED' };
+  return { name, phone: optionalText(body.phone, 64), address: optionalText(body.address, 4000), note: optionalText(body.note, 10000) };
+}
+
+function projectInput(body: Record<string, unknown>): WorklogProjectInput | { error: string } {
+  const name = requiredText(body.name, 255); if (!name) return { error: 'PROJECT_NAME_REQUIRED' };
+  const customerId = nullablePositiveId(body.customerId); if (body.customerId != null && !customerId) return { error: 'INVALID_CUSTOMER_ID' };
+  const status = optionalProjectStatus(typeof body.status === 'string' ? body.status : undefined) ?? 'ACTIVE';
+  if (body.status !== undefined && !optionalProjectStatus(String(body.status))) return { error: 'INVALID_PROJECT_STATUS' };
+  return { customerId, name, address: optionalText(body.address, 4000), status, note: optionalText(body.note, 10000) };
+}
+
+function recordEditInput(body: Record<string, unknown>): WorklogRecordEditInput | { error: string } {
+  const category = categoryValue(body.category);
+  if (!category) return { error: 'INVALID_RECORD_CATEGORY' };
+  const customerId = nullablePositiveId(body.customerId); if (body.customerId != null && !customerId) return { error: 'INVALID_CUSTOMER_ID' };
+  const projectId = nullablePositiveId(body.projectId); if (body.projectId != null && !projectId) return { error: 'INVALID_PROJECT_ID' };
+  const summary = body.normalizedSummary == null ? null : requiredText(body.normalizedSummary, 20000);
+  if (body.normalizedSummary != null && !summary) return { error: 'INVALID_RECORD_SUMMARY' };
+  return { normalizedSummary: summary, category, customerId, projectId };
+}
+
+function transactionInput(body: Record<string, unknown>): WorklogTransactionInput | { error: string } {
+  const type = transactionType(body.type); if (!type) return { error: 'INVALID_TRANSACTION_TYPE' };
+  const amountTwd = money(body.amountTwd); if (!amountTwd) return { error: 'INVALID_TRANSACTION_AMOUNT' };
+  const occurredAt = dateValue(body.occurredAt); if (!occurredAt) return { error: 'INVALID_TRANSACTION_DATE' };
+  const recordId = nullablePositiveId(body.recordId); if (body.recordId != null && !recordId) return { error: 'INVALID_RECORD_ID' };
+  const customerId = nullablePositiveId(body.customerId); if (body.customerId != null && !customerId) return { error: 'INVALID_CUSTOMER_ID' };
+  const projectId = nullablePositiveId(body.projectId); if (body.projectId != null && !projectId) return { error: 'INVALID_PROJECT_ID' };
+  return { recordId, customerId, projectId, type, amountTwd, occurredAt, note: optionalText(body.note, 10000) };
+}
+
+function transactionResult(c: any, result: any, successStatus: 200 | 201) {
+  if (result.status === 'RECORD_NOT_FOUND' || result.status === 'CUSTOMER_NOT_FOUND' || result.status === 'PROJECT_NOT_FOUND') {
+    return c.json({ ok: false, error: result.status }, 404);
+  }
+  if (result.status === 'NOT_FOUND') return c.json({ ok: false, error: 'TRANSACTION_NOT_FOUND' }, 404);
+  return c.json({ ok: true, transaction: result.transaction }, successStatus);
+}
+
+function authSecret(env: WorklogRoutesBindings): string | null {
+  const value = env.WEB_AUTH_SECRET?.trim();
+  return value && value.length >= 32 ? value : null;
+}
+function bearerToken(header: string | undefined): string | null {
+  if (!header) return null;
+  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+  if (!match) return null;
+  const value = match[1]?.trim() ?? '';
+  return value && value.length <= 8192 ? value : null;
+}
+async function objectBody(c: { req: { json(): Promise<unknown> } }): Promise<Record<string, unknown> | null> {
+  try { const value = await c.req.json(); return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null; } catch { return null; }
+}
+function positiveId(value: string): number | null { const parsed = Number(value); return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null; }
+function nullablePositiveId(value: unknown): number | null { if (value == null || value === '') return null; const parsed = Number(value); return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null; }
+function optionalPositiveId(value: string | undefined): number | null { return value ? positiveId(value) : null; }
+function query(value: string | undefined): string | null { const normalized = value?.trim() ?? ''; return normalized ? normalized.slice(0, 300) : null; }
+function listLimit(value: string | undefined, fallback: number): number { const parsed = Number(value); return Number.isSafeInteger(parsed) && parsed > 0 && parsed <= 200 ? parsed : fallback; }
+function offsetValue(value: string | undefined): number { const parsed = Number(value ?? 0); return Number.isSafeInteger(parsed) && parsed >= 0 && parsed <= 100000 ? parsed : 0; }
+function requiredText(value: unknown, max: number): string | null { if (typeof value !== 'string') return null; const normalized = value.trim(); return normalized && normalized.length <= max ? normalized : null; }
+function optionalText(value: unknown, max: number): string | null { if (value == null || value === '') return null; return requiredText(value, max); }
+function dateValue(value: unknown): Date | null { if (typeof value !== 'string') return null; const date = new Date(value); return Number.isNaN(date.getTime()) ? null : date; }
+function money(value: unknown): string | null { const raw = typeof value === 'number' ? String(value) : typeof value === 'string' ? value.trim() : ''; return /^\d{1,12}(?:\.\d{1,2})?$/.test(raw) && Number(raw) > 0 ? raw : null; }
+function inputTypeValue(value: unknown): RecordFilter['inputType'] { return value === 'TEXT' || value === 'AUDIO' || value === 'IMAGE' || value === 'FILE' ? value : null; }
+function categoryValue(value: unknown): WorklogRecordEditInput['category'] | null { return value === 'NOTE' || value === 'WORK' || value === 'ISSUE' || value === 'PAYMENT' || value === 'EXPENSE' || value === 'MATERIAL' || value === 'PHOTO' || value === 'AUDIO' || value === 'OTHER' ? value : null; }
+function optionalProjectStatus(value: string | undefined): WorklogProjectInput['status'] | null { return value === 'ACTIVE' || value === 'COMPLETED' || value === 'ARCHIVED' ? value : null; }
+function transactionType(value: unknown): WorklogTransactionInput['type'] | null { return value === 'RECEIVED' || value === 'EXPENSE' || value === 'RECEIVABLE' ? value : null; }
+function safeFeedbackContext(value: unknown): Record<string, unknown> { if (!value || typeof value !== 'object' || Array.isArray(value)) return {}; const raw = value as Record<string, unknown>; const result: Record<string, unknown> = {}; for (const key of ['page','viewport','userAgent','appVersion','scopeType','sourceId']) { const item = raw[key]; if (typeof item === 'string' && item.length <= 500) result[key] = item; if (typeof item === 'number' && Number.isFinite(item)) result[key] = item; } return result; }
