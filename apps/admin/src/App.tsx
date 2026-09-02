@@ -25,6 +25,7 @@ export function App({ api }: Props) {
   const [users, setUsers] = useState<Row[]>([]);
   const [groups, setGroups] = useState<Row[]>([]);
   const [plans, setPlans] = useState<AdminPlan[]>([]);
+  const [capabilityDefinitions, setCapabilityDefinitions] = useState<AdminCapabilityDefinition[]>([]);
   const [aiConfig, setAiConfig] = useState<AdminAiRuntimeConfig | null>(null);
   const [feedback, setFeedback] = useState<Row[]>([]);
   const [anomalies, setAnomalies] = useState<AdminAnomalies>({ events: [], attachments: [], normalizations: [] });
@@ -92,7 +93,11 @@ export function App({ api }: Props) {
         setUsers(nextUsers); setPlans(nextPlans);
       }
       if (tab === 'groups') setGroups(await api.groups(groupQuery));
-      if (tab === 'plans') setPlans(await api.plans());
+      if (tab === 'plans') {
+        const [nextPlans, definitions] = await Promise.all([api.plans(), api.capabilityDefinitions()]);
+        setPlans(nextPlans);
+        setCapabilityDefinitions(definitions);
+      }
       if (tab === 'ai') setAiConfig(await api.aiRuntime());
       if (tab === 'feedback') setFeedback(await api.feedback());
       if (tab === 'anomalies') setAnomalies(await api.anomalies());
@@ -182,8 +187,6 @@ export function App({ api }: Props) {
     ['近 30 天意見回饋', overview.feedback30d],
   ] : [], [overview]);
 
-  const capabilityDefinitions = plans.find((plan) => plan.capability_definitions?.length)?.capability_definitions ?? [];
-
   if (!authChecked) return <main className="shell auth-shell"><section className="login-card"><p className="eyebrow">AFTERTRACE</p><h1>工作紀錄管理後台</h1><p className="muted">正在確認管理員登入狀態。</p></section></main>;
   if (!username) return <LoginView busy={busy} error={error} onLogin={login} />;
 
@@ -219,7 +222,7 @@ export function App({ api }: Props) {
     {tab === 'plans' && <section className="stack">
       <article className="card"><h2>AI 額度週期規則</h2><p className="muted">方案中的 AI 額度是建立新週期時使用的模板。若使用者目前週期已建立額度快照，修改方案模板不會改動本期既有額度，也不會重新計算已使用或已保留的額度。</p></article>
       <PlanEditor key="new-plan" plan={null} definitions={capabilityDefinitions} busy={busy} onSave={savePlan} />
-      {plans.map((plan) => <PlanEditor key={plan.code} plan={plan} definitions={plan.capability_definitions ?? capabilityDefinitions} busy={busy} onSave={savePlan} />)}
+      {plans.map((plan) => <PlanEditor key={plan.code} plan={plan} definitions={capabilityDefinitions} busy={busy} onSave={savePlan} />)}
     </section>}
 
     {tab === 'ai' && <section><AiRuntimeEditor config={aiConfig} busy={busy} onSave={saveAi} /></section>}
