@@ -90,10 +90,26 @@ Previous behavior:
 - Authorization therefore continued returning `GROUP_INACTIVE`, effectively bricking that group after a bot remove/re-add cycle.
 
 Current behavior:
-- `WorklogBootstrapRepository` now exposes `reactivateBoundGroup(sourceId, at)`.
+- `WorklogBootstrapRepository` exposes `reactivateBoundGroup(sourceId, at)`.
 - A known bound source in `INACTIVE` state is restored to `ACTIVE` with `inactive_at = NULL` on the first new valid group interaction or active member-presence event.
 - The existing source id, stable Owner and prior member recording permissions are preserved; no replacement group/source is created.
 - Focused bootstrap test covers leave -> new interaction -> same source/Owner ACTIVE again; test authored but not executed yet.
+
+### 5. Delayed/out-of-order LINE lifecycle events could overwrite newer group/member state
+
+Previous behavior:
+- `markGroupInactive()` applied a `LEAVE` regardless of whether a newer rejoin/interaction had already been observed.
+- `memberJoined` / `memberLeft` upserts always overwrote `is_active`, even when the incoming webhook event timestamp was older than `last_seen_at`.
+- A delayed/redelivered old `LEAVE` or `memberLeft` could therefore turn an already rejoined group/member inactive again.
+
+Current behavior:
+- Group reactivation only applies when the incoming interaction timestamp is not older than the source's current lifecycle `updated_at`.
+- Group `LEAVE` only deactivates the source when the leave timestamp is at least as new as the source lifecycle state.
+- Bound and pending member presence updates change `is_active` only when the incoming event timestamp is at least as new as existing `last_seen_at`.
+- Group leave deactivation applies to members only when their own `last_seen_at` is not newer than the leave event.
+- Pending-group activation/deactivation follows the same monotonic timestamp rule.
+- Promotion/migration of pending members no longer lets older pending presence overwrite newer bound-member presence.
+- Focused ordering tests were added for delayed `LEAVE` after a newer rejoin and delayed `memberLeft` after a newer `memberJoined`; tests are authored but not executed.
 
 Latest commits in this validation-stage sequence include:
 - `c89f856ae94f759a26b9c457b2b442f80966be62` — preserve quota after uncertain TEXT provider-result persistence.
@@ -105,12 +121,16 @@ Latest commits in this validation-stage sequence include:
 - `06300934276d66728fc85c22254ed0e2cc21f0ea` — reactivate known group source during bootstrap.
 - `e7df94dd1f9a13d0a9125412879052e904bcb179` — persist Worklog group source reactivation.
 - `58883a38e09ae8004f3b4d3264b83d11daa7371e` — rejoin/reactivation regression test.
+- `a3adaf12f84b5abdb3ed501d6db6e07743ee1992` — enforce monotonic lifecycle/member timestamps in PostgreSQL bootstrap persistence.
+- `4a6fdab173bf848c5b5ca4399f9650a15583aa52` — add out-of-order lifecycle regression tests.
 
 ## Static validation performed in latest batch
 
 - Re-read current branch, group bootstrap/runtime, collaboration/entitlement, Web auth, LINE text cache, LINE content resolver and quota/project consistency migrations.
 - Confirmed group read/record authorization remains tied to active source/member + current Owner entitlement.
 - Confirmed group reactivation preserves source/Owner identity and does not reset existing `recording_enabled` on conflict updates.
+- Confirmed delayed lifecycle/member events now cannot overwrite newer event-time state in the bootstrap repository.
+- Re-checked quota settlement concurrency: the first COMMIT locks and transitions the reservation; a concurrent redelivery subsequently observes non-`RESERVED` durable state and does not insert a second usage event.
 - Re-checked private one-time nonce consumption and source/OA-friend validation; no new high-risk static auth contradiction found.
 - Re-checked `0012` quota-cycle snapshot and `0013` project-customer synchronization triggers; no new high-risk static contradiction found in this pass.
 - Tests were authored/updated but **not executed**.
@@ -134,6 +154,8 @@ Run locally as one deliberate validation phase:
 
 High-priority cases to hit during validation:
 - group bot leave -> re-add -> existing source/Owner becomes ACTIVE and works again;
+- delayed older `LEAVE` after a newer rejoin must not deactivate the group;
+- delayed older `memberLeft` after newer `memberJoined` must not deactivate the member;
 - TEXT provider succeeds then DB result persistence fails;
 - attachment provider succeeds then DB persistence fails;
 - quota COMMIT/RELEASE concurrency and redelivery;
@@ -161,11 +183,11 @@ Planning estimates only, not test results:
 
 - MVP feature implementation: **about 99%**.
 - Static logic/architecture audit: **about 99%+**.
-- Production readiness including still-unrun executable validation: **about 93%**.
+- Production readiness including still-unrun executable validation: **about 93–94%**.
 - Remaining large feature batches before validation: **0**.
 - Next work is concentrated local validation + bug fixing.
 - Expected validation/fix work: roughly **1–3 bug-fix batches / about 2–6 focused hours** if issues are ordinary compile/migration/browser integration defects; reserve up to roughly one working day if migration or runtime integration reveals deeper problems.
 
 ## Next batch
 
-Start concentrated local validation. Do not substitute GitHub Actions. Fix actual typecheck/test/schema/migration/browser/runtime failures as they appear, with special attention to group leave/rejoin lifecycle, LINE 202/400 content behavior and provider-success persistence uncertainty. Update this handoff after each validation/fix batch and keep reporting completion percentage, remaining work and time estimate.
+Start concentrated local validation. Do not substitute GitHub Actions. Fix actual typecheck/test/schema/migration/browser/runtime failures as they appear, with special attention to lifecycle event ordering, group leave/rejoin lifecycle, LINE 202/400 content behavior and provider-success persistence uncertainty. Update this handoff after each validation/fix batch and keep reporting completion percentage, remaining work and time estimate.
