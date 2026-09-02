@@ -11,7 +11,7 @@ export type AdminCapabilityDefinition = {
 export const ADMIN_CAPABILITY_DEFINITIONS: AdminCapabilityDefinition[] = [
   {
     key: 'privateOaRecording',
-    label: '私人 OA 記錄',
+    label: 'LINE 私人聊天記錄',
     type: 'boolean',
     defaultValue: true,
     description: '允許從 LINE 官方帳號私人聊天室建立工作紀錄。',
@@ -41,7 +41,7 @@ export const ADMIN_CAPABILITY_DEFINITIONS: AdminCapabilityDefinition[] = [
   },
   {
     key: 'aiMediaIngestion',
-    label: 'AI 媒體處理',
+    label: 'AI 語音／圖片／檔案處理',
     type: 'boolean',
     defaultValue: true,
     description: '允許 AI 處理語音、圖片與檔案附件。',
