@@ -183,8 +183,10 @@ export class WorklogTextNormalizationService {
 
     const reservationToken = reservation.reservation.token;
     let payload: WorklogPersistedNormalizationPayload;
+    let providerCompleted = false;
     try {
       const response = await this.provider.normalize(context.rawText, config);
+      providerCompleted = true;
       const actualUnits = safeActualUnits(response.inputTokens, response.outputTokens);
       if (actualUnits > reservation.reservation.unitsReserved) {
         await this.safeRelease(reservationToken);
@@ -239,9 +241,16 @@ export class WorklogTextNormalizationService {
         usage,
       };
     } catch (error) {
-      // Once provider execution is uncertain, automatic LINE redelivery must not call
-      // the provider again. Release internal quota and leave a terminal FAILED state;
-      // a future explicit/admin retry can make a deliberate new attempt.
+      if (providerCompleted) {
+        // The provider definitely returned, but durable persistence of that result is
+        // uncertain. Do not release quota and do not mark this retryable: doing either
+        // could under-account provider cost or permit an automatic second provider call.
+        // The repository will terminalize stale PROCESSING state for operator review.
+        return { status: 'IN_PROGRESS' };
+      }
+
+      // Provider execution itself failed before a usable response existed. This path
+      // is terminal and cannot be automatically replayed by LINE redelivery.
       await this.safeRelease(reservationToken);
       const detail = errorDetail(error);
       const reason = errorCode(error);
