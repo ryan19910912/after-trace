@@ -15,6 +15,7 @@ import { WorklogAttachmentIngestionService } from './worklog/attachment-ingestio
 import { configureWorklogAttachmentRuntime } from './worklog/attachment-runtime';
 import { DrizzleWorklogAttachmentRepository } from './worklog/drizzle-attachment-ingestion';
 import { DrizzleWorklogSubscriptionRepository } from './worklog/drizzle-subscription';
+import { createWorklogFeedbackRoutes } from './worklog/feedback-routes';
 import { GeminiWorklogAttachmentNormalizer } from './worklog/gemini-attachment-normalizer';
 import { createWorklogRoutes } from './worklog/routes';
 import { WorklogSubscriptionService } from './worklog/subscription';
@@ -25,6 +26,7 @@ type ExecutionContextLike = { waitUntil(promise: Promise<unknown>): void };
 const proactiveRoutes = createProactiveRoutes();
 const adminRoutes = createAdminRoutes();
 const worklogRoutes = createWorklogRoutes();
+const worklogFeedbackRoutes = createWorklogFeedbackRoutes();
 
 async function runtimeEnv(env: Bindings): Promise<Bindings> {
   const database = createDatabase(env.DATABASE_URL);
@@ -72,6 +74,10 @@ export default {
     if (url.pathname === '/api/v1/admin' || url.pathname.startsWith('/api/v1/admin/')) {
       const rewritten = new URL(request.url); rewritten.pathname = url.pathname.slice('/api/v1/admin'.length) || '/';
       return adminRoutes.fetch(new Request(rewritten, request), env as never, executionContext as never);
+    }
+    if (url.pathname === '/api/v1/worklog/feedback') {
+      const rewritten = new URL(request.url); rewritten.pathname = '/';
+      return worklogFeedbackRoutes.fetch(new Request(rewritten, request), env as never, executionContext as never);
     }
     if (url.pathname === '/api/v1/worklog' || url.pathname.startsWith('/api/v1/worklog/')) {
       const rewritten = new URL(request.url); rewritten.pathname = url.pathname.slice('/api/v1/worklog'.length) || '/';
