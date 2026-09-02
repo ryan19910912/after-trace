@@ -26,6 +26,7 @@ Every development run must:
 - Owner/admin usage views need quota/used/reserved/remaining, group/member AI attribution, and TEXT/AUDIO/IMAGE/FILE counts.
 - Keep customer/project shape minimal; computed finance uses typed numeric data; invoice/Amego and real payment provider integration remain postponed.
 - Stack remains TypeScript + Hono/Cloudflare Workers + React/Vite Pages + PostgreSQL/Drizzle.
+- If delayed Reply-to-TEXT recovery is implemented, ordinary LINE text may be held only in a bounded **temporary PostgreSQL cache** (TTL + per-source count cap). Do not add Redis for this MVP and do not treat cached chat text as a permanent work record or AI input by default.
 
 ## Completed foundations
 
@@ -150,22 +151,46 @@ Every development run must:
   - inactive OA friendship rejects explicit personal record/query commands
 - Added tests for OA parser event order/source isolation/attachment metadata, stable private bootstrap, unfollow gating, human-support bypass, personal TEXT recording, personal query target, private group-command rejection, quoted interception, lifecycle delegation and duplicate-record propagation.
 
+### 2026-09-02 OA/private webhook cutover
+
+- Added `processWorklogOaWebhook` as an explicit OA-only processing boundary between parsed LINE events and `WorklogOaRuntime`.
+- `/webhooks/line` now parses **both** group and OA streams before deciding there is no work, so OA-only webhook deliveries are no longer silently returned as `NO_WORK`.
+- OA `FOLLOW` / `UNFOLLOW` events now reach `WorklogOaRuntime.handleLifecycle`, which delegates to the new worklog bootstrap state.
+- OA private messages now reach `WorklogOaRuntime.handleMessage` and therefore support end-to-end personal raw TEXT recording with the same LINE message-id idempotency used by groups.
+- Ordinary OA private text remains human-support traffic:
+  - it is counted separately as `oaHumanSupportMessages`
+  - it is never passed into the legacy group conversation/Energy/Memory runtime because that runtime consumes only the separately parsed group stream
+  - even if the OA touch/bootstrap persistence call throws, the webhook does **not** emit an automated product-error reply to an ordinary support message
+- Explicit OA worklog commands receive replies; lifecycle events and ordinary support messages do not receive automatic product replies.
+- Added OA webhook diagnostics:
+  - lifecycle events
+  - worklog commands
+  - records
+  - duplicate records
+  - rejected commands
+  - queries
+  - human-support messages
+  - processing/reply errors
+- Added a private-query URL callback seam. It receives only `{ lineUserId, sourceId, userId, at }`; no fake group id is introduced. The real private Web-auth implementation remains the next batch.
+- Fixed an important delivery-consistency bug while wiring the boundary: a LINE reply API failure after a successful DB record write no longer changes the record outcome to `REJECTED` or attempts a second reply with the same reply token. Record success remains success; reply failure is tracked independently in `oaErrors`.
+- Added tests for human-support bypass/no reply, personal record result/duplicate counters, private query callback shape, explicit runtime failure, ordinary support runtime failure, lifecycle processing, and successful-record preservation when LINE reply delivery fails.
+
 ## Validation performed in latest pass
 
 - Read the latest product spec and progress document before editing.
-- Confirmed branch HEAD at the start of this pass was `b2f94fa618c8fc371e47615af1aa309c1b66af06` and inspected the current group webhook cutover, LINE parser, bootstrap service, command parser and record writer before changing anything.
-- Kept the existing group `ParsedLineWebhook` contract unchanged, so the currently deployed-style group loop in `index.ts` is not forced into a new union before OA events are actually wired.
-- Statically reviewed the new OA flow for:
-  - group/OA parser source separation
-  - preservation of webhook event order within OA events
-  - ordinary private support text not becoming worklog records
-  - active OA-friend requirement before personal source access
-  - stable personal source reuse rather than source churn
-  - raw personal TEXT persistence before future AI normalization
-  - existing TEXT idempotency behavior being reused for private records
-  - explicit group-owner command being rejected outside group context
-- Latest code HEAD before this progress-doc update is `9277afa1e725f56307195cf0c18966dcd0646b56`.
-- Unit tests were authored/expanded but **not executed** in this connector-only environment because there is no checked-out runtime where `pnpm` can run.
+- Confirmed branch HEAD at the start of this pass was `46e3703b335cb736efb997dbb863219d315c28dc` and inspected the latest OA parser/runtime, group webhook cutover, command parser, bootstrap and Web-auth boundaries before changing anything.
+- Inspected the recent branch commit chain and kept the existing group parser/runtime contract intact while adding a separate OA processor.
+- Statically reviewed the cutover for:
+  - OA-only payloads no longer being discarded by the old group-only early return
+  - group/OA source separation and no legacy Energy/Memory fallthrough for ordinary OA support messages
+  - follow/unfollow lifecycle delegation
+  - personal TEXT idempotency reuse
+  - reply-token single-use behavior on delivery failure
+  - record outcome remaining durable when the LINE reply API fails
+  - private query seam not inventing/reusing a group id
+  - OA diagnostics remaining separate from group/legacy counters
+- Latest code HEAD before this progress-doc update is `7f710689748f555d7c08362996fbc2408772eb15`.
+- Unit tests were authored/expanded but **not executed** in this connector-only environment. A direct repository checkout attempt was also unavailable because the execution container cannot resolve GitHub; CI only runs on `main`/pull requests, not direct pushes to this branch.
 
 ## Known cautions / blockers before real DB deployment
 
@@ -179,23 +204,19 @@ Every development run must:
 - AI normalization is **not wired yet**. New TEXT records currently persist with raw text and `normalized_summary = NULL`; they do not consume AI quota yet.
 - The provider integration still must reserve a conservative maximum AI-unit estimate before each AI call, then commit actual usage or release on failure.
 - Reply AUDIO/IMAGE/FILE is deliberately intercepted but not persisted yet until the new content-fetch/attachment storage path is connected.
-- OA parsing/runtime now exists, but `/webhooks/line` still only calls the existing group parser/runtime. The next pass must wire `parseOaWebhook` + `WorklogOaRuntime` into the webhook without routing ordinary private text into legacy Energy/Memory.
-- Personal `@AFTERTRACE 查詢` now resolves a personal source/user target inside `WorklogOaRuntime`, but the external Web-entry/auth boundary still needs a private-user entry path; do not fake a group id to reuse group membership verification.
+- Personal `@AFTERTRACE 查詢` now reaches the webhook and resolves a personal source/user target, but the external Web-entry/auth boundary still needs a real private-user token/nonce path; do not fake a group id to reuse group membership verification.
+- The temporary PostgreSQL Reply-to-TEXT cache is only a recorded design direction; schema, TTL, per-source cap and pruning logic are not implemented yet. Exact defaults should be chosen conservatively and remain independent from permanent worklog records.
 - Ordinary non-`@AFTERTRACE` group chat still flows through the legacy conversation runtime temporarily. New worklog commands do not. Remove the old path only after the new MVP runtime is proven end-to-end.
 
 ## Next prioritized implementation batch
 
-1. Wire the completed OA/private parser/runtime into `/webhooks/line`:
-   - process OA follow/unfollow through `handleOaFollow` / `handleOaUnfollow`
-   - route private messages through `WorklogOaRuntime`
-   - keep ordinary OA text as human-support traffic and do not send it to legacy group conversation/Energy/Memory
-   - reply only for explicit private worklog commands/results
-   - add separate OA diagnostics counters
-2. Add a **private-user Web entry/auth path** for `@AFTERTRACE 查詢`:
+1. Add a **private-user Web entry/auth path** for `@AFTERTRACE 查詢`:
    - do not invent a group id
-   - bind token/session to the LINE user and personal source
+   - bind the one-time entry nonce/token to the LINE user + personal source
+   - verify the user still has active OA friendship/personal-source access before issuing the Web session
+   - plug the resulting URL creator into the existing OA webhook query callback
    - continue to expose personal/group surfaces separately after login
-3. Add AI-assisted TEXT normalization as a **post-persistence** step:
+2. Add AI-assisted TEXT normalization as a **post-persistence** step:
    - add narrow normalized-record contract (summary/category/customer/project hints only)
    - load DB-backed active model/pricing
    - reserve conservative AI units atomically for the charged user (group owner; personal user for OA)
@@ -204,11 +225,17 @@ Every development run must:
    - update normalized fields only after provider success
    - release reservation and retain raw record on every provider/error/parse failure
    - make normalization itself idempotent on LINE redelivery/retry
-4. Reuse existing LINE content fetch for quoted AUDIO/IMAGE/FILE:
+3. Reuse existing LINE content fetch for quoted AUDIO/IMAGE/FILE:
    - resolve quoted content type safely
    - persist attachment metadata/source reference in new worklog tables
    - return resend UX when LINE content has expired
    - enforce recording permission before content fetch/provider usage where possible
+4. Add the bounded PostgreSQL transient TEXT cache if Reply-to-TEXT is included in the final interaction contract:
+   - keyed by LINE message id + source identity
+   - TTL plus per-source count cap, with safe pruning
+   - never expose another group's cached text
+   - never let cache retention turn ordinary chat into permanent worklog/history
+   - no Redis for MVP
 5. Expose actual worklog PWA APIs using the new scoped read service and existing/new Web session identity:
    - personal/group surfaces remain separate
    - group reads require exact active membership
@@ -223,6 +250,7 @@ Every development run must:
 After core MVP flow exists, repeatedly audit:
 - duplicate LINE delivery/idempotency, including concurrent redelivery snapshot behavior
 - quoted content expiry/wrong content type
+- temporary quoted-TEXT cache expiry/pruning/cross-source isolation if enabled
 - group leave/rejoin and pending -> promoted race
 - owner binding ambiguity/reassignment/transfer edge cases
 - blocked member still writing or consuming AI while retaining intended read access
@@ -235,4 +263,5 @@ After core MVP flow exists, repeatedly audit:
 - cross-group/personal scope leakage and FREE collaboration leakage
 - historical AI price snapshots, record counters and member usage attribution drift
 - concurrent edits/audit, AI fallback, transaction duplication, feedback attribution, anomaly noise
+- LINE reply failures after successful persistence must not cause duplicate writes or false rejection state
 - PWA mobile/desktop usability, admin filtering/sorting and migration/bootstrap reliability
