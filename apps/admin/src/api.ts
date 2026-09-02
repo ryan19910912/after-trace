@@ -90,7 +90,15 @@ export class AdminApi {
   }
 
   async userDetail(id: string | number): Promise<Record<string, unknown>> {
-    return (await this.request<{ detail: Record<string, unknown> }>(`/users/${id}`)).detail;
+    const detail = (await this.request<{ detail: Record<string, unknown> }>(`/users/${id}`)).detail;
+    const user = asRow(detail.user);
+    return {
+      ...detail,
+      user: {
+        ...user,
+        subscription_effective_state: effectiveSubscriptionState(user),
+      },
+    };
   }
 
   async updateUserSubscription(id: string | number, planCode: string, currentPeriodEnd?: string | null): Promise<void> {
@@ -106,7 +114,20 @@ export class AdminApi {
   }
 
   async groupDetail(id: string | number): Promise<Record<string, unknown>> {
-    return (await this.request<{ detail: Record<string, unknown> }>(`/groups/${id}`)).detail;
+    const detail = (await this.request<{ detail: Record<string, unknown> }>(`/groups/${id}`)).detail;
+    const group = asRow(detail.group);
+    return {
+      ...detail,
+      group: {
+        ...group,
+        owner_subscription_effective_state: effectiveSubscriptionState({
+          subscription_status: group.owner_subscription_status ?? group.subscription_status ?? 'ACTIVE',
+          effective_at: group.owner_effective_at ?? group.effective_at,
+          current_period_start: group.current_period_start,
+          current_period_end: group.current_period_end,
+        }),
+      },
+    };
   }
 
   async plans(): Promise<AdminPlan[]> {
@@ -175,4 +196,30 @@ export class AdminApi {
     if (!response.ok) throw new Error(body.error || `ADMIN_API_FAILED_${response.status}`);
     return body;
   }
+}
+
+export function effectiveSubscriptionState(row: Row, now = new Date()): string {
+  const persisted = String(row.subscription_status ?? '').toUpperCase();
+  if (!persisted) return 'NO_SUBSCRIPTION';
+  if (persisted !== 'ACTIVE') return persisted;
+
+  const effectiveAt = optionalDate(row.effective_at);
+  const periodStart = optionalDate(row.current_period_start);
+  const periodEnd = optionalDate(row.current_period_end);
+  const timestamp = now.getTime();
+
+  if (effectiveAt && timestamp < effectiveAt.getTime()) return 'NOT_YET_EFFECTIVE';
+  if (periodStart && timestamp < periodStart.getTime()) return 'PERIOD_NOT_STARTED';
+  if (periodEnd && timestamp >= periodEnd.getTime()) return 'PERIOD_EXPIRED';
+  return 'ACTIVE';
+}
+
+function optionalDate(value: unknown): Date | null {
+  if (value === null || value === undefined || value === '') return null;
+  const date = new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function asRow(value: unknown): Row {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {};
 }
