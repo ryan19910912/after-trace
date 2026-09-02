@@ -1,36 +1,19 @@
 import type { BufferedPrivateMessage, OaLifecycleEvent } from '../line/events';
+import { worklogAttachmentRuntime } from './attachment-runtime';
 import type { PrivateBootstrapResult } from './bootstrap';
 import { parseWorklogCommand } from './command';
 import type { WorklogTextRecordWriteResult } from './records';
 import type { WorklogTextNormalizationService } from './text-normalization';
 
 export interface WorklogOaBootstrapPort {
-  handleOaFollow(input: {
-    lineUserId: string;
-    displayName?: string | null;
-    at?: Date;
-  }): Promise<{ userId: number; workspaceId: number; sourceId: number }>;
+  handleOaFollow(input: { lineUserId: string; displayName?: string | null; at?: Date }): Promise<{ userId: number; workspaceId: number; sourceId: number }>;
   handleOaUnfollow(input: { lineUserId: string; at?: Date }): Promise<{ userId: number }>;
-  touchPrivateInteraction(input: {
-    lineUserId: string;
-    displayName?: string | null;
-    at?: Date;
-  }): Promise<{ userId: number; lineUserId: string; isOaFriend: boolean }>;
-  bootstrapPrivateInteraction(input: {
-    lineUserId: string;
-    displayName?: string | null;
-    at?: Date;
-  }): Promise<PrivateBootstrapResult>;
+  touchPrivateInteraction(input: { lineUserId: string; displayName?: string | null; at?: Date }): Promise<{ userId: number; lineUserId: string; isOaFriend: boolean }>;
+  bootstrapPrivateInteraction(input: { lineUserId: string; displayName?: string | null; at?: Date }): Promise<PrivateBootstrapResult>;
 }
 
 export interface WorklogOaRecordWritePort {
-  recordText(input: {
-    sourceId: number;
-    authorUserId: number;
-    lineMessageId: string;
-    text: string;
-    sourceTimestamp?: Date;
-  }): Promise<WorklogTextRecordWriteResult>;
+  recordText(input: { sourceId: number; authorUserId: number; lineMessageId: string; text: string; sourceTimestamp?: Date }): Promise<WorklogTextRecordWriteResult>;
 }
 
 export interface WorklogOaTextNormalizationPort {
@@ -48,17 +31,10 @@ export type WorklogOaRuntimeResult =
   | { status: 'QUOTED_NOT_READY'; replyText: string }
   | {
       status: 'REJECTED';
-      reason: 'NOT_OA_FRIEND' | 'GROUP_COMMAND_IN_PRIVATE' | 'SOURCE_NOT_FOUND' | 'IDEMPOTENCY_CONFLICT';
+      reason: 'NOT_OA_FRIEND' | 'GROUP_COMMAND_IN_PRIVATE' | 'SOURCE_NOT_FOUND' | 'IDEMPOTENCY_CONFLICT' | 'ATTACHMENT_FAILED';
       replyText: string;
     };
 
-/**
- * OA-private worklog boundary.
- *
- * Ordinary private text remains human-support traffic. Only explicit @AFTERTRACE
- * commands are handled as product actions. Raw personal text records are persisted
- * before AI normalization so provider/quota failures cannot erase input.
- */
 export class WorklogOaRuntime {
   constructor(
     private readonly bootstrap: WorklogOaBootstrapPort,
@@ -68,65 +44,51 @@ export class WorklogOaRuntime {
 
   async handleLifecycle(event: OaLifecycleEvent): Promise<WorklogOaLifecycleResult> {
     if (event.type === 'FOLLOW') {
-      const followed = await this.bootstrap.handleOaFollow({
-        lineUserId: event.lineUserId,
-        at: event.lineTimestamp,
-      });
+      const followed = await this.bootstrap.handleOaFollow({ lineUserId: event.lineUserId, at: event.lineTimestamp });
       return { status: 'FOLLOWED', userId: followed.userId, sourceId: followed.sourceId };
     }
-
-    const unfollowed = await this.bootstrap.handleOaUnfollow({
-      lineUserId: event.lineUserId,
-      at: event.lineTimestamp,
-    });
+    const unfollowed = await this.bootstrap.handleOaUnfollow({ lineUserId: event.lineUserId, at: event.lineTimestamp });
     return { status: 'UNFOLLOWED', userId: unfollowed.userId };
   }
 
   async handleMessage(message: BufferedPrivateMessage): Promise<WorklogOaRuntimeResult> {
-    const touched = await this.bootstrap.touchPrivateInteraction({
-      lineUserId: message.lineUserId,
-      at: message.lineTimestamp,
-    });
+    const touched = await this.bootstrap.touchPrivateInteraction({ lineUserId: message.lineUserId, at: message.lineTimestamp });
     const command = parseWorklogCommand(message);
     if (!command) return { status: 'NOT_HANDLED' };
 
     if (command.kind === 'CLAIM_GROUP') {
-      return {
-        status: 'REJECTED',
-        reason: 'GROUP_COMMAND_IN_PRIVATE',
-        replyText: '「@AFTERTRACE 啟用」要在要綁定的 LINE 群組裡使用。',
-      };
+      return { status: 'REJECTED', reason: 'GROUP_COMMAND_IN_PRIVATE', replyText: '「@AFTERTRACE 啟用」要在要綁定的 LINE 群組裡使用。' };
     }
-
     if (!touched.isOaFriend) {
-      return {
-        status: 'REJECTED',
-        reason: 'NOT_OA_FRIEND',
-        replyText: '請先加入 AFTERTRACE LINE 官方帳號好友後再使用個人紀錄。',
-      };
+      return { status: 'REJECTED', reason: 'NOT_OA_FRIEND', replyText: '請先加入 AFTERTRACE LINE 官方帳號好友後再使用個人紀錄。' };
     }
 
-    const personal = await this.bootstrap.bootstrapPrivateInteraction({
-      lineUserId: message.lineUserId,
-      at: message.lineTimestamp,
-    });
+    const personal = await this.bootstrap.bootstrapPrivateInteraction({ lineUserId: message.lineUserId, at: message.lineTimestamp });
     if (personal.status === 'NOT_OA_FRIEND') {
-      return {
-        status: 'REJECTED',
-        reason: 'NOT_OA_FRIEND',
-        replyText: '請先加入 AFTERTRACE LINE 官方帳號好友後再使用個人紀錄。',
-      };
+      return { status: 'REJECTED', reason: 'NOT_OA_FRIEND', replyText: '請先加入 AFTERTRACE LINE 官方帳號好友後再使用個人紀錄。' };
     }
-
-    if (command.kind === 'QUERY') {
-      return { status: 'QUERY', sourceId: personal.sourceId, userId: personal.userId };
-    }
+    if (command.kind === 'QUERY') return { status: 'QUERY', sourceId: personal.sourceId, userId: personal.userId };
 
     if (command.kind === 'RECORD_QUOTED') {
-      return {
-        status: 'QUOTED_NOT_READY',
-        replyText: '個人附件／音檔／圖片紀錄正在接新的 content-fetch 流程，這次尚未建立紀錄。',
-      };
+      const attachments = worklogAttachmentRuntime();
+      if (!attachments) return { status: 'QUOTED_NOT_READY', replyText: '附件處理服務目前尚未啟用，這次沒有建立紀錄。' };
+      const result = await attachments.ingest({
+        sourceId: personal.sourceId,
+        actorUserId: personal.userId,
+        chargedUserId: personal.userId,
+        commandLineMessageId: message.lineMessageId,
+        quotedLineMessageId: command.quotedLineMessageId,
+        sourceTimestamp: message.lineTimestamp,
+        instruction: command.instruction,
+      });
+      if (result.status === 'RECORDED') {
+        return {
+          status: 'RECORDED', recordId: result.recordId, duplicate: result.duplicate,
+          replyText: result.duplicate ? '這則附件已經記錄過了。' : '已記錄到你的個人 AFTERTRACE。',
+        };
+      }
+      if (result.status === 'IN_PROGRESS') return { status: 'QUOTED_NOT_READY', replyText: '這則附件正在處理中，請稍後到 AFTERTRACE 查看。' };
+      return attachmentFailure(result.reason);
     }
 
     const write = await this.records.recordText({
@@ -138,49 +100,31 @@ export class WorklogOaRuntime {
     });
     if (write.status === 'CREATED') {
       await this.normalizeBestEffort(write.recordId, message);
-      return {
-        status: 'RECORDED',
-        recordId: write.recordId,
-        duplicate: false,
-        replyText: '已記錄到你的個人 AFTERTRACE。',
-      };
+      return { status: 'RECORDED', recordId: write.recordId, duplicate: false, replyText: '已記錄到你的個人 AFTERTRACE。' };
     }
     if (write.status === 'ALREADY_RECORDED') {
       await this.normalizeBestEffort(write.recordId, message);
-      return {
-        status: 'RECORDED',
-        recordId: write.recordId,
-        duplicate: true,
-        replyText: '這則訊息已經記錄過了。',
-      };
+      return { status: 'RECORDED', recordId: write.recordId, duplicate: true, replyText: '這則訊息已經記錄過了。' };
     }
     if (write.status === 'IDEMPOTENCY_CONFLICT') {
-      return {
-        status: 'REJECTED',
-        reason: 'IDEMPOTENCY_CONFLICT',
-        replyText: '這則 LINE 訊息的紀錄狀態不一致，為避免寫錯資料，本次沒有覆蓋既有紀錄。',
-      };
+      return { status: 'REJECTED', reason: 'IDEMPOTENCY_CONFLICT', replyText: '這則 LINE 訊息的紀錄狀態不一致，為避免寫錯資料，本次沒有覆蓋既有紀錄。' };
     }
-    return {
-      status: 'REJECTED',
-      reason: 'SOURCE_NOT_FOUND',
-      replyText: '你的個人 AFTERTRACE 紀錄區目前無法使用，請稍後再試。',
-    };
+    return { status: 'REJECTED', reason: 'SOURCE_NOT_FOUND', replyText: '你的個人 AFTERTRACE 紀錄區目前無法使用，請稍後再試。' };
   }
 
   private async normalizeBestEffort(recordId: number, message: BufferedPrivateMessage): Promise<void> {
     if (!this.textNormalization) return;
-    try {
-      await this.textNormalization.normalizeText(recordId);
-    } catch (error) {
-      console.error(JSON.stringify({
-        event: 'worklog_text_normalization_failed_after_persist',
-        source: 'PRIVATE',
-        recordId,
-        lineUserId: message.lineUserId,
-        lineMessageId: message.lineMessageId,
-        message: error instanceof Error ? error.message : 'unknown error',
-      }));
+    try { await this.textNormalization.normalizeText(recordId); }
+    catch (error) {
+      console.error(JSON.stringify({ event: 'worklog_text_normalization_failed_after_persist', source: 'PRIVATE', recordId, lineUserId: message.lineUserId, lineMessageId: message.lineMessageId, message: error instanceof Error ? error.message : 'unknown error' }));
     }
   }
+}
+
+function attachmentFailure(reason: string): WorklogOaRuntimeResult {
+  if (reason === 'LINE_CONTENT_EXPIRED') return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '這則內容已過期，請重新傳送後再 Reply @AFTERTRACE。' };
+  if (reason === 'LINE_CONTENT_TOO_LARGE') return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '這個附件太大，目前無法處理，請縮小檔案後重新傳送。' };
+  if (reason === 'ATTACHMENT_UNSUPPORTED') return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '目前不支援這個檔案格式，請改傳圖片、音檔、PDF 或文字檔。' };
+  if (/QUOTA|ALLOWANCE|SUBSCRIPTION/.test(reason)) return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '你的 AI 額度不足，這次沒有處理附件。' };
+  return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '這次附件沒有成功處理，請重新傳送後再試。' };
 }
