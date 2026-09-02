@@ -2,6 +2,12 @@ import app, { type Bindings } from './index';
 import { createAdminRoutes } from './admin/routes';
 import { createDatabase } from './db/client';
 import { LineMessageContentResolver } from './line/content';
+import {
+  anomalyErrorCode,
+  anomalyErrorSummary,
+  DrizzleWorklogAnomalyRepository,
+  recordAnomalySafely,
+} from './worklog/anomalies';
 import { WorklogAttachmentIngestionService } from './worklog/attachment-ingestion';
 import { configureWorklogAttachmentRuntime } from './worklog/attachment-runtime';
 import { DrizzleWorklogAttachmentRepository } from './worklog/drizzle-attachment-ingestion';
@@ -12,6 +18,7 @@ import { createWorklogSubscriptionRoutes } from './worklog/subscription-routes';
 import { WorklogSubscriptionService } from './worklog/subscription';
 
 type ExecutionContextLike = { waitUntil(promise: Promise<unknown>): void };
+type ApiBoundary = 'ADMIN_API' | 'SUBSCRIPTION_API' | 'WORKLOG_WEB_API';
 
 const adminRoutes = createAdminRoutes();
 const worklogRoutes = createWorklogRoutes();
@@ -34,6 +41,60 @@ function legacyRoute(pathname: string): boolean {
     || LEGACY_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
+async function withApiAnomalyBoundary(
+  boundary: ApiBoundary,
+  request: Request,
+  env: Bindings,
+  run: () => Promise<Response>,
+): Promise<Response> {
+  const requestUrl = new URL(request.url);
+  try {
+    const response = await run();
+    // Expected client/auth validation failures are 4xx and are deliberately not
+    // operational anomalies. Persist only server-side responses at this boundary.
+    if (response.status >= 500) {
+      await recordAnomalySafely(
+        new DrizzleWorklogAnomalyRepository(createDatabase(env.DATABASE_URL)),
+        {
+          category: boundary,
+          errorCode: `HTTP_${response.status}`,
+          summary: `${boundary} returned HTTP ${response.status}`,
+          requestRef: request.headers.get('cf-ray'),
+          metadata: {
+            method: request.method,
+            pathname: requestUrl.pathname,
+            status: response.status,
+          },
+        },
+      );
+    }
+    return response;
+  } catch (error) {
+    console.error(JSON.stringify({
+      event: 'worklog_api_boundary_failed',
+      boundary,
+      method: request.method,
+      pathname: requestUrl.pathname,
+      message: error instanceof Error ? error.message : 'unknown error',
+    }));
+    await recordAnomalySafely(
+      new DrizzleWorklogAnomalyRepository(createDatabase(env.DATABASE_URL)),
+      {
+        category: boundary,
+        errorCode: anomalyErrorCode(error, 'UNHANDLED_API_ERROR'),
+        summary: anomalyErrorSummary(error, `${boundary} unhandled failure`),
+        requestRef: request.headers.get('cf-ray'),
+        metadata: {
+          method: request.method,
+          pathname: requestUrl.pathname,
+          unhandled: true,
+        },
+      },
+    );
+    return Response.json({ ok: false, error: 'INTERNAL_SERVER_ERROR' }, { status: 500 });
+  }
+}
+
 export default {
   async fetch(request: Request, env: Bindings, executionContext: ExecutionContextLike) {
     configureWorklogRuntime(env);
@@ -45,17 +106,23 @@ export default {
     if (url.pathname === '/api/v1/admin' || url.pathname.startsWith('/api/v1/admin/')) {
       const rewritten = new URL(request.url);
       rewritten.pathname = url.pathname.slice('/api/v1/admin'.length) || '/';
-      return adminRoutes.fetch(new Request(rewritten, request), env as never, executionContext as never);
+      const routedRequest = new Request(rewritten, request);
+      return withApiAnomalyBoundary('ADMIN_API', request, env, () =>
+        adminRoutes.fetch(routedRequest, env as never, executionContext as never));
     }
     if (url.pathname === '/api/v1/subscription' || url.pathname.startsWith('/api/v1/subscription/')) {
       const rewritten = new URL(request.url);
       rewritten.pathname = url.pathname.slice('/api/v1/subscription'.length) || '/';
-      return worklogSubscriptionRoutes.fetch(new Request(rewritten, request), env as never, executionContext as never);
+      const routedRequest = new Request(rewritten, request);
+      return withApiAnomalyBoundary('SUBSCRIPTION_API', request, env, () =>
+        worklogSubscriptionRoutes.fetch(routedRequest, env as never, executionContext as never));
     }
     if (url.pathname === '/api/v1/worklog' || url.pathname.startsWith('/api/v1/worklog/')) {
       const rewritten = new URL(request.url);
       rewritten.pathname = url.pathname.slice('/api/v1/worklog'.length) || '/';
-      return worklogRoutes.fetch(new Request(rewritten, request), env as never, executionContext as never);
+      const routedRequest = new Request(rewritten, request);
+      return withApiAnomalyBoundary('WORKLOG_WEB_API', request, env, () =>
+        worklogRoutes.fetch(routedRequest, env as never, executionContext as never));
     }
     return app.fetch(request, env, executionContext as never);
   },
