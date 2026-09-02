@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { bigint, bigserial, check, index, jsonb, pgTable, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
+import { worklogRecords, worklogSources, worklogUsers } from './schema-worklog';
 
 export const worklogAttachmentIngestions = pgTable(
   'worklog_attachment_ingestions',
@@ -7,11 +8,17 @@ export const worklogAttachmentIngestions = pgTable(
     id: bigserial('id', { mode: 'number' }).primaryKey(),
     commandLineMessageId: varchar('command_line_message_id', { length: 64 }).notNull(),
     quotedLineMessageId: varchar('quoted_line_message_id', { length: 64 }).notNull(),
-    sourceId: bigint('source_id', { mode: 'number' }).notNull(),
-    actorUserId: bigint('actor_user_id', { mode: 'number' }).notNull(),
+    sourceId: bigint('source_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogSources.id, { onDelete: 'restrict' }),
+    actorUserId: bigint('actor_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogUsers.id, { onDelete: 'restrict' }),
     status: varchar('status', { length: 32 }).notNull(),
     reservationToken: varchar('reservation_token', { length: 64 }),
-    recordId: bigint('record_id', { mode: 'number' }),
+    recordId: bigint('record_id', { mode: 'number' }).references(() => worklogRecords.id, {
+      onDelete: 'restrict',
+    }),
     usageCommitJson: jsonb('usage_commit_json'),
     lastErrorCode: varchar('last_error_code', { length: 128 }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
