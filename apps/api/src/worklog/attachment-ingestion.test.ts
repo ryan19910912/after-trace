@@ -69,6 +69,16 @@ class ContentResolver {
   async content() { this.calls += 1; return content; }
 }
 
+class NonRetrievableContentResolver {
+  calls = 0;
+  async content(): Promise<LineMessageContent> {
+    this.calls += 1;
+    const error = new Error('LINE_CONTENT_NOT_RETRIEVABLE') as Error & { code: string };
+    error.code = 'LINE_CONTENT_NOT_RETRIEVABLE';
+    throw error;
+  }
+}
+
 class Provider {
   calls = 0;
   reservationUnits() { return 500; }
@@ -91,6 +101,34 @@ describe('WorklogAttachmentIngestionService', () => {
     await expect(service.ingest(input)).resolves.toEqual({ status: 'RECORDED', recordId: 33, duplicate: false });
     expect(resolver.calls).toBe(1); expect(provider.calls).toBe(1); expect(subscription.reserveCalls).toBe(1); expect(subscription.commitCalls).toBe(1);
     expect(repo.saved?.usage.recordId).toBe(33);
+  });
+
+  it('classifies LINE content but blocks media before quota/provider work when AI media capability is disabled', async () => {
+    const repo = new Repo(); const subscription = new Subscription(); const resolver = new ContentResolver(); const provider = new Provider();
+    const service = new WorklogAttachmentIngestionService(repo, subscription, resolver, provider);
+
+    await expect(service.ingest({ ...input, allowAiMedia: false })).resolves.toEqual({
+      status: 'FAILED',
+      reason: 'AI_MEDIA_DISABLED',
+    });
+    expect(resolver.calls).toBe(1);
+    expect(subscription.reserveCalls).toBe(0);
+    expect(provider.calls).toBe(0);
+    expect(repo.failed).toBe('AI_MEDIA_DISABLED');
+  });
+
+  it('preserves quoted-TEXT re-entry classification when media AI is disabled', async () => {
+    const repo = new Repo(); const subscription = new Subscription(); const resolver = new NonRetrievableContentResolver(); const provider = new Provider();
+    const service = new WorklogAttachmentIngestionService(repo, subscription, resolver, provider);
+
+    await expect(service.ingest({ ...input, allowAiMedia: false })).resolves.toEqual({
+      status: 'FAILED',
+      reason: 'LINE_CONTENT_NOT_RETRIEVABLE',
+    });
+    expect(resolver.calls).toBe(1);
+    expect(subscription.reserveCalls).toBe(0);
+    expect(provider.calls).toBe(0);
+    expect(repo.failed).toBe('LINE_CONTENT_NOT_RETRIEVABLE');
   });
 
   it('returns a completed duplicate without refetching LINE or calling AI', async () => {
