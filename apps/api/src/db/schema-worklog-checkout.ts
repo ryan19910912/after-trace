@@ -1,12 +1,17 @@
 import { sql } from 'drizzle-orm';
 import { bigint, bigserial, check, index, pgTable, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
+import { worklogSubscriptionPlans, worklogUsers } from './schema-worklog';
 
 export const worklogCheckoutIntents = pgTable(
   'worklog_checkout_intents',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    userId: bigint('user_id', { mode: 'number' }).notNull(),
-    planCode: varchar('plan_code', { length: 64 }).notNull(),
+    userId: bigint('user_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogUsers.id, { onDelete: 'restrict' }),
+    planCode: varchar('plan_code', { length: 64 })
+      .notNull()
+      .references(() => worklogSubscriptionPlans.code, { onDelete: 'restrict' }),
     requestKey: varchar('request_key', { length: 64 }).notNull(),
     status: varchar('status', { length: 32 }).default('PENDING_PROVIDER').notNull(),
     provider: varchar('provider', { length: 64 }),
