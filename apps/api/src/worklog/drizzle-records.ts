@@ -27,6 +27,7 @@ type TextWriteRow = {
   source_id: string;
   author_user_id: string | null;
   line_message_id: string;
+  quoted_line_message_id: string | null;
   raw_text: string | null;
   inserted: boolean;
 };
@@ -38,6 +39,7 @@ export class DrizzleWorklogRecordWriteRepository implements WorklogRecordWriteRe
     sourceId: number;
     authorUserId: number;
     lineMessageId: string;
+    quotedLineMessageId?: string | null;
     rawText: string;
     sourceTimestamp: Date;
   }): Promise<
@@ -58,6 +60,7 @@ export class DrizzleWorklogRecordWriteRepository implements WorklogRecordWriteRe
           source_id,
           author_user_id,
           line_message_id,
+          quoted_line_message_id,
           input_type,
           category,
           raw_text,
@@ -70,6 +73,7 @@ export class DrizzleWorklogRecordWriteRepository implements WorklogRecordWriteRe
           active_source.id,
           ${input.authorUserId},
           ${input.lineMessageId},
+          ${input.quotedLineMessageId ?? null},
           'TEXT',
           'OTHER',
           ${input.rawText},
@@ -78,13 +82,14 @@ export class DrizzleWorklogRecordWriteRepository implements WorklogRecordWriteRe
           NOW()
         FROM active_source
         ON CONFLICT (line_message_id) DO NOTHING
-        RETURNING id, source_id, author_user_id, line_message_id, raw_text
+        RETURNING id, source_id, author_user_id, line_message_id, quoted_line_message_id, raw_text
       )
       SELECT
         id::text AS id,
         source_id::text AS source_id,
         author_user_id::text AS author_user_id,
         line_message_id,
+        quoted_line_message_id,
         raw_text,
         TRUE AS inserted
       FROM inserted
@@ -94,6 +99,7 @@ export class DrizzleWorklogRecordWriteRepository implements WorklogRecordWriteRe
         existing.source_id::text AS source_id,
         existing.author_user_id::text AS author_user_id,
         existing.line_message_id,
+        existing.quoted_line_message_id,
         existing.raw_text,
         FALSE AS inserted
       FROM worklog_records AS existing
@@ -110,17 +116,13 @@ export class DrizzleWorklogRecordWriteRepository implements WorklogRecordWriteRe
         : { status: 'EXISTING', record };
     }
 
-    // PostgreSQL ON CONFLICT can wait on a concurrent insert that was invisible to the
-    // command's original READ COMMITTED snapshot. If that happens, the CTE above may
-    // legitimately return no row even though the winner now exists. A second command
-    // gets a fresh snapshot and makes LINE redelivery idempotent rather than reporting
-    // a false SOURCE_NOT_FOUND.
     const replay = await this.db.execute(sql`
       SELECT
         id::text AS id,
         source_id::text AS source_id,
         author_user_id::text AS author_user_id,
         line_message_id,
+        quoted_line_message_id,
         raw_text,
         FALSE AS inserted
       FROM worklog_records
@@ -234,6 +236,7 @@ function textRecordIdentity(row: TextWriteRow): StoredTextRecordIdentity {
     sourceId: Number(row.source_id),
     authorUserId: nullableNumber(row.author_user_id),
     lineMessageId: row.line_message_id,
+    quotedLineMessageId: row.quoted_line_message_id,
     rawText: row.raw_text,
   };
 }
