@@ -3,6 +3,7 @@ import {
   AdminApi,
   type AdminAiRuntimeConfig,
   type AdminAnomalies,
+  type AdminCapabilityDefinition,
   type AdminOverview,
   type AdminPlan,
   type Row,
@@ -161,7 +162,8 @@ export function App({ api }: Props) {
     try {
       await api.updateAnomaly(id, status);
       setAnomalies(await api.anomalies());
-      setNotice(`異常 #${id} 已更新為「${display(status)}」。`);
+      const label = status === 'OPEN' ? '待處理' : status === 'RESOLVED' ? '已解決' : '已忽略';
+      setNotice(`異常 #${id} 已更新為「${label}」。`);
     } catch (cause) { setError(message(cause, '異常狀態更新失敗')); }
     finally { setBusy(false); }
   }
@@ -179,6 +181,8 @@ export function App({ api }: Props) {
     ['文字整理失敗', overview.failedNormalizations],
     ['近 30 天意見回饋', overview.feedback30d],
   ] : [], [overview]);
+
+  const capabilityDefinitions = plans.find((plan) => plan.capability_definitions?.length)?.capability_definitions ?? [];
 
   if (!authChecked) return <main className="shell auth-shell"><section className="login-card"><p className="eyebrow">AFTERTRACE</p><h1>工作紀錄管理後台</h1><p className="muted">正在確認管理員登入狀態。</p></section></main>;
   if (!username) return <LoginView busy={busy} error={error} onLogin={login} />;
@@ -214,8 +218,8 @@ export function App({ api }: Props) {
 
     {tab === 'plans' && <section className="stack">
       <article className="card"><h2>AI 額度週期規則</h2><p className="muted">方案中的 AI 額度是建立新週期時使用的模板。若使用者目前週期已建立額度快照，修改方案模板不會改動本期既有額度，也不會重新計算已使用或已保留的額度。</p></article>
-      <PlanEditor key="new-plan" plan={null} busy={busy} onSave={savePlan} />
-      {plans.map((plan) => <PlanEditor key={plan.code} plan={plan} busy={busy} onSave={savePlan} />)}
+      <PlanEditor key="new-plan" plan={null} definitions={capabilityDefinitions} busy={busy} onSave={savePlan} />
+      {plans.map((plan) => <PlanEditor key={plan.code} plan={plan} definitions={plan.capability_definitions ?? capabilityDefinitions} busy={busy} onSave={savePlan} />)}
     </section>}
 
     {tab === 'ai' && <section><AiRuntimeEditor config={aiConfig} busy={busy} onSave={saveAi} /></section>}
@@ -223,7 +227,7 @@ export function App({ api }: Props) {
 
     {tab === 'anomalies' && <section className="stack">
       <article className="card"><h2>系統異常事件</h2><DataTable rows={anomalies.events} preferred={['id','severity','status','category','error_code','summary','user_id','source_id','line_message_id','created_at']} action={(row) => <AnomalyActions row={row} disabled={busy} onChange={updateAnomaly} />} /></article>
-      <article className="card"><h2>附件處理失敗</h2><p className="muted">「可安全重試」代表錯誤發生在外部 AI 呼叫之前，只要原始 LINE 內容仍可取得即可重新嘗試；「需請使用者重傳」表示附件必須重新傳送；「人工檢查」則禁止自動重送 AI 請求，以避免重複計費。</p><DataTable rows={anomalies.attachments.map(withAttachmentRetryDisposition)} preferred={['command_line_message_id','quoted_line_message_id','source_id','actor_user_id','status','last_error_code','retry_disposition','retry_guidance','updated_at']} /></article>
+      <article className="card"><h2>附件處理失敗</h2><p className="muted">「可安全重試」代表錯誤發生在外部 AI 呼叫之前，只要原始 LINE 內容仍可取得即可重新嘗試；「需請使用者重傳」表示附件必須重新傳送；「人工檢查」則禁止自動重送 AI 請求，以避免重複計費。</p><DataTable rows={anomalies.attachments} preferred={['command_line_message_id','quoted_line_message_id','source_id','actor_user_id','status','last_error_code','retry_disposition','retry_guidance','updated_at']} /></article>
       <article className="card"><h2>文字整理失敗</h2><DataTable rows={anomalies.normalizations} preferred={['record_id','status','last_error_code','last_error_detail','started_at','updated_at']} /></article>
     </section>}
 
@@ -244,23 +248,41 @@ function LoginView({ busy, error, onLogin }: { busy: boolean; error: string | nu
   </form></main>;
 }
 
-function PlanEditor({ plan, busy, onSave }: { plan: AdminPlan | null; busy: boolean; onSave: (input: Parameters<AdminApi['savePlan']>[0]) => Promise<void> }) {
+function PlanEditor({ plan, definitions, busy, onSave }: { plan: AdminPlan | null; definitions: AdminCapabilityDefinition[]; busy: boolean; onSave: (input: Parameters<AdminApi['savePlan']>[0]) => Promise<void> }) {
   const [code, setCode] = useState(plan?.code ?? '');
   const [displayName, setDisplayName] = useState(plan?.display_name ?? '');
   const [priceTwd, setPriceTwd] = useState(plan?.price_twd ?? '0');
   const [rank, setRank] = useState(String(plan?.rank ?? 0));
   const [enabled, setEnabled] = useState(plan?.enabled ?? true);
   const [allowance, setAllowance] = useState(String(plan?.ai_allowance_units ?? 0));
-  const [capabilities, setCapabilities] = useState(() => JSON.stringify(plan?.capabilities ?? defaultCapabilities(), null, 2));
-  async function submit() {
-    let parsed: Record<string, boolean | number | string>;
-    try {
-      const raw = JSON.parse(capabilities) as unknown;
-      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error();
-      parsed = raw as Record<string, boolean | number | string>;
-    } catch { window.alert('功能權限設定必須是正確的 JSON 物件。'); return; }
-    await onSave({ code: code.trim().toUpperCase(), displayName: displayName.trim(), priceTwd: priceTwd.trim(), rank: Number(rank), enabled, aiAllowanceUnits: Number(allowance), capabilities: parsed });
+  const [capabilities, setCapabilities] = useState<Record<string, boolean | number | string>>(() => capabilityDefaults(definitions, plan?.capabilities));
+
+  useEffect(() => {
+    setCapabilities(capabilityDefaults(definitions, plan?.capabilities));
+  }, [plan?.code, plan?.updated_at, definitions]);
+
+  function setCapability(definition: AdminCapabilityDefinition, raw: boolean | string) {
+    setCapabilities((current) => {
+      let value: boolean | number | string;
+      if (definition.type === 'boolean') value = Boolean(raw);
+      else if (definition.type === 'number') value = raw === '' ? 0 : Number(raw);
+      else value = String(raw);
+      return { ...current, [definition.key]: value };
+    });
   }
+
+  async function submit() {
+    await onSave({
+      code: code.trim().toUpperCase(),
+      displayName: displayName.trim(),
+      priceTwd: priceTwd.trim(),
+      rank: Number(rank),
+      enabled,
+      aiAllowanceUnits: Number(allowance),
+      capabilities,
+    });
+  }
+
   return <article className="card"><div className="card-head"><div><p className="eyebrow">{plan ? '方案' : '新增方案'}</p><h2>{plan?.code ?? '新增方案'}</h2></div><label className="switch"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> 啟用</label></div>
     <div className="form-grid">
       <label>方案代碼<input value={code} disabled={Boolean(plan)} onChange={(event) => setCode(event.target.value.toUpperCase())} /></label>
@@ -269,9 +291,23 @@ function PlanEditor({ plan, busy, onSave }: { plan: AdminPlan | null; busy: bool
       <label>排序順位<input inputMode="numeric" value={rank} onChange={(event) => setRank(event.target.value)} /></label>
       <label>AI 可用額度<input inputMode="numeric" value={allowance} onChange={(event) => setAllowance(event.target.value)} /></label>
     </div>
-    <label>功能權限設定（JSON）<textarea rows={8} value={capabilities} onChange={(event) => setCapabilities(event.target.value)} /></label>
+
+    <h3>功能權限</h3>
+    {definitions.length === 0 ? <p className="muted">目前沒有可用的功能權限定義。</p> : <div className="form-grid">
+      {definitions.map((definition) => {
+        const value = capabilities[definition.key] ?? definition.defaultValue;
+        if (definition.type === 'boolean') {
+          return <label key={definition.key} className="switch"><input type="checkbox" checked={Boolean(value)} onChange={(event) => setCapability(definition, event.target.checked)} /> <span><strong>{definition.label}</strong>{definition.description && <small className="muted">{definition.description}</small>}</span></label>;
+        }
+        if (definition.type === 'number') {
+          return <label key={definition.key}>{definition.label}<input type="number" min={definition.min} max={definition.max} value={String(value)} onChange={(event) => setCapability(definition, event.target.value)} />{definition.description && <small className="muted">{definition.description}</small>}</label>;
+        }
+        return <label key={definition.key}>{definition.label}<input value={String(value)} onChange={(event) => setCapability(definition, event.target.value)} />{definition.description && <small className="muted">{definition.description}</small>}</label>;
+      })}
+    </div>}
+
     {code.trim().toUpperCase() === 'FREE' && <p className="muted">免費方案的群組協作功能會由系統強制關閉。</p>}
-    <button disabled={busy || !code.trim() || !displayName.trim()} onClick={() => void submit()}>儲存方案</button>
+    <button disabled={busy || !code.trim() || !displayName.trim() || definitions.length === 0} onClick={() => void submit()}>儲存方案</button>
   </article>;
 }
 
@@ -348,17 +384,10 @@ function Detail({ value }: { value: unknown }): React.ReactNode {
   return <span>{display(value)}</span>;
 }
 
-function withAttachmentRetryDisposition(row: Row): Row {
-  const code = String(row.last_error_code ?? '').trim().toUpperCase();
-  const safe = new Set(['AI_RUNTIME_CONFIG_MISSING','AI_QUOTA_EXHAUSTED','NO_SUBSCRIPTION','SUBSCRIPTION_INACTIVE','PLAN_DISABLED','NOT_YET_EFFECTIVE','PERIOD_NOT_STARTED','PERIOD_EXPIRED']);
-  const resend = new Set(['LINE_CONTENT_EXPIRED','LINE_CONTENT_EMPTY','LINE_CONTENT_TOO_LARGE','ATTACHMENT_UNSUPPORTED']);
-  if (safe.has(code)) return { ...row, retry_disposition: 'SAFE_RETRY', retry_guidance: '可安全重新嘗試；請先確認原始 LINE 內容仍可取得。' };
-  if (resend.has(code)) return { ...row, retry_disposition: 'RESEND_REQUIRED', retry_guidance: '請使用者重新傳送附件，不要重送舊的 AI 請求。' };
-  return { ...row, retry_disposition: 'MANUAL_REVIEW', retry_guidance: '需人工檢查，禁止自動重送 AI 請求。' };
-}
-
-function defaultCapabilities(): Record<string, boolean | number | string> {
-  return { privateOaRecording: true, groupCollaboration: false, maxGroupCount: 0, aiTextRecording: true, aiMediaIngestion: true, pwaEditing: true, export: false };
+function capabilityDefaults(definitions: AdminCapabilityDefinition[], current?: Record<string, boolean | number | string>): Record<string, boolean | number | string> {
+  const result: Record<string, boolean | number | string> = {};
+  for (const definition of definitions) result[definition.key] = current?.[definition.key] ?? definition.defaultValue;
+  return result;
 }
 
 const COLUMN_LABELS: Record<string, string> = {
@@ -379,15 +408,6 @@ const COLUMN_LABELS: Record<string, string> = {
   subscription_effective_state: '方案有效狀態', subscription_status: '訂閱狀態', current_period_start: '本期開始時間', current_period_end: '本期結束時間', effective_at: '生效時間', plan_enabled: '方案是否啟用',
 };
 
-const VALUE_LABELS: Record<string, string> = {
-  ACTIVE: '啟用', INACTIVE: '停用', OPEN: '待處理', RESOLVED: '已解決', IGNORED: '已忽略',
-  INDIVIDUAL: '個人使用者', GROUP_ENABLED: '群組擁有者', USER: '使用者', GROUP: '群組',
-  ENABLED: '啟用', DISABLED: '停用', FAILED: '失敗', PENDING: '處理中', COMPLETED: '完成', SUCCESS: '成功',
-  SAFE_RETRY: '可安全重試', RESEND_REQUIRED: '需請使用者重傳', MANUAL_REVIEW: '人工檢查',
-  NO_SUBSCRIPTION: '沒有訂閱方案', SUBSCRIPTION_INACTIVE: '訂閱未啟用', PLAN_DISABLED: '方案已停用', NOT_YET_EFFECTIVE: '尚未生效', PERIOD_NOT_STARTED: '週期尚未開始', PERIOD_EXPIRED: '週期已結束',
-  TRUE: '是', FALSE: '否', TEXT: '文字', AUDIO: '語音', IMAGE: '圖片', FILE: '檔案',
-};
-
 function isRow(value: unknown): value is Row { return Boolean(value && typeof value === 'object' && !Array.isArray(value)); }
 function asRow(value: unknown): Row { return isRow(value) ? value : {}; }
 function message(cause: unknown, fallback: string) { return cause instanceof Error ? cause.message : fallback; }
@@ -400,8 +420,6 @@ function display(value: unknown): string {
     return text.length > 160 ? `${text.slice(0,157)}…` : text;
   }
   const text = String(value);
-  const translated = VALUE_LABELS[text.toUpperCase()];
-  if (translated) return translated;
   if (/^\d{4}-\d{2}-\d{2}T/.test(text)) {
     const date = new Date(text);
     if (!Number.isNaN(date.getTime())) return date.toLocaleString('zh-TW');
