@@ -84,20 +84,21 @@ The actual Rich Menu object/image is a LINE OA external configuration step and i
 
 The API deploy script uses the actual Drizzle journal (`drizzle-kit migrate`) rather than the retired bespoke migration helper.
 
-Journaled migrations currently run through `0013_worklog_project_customer_consistency.sql`:
+Journaled migrations currently run through `0014_worklog_oa_friend_state_time.sql`:
 
 - `0000` is retained as historical pre-Worklog baseline.
 - `0001`–`0010` build the Worklog domain through checkout intents.
 - `0011` makes the still-active GROUP one-time-link table `web_auth_entry_nonces` explicit for fresh databases. The physical table name is intentionally preserved for zero-downtime compatibility; its schema declaration now lives with Worklog Web auth.
 - `0012_worklog_quota_cycle_snapshot.sql` makes an existing billing-cycle AI allowance an immutable snapshot so plan-template edits or same-period reassignment cannot silently rewrite already-active quota.
 - `0013_worklog_project_customer_consistency.sql` keeps existing project-linked records/transactions aligned when a project with a fixed customer is reassigned to another customer.
+- `0014_worklog_oa_friend_state_time.sql` adds an OA friendship lifecycle timestamp so delayed/reordered FOLLOW/UNFOLLOW webhooks cannot overwrite a newer friendship state while ordinary private-message timestamps remain independent.
 
-Retired pre-Worklog tables/types are intentionally **not** dropped by the pre-deploy journal. `drizzle/post-cutover/9000_worklog_legacy_cleanup.sql` is the explicit destructive cleanup script and must run only after the Worklog-only API Worker has been deployed and its health/Webhook smoke is good. The `9000` name is intentionally outside the normal journal sequence so it cannot be confused with journaled `0012`/`0013` migrations.
+Retired pre-Worklog tables/types are intentionally **not** dropped by the pre-deploy journal. `drizzle/post-cutover/9000_worklog_legacy_cleanup.sql` is the explicit destructive cleanup script and must run only after the Worklog-only API Worker has been deployed and its health/Webhook smoke is good. The `9000` name is intentionally outside the normal journal sequence so it cannot be confused with journaled Worklog migrations.
 
 Recommended cutover order:
 
 1. Back up any legacy data that must be retained for debugging/history.
-2. Run journaled migrations through `0013`.
+2. Run journaled migrations through `0014`.
 3. Deploy the Worklog-only API Worker.
 4. Verify `/health`, LINE group/OA basic recording and Web auth exchange.
 5. Run `drizzle/post-cutover/9000_worklog_legacy_cleanup.sql` against the same PostgreSQL database.
@@ -124,8 +125,9 @@ Completed deployment-direction work:
 13. Removed retired Drizzle schema declarations from the active schema/export configuration; historical `0000` remains migration history only.
 14. Replaced the bespoke deploy migration script with journaled Drizzle migrations and added `0011` so fresh DBs create the active GROUP Web-entry nonce table.
 15. Added journaled quota-cycle snapshot (`0012`) and project/customer consistency (`0013`) guards.
-16. Authored and clearly separated the post-cutover destructive legacy-table/type cleanup as `post-cutover/9000`.
-17. Removed the no-op scheduled Worker handler; no active cron binding remains in `apps/api/wrangler.toml`.
+16. Added OA friendship event-ordering state (`0014`) so FOLLOW/UNFOLLOW ordering is not conflated with ordinary private-message interaction time.
+17. Authored and clearly separated the post-cutover destructive legacy-table/type cleanup as `post-cutover/9000`.
+18. Removed the no-op scheduled Worker handler; no active cron binding remains in `apps/api/wrangler.toml`.
 
 Still required before production cutover:
 
@@ -144,14 +146,16 @@ Still required before production cutover:
 Before production use validate independently:
 
 - API/Web/Admin builds
-- journaled migrations `0000`–`0013`, then post-cutover `9000`, plus Drizzle schema drift
+- journaled migrations `0000`–`0014`, then post-cutover `9000`, plus Drizzle schema drift
 - SPA deep links including `/help`, `/subscription`, `/feedback`
 - correct CORS origins
 - secrets absent from frontend bundles
 - Admin credential/session behavior
+- Admin malformed path/body inputs return explicit 400 rather than uncaught 500
 - subscription effective-state presentation, quota-cycle snapshot semantics and plan-disable behavior
 - subscription plan list + checkout intent idempotency / no false-success while provider disabled
 - project customer reassignment consistency across linked records/transactions
+- OA FOLLOW/UNFOLLOW ordering remains correct under delayed/reordered webhook delivery
 - deploying each Worker does not redeploy the others
 - legacy API prefixes return 410 and ordinary group chat does not enter old conversation/Memory storage
 - group command persistence remains successful even when LINE reply delivery fails
