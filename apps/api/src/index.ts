@@ -31,10 +31,15 @@ import { WorklogCollaborationService } from './worklog/collaboration';
 import { DrizzleWorklogBootstrapRepository } from './worklog/drizzle-bootstrap';
 import { DrizzleWorklogCollaborationRepository } from './worklog/drizzle-collaboration';
 import { DrizzleWorklogRecordWriteRepository } from './worklog/drizzle-records';
+import { DrizzleWorklogSubscriptionRepository } from './worklog/drizzle-subscription';
+import { DrizzleWorklogTextNormalizationRepository } from './worklog/drizzle-text-normalization';
+import { GeminiWorklogTextNormalizer } from './worklog/gemini-text-normalizer';
 import { WorklogLineRuntime } from './worklog/line-runtime';
 import { WorklogOaRuntime } from './worklog/oa-runtime';
 import { processWorklogOaWebhook } from './worklog/oa-webhook';
 import { WorklogRecordWriteService } from './worklog/records';
+import { WorklogSubscriptionService } from './worklog/subscription';
+import { WorklogTextNormalizationService } from './worklog/text-normalization';
 
 export type Bindings = ProductConfigEnv & {
   DATABASE_URL: string;
@@ -147,14 +152,21 @@ app.post('/webhooks/line', async (c) => {
   const worklogRecordWriteService = new WorklogRecordWriteService(
     new DrizzleWorklogRecordWriteRepository(database),
   );
+  const worklogTextNormalizationService = new WorklogTextNormalizationService(
+    new DrizzleWorklogTextNormalizationRepository(database),
+    new WorklogSubscriptionService(new DrizzleWorklogSubscriptionRepository(database)),
+    new GeminiWorklogTextNormalizer({ apiKey: c.env.GEMINI_API_KEY }),
+  );
   const worklogLineRuntime = new WorklogLineRuntime(
     worklogBootstrapService,
     worklogCollaborationService,
     worklogRecordWriteService,
+    worklogTextNormalizationService,
   );
   const worklogOaRuntime = new WorklogOaRuntime(
     worklogBootstrapService,
     worklogRecordWriteService,
+    worklogTextNormalizationService,
   );
   const memoryRequestRepository = new DrizzleMemoryRequestRepository(database);
   const explicitMemoryRequestService = new ExplicitMemoryRequestService(memoryRequestRepository);
