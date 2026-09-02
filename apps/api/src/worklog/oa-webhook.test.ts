@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BufferedPrivateMessage, OaLifecycleEvent, ParsedOaWebhook } from '../line/events';
+import type { WorklogAnomalyInput } from './anomalies';
 import type { WorklogOaRuntimeResult, WorklogOaLifecycleResult } from './oa-runtime';
 import { processWorklogOaWebhook } from './oa-webhook';
 
@@ -42,6 +43,13 @@ class FakeReply {
   async reply(token: string, text: string): Promise<void> {
     this.calls.push({ token, text });
     if (this.fail) throw new Error('reply unavailable');
+  }
+}
+
+class FakeAnomalies {
+  public calls: WorklogAnomalyInput[] = [];
+  async record(input: WorklogAnomalyInput): Promise<void> {
+    this.calls.push(input);
   }
 }
 
@@ -93,7 +101,7 @@ describe('processWorklogOaWebhook', () => {
     expect(reply.calls).toEqual([{ token: 'reply-1', text: '這則訊息已經記錄過了。' }]);
   });
 
-  it('keeps a successful record result when LINE reply delivery fails', async () => {
+  it('keeps a successful record result and writes a structured anomaly when LINE reply fails', async () => {
     const runtime = new FakeRuntime();
     runtime.nextMessage = {
       status: 'RECORDED',
@@ -103,11 +111,13 @@ describe('processWorklogOaWebhook', () => {
     };
     const reply = new FakeReply();
     reply.fail = true;
+    const anomalies = new FakeAnomalies();
 
     const result = await processWorklogOaWebhook({
       parsed: parsedWithMessage(privateMessage('@AFTERTRACE 今天完成維修')),
       runtime,
       reply,
+      anomalies,
     });
 
     expect(result).toMatchObject({
@@ -117,6 +127,11 @@ describe('processWorklogOaWebhook', () => {
       oaErrors: 1,
     });
     expect(reply.calls).toHaveLength(1);
+    expect(anomalies.calls[0]).toMatchObject({
+      category: 'LINE_OA_REPLY',
+      lineMessageId: 'message-1',
+      requestRef: 'event-1',
+    });
   });
 
   it('uses a private query URL callback without inventing a group id', async () => {
@@ -147,35 +162,66 @@ describe('processWorklogOaWebhook', () => {
     expect(reply.calls[0]?.text).toContain('https://app.example.test/?t=private-token');
   });
 
-  it('does not send automated product-error replies for ordinary support failures', async () => {
+  it('records a structured anomaly without sending automated product-error replies for ordinary support failures', async () => {
     const runtime = new FakeRuntime();
     runtime.failMessage = true;
     const reply = new FakeReply();
+    const anomalies = new FakeAnomalies();
 
     const result = await processWorklogOaWebhook({
       parsed: parsedWithMessage(privateMessage('真人客服您好')),
       runtime,
       reply,
+      anomalies,
     });
 
     expect(result).toMatchObject({ oaHumanSupportMessages: 1, oaErrors: 1, oaWorklogRejected: 0 });
     expect(reply.calls).toHaveLength(0);
+    expect(anomalies.calls[0]).toMatchObject({
+      category: 'LINE_OA_WEBHOOK',
+      errorCode: 'OA_MESSAGE_FAILED',
+      lineMessageId: 'message-1',
+    });
   });
 
-  it('replies safely when an explicit product command throws', async () => {
+  it('replies safely and records an anomaly when an explicit product command throws', async () => {
     const runtime = new FakeRuntime();
     runtime.failMessage = true;
     const reply = new FakeReply();
+    const anomalies = new FakeAnomalies();
 
     const result = await processWorklogOaWebhook({
       parsed: parsedWithMessage(privateMessage('@AFTERTRACE 今天完成維修')),
       runtime,
       reply,
+      anomalies,
     });
 
     expect(result).toMatchObject({ oaWorklogCommands: 1, oaWorklogRejected: 1, oaErrors: 1 });
     expect(reply.calls).toHaveLength(1);
     expect(reply.calls[0]?.text).toContain('沒有成功處理個人紀錄指令');
+    expect(anomalies.calls[0]).toMatchObject({ category: 'LINE_OA_WEBHOOK' });
+  });
+
+  it('records query-entry failures with private user/source context', async () => {
+    const runtime = new FakeRuntime();
+    runtime.nextMessage = { status: 'QUERY', sourceId: 9, userId: 7 };
+    const anomalies = new FakeAnomalies();
+
+    const result = await processWorklogOaWebhook({
+      parsed: parsedWithMessage(privateMessage('@AFTERTRACE 查詢')),
+      runtime,
+      reply: new FakeReply(),
+      anomalies,
+      createQueryUrl: async () => { throw new Error('entry failed'); },
+    });
+
+    expect(result.oaErrors).toBe(1);
+    expect(anomalies.calls[0]).toMatchObject({
+      category: 'LINE_OA_QUERY_ENTRY',
+      userId: 7,
+      sourceId: 9,
+    });
   });
 
   it('processes OA lifecycle events independently from messages', async () => {
