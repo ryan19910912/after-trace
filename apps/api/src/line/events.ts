@@ -123,13 +123,14 @@ export function parseLineWebhook(payload: unknown): ParsedLineWebhook {
     const replyToken = asString(rawEvent.replyToken);
     const eventType = asString(rawEvent.type);
     if (eventType === 'join' || eventType === 'leave') {
-      const actorUserId = eventType === 'join' ? asString(source.userId) : null;
+      // LINE's group source userId is defined only for message events. A Bot join
+      // event therefore cannot be used to infer who invited the Bot into the group.
       result.events.push({ kind: 'LIFECYCLE', event: {
         webhookEventId,
         replyToken,
         lineGroupId,
         type: eventType === 'join' ? 'JOIN' : 'LEAVE',
-        lineUserIds: actorUserId ? [actorUserId] : [],
+        lineUserIds: [],
         lineTimestamp,
       } });
       continue;
