@@ -75,6 +75,7 @@ export const worklogUsers = pgTable(
     displayName: varchar('display_name', { length: 255 }),
     isOaFriend: boolean('is_oa_friend').default(false).notNull(),
     firstOaAddedAt: timestamp('first_oa_added_at', { withTimezone: true }),
+    oaFriendStateAt: timestamp('oa_friend_state_at', { withTimezone: true }),
     lastInteractionAt: timestamp('last_interaction_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
