@@ -21,10 +21,26 @@ class Repo implements WorklogAttachmentRepository {
   state: WorklogAttachmentClaimState = { status: 'CLAIMED' };
   saved: { recordId: number; reservationToken: string; usage: WorklogAiUsageCommit } | null = null;
   failed: string | null = null;
-  claim() { return Promise.resolve(this.state); }
+  persistFailures = 0;
+  persistCalls = 0;
+
+  claim() {
+    const current = this.state;
+    if (current.status === 'CLAIMED') this.state = { status: 'PROCESSING' };
+    return Promise.resolve(current);
+  }
   getRuntimeConfig() { return Promise.resolve(config); }
-  insertRecord() { return Promise.resolve({ status: 'CREATED' as const, recordId: 33 }); }
-  async saveRecordCreated(input: { recordId: number; reservationToken: string; usage: WorklogAiUsageCommit }) { this.saved = input; }
+  async persistRecordCreated(input: { reservationToken: string; usage: WorklogAiUsageCommit }) {
+    this.persistCalls += 1;
+    if (this.persistFailures > 0) {
+      this.persistFailures -= 1;
+      throw new Error('database write uncertain');
+    }
+    const usage = { ...input.usage, recordId: 33 };
+    this.saved = { recordId: 33, reservationToken: input.reservationToken, usage };
+    this.state = { status: 'RECORD_CREATED', recordId: 33, reservationToken: input.reservationToken, usage };
+    return { status: 'CREATED' as const, recordId: 33 };
+  }
   reservationStatus() { return Promise.resolve<'COMMITTED'>('COMMITTED'); }
   async markSucceeded(_command: string, recordId: number) { this.state = { status: 'SUCCEEDED', recordId }; }
   async fail(_command: string, reason: string) { this.failed = reason; this.state = { status: 'FAILED', reason }; }
@@ -69,7 +85,7 @@ const input = {
 };
 
 describe('WorklogAttachmentIngestionService', () => {
-  it('fetches, reserves, analyzes, stores and commits a quoted attachment once', async () => {
+  it('fetches, reserves, analyzes, atomically stores state and commits a quoted attachment once', async () => {
     const repo = new Repo(); const subscription = new Subscription(); const resolver = new ContentResolver(); const provider = new Provider();
     const service = new WorklogAttachmentIngestionService(repo, subscription, resolver, provider);
     await expect(service.ingest(input)).resolves.toEqual({ status: 'RECORDED', recordId: 33, duplicate: false });
@@ -95,5 +111,30 @@ describe('WorklogAttachmentIngestionService', () => {
     const service = new WorklogAttachmentIngestionService(repo, subscription, resolver, provider);
     await expect(service.ingest(input)).resolves.toEqual({ status: 'RECORDED', recordId: 33, duplicate: false });
     expect(resolver.calls).toBe(0); expect(provider.calls).toBe(0); expect(subscription.reserveCalls).toBe(0); expect(subscription.commitCalls).toBe(1);
+  });
+
+  it('retries only atomic persistence after a transient DB uncertainty without calling Gemini twice', async () => {
+    const repo = new Repo(); repo.persistFailures = 1;
+    const subscription = new Subscription(); const resolver = new ContentResolver(); const provider = new Provider();
+    const service = new WorklogAttachmentIngestionService(repo, subscription, resolver, provider);
+
+    await expect(service.ingest(input)).resolves.toEqual({ status: 'RECORDED', recordId: 33, duplicate: false });
+    expect(repo.persistCalls).toBe(2);
+    expect(provider.calls).toBe(1);
+    expect(subscription.reserveCalls).toBe(1);
+    expect(subscription.releaseCalls).toBe(0);
+    expect(subscription.commitCalls).toBe(1);
+  });
+
+  it('leaves an unresolved post-provider persistence failure in progress instead of releasing quota or overwriting durable state', async () => {
+    const repo = new Repo(); repo.persistFailures = 2;
+    const subscription = new Subscription(); const resolver = new ContentResolver(); const provider = new Provider();
+    const service = new WorklogAttachmentIngestionService(repo, subscription, resolver, provider);
+
+    await expect(service.ingest(input)).resolves.toEqual({ status: 'IN_PROGRESS' });
+    expect(repo.persistCalls).toBe(2);
+    expect(provider.calls).toBe(1);
+    expect(subscription.releaseCalls).toBe(0);
+    expect(repo.failed).toBeNull();
   });
 });
