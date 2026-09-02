@@ -48,6 +48,7 @@ The accelerated MVP implementation/static-audit phase is now considered **featur
 - No-active-cycle usage no longer displays lifetime AI usage as a current FREE-cycle metric.
 - `0012_worklog_quota_cycle_snapshot.sql` protects current billing-cycle allowance snapshots from plan-template/same-period reassignment mutation.
 - `0013_worklog_project_customer_consistency.sql` keeps existing project-linked records/transactions consistent when project customer changes.
+- `0014_worklog_oa_friend_state_time.sql` adds a dedicated FOLLOW/UNFOLLOW event-time clock so ordinary private-message timing does not corrupt friendship ordering.
 - Project customer remains authoritative for newly linked record/transaction writes.
 - Admin/PWA subscription presentation computes effective temporal/plan state rather than blindly trusting persisted ACTIVE.
 - Checkout-intent creation uses DB conflict handling rather than unsafe SELECT-then-INSERT idempotency.
@@ -84,56 +85,69 @@ The accelerated MVP implementation/static-audit phase is now considered **featur
 
 ### 4. Previously-left Worklog group could remain permanently INACTIVE after the bot was re-added
 
+- LINE `LEAVE` marks the bound source/members inactive.
+- A known bound source in `INACTIVE` state is now restored to `ACTIVE` on a new valid group interaction or active member-presence event.
+- Existing source id, stable Owner and prior member recording permissions are preserved.
+- Focused leave -> rejoin regression test is authored; not executed yet.
+
+### 5. Delayed/out-of-order LINE group lifecycle events could overwrite newer state
+
+- Group reactivation/deactivation is event-time monotonic.
+- Bound/pending member `is_active` updates only apply when the incoming event timestamp is at least as new as existing `last_seen_at`.
+- Older delayed `LEAVE` / `memberLeft` cannot overwrite a newer rejoin / `memberJoined`.
+- Promotion from pending to bound does not let older pending presence overwrite newer bound-member state.
+- Focused ordering tests are authored; not executed yet.
+
+### 6. Invalid Admin request input could escape parsing as HTTP 500
+
 Previous behavior:
-- LINE `LEAVE` marked the bound group source and members inactive.
-- Later `bootstrapGroupInteraction()` found the same bound source and reactivated the interacting member, but did not reactivate the source itself.
-- Authorization therefore continued returning `GROUP_INACTIVE`, effectively bricking that group after a bot remove/re-add cycle.
+- `/users/:id`, `/groups/:id`, and `/anomalies/:id` called a throwing `id()` parser outside route-level error handling.
+- Manual subscription parsing also called `requiredPlanCode()` / `optionalDate()` before entering the route's guarded assignment block.
+- Malformed client input such as `users/not-a-number`, `groups/0`, an invalid anomaly id, bad plan code, or malformed period-end date could therefore surface as an uncaught 500 instead of a client 400.
 
 Current behavior:
-- `WorklogBootstrapRepository` exposes `reactivateBoundGroup(sourceId, at)`.
-- A known bound source in `INACTIVE` state is restored to `ACTIVE` with `inactive_at = NULL` on the first new valid group interaction or active member-presence event.
-- The existing source id, stable Owner and prior member recording permissions are preserved; no replacement group/source is created.
-- Focused bootstrap test covers leave -> new interaction -> same source/Owner ACTIVE again; test authored but not executed yet.
+- Admin path ids use non-throwing positive-id parsing and return explicit `INVALID_USER_ID`, `INVALID_GROUP_ID`, or `INVALID_ANOMALY_ID` with HTTP 400.
+- Manual subscription plan/date parsing is explicitly caught before any database access and returns a 400 validation error.
+- Focused Admin route tests cover malformed ids, bad plan code and bad period-end date; tests are authored but not executed yet.
 
-### 5. Delayed/out-of-order LINE lifecycle events could overwrite newer group/member state
+### 7. OA FOLLOW / UNFOLLOW could be reordered or incorrectly conflated with ordinary-message time
 
-Previous behavior:
-- `markGroupInactive()` applied a `LEAVE` regardless of whether a newer rejoin/interaction had already been observed.
-- `memberJoined` / `memberLeft` upserts always overwrote `is_active`, even when the incoming webhook event timestamp was older than `last_seen_at`.
-- A delayed/redelivered old `LEAVE` or `memberLeft` could therefore turn an already rejoined group/member inactive again.
+Initial bug:
+- `setOaFriendState()` unconditionally changed `is_oa_friend`, so an older delayed `unfollow` could revoke a newer `follow`.
 
-Current behavior:
-- Group reactivation only applies when the incoming interaction timestamp is not older than the source's current lifecycle `updated_at`.
-- Group `LEAVE` only deactivates the source when the leave timestamp is at least as new as the source lifecycle state.
-- Bound and pending member presence updates change `is_active` only when the incoming event timestamp is at least as new as existing `last_seen_at`.
-- Group leave deactivation applies to members only when their own `last_seen_at` is not newer than the leave event.
-- Pending-group activation/deactivation follows the same monotonic timestamp rule.
-- Promotion/migration of pending members no longer lets older pending presence overwrite newer bound-member presence.
-- Focused ordering tests were added for delayed `LEAVE` after a newer rejoin and delayed `memberLeft` after a newer `memberJoined`; tests are authored but not executed.
+A first attempted guard using `last_interaction_at` was rejected during the same audit because it had its own flaw:
+- a legitimate FOLLOW at 12:00 followed immediately by an ordinary private message at 12:01 can be delivered message-first;
+- if friendship ordering used `last_interaction_at`, the later-delivered 12:00 FOLLOW would look stale even though it is the newest friendship lifecycle event.
+
+Final behavior:
+- `0014_worklog_oa_friend_state_time.sql` adds `worklog_users.oa_friend_state_at`.
+- Drizzle schema includes the same column.
+- `setOaFriendState()` compares only FOLLOW/UNFOLLOW timestamps against `oa_friend_state_at`; ordinary interaction timestamps remain independent.
+- `first_oa_added_at` keeps the earliest known follow time, while `last_interaction_at` continues tracking general interaction activity.
+- Focused tests cover older delayed unfollow after a newer follow and delivery inversion where a later ordinary message arrives before the earlier FOLLOW event; tests are authored but not executed.
 
 Latest commits in this validation-stage sequence include:
-- `c89f856ae94f759a26b9c457b2b442f80966be62` — preserve quota after uncertain TEXT provider-result persistence.
-- `43978a6e194db87dfa924b4540473449d2c8d294` — terminalize stale uncertain TEXT normalization.
-- `9c2a5a2427518c657bf6ca2c17eee3aa52965fc2` — focused TEXT persistence-uncertainty tests.
-- `00bbc715795972f10f45a75dfef4f14ae539f04e` — stable LINE content readiness/non-retrievable error codes.
-- `fca46b5274ad4efa107b3efbb55ee1b12be47569` / `6cf7284512eaa812a1373d5cb5af9505781461c3` — private/group quoted-content recovery UX.
-- `e3f6badc23207b92c13b2e786fb91c1ef09a7ac4` — LINE content resolver tests.
-- `06300934276d66728fc85c22254ed0e2cc21f0ea` — reactivate known group source during bootstrap.
-- `e7df94dd1f9a13d0a9125412879052e904bcb179` — persist Worklog group source reactivation.
-- `58883a38e09ae8004f3b4d3264b83d11daa7371e` — rejoin/reactivation regression test.
-- `a3adaf12f84b5abdb3ed501d6db6e07743ee1992` — enforce monotonic lifecycle/member timestamps in PostgreSQL bootstrap persistence.
-- `4a6fdab173bf848c5b5ca4399f9650a15583aa52` — add out-of-order lifecycle regression tests.
+- `26619796e91361c9f2bcbfc425d360a22e708d46` — return explicit 400 for invalid Admin inputs.
+- `290bd4931344c1c2e7e9b5adbd774a9908ff13ea` — Admin invalid-input regression tests.
+- `50e7045c6b40326f77f18bc7f7bd04e3b0484ef8` — initial OA stale-event guard found during audit; superseded by dedicated lifecycle-clock hardening below.
+- `ebca0c6c49c462c3a894c2698f979e63d377f237` — add `oa_friend_state_at` to active Drizzle schema.
+- `8dc166a2031c50cf00a8ebdffe9eb9e8282c7c15` — order OA friendship changes by dedicated lifecycle timestamp.
+- `b79e37d5f41e4b1bfe251115c51c09d4d1feee8b` — add journaled `0014_worklog_oa_friend_state_time.sql`.
+- `f1e63b94e3ed2a8f2e86c62d17e8b67a46b6628e` — journal migration `0014`.
+- `76ec4cf6be95bcaa31981011a775dfcffd205575` — OA lifecycle ordering regression tests.
+- `06ec506bcb39ba2b0d349887d3b02b961c81f901` — deployment sequence updated through `0014`.
 
 ## Static validation performed in latest batch
 
-- Re-read current branch, group bootstrap/runtime, collaboration/entitlement, Web auth, LINE text cache, LINE content resolver and quota/project consistency migrations.
+- Re-read current branch and durable progress/deployment contract.
+- Audited Admin route parsing and closed malformed-input 500 paths.
+- Re-audited OA friendship lifecycle ordering and rejected the first `last_interaction_at`-based fix after identifying its message/follow delivery-inversion flaw; replaced it with a dedicated lifecycle clock.
 - Confirmed group read/record authorization remains tied to active source/member + current Owner entitlement.
-- Confirmed group reactivation preserves source/Owner identity and does not reset existing `recording_enabled` on conflict updates.
-- Confirmed delayed lifecycle/member events now cannot overwrite newer event-time state in the bootstrap repository.
 - Re-checked quota settlement concurrency: the first COMMIT locks and transitions the reservation; a concurrent redelivery subsequently observes non-`RESERVED` durable state and does not insert a second usage event.
-- Re-checked private one-time nonce consumption and source/OA-friend validation; no new high-risk static auth contradiction found.
-- Re-checked `0012` quota-cycle snapshot and `0013` project-customer synchronization triggers; no new high-risk static contradiction found in this pass.
+- Re-checked private one-time nonce consumption/source/OA-friend validation after friendship-ordering changes.
+- Re-read `0001_worklog_foundation.sql`: core Worklog CRM/record/transaction relationships currently rely on application validation rather than FK constraints. This creates a potential concurrent delete/link TOCTOU risk that should be exercised during disposable-DB validation before deciding whether to add a dedicated DB constraint/locking migration.
 - Tests were authored/updated but **not executed**.
+- No concentrated local typecheck/test/schema/migration/browser/Worker suite was run in this batch.
 - **GitHub Actions were not run, dispatched, rerun, enabled or otherwise triggered.** Commits use `[skip ci]`.
 
 ## Concentrated validation still pending
@@ -144,7 +158,7 @@ Run locally as one deliberate validation phase:
 2. `pnpm typecheck`;
 3. `pnpm test`;
 4. `pnpm db:schema:check`;
-5. journaled PostgreSQL migrations `0000`–`0013` on a disposable database;
+5. journaled PostgreSQL migrations `0000`–`0014` on a disposable database;
 6. post-cutover `drizzle/post-cutover/9000_worklog_legacy_cleanup.sql` on disposable DB;
 7. PWA CRUD/filter/pagination/subscription browser smoke;
 8. Admin login/plan/runtime/manual-subscription/anomaly smoke;
@@ -153,6 +167,9 @@ Run locally as one deliberate validation phase:
 11. real Gemini TEXT/image/audio/PDF usage + cost snapshot checks.
 
 High-priority cases to hit during validation:
+- Admin malformed path/body input returns 400 rather than 500;
+- OA delayed older UNFOLLOW after newer FOLLOW must not revoke friendship;
+- OA follow + immediately later ordinary message delivered message-first must still accept FOLLOW via the independent lifecycle timestamp;
 - group bot leave -> re-add -> existing source/Owner becomes ACTIVE and works again;
 - delayed older `LEAVE` after a newer rejoin must not deactivate the group;
 - delayed older `memberLeft` after newer `memberJoined` must not deactivate the member;
@@ -166,13 +183,15 @@ High-priority cases to hit during validation:
 - LINE attachment content endpoint returns 202, 400, 404 and 410;
 - checkout-intent concurrent same/different request-key identity;
 - project customer reassignment with existing records/transactions;
-- fresh DB creation of active Web-auth tables and post-cutover cleanup safety.
+- concurrent customer/project deletion versus record/transaction linking, because foundation tables currently do not have FK constraints;
+- fresh DB creation of active Web-auth tables, `0014` friendship timestamp, and post-cutover cleanup safety.
 
 ## Remaining known debt / non-blockers
 
 - Payment provider is not connected; provider-neutral boundary is complete.
 - `packages/shared` still contains retired Memory/Credit constants and should be removed together with lockfile regeneration during local validation.
 - Some malformed record pagination inputs still fall back to bounded safe defaults instead of always returning HTTP 400; this is API-polish debt, not an unbounded-query or authorization issue.
+- Core Worklog CRM/record/transaction tables currently have application-level same-workspace/link validation but no FK constraints in the foundation migration. Static review found a possible concurrent delete/link TOCTOU edge; validate this on disposable PostgreSQL before deciding whether to add DB-level RESTRICT/FK or locking guards.
 - Group display name is generic because durable LINE group summary metadata is not stored; cosmetic/non-blocking for MVP.
 - Attachment/TEXT provider-uncertain states deliberately prefer manual review over automatic replay to avoid duplicate AI cost.
 - Private Reply-to-TEXT cannot faithfully reconstruct quoted text without caching ordinary private support traffic; safe UX is explicit re-entry.
@@ -183,11 +202,11 @@ Planning estimates only, not test results:
 
 - MVP feature implementation: **about 99%**.
 - Static logic/architecture audit: **about 99%+**.
-- Production readiness including still-unrun executable validation: **about 93–94%**.
+- Production readiness including still-unrun executable validation: **about 94%**.
 - Remaining large feature batches before validation: **0**.
-- Next work is concentrated local validation + bug fixing.
-- Expected validation/fix work: roughly **1–3 bug-fix batches / about 2–6 focused hours** if issues are ordinary compile/migration/browser integration defects; reserve up to roughly one working day if migration or runtime integration reveals deeper problems.
+- Next work is concentrated local validation + actual failure-driven bug fixing.
+- Expected validation/fix work: roughly **1–3 bug-fix batches / about 2–6 focused hours** if issues are ordinary compile/migration/browser integration defects; reserve up to roughly one working day if migration/runtime/DB-integrity validation reveals deeper problems.
 
 ## Next batch
 
-Start concentrated local validation. Do not substitute GitHub Actions. Fix actual typecheck/test/schema/migration/browser/runtime failures as they appear, with special attention to lifecycle event ordering, group leave/rejoin lifecycle, LINE 202/400 content behavior and provider-success persistence uncertainty. Update this handoff after each validation/fix batch and keep reporting completion percentage, remaining work and time estimate.
+Start concentrated local validation. Do not substitute GitHub Actions. Fix actual typecheck/test/schema/migration/browser/runtime failures as they appear, with special attention to OA/group lifecycle event ordering, Admin malformed-input handling, CRM delete/link concurrency, LINE 202/400 content behavior and provider-success persistence uncertainty. Update this handoff after each validation/fix batch and keep reporting completion percentage, remaining work and time estimate.
