@@ -9,7 +9,6 @@ import type { WorklogAiUsageCommit } from './subscription';
 import type { WorklogAiRuntimeConfigSnapshot } from './text-normalization';
 
 type StateRow = {
-  command_line_message_id: string;
   quoted_line_message_id: string;
   source_id: string | number;
   actor_user_id: string | number;
@@ -41,26 +40,29 @@ export class DrizzleWorklogAttachmentRepository implements WorklogAttachmentRepo
   }): Promise<WorklogAttachmentClaimState> {
     const inserted = await this.db.execute(sql`
       INSERT INTO worklog_attachment_ingestions (
-        command_line_message_id,
-        quoted_line_message_id,
-        source_id,
-        actor_user_id,
-        status,
-        created_at,
-        updated_at
+        command_line_message_id, quoted_line_message_id, source_id, actor_user_id,
+        status, created_at, updated_at
       ) VALUES (
-        ${input.commandLineMessageId},
-        ${input.quotedLineMessageId},
-        ${input.sourceId},
-        ${input.actorUserId},
-        'PROCESSING',
-        NOW(),
-        NOW()
+        ${input.commandLineMessageId}, ${input.quotedLineMessageId}, ${input.sourceId},
+        ${input.actorUserId}, 'PROCESSING', NOW(), NOW()
       )
       ON CONFLICT (command_line_message_id) DO NOTHING
       RETURNING command_line_message_id
     `);
     if (inserted.rows.length > 0) return { status: 'CLAIMED' };
+
+    // Never auto-replay an uncertain provider attempt. If a Worker died while the
+    // provider call may have been in flight, terminalize it and require an explicit
+    // future/admin retry instead of risking duplicate AI cost.
+    await this.db.execute(sql`
+      UPDATE worklog_attachment_ingestions
+      SET status = 'FAILED',
+          last_error_code = 'ATTACHMENT_PROCESSING_STALE_UNCERTAIN',
+          updated_at = NOW()
+      WHERE command_line_message_id = ${input.commandLineMessageId}
+        AND status = 'PROCESSING'
+        AND updated_at < NOW() - INTERVAL '15 minutes'
+    `);
 
     const row = await this.load(input.commandLineMessageId);
     if (!row) return { status: 'FAILED', reason: 'INGESTION_STATE_MISSING' };
@@ -89,9 +91,7 @@ export class DrizzleWorklogAttachmentRepository implements WorklogAttachmentRepo
     const result = await this.db.execute(sql`
       SELECT provider, model, input_usd_per_million, output_usd_per_million,
              audio_usd_per_million, image_usd_per_million, usd_twd_rate
-      FROM worklog_ai_runtime_config
-      WHERE id = 1
-      LIMIT 1
+      FROM worklog_ai_runtime_config WHERE id = 1 LIMIT 1
     `);
     const row = result.rows[0] as ConfigRow | undefined;
     if (!row) return null;
@@ -118,8 +118,7 @@ export class DrizzleWorklogAttachmentRepository implements WorklogAttachmentRepo
     const result = await this.db.execute(sql`
       WITH active_source AS (
         SELECT id, workspace_id FROM worklog_sources
-        WHERE id = ${input.sourceId} AND status = 'ACTIVE'
-        LIMIT 1
+        WHERE id = ${input.sourceId} AND status = 'ACTIVE' LIMIT 1
       ), inserted AS (
         INSERT INTO worklog_records (
           workspace_id, source_id, author_user_id, line_message_id,
@@ -133,7 +132,7 @@ export class DrizzleWorklogAttachmentRepository implements WorklogAttachmentRepo
                ${input.sourceTimestamp}, NOW(), NOW()
         FROM active_source
         ON CONFLICT (line_message_id) DO NOTHING
-        RETURNING id, source_id, author_user_id, line_message_id, quoted_line_message_id
+        RETURNING id
       )
       SELECT id::text AS id, TRUE AS inserted FROM inserted
       UNION ALL
@@ -171,9 +170,7 @@ export class DrizzleWorklogAttachmentRepository implements WorklogAttachmentRepo
   }
 
   async reservationStatus(token: string) {
-    const result = await this.db.execute(sql`
-      SELECT status FROM worklog_ai_quota_reservations WHERE token = ${token} LIMIT 1
-    `);
+    const result = await this.db.execute(sql`SELECT status FROM worklog_ai_quota_reservations WHERE token = ${token} LIMIT 1`);
     const value = (result.rows[0] as { status?: string } | undefined)?.status;
     return value === 'RESERVED' || value === 'COMMITTED' || value === 'RELEASED' || value === 'EXPIRED' ? value : null;
   }
@@ -181,7 +178,8 @@ export class DrizzleWorklogAttachmentRepository implements WorklogAttachmentRepo
   async markSucceeded(commandLineMessageId: string, recordId: number): Promise<void> {
     const result = await this.db.execute(sql`
       UPDATE worklog_attachment_ingestions
-      SET status = 'SUCCEEDED', completed_at = COALESCE(completed_at, NOW()), updated_at = NOW(), last_error_code = NULL
+      SET status = 'SUCCEEDED', completed_at = COALESCE(completed_at, NOW()),
+          updated_at = NOW(), last_error_code = NULL
       WHERE command_line_message_id = ${commandLineMessageId}
         AND record_id = ${recordId}
         AND status IN ('RECORD_CREATED', 'SUCCEEDED')
@@ -194,19 +192,17 @@ export class DrizzleWorklogAttachmentRepository implements WorklogAttachmentRepo
     await this.db.execute(sql`
       UPDATE worklog_attachment_ingestions
       SET status = 'FAILED', last_error_code = ${reason.slice(0, 128)}, updated_at = NOW()
-      WHERE command_line_message_id = ${commandLineMessageId}
-        AND status <> 'SUCCEEDED'
+      WHERE command_line_message_id = ${commandLineMessageId} AND status <> 'SUCCEEDED'
     `);
   }
 
   private async load(commandLineMessageId: string): Promise<StateRow | null> {
     const result = await this.db.execute(sql`
-      SELECT command_line_message_id, quoted_line_message_id, source_id::text AS source_id,
+      SELECT quoted_line_message_id, source_id::text AS source_id,
              actor_user_id::text AS actor_user_id, status, reservation_token,
              record_id::text AS record_id, usage_commit_json, last_error_code
       FROM worklog_attachment_ingestions
-      WHERE command_line_message_id = ${commandLineMessageId}
-      LIMIT 1
+      WHERE command_line_message_id = ${commandLineMessageId} LIMIT 1
     `);
     return (result.rows[0] as StateRow | undefined) ?? null;
   }
@@ -216,22 +212,13 @@ function parseUsage(value: unknown): WorklogAiUsageCommit {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('ATTACHMENT_USAGE_STATE_INVALID');
   const row = value as Record<string, unknown>;
   return {
-    actualUnits: integer(row.actualUnits, 'actualUnits'),
-    workspaceId: optionalInteger(row.workspaceId),
-    recordId: optionalInteger(row.recordId),
-    provider: requiredUnknownText(row.provider, 'provider'),
-    model: requiredUnknownText(row.model, 'model'),
-    inputTokens: integer(row.inputTokens, 'inputTokens'),
-    outputTokens: integer(row.outputTokens, 'outputTokens'),
-    audioInputUnits: integer(row.audioInputUnits ?? 0, 'audioInputUnits'),
-    imageInputUnits: integer(row.imageInputUnits ?? 0, 'imageInputUnits'),
-    inputUsdPerMillion: numberValue(row.inputUsdPerMillion, 'inputUsdPerMillion'),
-    outputUsdPerMillion: numberValue(row.outputUsdPerMillion, 'outputUsdPerMillion'),
-    audioUsdPerMillion: optionalNumber(row.audioUsdPerMillion),
-    imageUsdPerMillion: optionalNumber(row.imageUsdPerMillion),
-    usdTwdRate: optionalNumber(row.usdTwdRate),
-    providerCostUsd: numberValue(row.providerCostUsd, 'providerCostUsd'),
-    providerCostTwd: optionalNumber(row.providerCostTwd),
+    actualUnits: integer(row.actualUnits, 'actualUnits'), workspaceId: optionalInteger(row.workspaceId), recordId: optionalInteger(row.recordId),
+    provider: requiredUnknownText(row.provider, 'provider'), model: requiredUnknownText(row.model, 'model'),
+    inputTokens: integer(row.inputTokens, 'inputTokens'), outputTokens: integer(row.outputTokens, 'outputTokens'),
+    audioInputUnits: integer(row.audioInputUnits ?? 0, 'audioInputUnits'), imageInputUnits: integer(row.imageInputUnits ?? 0, 'imageInputUnits'),
+    inputUsdPerMillion: numberValue(row.inputUsdPerMillion, 'inputUsdPerMillion'), outputUsdPerMillion: numberValue(row.outputUsdPerMillion, 'outputUsdPerMillion'),
+    audioUsdPerMillion: optionalNumber(row.audioUsdPerMillion), imageUsdPerMillion: optionalNumber(row.imageUsdPerMillion), usdTwdRate: optionalNumber(row.usdTwdRate),
+    providerCostUsd: numberValue(row.providerCostUsd, 'providerCostUsd'), providerCostTwd: optionalNumber(row.providerCostTwd),
   };
 }
 
