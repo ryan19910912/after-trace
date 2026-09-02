@@ -468,16 +468,35 @@ Use AI only where it removes input friction:
 
 Do not make AI the source of accounting truth. Database queries and calculations remain deterministic.
 
-## Platform
+## Platform and deployment
 
-Keep the existing stack for MVP:
+Keep the existing application stack for MVP:
 
 - TypeScript / Node ecosystem
-- Hono on Cloudflare Workers
-- React + Vite on Cloudflare Pages
+- Hono on Cloudflare Workers for API
+- React + Vite for Web/PWA
+- React + Vite for Internal Admin
 - PostgreSQL + Drizzle
 
-Re-evaluate infrastructure only after real paid usage demonstrates a concrete limitation.
+Deployment target is **three separate Cloudflare Workers**:
+
+1. `aftertrace-api`
+   - Hono API Worker
+   - LINE webhook, auth/session, PWA/Admin APIs, AI orchestration, DB access
+2. `aftertrace-web`
+   - React/Vite build served through Cloudflare Workers Static Assets
+   - public/customer Web/PWA only
+3. `aftertrace-admin`
+   - React/Vite build served through Cloudflare Workers Static Assets
+   - internal admin only
+
+Rules:
+
+- Do not target Cloudflare Pages for new Web/Admin deployment work on this branch.
+- Keep API, Web and Admin as independent Worker deployments/configuration so each can be deployed and protected separately.
+- Do not collapse Web/Admin static assets into the API Worker unless a later concrete operational reason requires it.
+- Migrate any remaining Pages-specific deployment/config/documentation toward Workers Static Assets incrementally without disrupting core product work.
+- Re-evaluate infrastructure only after real paid usage demonstrates a concrete limitation.
 
 ## Subscription hypothesis
 
