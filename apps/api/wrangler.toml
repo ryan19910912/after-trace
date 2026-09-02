@@ -4,10 +4,10 @@ compatibility_date = "2026-08-29"
 compatibility_flags = ["nodejs_compat"]
 
 [vars]
-# Browser management app. WEB_AUTH_SECRET and LINE_LOGIN_CHANNEL_SECRET stay
-# in Cloudflare Worker secrets and must never be committed here.
-WEB_APP_URL = "https://after-trace.pages.dev"
-WEB_APP_ORIGIN = "https://after-trace.pages.dev"
+# WEB_APP_URL and WEB_APP_ORIGIN must point to the independently deployed
+# aftertrace-web Worker Static Assets origin for each environment. Configure them
+# in the deployment environment rather than committing the obsolete Pages URL.
+# WEB_AUTH_SECRET and LINE_LOGIN_CHANNEL_SECRET stay in Cloudflare Worker secrets.
 LINE_LOGIN_CHANNEL_ID = "2011322889"
 
 [observability]
