@@ -11,7 +11,10 @@ export type WorklogRoutesBindings = {
   WEB_APP_ORIGIN?: string;
 };
 
-type WorklogEnv = { Bindings: WorklogRoutesBindings };
+type WorklogEnv = {
+  Bindings: WorklogRoutesBindings;
+  Variables: { lineUserId: string };
+};
 
 function authSecret(env: WorklogRoutesBindings): string | null {
   const value = env.WEB_AUTH_SECRET?.trim();
@@ -67,18 +70,18 @@ export function createWorklogRoutes() {
     if (!token) return c.json({ ok: false, error: 'WEB_SESSION_REQUIRED' }, 401);
     const session = await verifyWebSessionToken(token, secret);
     if (!session) return c.json({ ok: false, error: 'INVALID_WEB_SESSION' }, 401);
-    c.set('lineUserId' as never, session.lineUserId as never);
+    c.set('lineUserId', session.lineUserId);
     await next();
   });
 
   app.get('/surfaces', async (c) => {
-    const context = await contextFor(c.env.DATABASE_URL, c.get('lineUserId' as never) as string);
+    const context = await contextFor(c.env.DATABASE_URL, c.get('lineUserId'));
     if (!context) return c.json({ ok: false, error: 'WORKLOG_USER_NOT_FOUND' }, 404);
     return c.json({ ok: true, userId: context.userId, surfaces: await context.records.surfaces(context.userId) });
   });
 
   app.get('/records/personal', async (c) => {
-    const context = await contextFor(c.env.DATABASE_URL, c.get('lineUserId' as never) as string);
+    const context = await contextFor(c.env.DATABASE_URL, c.get('lineUserId'));
     if (!context) return c.json({ ok: false, error: 'WORKLOG_USER_NOT_FOUND' }, 404);
     const limit = safePositiveInt(c.req.query('limit')) ?? 100;
     return c.json({ ok: true, records: await context.records.personalRecords(context.userId, limit) });
@@ -87,7 +90,7 @@ export function createWorklogRoutes() {
   app.get('/records/group/:sourceId', async (c) => {
     const sourceId = safePositiveInt(c.req.param('sourceId'));
     if (!sourceId) return c.json({ ok: false, error: 'INVALID_SOURCE_ID' }, 400);
-    const context = await contextFor(c.env.DATABASE_URL, c.get('lineUserId' as never) as string);
+    const context = await contextFor(c.env.DATABASE_URL, c.get('lineUserId'));
     if (!context) return c.json({ ok: false, error: 'WORKLOG_USER_NOT_FOUND' }, 404);
     const limit = safePositiveInt(c.req.query('limit')) ?? 100;
     const result = await context.records.groupRecords(context.userId, sourceId, limit);
