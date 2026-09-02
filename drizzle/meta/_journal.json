@@ -43,6 +43,13 @@
       "when": 1788317415000,
       "tag": "0005_worklog_private_web_entry",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788321100000,
+      "tag": "0006_worklog_text_normalization",
+      "breakpoints": true
     }
   ]
 }
