@@ -83,8 +83,12 @@ This state is important because OA-friend users get a personal record surface in
 ### Group owner
 
 - The LINE user who causes/initiates the Bot being added to a group becomes the AFTERTRACE owner for that group when the LINE event/context allows the actor to be identified reliably.
+- For a LINE group `join` event, if `source.userId` is present and reliable, treat that user as the inviter/initiator and bind that user as the stable AFTERTRACE Owner immediately.
 - Persist a stable `owner_user_id` relationship on the group/source context; do not recompute ownership from whichever member happens to interact most recently.
-- If LINE does not expose the actor for a join/add event in a reliable way, use an explicit owner-claim/binding flow rather than guessing.
+- If LINE does not expose the actor for a join/add event in a reliable way, keep the group pending and use the explicit `@AFTERTRACE 啟用` owner-claim/binding flow rather than guessing.
+- `@AFTERTRACE 啟用` is therefore a fallback/manual-recovery path for groups whose inviter could not be identified or for legacy/unbound data; it is not the normal owner-selection mechanism when the inviter is known.
+- An Owner leaving the LINE group does not silently transfer ownership to another member. Existing ownership remains stable until an explicit future owner-transfer flow is implemented.
+- A manual owner claim must never overwrite a different already-bound Owner accidentally; conflicting claims must be rejected.
 - Owner transfer can be added later if real users need it; the data model should not make transfer impossible.
 
 ### AI quota charging for groups
@@ -240,6 +244,17 @@ Examples of permissions/capabilities that may be toggled per plan:
 - other future paid features
 
 Do not assume the final permission matrix yet; model it flexibly enough to add capability flags without a schema rewrite for every new plan feature.
+
+### Group collaboration and max group count semantics
+
+- `groupCollaboration` answers whether the plan may use AFTERTRACE group recording at all.
+- `maxGroupCount` is an enforced runtime entitlement, not display-only admin metadata.
+- `maxGroupCount = 0` means the plan cannot activate/use any LINE group for AFTERTRACE recording; FREE remains personal-only and should normally fail on the group-collaboration entitlement before showing a numeric `0 group` limit message.
+- For an entitled paid Owner, active owned groups are ordered by stable ownership/binding time (with a deterministic tie-breaker such as source id). Only the first `maxGroupCount` active groups are entitled to group access/recording.
+- If an Owner is over the limit, groups beyond the allowed ordinal must reject group usage before AI/provider work. Disabling/leaving an earlier active group allows the next group in the stable order to become entitled automatically.
+- The group-limit check applies to group read/query and group recording, so a plan cannot bypass the limit through `@AFTERTRACE 查詢`.
+- Group entitlement failure copy should use the plan display name when available. Preferred no-capability message: `目前 {{方案顯示名稱}} 方案沒有開啟群組紀錄功能，升級方案後即可在 LINE 群組使用該功能。`
+- Preferred over-limit message should include both the plan display name and numeric limit, for example: `目前 {{方案顯示名稱}} 方案最多可使用 {{maxGroupCount}} 個 LINE 群組，已超過方案上限。請停用其他群組或升級方案。`
 
 ### AI quota semantics
 
