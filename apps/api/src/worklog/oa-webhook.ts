@@ -1,6 +1,6 @@
 import type { ParsedOaWebhook } from '../line/events';
 import { parseWorklogCommand } from './command';
-import type { WorklogOaRuntime } from './oa-runtime';
+import type { WorklogOaRuntime, WorklogOaRuntimeResult } from './oa-runtime';
 
 export interface WorklogOaReplyPort {
   reply(replyToken: string, text: string): Promise<void>;
@@ -37,6 +37,38 @@ function emptyCounters(): WorklogOaWebhookCounters {
   };
 }
 
+function logMessageFailure(message: {
+  lineUserId: string;
+  lineMessageId: string;
+  webhookEventId: string | null;
+}, event: string, error: unknown, extra?: Record<string, unknown>): void {
+  console.error(JSON.stringify({
+    event,
+    lineUserId: message.lineUserId,
+    lineMessageId: message.lineMessageId,
+    webhookEventId: message.webhookEventId,
+    ...extra,
+    message: error instanceof Error ? error.message : 'unknown error',
+  }));
+}
+
+async function replySafely(input: {
+  reply: WorklogOaReplyPort;
+  replyToken: string;
+  text: string;
+  lineUserId: string;
+  lineMessageId: string;
+  webhookEventId: string | null;
+  counters: WorklogOaWebhookCounters;
+}): Promise<void> {
+  try {
+    await input.reply.reply(input.replyToken, input.text);
+  } catch (error) {
+    input.counters.oaErrors += 1;
+    logMessageFailure(input, 'worklog_oa_reply_failed', error);
+  }
+}
+
 /**
  * Processes only LINE OA one-to-one events. This boundary intentionally does not
  * know about the legacy group conversation/Energy/Memory runtime, so ordinary OA
@@ -70,78 +102,89 @@ export async function processWorklogOaWebhook(input: {
 
     const message = parsedEvent.message;
     const explicitCommand = parseWorklogCommand(message) !== null;
+    let result: WorklogOaRuntimeResult;
     try {
-      const result = await input.runtime.handleMessage(message);
-      if (result.status === 'NOT_HANDLED') {
-        counters.oaHumanSupportMessages += 1;
-        continue;
-      }
-
-      counters.oaWorklogCommands += 1;
-      if (result.status === 'RECORDED') {
-        counters.oaWorklogRecords += 1;
-        if (result.duplicate) counters.oaWorklogDuplicateRecords += 1;
-      } else if (result.status === 'QUERY') {
-        counters.oaWorklogQueries += 1;
-      } else {
-        counters.oaWorklogRejected += 1;
-      }
-
-      if (!message.replyToken) continue;
-      if (result.status === 'QUERY') {
-        const url = input.createQueryUrl
-          ? await input.createQueryUrl({
-              lineUserId: message.lineUserId,
-              sourceId: result.sourceId,
-              userId: result.userId,
-              at: message.lineTimestamp,
-            })
-          : null;
-        await input.reply.reply(
-          message.replyToken,
-          url
-            ? `AFTERTRACE｜查看個人紀錄\n${url}`
-            : 'AFTERTRACE 個人紀錄頁的安全登入正在接線中，既有紀錄不受影響。',
-        );
-        continue;
-      }
-
-      await input.reply.reply(message.replyToken, result.replyText);
+      result = await input.runtime.handleMessage(message);
     } catch (error) {
       counters.oaErrors += 1;
-      console.error(JSON.stringify({
-        event: 'worklog_oa_message_failed',
-        lineUserId: message.lineUserId,
-        lineMessageId: message.lineMessageId,
-        webhookEventId: message.webhookEventId,
-        explicitCommand,
-        message: error instanceof Error ? error.message : 'unknown error',
-      }));
+      logMessageFailure(message, 'worklog_oa_message_failed', error, { explicitCommand });
 
       if (explicitCommand) {
         counters.oaWorklogCommands += 1;
         counters.oaWorklogRejected += 1;
         if (message.replyToken) {
-          try {
-            await input.reply.reply(
-              message.replyToken,
-              'AFTERTRACE 這次沒有成功處理個人紀錄指令，請稍後再試。',
-            );
-          } catch (replyError) {
-            console.error(JSON.stringify({
-              event: 'worklog_oa_error_reply_failed',
-              lineUserId: message.lineUserId,
-              lineMessageId: message.lineMessageId,
-              message: replyError instanceof Error ? replyError.message : 'unknown error',
-            }));
-          }
+          await replySafely({
+            reply: input.reply,
+            replyToken: message.replyToken,
+            text: 'AFTERTRACE 這次沒有成功處理個人紀錄指令，請稍後再試。',
+            lineUserId: message.lineUserId,
+            lineMessageId: message.lineMessageId,
+            webhookEventId: message.webhookEventId,
+            counters,
+          });
         }
       } else {
         // Ordinary private OA text is human support traffic. A persistence/touch
         // failure must not produce an automated product-error reply to the customer.
         counters.oaHumanSupportMessages += 1;
       }
+      continue;
     }
+
+    if (result.status === 'NOT_HANDLED') {
+      counters.oaHumanSupportMessages += 1;
+      continue;
+    }
+
+    counters.oaWorklogCommands += 1;
+    if (result.status === 'RECORDED') {
+      counters.oaWorklogRecords += 1;
+      if (result.duplicate) counters.oaWorklogDuplicateRecords += 1;
+    } else if (result.status === 'QUERY') {
+      counters.oaWorklogQueries += 1;
+    } else {
+      counters.oaWorklogRejected += 1;
+    }
+
+    if (!message.replyToken) continue;
+    if (result.status === 'QUERY') {
+      let url: string | null = null;
+      if (input.createQueryUrl) {
+        try {
+          url = await input.createQueryUrl({
+            lineUserId: message.lineUserId,
+            sourceId: result.sourceId,
+            userId: result.userId,
+            at: message.lineTimestamp,
+          });
+        } catch (error) {
+          counters.oaErrors += 1;
+          logMessageFailure(message, 'worklog_oa_query_entry_failed', error);
+        }
+      }
+      await replySafely({
+        reply: input.reply,
+        replyToken: message.replyToken,
+        text: url
+          ? `AFTERTRACE｜查看個人紀錄\n${url}`
+          : 'AFTERTRACE 個人紀錄頁的安全登入正在接線中，既有紀錄不受影響。',
+        lineUserId: message.lineUserId,
+        lineMessageId: message.lineMessageId,
+        webhookEventId: message.webhookEventId,
+        counters,
+      });
+      continue;
+    }
+
+    await replySafely({
+      reply: input.reply,
+      replyToken: message.replyToken,
+      text: result.replyText,
+      lineUserId: message.lineUserId,
+      lineMessageId: message.lineMessageId,
+      webhookEventId: message.webhookEventId,
+      counters,
+    });
   }
 
   return counters;
