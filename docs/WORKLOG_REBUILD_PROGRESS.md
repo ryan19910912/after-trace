@@ -80,6 +80,8 @@ Record list supports server-side q/type/category/customer/project/from/to filter
 Workspace management rules:
 - CRM/project/finance requires caller's owned personal workspace; mere group membership does not expose another Owner's CRM/finance.
 - Customer/project/record links are validated to same workspace.
+- When a selected project is already assigned to a customer, that project/customer relationship is authoritative for record and transaction linkage; the server canonicalizes `customer_id` to the project's customer so stale UI combinations cannot persist contradictory CRM/finance links.
+- When a project has no customer, an independently selected customer remains allowed.
 - Referenced customer/project cannot be deleted.
 - Record editing changes normalized summary/category/customer/project only; raw LINE content is immutable.
 - Transactions are typed `RECEIVED` / `EXPENSE` / `RECEIVABLE` with exact TWD amount, time and optional links.
@@ -153,7 +155,7 @@ Admin surfaces now read/write Worklog domain:
 
 ## Completed repository-level legacy deletion
 
-Latest batch removed the retired API implementation surface rather than merely leaving it unreachable:
+Latest deletion batch removed the retired API implementation surface rather than merely leaving it unreachable:
 
 - Deleted API source/test directories: `ai`, `commerce`, `config`, `conversation`, `credits`, `energy`, `extraction`, `management`, `memory`, `proactive`, `reminders`, `retention`.
 - Deleted retired LINE helpers/tests: old command parser, Energy status and push transport. Active LINE directory now contains only content fetch, event parsing, reply and signature code/tests.
@@ -173,19 +175,28 @@ Earlier cutover static coverage:
 - Auth service tests cover exact LINE membership verification on GROUP one-time entry exchange and no-consume behavior after membership loss.
 - Existing attachment failure UX remains: expired/unavailable content asks resend; provider-uncertain processing is not automatically replayed.
 
-Latest deletion audit:
+Repository deletion audit:
 - Re-read active API entrypoints before deletion and confirmed retained `admin`, `auth`, `line`, `worklog`, `index.ts`, `worker.ts` imports do not depend on deleted legacy directories.
 - Re-read Worklog Drizzle repositories and confirmed they use Worklog tables/raw SQL rather than old schema module exports.
 - Re-read the post-delete Git tree: API `src` now contains only `admin`, `auth`, `db`, `line`, `worklog`, `index.ts`, `worker.ts`; active LINE tree contains only content/events/reply/signature.
 - Historical `0000_tough_scalphunter.sql` is preserved because migration history must remain reproducible; active Drizzle schema declarations no longer advertise those tables as current product schema.
 
-Latest dedicated access-control bug audit:
-- Found a FREE-personal-only contract leak: `@AFTERTRACE 查詢`, PWA group surface discovery and `/records/group/:sourceId` previously checked active group membership but did not re-check the Owner's current paid `groupCollaboration` entitlement. An Owner reverting to FREE/unentitled could therefore leave historical group browsing reachable.
-- Added a separate `authorizeGroupAccess` path that checks active group/member + bound Owner + current non-FREE `groupCollaboration` capability, but deliberately ignores `recording_enabled` and AI quota. This preserves the product rule that disabling future member recording must not erase historical read access.
-- LINE `@AFTERTRACE 查詢` now uses that access authorization before producing a scoped query link.
-- PWA group surface discovery and group record reads now require the Owner's active enabled non-FREE plan with `groupCollaboration=true`; personal source access remains independent.
-- Added focused collaboration/LINE runtime tests for entitled historical read, recording-disabled historical read, and FREE group query rejection. Tests are authored but were not executed in this batch.
-- Static workspace-management review reconfirmed customer/project/record/transaction IDs are constrained to the caller-owned workspace and record editing cannot mutate raw LINE source content. Customer/project/record links can still be independently selected within the same workspace; cross-link consistency (for example choosing customer A with project B that belongs to another customer) remains a product-policy question for the next audit rather than silently inventing a constraint.
+Access-control audit:
+- Fixed a FREE-personal-only contract leak: `@AFTERTRACE 查詢`, PWA group surface discovery and `/records/group/:sourceId` now require the Owner's paid `groupCollaboration` entitlement rather than only active membership.
+- `authorizeGroupAccess` deliberately ignores `recording_enabled` and AI quota so disabling future recording does not erase historical reads.
+- LINE `@AFTERTRACE 查詢` uses the access authorization before producing a scoped query link.
+- PWA group surface discovery and group record reads require an enabled non-FREE group-capable plan; personal source access remains independent.
+- Focused collaboration/LINE runtime tests were authored for entitled historical read, recording-disabled historical read and FREE rejection; not executed yet.
+
+Latest subscription-period and workspace-link audit:
+- Found a second group entitlement leak: multiple direct read paths trusted `worklog_user_subscriptions.status = 'ACTIVE'` even when `current_period_end` had already passed. `WorklogSubscriptionService` and the atomic quota reservation SQL already rejected expired periods, but group query/PWA discovery could still expose historical group data until some external process changed the status row.
+- Group collaboration authorization now carries subscription status, effective time, period start/end and plan-enabled state into the service. Both group read and group record authorization reject not-yet-effective, not-yet-started, expired, inactive or disabled plans before capability/quota checks.
+- PWA group surface discovery and group membership read authorization now also require the subscription window to be current at database time, closing the direct-SQL bypass.
+- Usage-window lookup now rejects stale ACTIVE periods rather than presenting them as the current quota cycle.
+- Added focused collaboration tests for an ACTIVE-but-expired period, a future-effective period and stale-period record authorization. Tests are authored but were not executed.
+- Resolved the customer/project semantic ambiguity deterministically: if a project already belongs to a customer, record and typed-transaction writes canonicalize their customer link to the project's customer; if the project is unassigned, the selected customer remains independent. Same-workspace customer/project/record validation remains in place.
+- Added focused pure tests for project-customer canonicalization; not executed.
+- Re-reviewed record editing and confirmed this batch still changes only normalized summary/category/customer/project metadata; raw LINE input remains untouched.
 - No concentrated local command suite was run in this batch, per user direction.
 
 ## Verification status
@@ -204,26 +215,26 @@ Intentionally **not executed yet** for the accelerated branch state:
 
 Tests are authored but are **not claimed passing**.
 
-Before production explicitly validate private auth, normalization race recovery, TEXT TTL/cap pruning, attachment idempotency/quota settlement, anomaly triggers, checkout-intent idempotency, fresh-db creation of `web_auth_entry_nonces`, group entitlement downgrade behavior, and post-cutover cleanup safety. Worklog migrations are hand-authored/journaled; check Drizzle drift locally.
+Before production explicitly validate private auth, normalization race recovery, TEXT TTL/cap pruning, attachment idempotency/quota settlement, anomaly triggers, checkout-intent idempotency, fresh-db creation of `web_auth_entry_nonces`, group entitlement downgrade/period-expiry behavior, deterministic project/customer linkage, and post-cutover cleanup safety. Worklog migrations are hand-authored/journaled; check Drizzle drift locally.
 
 ## Known remaining risks / debt
 
 1. Payment provider is not connected. Checkout intent is durable but cannot charge/activate a plan yet.
 2. Plan definition allowance edits do not yet have an explicit policy for rewriting an already-active cycle's quota balance. Decide whether change is next-period-only or immediate-with-floor-at-used+reserved; never silently destroy used/reserved quota.
 3. Provider-uncertain attachment failures intentionally have no automatic retry because replay can double bill. Any Admin retry must be explicit and semantics-safe.
-4. The destructive `post-cutover/0012` cleanup is authored but intentionally not in the automatic pre-deploy journal. It must be exercised on disposable DB first and run only after the Worklog Worker is deployed/healthy.
-5. `packages/shared` still contains legacy Memory/Credit constants and appears unused by current apps. Remove it only with the lockfile/workspace cleanup in the final repository audit so frozen-install behavior is not changed blindly.
-6. Some old non-Worklog documentation may still exist outside the four Worklog contract docs/README; it should be classified as historical or removed during the final repo audit so future contributors are not misled.
-7. Group entitlement reads currently trust `worklog_user_subscriptions.status = ACTIVE`; static audit still needs to confirm the system reliably transitions expired periods instead of leaving a stale ACTIVE row past `current_period_end`.
-8. Customer/project/record/transaction links are same-workspace validated, but cross-link semantic consistency is not enforced; decide whether selecting a project should constrain/derive customer links.
+4. Attachment record persistence and ingestion-state advancement are still separate repository operations. A rare database/network failure after the record insert but before durable `RECORD_CREATED` state can leave a persisted record with terminal ingestion failure/uncertain quota settlement; this should be made atomic or explicitly recoverable before final validation.
+5. The destructive `post-cutover/0012` cleanup is authored but intentionally not in the automatic pre-deploy journal. It must be exercised on disposable DB first and run only after the Worklog Worker is deployed/healthy.
+6. `packages/shared` still contains legacy Memory/Credit constants and appears unused by current apps. Remove it only with the lockfile/workspace cleanup in the final repository audit so frozen-install behavior is not changed blindly.
+7. Some old non-Worklog documentation may still exist outside the four Worklog contract docs/README; it should be classified as historical or removed during the final repo audit so future contributors are not misled.
+8. Usage views intentionally separate authorization from historical analytics, but the no-active-window fallback still deserves one final UI/API semantics pass so an expired paid period is not presented confusingly as FREE with lifetime AI aggregates.
 9. Group display name remains generic because Worklog source persists LINE group id, not durable summary display metadata.
 10. Dedicated local compile/test/migration/schema/browser validation is still pending by user request.
 
 ## Next large batch
 
-1. Continue the dedicated static Worklog bug audit: subscription period expiry semantics, owner charging/quota reservation settlement, attachment terminal/in-progress retry transitions, Reply idempotency, private/group auth boundaries, immutable raw input and PWA pagination edge cases.
-2. Review typed finance and record organization link semantics; if customer/project consistency should be deterministic, enforce it in repository mutations and add focused tests rather than relying on UI behavior.
-3. Fix concrete bugs found and add focused tests without repeatedly running the full local suite.
+1. Make attachment record persistence + durable `RECORD_CREATED` ingestion state atomic/recoverable, then define an explicit Admin retry path only for states that are safe to retry without duplicate provider cost.
+2. Continue the dedicated static Worklog bug audit: Reply idempotency, PRIVATE/GROUP Web auth boundaries, subscription display/renewal semantics, quota settlement races, immutable raw input and pagination edges.
+3. Review Admin subscription/plan views for stale-period presentation and active-cycle allowance edit semantics; fix deterministic cases and add focused tests.
 4. Finish final repository cleanup: unused `packages/shared`, stale non-Worklog docs/config references, migration/deployment comments and any dead frontend/Admin code found by static inspection.
 5. Keep payment-provider integration disabled until provider requirements are known.
 6. Then do the user's requested concentrated local checkout/typecheck/test/migration/schema/browser smoke pass and fix all failures as one focused phase, including `0000`–`0011` plus post-cutover `0012` on a disposable DB.
