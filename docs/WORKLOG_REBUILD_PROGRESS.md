@@ -44,7 +44,7 @@ Every development run must:
 
 - Added worklog users/OA friendship, workspace, PRIVATE/GROUP sources, source membership, minimal customers/projects, records, typed transactions, subscription plans/capabilities, subscriptions/history, AI runtime pricing, AI usage/cost snapshots, feedback, anomalies and audit models.
 - Added stable group owner/binding metadata and member `recording_enabled` state.
-- Added race-safe AI quota balance/reservation model so future provider calls can reserve conservatively, commit actual usage, or release on failure.
+- Added race-safe AI quota balance/reservation model so provider calls can reserve conservatively, commit actual usage, or release on failure.
 - Worklog migrations are hand-authored/journaled and still require real PostgreSQL validation before production.
 
 ### Bootstrap / ownership
@@ -67,7 +67,7 @@ Every development run must:
 ### Group LINE runtime cutover
 
 - Added `WorklogLineRuntime` before the legacy conversation/Energy/Memory path.
-- Group `@AFTERTRACE <text>` now performs bootstrap -> permission/entitlement -> raw record persistence -> LINE reply.
+- Group `@AFTERTRACE <text>` performs bootstrap -> permission/entitlement -> raw record persistence -> post-persistence normalization attempt -> LINE reply.
 - Group `@AFTERTRACE 查詢` uses the existing one-time Web entry and re-verifies LINE group membership during exchange.
 - Group Reply worklog commands are intercepted so unfinished quoted-content handling cannot fall through into legacy Memory.
 - Group record/query/owner-claim diagnostics are tracked separately from legacy counters.
@@ -77,7 +77,7 @@ Every development run must:
 - Added a separate OA parser stream for FOLLOW, UNFOLLOW and one-to-one messages so group/OA events cannot be double-processed.
 - Added `WorklogOaRuntime`:
   - ordinary private OA text remains human support
-  - explicit `@AFTERTRACE <text>` writes personal raw TEXT
+  - explicit `@AFTERTRACE <text>` writes personal raw TEXT and then attempts post-persistence normalization
   - `@AFTERTRACE 查詢` resolves exact personal user/source target
   - `@AFTERTRACE 啟用` is rejected in private chat
   - quoted media is intercepted pending direct LINE content-fetch implementation
@@ -100,68 +100,97 @@ Every development run must:
 - Web/Admin require an explicit API origin; Admin does not silently treat its own static origin as the API.
 - See `docs/WORKLOG_DEPLOYMENT.md` for production cutover requirements.
 
-## 2026-09-02 latest batch: secure OA private Web entry/auth
+## 2026-09-02 previous batch: secure OA private Web entry/auth
 
-Starting branch HEAD for this batch was `35bdf019b7957a561a4fc093b70c752ad99953ba`.
+Starting branch HEAD for that batch was `35bdf019b7957a561a4fc093b70c752ad99953ba`.
 
-Implemented the highest-priority private `@AFTERTRACE 查詢` path without inventing a group id:
+- Added `PRIVATE_WEB_ENTRY` claims separate from group `WEB_ENTRY` and identity `WEB_SESSION`.
+- Added `worklog_private_web_entry_nonces` and migration `0005_worklog_private_web_entry.sql`.
+- Private entry creation/consumption checks exact LINE user, current OA friendship, exact ACTIVE PRIVATE source and ownership.
+- PRIVATE exchange never calls LINE group membership APIs and never invents a group id.
+- `/api/v1/auth/entry/exchange` returns explicit GROUP vs PRIVATE entry context.
+- OA `@AFTERTRACE 查詢` is wired to the real private one-time URL.
+- Web bootstrap preserves PRIVATE entry state separately and does not fall into legacy group Memory UI.
+- Token/WebAuthService tests were authored for private type isolation, one-time binding and revoked access.
 
-1. **Private entry token type**
-   - Added `PRIVATE_WEB_ENTRY` claims separate from group `WEB_ENTRY` and identity `WEB_SESSION`.
-   - Claims bind the one-time link to LINE user id + exact internal `userId` + exact PRIVATE `sourceId` + nonce + expiry.
-   - Added positive database-id validation and explicit issue/verify helpers.
-   - Group/private/session token types cannot be confused with one another.
+That batch finished at `e344045ad23ea5c423a4d50ee5c0996548d7bb9e` after its progress update.
 
-2. **One-time private nonce persistence**
-   - Added `worklog_private_web_entry_nonces` schema and migration `0005_worklog_private_web_entry.sql`.
-   - Added expiry/user/source indexes and journal entry.
-   - Registered the schema in both `schema-all.ts` and `drizzle.config.ts` so schema checking does not silently omit the table.
+## 2026-09-02 latest batch: post-persistence TEXT AI normalization
 
-3. **Authorization at link creation and exchange**
-   - `registerPrivateEntry` inserts only when the LINE identity still maps to the exact worklog user, the user is currently an OA friend, and the exact source is ACTIVE + PRIVATE + owned by that same user.
-   - `consumePrivateEntry` atomically consumes a nonce only while those same access conditions still hold.
-   - Exchange distinguishes `ALREADY_USED`, `INVALID_OR_EXPIRED`, and `ACCESS_REVOKED` rather than granting a session on stale friendship/source state.
-   - PRIVATE exchange intentionally does **not** call LINE group membership APIs.
+Starting branch HEAD for this batch was `e344045ad23ea5c423a4d50ee5c0996548d7bb9e`.
 
-4. **Web auth service/routes**
-   - Added `createPrivateBotEntry` with a 5-minute one-time URL.
-   - `/api/v1/auth/entry/exchange` now returns an explicit entry-context union:
-     - `{ type: 'GROUP', lineGroupId }`
-     - `{ type: 'PRIVATE', userId, sourceId }`
-   - PRIVATE success never returns/fakes a group id or group-context token.
-   - Existing GROUP success still returns the group context token for backward compatibility with the current group UI.
+Implemented the highest-priority TEXT normalization path while keeping raw LINE input as the source of truth:
 
-5. **OA webhook wiring**
-   - `/webhooks/line` now passes a real `createQueryUrl` callback into `processWorklogOaWebhook`.
-   - OA `@AFTERTRACE 查詢` therefore resolves the personal source in `WorklogOaRuntime`, creates the exact private one-time entry, and returns that URL through LINE.
+1. **Durable normalization state machine**
+   - Added `worklog_record_ai_normalizations` plus hand-authored/journaled migration `0006_worklog_text_normalization.sql`.
+   - Registered its Drizzle schema in runtime exports and Drizzle Kit config.
+   - State is one row per worklog record with `PENDING`, `PROCESSING`, `PROVIDER_SUCCEEDED`, `USAGE_COMMITTED`, `SUCCEEDED`, `FAILED`.
+   - A unique claim token prevents concurrent redelivery from owning the same normalization attempt.
+   - Provider output and the exact pending AI-usage commit snapshot are persisted before quota settlement, so a worker interruption can resume without a second provider call.
 
-6. **Web frontend entry separation**
-   - Updated Web auth client types/validation to understand PRIVATE vs GROUP entry contexts.
-   - Web bootstrap no longer assumes every entry exchange contains `lineGroupId` / `groupContextToken`.
-   - PRIVATE entry context is preserved separately in local client state and does not trigger legacy group lookup/Memory management.
-   - Generic LINE Login clears stale entry context; logout clears session/group/entry state.
-   - PRIVATE currently lands on a dedicated personal-worklog placeholder rather than exposing the legacy group Memory UI. Actual personal records will appear when the new worklog PWA APIs are exposed.
+2. **DB-backed model/pricing source**
+   - New normalization repository reads only the singleton `worklog_ai_runtime_config` row for active provider/model/input-output pricing/media pricing/FX.
+   - Worklog normalization does not use the old scattered Gemini model/pricing env values as its economics source.
+   - Missing DB runtime config defers normalization and leaves raw records intact.
 
-7. **Tests authored**
-   - Token tests cover private issue/verify, type separation, invalid ids and session separation.
-   - WebAuthService tests cover exact private URL binding, no group fetch on private exchange, and revoked private access.
+3. **Charging identity and conservative reservation**
+   - Normalization derives its context from the durable record/source:
+     - GROUP charges `subscription_owner_user_id`, falling back to the stable owner binding while preserving the record author as actor.
+     - PRIVATE charges the private user and preserves that user as actor.
+   - TEXT reservation uses a conservative token-equivalent upper bound: UTF-8 bytes of the full structured Gemini request plus configured maximum output tokens.
+   - Actual TEXT AI units are provider-reported input + output tokens; provider-reported usage is rejected if it exceeds the conservative reservation.
 
-Code HEAD immediately before this progress-document update was `03534f2936df2679d40fcbd2af0815279f579be6`.
+4. **Grounded structured Gemini normalizer**
+   - Added a dedicated Worklog Gemini path rather than reusing legacy Memory semantics.
+   - Output is restricted to:
+     - concise grounded summary
+     - broad category (`NOTE`, `WORK`, `ISSUE`, `PAYMENT`, `EXPENSE`, `MATERIAL`, `OTHER`)
+     - optional explicit customer hint
+     - optional explicit project hint
+   - JSON schema + Zod validation rejects malformed output.
+   - Prompt explicitly forbids inventing customers/projects/amounts/status/dates/actions.
+   - Provider token usage is required and bounded before it can be billed.
+
+5. **Quota/cost settlement**
+   - Reuses `WorklogSubscriptionService` atomic reservation/commit/release logic.
+   - Successful usage event retains actor, charged user, workspace/source/record, provider/model, input/output tokens, pricing snapshot, optional FX and computed provider cost.
+   - `normalized_summary` and category are written only after provider success and quota commit.
+   - Customer/project hints remain in the durable normalization result state for later deterministic resolver work; they are not guessed into foreign keys.
+
+6. **Redelivery/idempotency recovery**
+   - Raw LINE `CREATED` and exact `ALREADY_RECORDED` outcomes both ask the normalization state machine to make progress.
+   - `SUCCEEDED` is a no-op; `PROCESSING` never launches a second provider call.
+   - If provider output was saved but quota settlement was interrupted, redelivery retries the same reservation/usage snapshot.
+   - If quota was already COMMITTED but normalization state advancement was interrupted, reservation status is read back and the stored result is applied without charging again.
+   - If the provider attempt itself is uncertain/failed, the reservation is released and normalization becomes terminal `FAILED`; automatic LINE redelivery intentionally does not call the provider again.
+
+7. **Raw-record success remains independent from AI**
+   - Group and OA runtimes invoke normalization only after raw persistence.
+   - Normalization exceptions are logged but do not change a successful LINE record into a failed write.
+   - No AI runtime config, no subscription, exhausted quota, invalid config, provider failure or parse failure can erase the raw record.
+
+8. **Tests authored**
+   - Added service tests covering successful owner-charged settlement, quota deferral without provider execution, provider failure/release, recovery after quota was already committed, and completed-normalization no-op behavior.
+
+Code HEAD immediately before this progress-document update was `73703d1ba5279a315a9a3ce84f93b1d9e145820b`.
 
 ## Validation performed in latest batch
 
-- Read all four durable docs before implementation.
-- Verified the branch started exactly at the previously recorded deployment-cutover HEAD.
-- Inspected OA runtime/webhook callback seam, auth token/service/repository/routes, DB schema registration, API webhook wiring and Web bootstrap before changing them.
-- Compared the branch against the starting SHA after implementation; changes were limited to the private Web-entry/auth path, migration/schema registration, tests, API wiring and Web entry-context handling.
+- Read all four durable docs before editing and confirmed starting HEAD `e344045ad23ea5c423a4d50ee5c0996548d7bb9e`.
+- Inspected raw record write/idempotency code, group/OA runtimes, collaboration charging context, subscription reservation/commit SQL, existing Gemini structured-output implementation, AI cost helpers and the worklog AI runtime schema before designing the new path.
 - Statically checked these invariants:
-  - PRIVATE entry never needs/fakes a LINE group id
-  - PRIVATE exchange does not call LINE group membership API
-  - OA friendship and exact private-source ownership are checked at both registration and nonce consumption
-  - nonce is single-use and time-limited
-  - group entry behavior remains separate
-  - Web PRIVATE entry cannot fall into the legacy group Memory surface
-  - new Drizzle schema is present in both runtime exports and Drizzle Kit config
+  - raw TEXT is inserted before any AI work
+  - missing DB AI config or unavailable quota cannot delete/reject the raw record
+  - GROUP actor and charged owner stay distinct through reservation/usage events
+  - PRIVATE charges the personal user
+  - only one normalization state row exists per record
+  - a duplicate LINE delivery cannot start another provider call while state is PROCESSING/SUCCEEDED/FAILED
+  - PROVIDER_SUCCEEDED and USAGE_COMMITTED are resumable without a second provider call
+  - normalized fields are applied only after quota is known committed
+  - AI usage retains immutable provider/model/pricing/cost snapshot
+  - no legacy Memory classifier or Energy ledger is used for the new Worklog normalization semantics
+- Added the status CHECK constraint to both migration and Drizzle schema to avoid intentionally creating schema drift.
+- Attempted a direct branch checkout for `pnpm` verification, but the execution container still cannot resolve `github.com`; no local checkout was available.
 - **No build/typecheck/lint/test/migration execution was possible in this connector-only run.** Tests were authored but must not be treated as passing until run in a real checkout/CI environment.
 
 ## Known cautions / blockers before production
@@ -171,29 +200,25 @@ Code HEAD immediately before this progress-document update was `03534f2936df2679
   - `pnpm test`
   - `pnpm db:schema:check`
   - all worklog migrations on a disposable Neon branch/database
-- Specifically validate migration `0005_worklog_private_web_entry.sql` and its atomic consume SQL against real PostgreSQL.
+- Specifically validate migrations `0005_worklog_private_web_entry.sql` and `0006_worklog_text_normalization.sql`, including normalization claim races and quota-settlement recovery, against real PostgreSQL.
 - Drizzle snapshot metadata for hand-authored worklog migrations has not been regenerated; journal/schema registration is present, but schema drift must be checked before production.
-- AI normalization is not wired yet. Current raw TEXT worklog writes leave `normalized_summary = NULL` and consume no AI quota.
+- Worklog TEXT AI normalization requires:
+  - a valid singleton `worklog_ai_runtime_config` DB row
+  - `GEMINI_API_KEY`
+  - an active subscription/quota balance for the charged user
+  If any are absent, raw records still succeed and normalization remains deferred.
+- A provider-attempt failure/uncertainty is intentionally terminal for automatic redelivery to avoid accidental duplicate provider billing. An explicit/admin retry flow for `FAILED` normalization has not been built yet.
+- Post-persistence normalization is currently awaited inside the LINE webhook runtime. Raw durability is protected, but production latency should be measured; consider moving the already-idempotent normalization call behind `executionCtx.waitUntil` once end-to-end behavior is verified so AI latency cannot delay LINE replies.
 - The 5-day / 1000-message PostgreSQL Reply-to-TEXT cache is documented but not implemented yet.
 - Reply AUDIO/IMAGE/FILE is intercepted but direct LINE content fetch + extraction/transcription persistence is not implemented yet.
-- The private Web entry is now secure and end-to-end, but the Web personal page is intentionally only a separated placeholder until actual worklog PWA record APIs/UI are exposed; do not route it to legacy Memory data as a shortcut.
+- The private Web entry is secure and end-to-end, but the Web personal page is intentionally only a separated placeholder until actual worklog PWA record APIs/UI are exposed; do not route it to legacy Memory data as a shortcut.
 - Generic Web LINE-login/group UI and legacy Energy/Memory management still exist temporarily. Remove old product paths only after new worklog equivalents are end-to-end.
 - Admin still uses the interim legacy Cloudflare Access verifier while the product contract calls for a simple configured username/password MVP boundary; do not remove protection until the replacement exists.
 - Before Workers production cutover, independently validate Web/Admin builds, SPA deep links, API origin/CORS and custom-domain configuration.
 
 ## Next prioritized implementation batch
 
-1. Add AI-assisted TEXT normalization as a **post-persistence** step:
-   - keep raw record durable regardless of AI result
-   - narrow normalized output to summary/category/customer/project hints
-   - load DB-backed active provider/model/pricing
-   - reserve conservative AI units atomically for the charged user
-   - group: charge owner while preserving actor; private: charge the personal user
-   - call provider, validate structured output, commit actual usage/pricing snapshot
-   - update normalized fields only after provider success
-   - release reservation on provider/parse/error paths
-   - make normalization retry/idempotency explicit so LINE redelivery cannot double-charge
-2. Implement PostgreSQL Reply-to-TEXT cache:
+1. Implement PostgreSQL Reply-to-TEXT cache:
    - only ordinary group TEXT enters cache
    - exact group/source isolation
    - 5-day TTL
@@ -201,7 +226,8 @@ Code HEAD immediately before this progress-document update was `03534f2936df2679
    - Reply resolves `quotedMessageId`, persists both command and quoted ids
    - expired cache row => clear resend/re-enter UX
    - no Redis and no AUDIO/IMAGE/FILE rows
-3. Implement quoted AUDIO/IMAGE/FILE ingestion:
+   - ordinary cached text must never trigger AI normalization until explicit Reply + `@AFTERTRACE`
+2. Implement quoted AUDIO/IMAGE/FILE ingestion:
    - direct LINE content API by `quotedMessageId`
    - no attachment cache
    - permission/quota preflight before expensive work where possible
@@ -209,20 +235,25 @@ Code HEAD immediately before this progress-document update was `03534f2936df2679
    - persist safe metadata/text/summary + both LINE ids, never binary
    - unavailable/expired LINE content => clear resend UX
    - handle unsupported/oversized files and partial failures deterministically
-4. Expose actual worklog PWA APIs using the scoped record-read layer:
+3. Expose actual worklog PWA APIs using the scoped record-read layer:
    - PRIVATE and GROUP surfaces remain distinct
    - private entry page starts showing actual personal worklog records
    - group UI migrates away from legacy Memory search/management
    - users with both scopes can navigate clearly separated personal/group sections
-5. Add owner PWA group usage/member recording-permission APIs/UI.
-6. Repurpose internal Admin for worklog users/groups/plans/AI pricing/anomalies/feedback and replace interim Access-only auth with configured username/password.
-7. Add OA Rich Menu setup and payment-provider-neutral subscription UI/backend boundary.
+4. Add owner PWA group usage/member recording-permission APIs/UI.
+5. Repurpose internal Admin for worklog users/groups/plans/AI pricing/anomalies/feedback and replace interim Access-only auth with configured username/password.
+6. Add OA Rich Menu setup and payment-provider-neutral subscription UI/backend boundary.
+7. Add explicit/admin retry/inspection for terminal `FAILED` normalization and move provider work off the LINE reply critical path if latency measurements warrant it.
 8. After new worklog runtime/PWA/Admin paths are proven end-to-end, delete obsolete Energy/Memory/commerce/reminder/proactive product code while retaining genuinely reusable utilities.
 
 ## Bug-audit phase checklist
 
 After core MVP flow exists, repeatedly audit:
 - duplicate LINE delivery/idempotency and concurrent redelivery
+- TEXT normalization claim races, stuck PROCESSING states and provider-success/quota-success recovery
+- provider output persisted but quota commit interrupted; quota committed but record apply interrupted
+- normalization reservation leaks, stale reservations and actor/charged-user swaps
+- normalization FAILED retry policy and accidental second provider calls
 - PRIVATE token accidentally gaining GROUP scope or vice versa
 - nonce replay/expiry and OA unfollow between URL creation/exchange/use
 - private source replacement/inactivation and stale client entry context
