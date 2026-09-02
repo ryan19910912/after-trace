@@ -113,20 +113,33 @@ describe('WorklogTextNormalizationService', () => {
       sourceId: 3,
       requestedUnits: 500,
     }));
-    expect(repository.saveProviderResult).toHaveBeenCalledWith(expect.objectContaining({
+
+    expect(repository.saveProviderResult).toHaveBeenCalledTimes(1);
+    const persisted = vi.mocked(repository.saveProviderResult).mock.calls[0]?.[0];
+    expect(persisted).toMatchObject({
       recordId: 11,
       claimToken: 'claim-1',
       reservationToken: 'reserve-1',
-      usage: expect.objectContaining({
+      usage: {
         actualUnits: 15,
         workspaceId: 2,
         recordId: 11,
         provider: 'GOOGLE',
         model: 'gemini-test',
-        providerCostUsd: 0.000003,
-        providerCostTwd: 0.00009,
-      }),
-    }));
+        inputTokens: 10,
+        outputTokens: 5,
+        inputUsdPerMillion: 0.1,
+        outputUsdPerMillion: 0.4,
+        audioInputUnits: 0,
+        imageInputUnits: 0,
+        audioUsdPerMillion: null,
+        imageUsdPerMillion: null,
+        usdTwdRate: 30,
+      },
+    });
+    expect(persisted?.usage.providerCostUsd).toBeCloseTo(0.000003, 12);
+    expect(persisted?.usage.providerCostTwd).toBeCloseTo(0.00009, 12);
+
     expect(subscriptions.commitAiUsage).toHaveBeenCalledTimes(1);
     expect(repository.markUsageCommitted).toHaveBeenCalledWith(11, 'claim-1');
     expect(repository.applyResult).toHaveBeenCalledWith(expect.objectContaining({
