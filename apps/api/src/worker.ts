@@ -11,7 +11,6 @@ import { createWorklogRoutes } from './worklog/routes';
 import { createWorklogSubscriptionRoutes } from './worklog/subscription-routes';
 import { WorklogSubscriptionService } from './worklog/subscription';
 
-type ScheduledControllerLike = { scheduledTime: number };
 type ExecutionContextLike = { waitUntil(promise: Promise<unknown>): void };
 
 const adminRoutes = createAdminRoutes();
@@ -59,11 +58,5 @@ export default {
       return worklogRoutes.fetch(new Request(rewritten, request), env as never, executionContext as never);
     }
     return app.fetch(request, env, executionContext as never);
-  },
-
-  scheduled(controller: ScheduledControllerLike, _env: Bindings, executionContext: ExecutionContextLike) {
-    executionContext.waitUntil(Promise.resolve().then(() => {
-      console.log(JSON.stringify({ event: 'worklog_scheduled_noop', scheduledTime: controller.scheduledTime }));
-    }));
   },
 };

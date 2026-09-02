@@ -1,38 +1,45 @@
 # AFTERTRACE
 
-AFTERTRACE is being rebuilt as a public sports venue availability search + radar product.
+AFTERTRACE is a LINE-first work-record product. LINE is the capture surface; the Web/PWA is the place to browse, organize and manage records.
 
-The previous LINE-first AI memory assistant product is retired. Old LINE group, AI memory, Energy/commerce, reminder and proactive-push code is being removed rather than retained as compatibility debt.
+Development for the current rebuild is on `revive/line-worklog`.
 
-## V1 product
+## MVP product
 
-- Search supported public sports venues for available booking slots.
-- Start with Taipei and slot-based sports where booking pain is high, led by badminton.
-- Normalize different official booking sources behind source adapters.
-- Let users create watches by sport, venue/area, date/day-of-week and time window.
-- Poll watched targets in the background and notify users when a matching slot becomes available.
-- Send users back to the official booking channel; V1 does not book or pay on their behalf.
-- No AI is required for V1.
-- Web/PWA first.
+- Record text with `@AFTERTRACE <text>`.
+- Reply to quoted LINE TEXT/AUDIO/IMAGE/FILE with `@AFTERTRACE` to create a work record.
+- Open scoped personal/group PWA views through query links; no LIFF.
+- Keep personal and group sources isolated.
+- FREE is personal-only; group collaboration is paid/capability-driven and group AI usage is charged to the stable Owner.
+- Manage records, customers, projects and typed finance (`RECEIVED`, `EXPENSE`, `RECEIVABLE`) in the PWA.
+- Manage users/groups/plans/quota/AI runtime pricing/anomalies/feedback in Worklog Admin.
 
-## Target stack
+## LINE content policy
 
-- TypeScript + pnpm monorepo
-- Hono on Cloudflare Workers
-- React + Vite on Cloudflare Pages
-- PostgreSQL on Neon + Drizzle ORM
-- Cloudflare Cron Triggers for polling
-- Web Push for the primary radar notification channel
+- Only ordinary group TEXT may be temporarily cached: PostgreSQL only, 5 days, max 1000 messages per group.
+- Redis is not used for LINE content caching.
+- AUDIO/IMAGE/FILE are never cached; Reply ingestion fetches them directly from LINE's content API.
+- Binary content is processed in memory and never persisted.
+- Expired/unavailable media asks the user to resend.
+- Reply-created records preserve both the command LINE message id and quoted LINE message id.
 
-Redis is not required for V1 unless later scale/locking requirements justify it.
+## Deployment topology
 
-## Rebuild status
+AFTERTRACE uses three independent Cloudflare Workers, not Pages:
 
-The repository is currently undergoing a deliberate cleanup/rebuild from the old product. Do not use stale old-product modules as architectural precedent.
+- `aftertrace-api` — Hono/TypeScript API, LINE webhooks, Worklog runtime, auth, PWA/Admin APIs, PostgreSQL/Drizzle and AI orchestration.
+- `aftertrace-web` — React/Vite customer PWA via Workers Static Assets.
+- `aftertrace-admin` — React/Vite internal Admin via Workers Static Assets.
 
-Read these two files before making rebuild changes:
+PostgreSQL is the durable store. Gemini runtime model/pricing is DB/Admin controlled; `GEMINI_API_KEY` remains an API Worker secret.
 
-- `docs/REBUILD_PLAN.md` — complete keep/remove/rebuild plan and target architecture.
-- `docs/REBUILD_PROGRESS.md` — durable progress handoff, completed work and next batch.
+## Development contract
 
-Scheduled development rounds must read the latest `main` plus both files before choosing work, then update `REBUILD_PROGRESS.md` before finishing.
+Read these before changing the Worklog rebuild:
+
+- `docs/WORKLOG_PRODUCT_SPEC.md`
+- `docs/WORKLOG_REBUILD_PROGRESS.md`
+- `docs/WORKLOG_LINE_CONTENT_POLICY.md`
+- `docs/WORKLOG_DEPLOYMENT.md`
+
+The old Memory/Energy/conversation/commerce/reminder product runtime is retired. Do not restore those modules as compatibility behavior. Historical migration `0000` remains for migration history; active Drizzle schema declarations are Worklog-only, and destructive legacy-table cleanup is a post-cutover step documented in `docs/WORKLOG_DEPLOYMENT.md`.
