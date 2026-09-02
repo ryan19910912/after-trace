@@ -19,6 +19,13 @@ export type AiPricing = {
   usdTwdRate?: number | null;
 };
 
+/**
+ * `inputTokens` is the provider-reported total prompt token count.
+ * `audioInputUnits` and `imageInputUnits` are modality subsets of that total,
+ * not additional units. Provider-cost calculation subtracts those subsets from
+ * ordinary input before applying modality-specific prices so the same token is
+ * never charged twice.
+ */
 export type AiMeteredUsage = {
   inputTokens: number;
   outputTokens: number;
@@ -75,17 +82,24 @@ export function snapshotAiUsage(pricing: AiPricing, usage: AiMeteredUsage): AiUs
   const outputTokens = integerAtLeastZero(usage.outputTokens);
   const audioInputUnits = integerAtLeastZero(usage.audioInputUnits ?? 0);
   const imageInputUnits = integerAtLeastZero(usage.imageInputUnits ?? 0);
+  if (audioInputUnits + imageInputUnits > inputTokens) {
+    throw new Error('media input units must be subsets of total input tokens');
+  }
+
+  const ordinaryInputTokens = inputTokens - audioInputUnits - imageInputUnits;
   const inputUsdPerMillion = finiteAtLeastZero(pricing.inputUsdPerMillion);
   const outputUsdPerMillion = finiteAtLeastZero(pricing.outputUsdPerMillion);
   const audioUsdPerMillion = optionalPrice(pricing.audioUsdPerMillion);
   const imageUsdPerMillion = optionalPrice(pricing.imageUsdPerMillion);
   const usdTwdRate = pricing.usdTwdRate == null ? null : finiteAtLeastZero(pricing.usdTwdRate);
 
+  // A null modality-specific price means the provider uses the ordinary input
+  // rate for that modality. It never means that those input tokens are free.
   const providerCostUsd =
-    perMillionCost(inputTokens, inputUsdPerMillion) +
-    perMillionCost(outputTokens, outputUsdPerMillion) +
-    perMillionCost(audioInputUnits, audioUsdPerMillion ?? 0) +
-    perMillionCost(imageInputUnits, imageUsdPerMillion ?? 0);
+    perMillionCost(ordinaryInputTokens, inputUsdPerMillion) +
+    perMillionCost(audioInputUnits, audioUsdPerMillion ?? inputUsdPerMillion) +
+    perMillionCost(imageInputUnits, imageUsdPerMillion ?? inputUsdPerMillion) +
+    perMillionCost(outputTokens, outputUsdPerMillion);
 
   return {
     provider: pricing.provider,
