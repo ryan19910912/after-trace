@@ -1,4 +1,10 @@
 import type { ParsedOaWebhook } from '../line/events';
+import {
+  anomalyErrorCode,
+  anomalyErrorSummary,
+  recordAnomalySafely,
+  type WorklogAnomalyPort,
+} from './anomalies';
 import { parseWorklogCommand } from './command';
 import type { WorklogOaRuntime, WorklogOaRuntimeResult } from './oa-runtime';
 
@@ -54,6 +60,7 @@ function logMessageFailure(message: {
 
 async function replySafely(input: {
   reply: WorklogOaReplyPort;
+  anomalies?: WorklogAnomalyPort;
   replyToken: string;
   text: string;
   lineUserId: string;
@@ -66,6 +73,14 @@ async function replySafely(input: {
   } catch (error) {
     input.counters.oaErrors += 1;
     logMessageFailure(input, 'worklog_oa_reply_failed', error);
+    await recordAnomalySafely(input.anomalies, {
+      category: 'LINE_OA_REPLY',
+      errorCode: anomalyErrorCode(error, 'LINE_REPLY_FAILED'),
+      summary: anomalyErrorSummary(error, 'LINE OA reply failed'),
+      lineMessageId: input.lineMessageId,
+      requestRef: input.webhookEventId,
+      metadata: { lineUserId: input.lineUserId },
+    });
   }
 }
 
@@ -78,6 +93,7 @@ export async function processWorklogOaWebhook(input: {
   parsed: ParsedOaWebhook;
   runtime: Pick<WorklogOaRuntime, 'handleLifecycle' | 'handleMessage'>;
   reply: WorklogOaReplyPort;
+  anomalies?: WorklogAnomalyPort;
   createQueryUrl?: (target: WorklogPrivateQueryTarget) => Promise<string | null>;
 }): Promise<WorklogOaWebhookCounters> {
   const counters = emptyCounters();
@@ -96,6 +112,16 @@ export async function processWorklogOaWebhook(input: {
           webhookEventId: parsedEvent.event.webhookEventId,
           message: error instanceof Error ? error.message : 'unknown error',
         }));
+        await recordAnomalySafely(input.anomalies, {
+          category: 'LINE_OA_LIFECYCLE',
+          errorCode: anomalyErrorCode(error, 'OA_LIFECYCLE_FAILED'),
+          summary: anomalyErrorSummary(error, 'LINE OA lifecycle failed'),
+          requestRef: parsedEvent.event.webhookEventId,
+          metadata: {
+            lineUserId: parsedEvent.event.lineUserId,
+            lifecycleType: parsedEvent.event.type,
+          },
+        });
       }
       continue;
     }
@@ -108,6 +134,17 @@ export async function processWorklogOaWebhook(input: {
     } catch (error) {
       counters.oaErrors += 1;
       logMessageFailure(message, 'worklog_oa_message_failed', error, { explicitCommand });
+      await recordAnomalySafely(input.anomalies, {
+        category: 'LINE_OA_WEBHOOK',
+        errorCode: anomalyErrorCode(error, 'OA_MESSAGE_FAILED'),
+        summary: anomalyErrorSummary(error, 'LINE OA message failed'),
+        lineMessageId: message.lineMessageId,
+        requestRef: message.webhookEventId,
+        metadata: {
+          lineUserId: message.lineUserId,
+          explicitCommand,
+        },
+      });
 
       if (explicitCommand) {
         counters.oaWorklogCommands += 1;
@@ -115,6 +152,7 @@ export async function processWorklogOaWebhook(input: {
         if (message.replyToken) {
           await replySafely({
             reply: input.reply,
+            anomalies: input.anomalies,
             replyToken: message.replyToken,
             text: 'AFTERTRACE 這次沒有成功處理個人紀錄指令，請稍後再試。',
             lineUserId: message.lineUserId,
@@ -160,10 +198,21 @@ export async function processWorklogOaWebhook(input: {
         } catch (error) {
           counters.oaErrors += 1;
           logMessageFailure(message, 'worklog_oa_query_entry_failed', error);
+          await recordAnomalySafely(input.anomalies, {
+            category: 'LINE_OA_QUERY_ENTRY',
+            errorCode: anomalyErrorCode(error, 'OA_QUERY_ENTRY_FAILED'),
+            summary: anomalyErrorSummary(error, 'LINE OA query entry failed'),
+            userId: result.userId,
+            sourceId: result.sourceId,
+            lineMessageId: message.lineMessageId,
+            requestRef: message.webhookEventId,
+            metadata: { lineUserId: message.lineUserId },
+          });
         }
       }
       await replySafely({
         reply: input.reply,
+        anomalies: input.anomalies,
         replyToken: message.replyToken,
         text: url
           ? `AFTERTRACE｜查看個人紀錄\n${url}`
@@ -178,6 +227,7 @@ export async function processWorklogOaWebhook(input: {
 
     await replySafely({
       reply: input.reply,
+      anomalies: input.anomalies,
       replyToken: message.replyToken,
       text: result.replyText,
       lineUserId: message.lineUserId,
