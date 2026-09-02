@@ -142,6 +142,17 @@ export class DrizzleWorklogBootstrapRepository implements WorklogBootstrapReposi
     return row ? mapBoundGroup(row) : null;
   }
 
+  async reactivateBoundGroup(sourceId: number, at: Date): Promise<boolean> {
+    const result = await this.db.execute(sql`
+      UPDATE worklog_sources
+      SET status = 'ACTIVE', inactive_at = NULL, updated_at = GREATEST(updated_at, ${at})
+      WHERE id = ${sourceId}
+        AND type = 'GROUP'
+      RETURNING id
+    `);
+    return result.rows.length === 1;
+  }
+
   async upsertPendingGroup(lineGroupId: string, at: Date): Promise<WorklogPendingGroup> {
     const result = await this.db.execute(sql`
       INSERT INTO worklog_pending_groups (
