@@ -13,6 +13,7 @@ type AuthorizationRow = {
   member_active: boolean | null;
   recording_enabled: boolean | null;
   plan_code: string | null;
+  plan_display_name: string | null;
   subscription_status: WorklogSubscriptionStatus | null;
   effective_at: Date | string | null;
   current_period_start: Date | string | null;
@@ -21,6 +22,7 @@ type AuthorizationRow = {
   capabilities: unknown;
   ai_allowance_units: number | string | null;
   consumed_units: number | string | null;
+  owner_group_position: number | string | null;
 };
 
 export class DrizzleWorklogCollaborationRepository implements WorklogCollaborationRepository {
@@ -38,6 +40,7 @@ export class DrizzleWorklogCollaborationRepository implements WorklogCollaborati
         member.is_active AS member_active,
         member.recording_enabled,
         subscription.plan_code,
+        plan.display_name AS plan_display_name,
         subscription.status AS subscription_status,
         subscription.effective_at,
         subscription.current_period_start,
@@ -45,7 +48,19 @@ export class DrizzleWorklogCollaborationRepository implements WorklogCollaborati
         COALESCE(plan.enabled, FALSE) AS plan_enabled,
         COALESCE(plan.capabilities, '{}'::jsonb) AS capabilities,
         COALESCE(balance.allowance_units, plan.ai_allowance_units, 0) AS ai_allowance_units,
-        COALESCE(balance.used_units, 0) + COALESCE(balance.reserved_units, 0) AS consumed_units
+        COALESCE(balance.used_units, 0) + COALESCE(balance.reserved_units, 0) AS consumed_units,
+        CASE
+          WHEN source.owner_user_id IS NULL THEN 1
+          ELSE (
+            SELECT COUNT(*)
+            FROM worklog_sources AS sibling
+            WHERE sibling.type = 'GROUP'
+              AND sibling.status = 'ACTIVE'
+              AND sibling.owner_user_id = source.owner_user_id
+              AND (COALESCE(sibling.owner_bound_at, sibling.created_at), sibling.id)
+                  <= (COALESCE(source.owner_bound_at, source.created_at), source.id)
+          )
+        END AS owner_group_position
       FROM worklog_sources AS source
       LEFT JOIN worklog_source_members AS member
         ON member.source_id = source.id
@@ -71,6 +86,7 @@ export class DrizzleWorklogCollaborationRepository implements WorklogCollaborati
       actorIsActiveMember: row.member_active === true,
       actorRecordingEnabled: row.recording_enabled !== false,
       ownerPlanCode: row.plan_code,
+      ownerPlanDisplayName: row.plan_display_name,
       ownerSubscriptionStatus: row.subscription_status,
       ownerEffectiveAt: nullableDate(row.effective_at),
       ownerPeriodStart: nullableDate(row.current_period_start),
@@ -79,6 +95,7 @@ export class DrizzleWorklogCollaborationRepository implements WorklogCollaborati
       ownerCapabilities: row.capabilities,
       ownerAllowanceUnits: numeric(row.ai_allowance_units),
       ownerConsumedUnits: numeric(row.consumed_units),
+      ownerGroupPosition: numeric(row.owner_group_position),
     };
   }
 
