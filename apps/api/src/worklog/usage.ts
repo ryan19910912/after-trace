@@ -72,17 +72,17 @@ export interface WorklogUsageRepository {
   ): Promise<GroupMemberUsage[]>;
 }
 
+const ZERO_AI: AiUsageAggregate = { aiUnits: 0, providerCostUsd: 0, providerCostTwd: 0 };
+
 export class WorklogUsageService {
   constructor(private readonly repository: WorklogUsageRepository) {}
 
   async userUsage(userId: number): Promise<UserUsageSummary> {
     const window = await this.repository.getActiveUsageWindow(userId);
     const [ai, records] = await Promise.all([
-      this.repository.sumChargedAiUsage(
-        userId,
-        window?.periodStart ?? null,
-        window?.periodEnd ?? null,
-      ),
+      window
+        ? this.repository.sumChargedAiUsage(userId, window.periodStart, window.periodEnd)
+        : Promise.resolve(ZERO_AI),
       this.repository.countRecordsByAuthor(userId),
     ]);
     return makeUserSummary(userId, window, ai, records);
@@ -98,18 +98,13 @@ export class WorklogUsageService {
 
     const window = await this.repository.getActiveUsageWindow(ownerUserId);
     const [ownerAi, ownerRecords, groupAi, members] = await Promise.all([
-      this.repository.sumChargedAiUsage(
-        ownerUserId,
-        window?.periodStart ?? null,
-        window?.periodEnd ?? null,
-      ),
+      window
+        ? this.repository.sumChargedAiUsage(ownerUserId, window.periodStart, window.periodEnd)
+        : Promise.resolve(ZERO_AI),
       this.repository.countRecordsByAuthor(ownerUserId),
-      this.repository.sumChargedAiUsage(
-        ownerUserId,
-        window?.periodStart ?? null,
-        window?.periodEnd ?? null,
-        sourceId,
-      ),
+      window
+        ? this.repository.sumChargedAiUsage(ownerUserId, window.periodStart, window.periodEnd, sourceId)
+        : Promise.resolve(ZERO_AI),
       this.repository.listGroupMemberUsage(
         sourceId,
         window?.periodStart ?? null,
@@ -117,6 +112,7 @@ export class WorklogUsageService {
       ),
     ]);
 
+    const cycleMembers = window ? members : members.map(withoutAiUsage);
     return {
       status: 'OK',
       value: {
@@ -126,7 +122,7 @@ export class WorklogUsageService {
         groupAiUsedUnits: integer(groupAi.aiUnits),
         groupProviderCostUsd: finite(groupAi.providerCostUsd),
         groupProviderCostTwd: finite(groupAi.providerCostTwd),
-        members,
+        members: cycleMembers,
       },
     };
   }
@@ -134,6 +130,15 @@ export class WorklogUsageService {
 
 export function emptyRecordTypeCounts(): RecordTypeCounts {
   return { TEXT: 0, AUDIO: 0, IMAGE: 0, FILE: 0 };
+}
+
+function withoutAiUsage(member: GroupMemberUsage): GroupMemberUsage {
+  return {
+    ...member,
+    aiUsedUnits: 0,
+    providerCostUsd: 0,
+    providerCostTwd: 0,
+  };
 }
 
 function makeUserSummary(
