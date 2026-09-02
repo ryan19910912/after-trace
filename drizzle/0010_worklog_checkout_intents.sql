@@ -16,6 +16,6 @@ CREATE TABLE IF NOT EXISTS worklog_checkout_intents (
 CREATE UNIQUE INDEX IF NOT EXISTS worklog_checkout_intent_request_uq
   ON worklog_checkout_intents(request_key);
 CREATE INDEX IF NOT EXISTS worklog_checkout_intent_user_time_idx
-  ON worklog_checkout_intents(user_id, created_at DESC);
+  ON worklog_checkout_intents(user_id, created_at);
 CREATE INDEX IF NOT EXISTS worklog_checkout_intent_status_time_idx
-  ON worklog_checkout_intents(status, created_at DESC);
+  ON worklog_checkout_intents(status, created_at);
