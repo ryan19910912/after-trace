@@ -2,6 +2,7 @@ import type { BufferedPrivateMessage, OaLifecycleEvent } from '../line/events';
 import type { PrivateBootstrapResult } from './bootstrap';
 import { parseWorklogCommand } from './command';
 import type { WorklogTextRecordWriteResult } from './records';
+import type { WorklogTextNormalizationService } from './text-normalization';
 
 export interface WorklogOaBootstrapPort {
   handleOaFollow(input: {
@@ -32,6 +33,10 @@ export interface WorklogOaRecordWritePort {
   }): Promise<WorklogTextRecordWriteResult>;
 }
 
+export interface WorklogOaTextNormalizationPort {
+  normalizeText(recordId: number): ReturnType<WorklogTextNormalizationService['normalizeText']>;
+}
+
 export type WorklogOaLifecycleResult =
   | { status: 'FOLLOWED'; userId: number; sourceId: number }
   | { status: 'UNFOLLOWED'; userId: number };
@@ -52,12 +57,13 @@ export type WorklogOaRuntimeResult =
  *
  * Ordinary private text remains human-support traffic. Only explicit @AFTERTRACE
  * commands are handled as product actions. Raw personal text records are persisted
- * before any future AI normalization so provider/quota failures cannot erase input.
+ * before AI normalization so provider/quota failures cannot erase input.
  */
 export class WorklogOaRuntime {
   constructor(
     private readonly bootstrap: WorklogOaBootstrapPort,
     private readonly records: WorklogOaRecordWritePort,
+    private readonly textNormalization?: WorklogOaTextNormalizationPort,
   ) {}
 
   async handleLifecycle(event: OaLifecycleEvent): Promise<WorklogOaLifecycleResult> {
@@ -131,6 +137,7 @@ export class WorklogOaRuntime {
       sourceTimestamp: message.lineTimestamp,
     });
     if (write.status === 'CREATED') {
+      await this.normalizeBestEffort(write.recordId, message);
       return {
         status: 'RECORDED',
         recordId: write.recordId,
@@ -139,6 +146,7 @@ export class WorklogOaRuntime {
       };
     }
     if (write.status === 'ALREADY_RECORDED') {
+      await this.normalizeBestEffort(write.recordId, message);
       return {
         status: 'RECORDED',
         recordId: write.recordId,
@@ -158,5 +166,21 @@ export class WorklogOaRuntime {
       reason: 'SOURCE_NOT_FOUND',
       replyText: '你的個人 AFTERTRACE 紀錄區目前無法使用，請稍後再試。',
     };
+  }
+
+  private async normalizeBestEffort(recordId: number, message: BufferedPrivateMessage): Promise<void> {
+    if (!this.textNormalization) return;
+    try {
+      await this.textNormalization.normalizeText(recordId);
+    } catch (error) {
+      console.error(JSON.stringify({
+        event: 'worklog_text_normalization_failed_after_persist',
+        source: 'PRIVATE',
+        recordId,
+        lineUserId: message.lineUserId,
+        lineMessageId: message.lineMessageId,
+        message: error instanceof Error ? error.message : 'unknown error',
+      }));
+    }
   }
 }
