@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { WebRoot } from './WebRoot';
+import { WorklogRoot } from './WorklogRoot';
 import './styles.css';
 
 function Fatal({ message }: { message: string }) {
@@ -8,7 +8,7 @@ function Fatal({ message }: { message: string }) {
     <main className="shell fatal-shell">
       <section className="fatal-card">
         <p className="eyebrow">AFTERTRACE</p>
-        <h1>無法開啟管理中心</h1>
+        <h1>無法開啟紀錄中心</h1>
         <p>{message}</p>
       </section>
     </main>
@@ -21,7 +21,7 @@ function bootstrap() {
 
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
-      <WebRoot apiBaseUrl={apiBaseUrl} />
+      <WorklogRoot apiBaseUrl={apiBaseUrl} />
     </React.StrictMode>,
   );
 }
