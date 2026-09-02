@@ -75,8 +75,12 @@ export class DrizzleWorklogBootstrapRepository implements WorklogBootstrapReposi
       UPDATE worklog_users
       SET
         is_oa_friend = CASE
-          WHEN last_interaction_at IS NULL OR ${at} >= last_interaction_at THEN ${isOaFriend}
+          WHEN oa_friend_state_at IS NULL OR ${at} >= oa_friend_state_at THEN ${isOaFriend}
           ELSE is_oa_friend
+        END,
+        oa_friend_state_at = CASE
+          WHEN oa_friend_state_at IS NULL OR ${at} >= oa_friend_state_at THEN ${at}
+          ELSE oa_friend_state_at
         END,
         first_oa_added_at = CASE
           WHEN ${isOaFriend} THEN
