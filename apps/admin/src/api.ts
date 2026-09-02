@@ -34,7 +34,6 @@ export type AdminPlan = {
   enabled: boolean;
   ai_allowance_units: number;
   capabilities: Record<string, boolean | number | string>;
-  capability_definitions?: AdminCapabilityDefinition[];
   created_at?: string;
   updated_at?: string;
 };
@@ -154,6 +153,10 @@ export class AdminApi {
         owner_subscription_effective_state: effectiveSubscriptionState(effectiveRow),
       },
     });
+  }
+
+  async capabilityDefinitions(): Promise<AdminCapabilityDefinition[]> {
+    return (await this.request<{ capabilityDefinitions: AdminCapabilityDefinition[] }>('/capabilities')).capabilityDefinitions;
   }
 
   async plans(): Promise<AdminPlan[]> {
