@@ -72,6 +72,11 @@ export interface WorklogUsageRepository {
   ): Promise<GroupMemberUsage[]>;
 }
 
+export type GroupOwnerUsageResult =
+  | { status: 'OK'; value: GroupOwnerUsageView }
+  | { status: 'FORBIDDEN' }
+  | { status: 'OWNER_UNBOUND' };
+
 const ZERO_AI: AiUsageAggregate = { aiUnits: 0, providerCostUsd: 0, providerCostTwd: 0 };
 
 export class WorklogUsageService {
@@ -91,7 +96,7 @@ export class WorklogUsageService {
   async groupOwnerUsage(
     viewerUserId: number,
     sourceId: number,
-  ): Promise<{ status: 'OK'; value: GroupOwnerUsageView } | { status: 'FORBIDDEN' | 'OWNER_UNBOUND' }> {
+  ): Promise<GroupOwnerUsageResult> {
     const ownerUserId = await this.repository.getGroupOwnerUserId(sourceId);
     if (ownerUserId === null) return { status: 'OWNER_UNBOUND' };
     if (ownerUserId !== viewerUserId) return { status: 'FORBIDDEN' };
