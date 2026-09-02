@@ -127,11 +127,12 @@ app.post('/webhooks/line', async (c) => {
   const extractionCoordinator = new ConversationExtractionCoordinator(new DrizzleExtractionClaimRepository(database), config);
   const energyRepository = new DrizzleUserEnergyRepository(database);
   const backgroundEnergyRepository = new DrizzleBackgroundEnergyRepository(database);
-  const managementAppConfigured = Boolean(c.env.WEB_APP_URL?.trim());
+  const webAppUrl = c.env.WEB_APP_URL?.trim();
+  const managementAppConfigured = Boolean(webAppUrl);
   const energyAccessRepository = managementAppConfigured
     ? new DrizzleUserEnergyAccessRepository(database, c.env.LINE_CHANNEL_ACCESS_TOKEN)
     : null;
-  const webAuthService = c.env.WEB_APP_URL?.trim() && c.env.WEB_AUTH_SECRET?.trim()
+  const webAuthService = webAppUrl && c.env.WEB_AUTH_SECRET?.trim()
     ? new WebAuthService(
         new DrizzleWebAuthRepository(database),
         c.env.LINE_CHANNEL_ACCESS_TOKEN,
@@ -170,6 +171,15 @@ app.post('/webhooks/line', async (c) => {
     parsed: parsedOa,
     runtime: worklogOaRuntime,
     reply: lineReplyClient,
+    createQueryUrl: webAuthService && webAppUrl
+      ? (target) => webAuthService.createPrivateBotEntry({
+          webAppUrl,
+          lineUserId: target.lineUserId,
+          userId: target.userId,
+          sourceId: target.sourceId,
+          at: target.at,
+        })
+      : undefined,
   });
 
   let lifecycleEvents = 0;
@@ -250,9 +260,9 @@ app.post('/webhooks/line', async (c) => {
 
       if (message.replyToken) {
         if (worklogResult.status === 'QUERY') {
-          const url = message.lineUserId && webAuthService && c.env.WEB_APP_URL?.trim()
+          const url = message.lineUserId && webAuthService && webAppUrl
             ? await webAuthService.createBotEntry({
-                webAppUrl: c.env.WEB_APP_URL,
+                webAppUrl,
                 lineUserId: message.lineUserId,
                 lineGroupId: message.lineGroupId,
                 at: message.lineTimestamp,
@@ -312,9 +322,9 @@ app.post('/webhooks/line', async (c) => {
     }
 
     let groupManagementUrl: string | null = null;
-    if ((deterministicCommand || mentioned) && message.lineUserId && webAuthService && c.env.WEB_APP_URL?.trim()) {
+    if ((deterministicCommand || mentioned) && message.lineUserId && webAuthService && webAppUrl) {
       groupManagementUrl = await webAuthService.createBotEntry({
-        webAppUrl: c.env.WEB_APP_URL,
+        webAppUrl,
         lineUserId: message.lineUserId,
         lineGroupId: message.lineGroupId,
         at: message.lineTimestamp,
