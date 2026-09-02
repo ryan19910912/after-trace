@@ -34,7 +34,7 @@ The concentrated local pass should eventually include the relevant install/build
 
 ## Scheduled-run handoff requirement
 
-Before finishing each scheduled development run, update `docs/WORKLOG_REBUILD_PROGRESS.md` with:
+Before finishing each scheduled or interactive development run, update `docs/WORKLOG_REBUILD_PROGRESS.md` with:
 
 - completed changes;
 - static validation performed;
@@ -42,3 +42,13 @@ Before finishing each scheduled development run, update `docs/WORKLOG_REBUILD_PR
 - known risks;
 - next large batch;
 - explicit confirmation that GitHub Actions were not run or triggered during the run.
+
+Every end-of-run user report must also include:
+
+- an estimated MVP feature-completion percentage;
+- an estimated production-readiness percentage that accounts for deferred executable validation;
+- the concrete remaining work, separating code/static-audit work from external configuration/payment-provider work;
+- the estimated number of remaining large development batches;
+- a practical time estimate for reaching the concentrated local validation phase and, separately, for finishing fixes after that validation.
+
+These percentages and time estimates are planning estimates, not test results. Adjust them downward if a later static audit or local validation discovers material defects.
