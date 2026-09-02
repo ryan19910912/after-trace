@@ -212,7 +212,7 @@ export class DrizzleWorklogAttachmentRepository implements WorklogAttachmentRepo
       UPDATE worklog_attachment_ingestions
       SET status = 'FAILED', last_error_code = ${reason.slice(0, 128)}, updated_at = NOW()
       WHERE command_line_message_id = ${commandLineMessageId}
-        AND status NOT IN ('RECORD_CREATED', 'SUCCEEDED')
+        AND status <> 'SUCCEEDED'
     `);
   }
 
