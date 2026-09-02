@@ -123,8 +123,14 @@ export function parseLineWebhook(payload: unknown): ParsedLineWebhook {
     const replyToken = asString(rawEvent.replyToken);
     const eventType = asString(rawEvent.type);
     if (eventType === 'join' || eventType === 'leave') {
+      const actorUserId = eventType === 'join' ? asString(source.userId) : null;
       result.events.push({ kind: 'LIFECYCLE', event: {
-        webhookEventId, replyToken, lineGroupId, type: eventType === 'join' ? 'JOIN' : 'LEAVE', lineUserIds: [], lineTimestamp,
+        webhookEventId,
+        replyToken,
+        lineGroupId,
+        type: eventType === 'join' ? 'JOIN' : 'LEAVE',
+        lineUserIds: actorUserId ? [actorUserId] : [],
+        lineTimestamp,
       } });
       continue;
     }
