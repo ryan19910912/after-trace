@@ -236,9 +236,13 @@ function groupEntitlement(
   const capabilities = parsePlanCapabilities(context.ownerCapabilities);
   if (!canUseGroupCollaboration(planCode, capabilities)) return notEntitled(context);
 
+  // A group-enabled plan must carry an explicit numeric limit. Missing/malformed
+  // legacy capability data fails closed rather than silently becoming unlimited.
   const maxGroupCount = configuredGroupLimit(capabilities);
+  if (maxGroupCount === null) return notEntitled(context);
+
   const groupPosition = Math.max(1, nonNegativeInteger(context.ownerGroupPosition ?? 1));
-  if (maxGroupCount !== null && groupPosition > maxGroupCount) {
+  if (groupPosition > maxGroupCount) {
     return {
       status: 'GROUP_LIMIT_REACHED',
       ...(planDisplayName(context) ? { ownerPlanDisplayName: planDisplayName(context) } : {}),
