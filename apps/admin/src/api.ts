@@ -15,6 +15,16 @@ export type AdminOverview = {
 
 export type Row = Record<string, unknown>;
 
+export type AdminCapabilityDefinition = {
+  key: string;
+  label: string;
+  type: 'boolean' | 'number' | 'string';
+  defaultValue: boolean | number | string;
+  min?: number;
+  max?: number;
+  description?: string;
+};
+
 export type AdminPlan = {
   id?: string;
   code: string;
@@ -24,6 +34,7 @@ export type AdminPlan = {
   enabled: boolean;
   ai_allowance_units: number;
   capabilities: Record<string, boolean | number | string>;
+  capability_definitions?: AdminCapabilityDefinition[];
   created_at?: string;
   updated_at?: string;
 };
