@@ -90,7 +90,9 @@ export const worklogWorkspaces = pgTable(
   'worklog_workspaces',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    ownerUserId: bigint('owner_user_id', { mode: 'number' }).notNull(),
+    ownerUserId: bigint('owner_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogUsers.id, { onDelete: 'restrict' }),
     name: varchar('name', { length: 255 }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -102,15 +104,24 @@ export const worklogSources = pgTable(
   'worklog_sources',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    workspaceId: bigint('workspace_id', { mode: 'number' }).notNull(),
+    workspaceId: bigint('workspace_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogWorkspaces.id, { onDelete: 'restrict' }),
     type: worklogSourceTypeEnum('type').notNull(),
     status: worklogSourceStatusEnum('status').default('ACTIVE').notNull(),
-    privateUserId: bigint('private_user_id', { mode: 'number' }),
+    privateUserId: bigint('private_user_id', { mode: 'number' }).references(() => worklogUsers.id, {
+      onDelete: 'restrict',
+    }),
     lineGroupId: varchar('line_group_id', { length: 64 }),
-    ownerUserId: bigint('owner_user_id', { mode: 'number' }),
+    ownerUserId: bigint('owner_user_id', { mode: 'number' }).references(() => worklogUsers.id, {
+      onDelete: 'restrict',
+    }),
     ownerBindingMethod: varchar('owner_binding_method', { length: 64 }),
     ownerBoundAt: timestamp('owner_bound_at', { withTimezone: true }),
-    subscriptionOwnerUserId: bigint('subscription_owner_user_id', { mode: 'number' }),
+    subscriptionOwnerUserId: bigint('subscription_owner_user_id', { mode: 'number' }).references(
+      () => worklogUsers.id,
+      { onDelete: 'restrict' },
+    ),
     inactiveAt: timestamp('inactive_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -128,11 +139,18 @@ export const worklogSourceMembers = pgTable(
   'worklog_source_members',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    sourceId: bigint('source_id', { mode: 'number' }).notNull(),
-    userId: bigint('user_id', { mode: 'number' }).notNull(),
+    sourceId: bigint('source_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogSources.id, { onDelete: 'restrict' }),
+    userId: bigint('user_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogUsers.id, { onDelete: 'restrict' }),
     isActive: boolean('is_active').default(true).notNull(),
     recordingEnabled: boolean('recording_enabled').default(true).notNull(),
-    recordingUpdatedByUserId: bigint('recording_updated_by_user_id', { mode: 'number' }),
+    recordingUpdatedByUserId: bigint('recording_updated_by_user_id', { mode: 'number' }).references(
+      () => worklogUsers.id,
+      { onDelete: 'restrict' },
+    ),
     recordingUpdatedAt: timestamp('recording_updated_at', { withTimezone: true }),
     firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).defaultNow().notNull(),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).defaultNow().notNull(),
@@ -154,7 +172,9 @@ export const worklogCustomers = pgTable(
   'worklog_customers',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    workspaceId: bigint('workspace_id', { mode: 'number' }).notNull(),
+    workspaceId: bigint('workspace_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogWorkspaces.id, { onDelete: 'restrict' }),
     name: varchar('name', { length: 255 }).notNull(),
     phone: varchar('phone', { length: 64 }),
     address: text('address'),
@@ -169,8 +189,12 @@ export const worklogProjects = pgTable(
   'worklog_projects',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    workspaceId: bigint('workspace_id', { mode: 'number' }).notNull(),
-    customerId: bigint('customer_id', { mode: 'number' }),
+    workspaceId: bigint('workspace_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogWorkspaces.id, { onDelete: 'restrict' }),
+    customerId: bigint('customer_id', { mode: 'number' }).references(() => worklogCustomers.id, {
+      onDelete: 'restrict',
+    }),
     name: varchar('name', { length: 255 }).notNull(),
     address: text('address'),
     status: worklogProjectStatusEnum('status').default('ACTIVE').notNull(),
@@ -188,11 +212,21 @@ export const worklogRecords = pgTable(
   'worklog_records',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    workspaceId: bigint('workspace_id', { mode: 'number' }).notNull(),
-    sourceId: bigint('source_id', { mode: 'number' }).notNull(),
-    authorUserId: bigint('author_user_id', { mode: 'number' }),
-    customerId: bigint('customer_id', { mode: 'number' }),
-    projectId: bigint('project_id', { mode: 'number' }),
+    workspaceId: bigint('workspace_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogWorkspaces.id, { onDelete: 'restrict' }),
+    sourceId: bigint('source_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogSources.id, { onDelete: 'restrict' }),
+    authorUserId: bigint('author_user_id', { mode: 'number' }).references(() => worklogUsers.id, {
+      onDelete: 'restrict',
+    }),
+    customerId: bigint('customer_id', { mode: 'number' }).references(() => worklogCustomers.id, {
+      onDelete: 'restrict',
+    }),
+    projectId: bigint('project_id', { mode: 'number' }).references(() => worklogProjects.id, {
+      onDelete: 'restrict',
+    }),
     lineMessageId: varchar('line_message_id', { length: 64 }),
     quotedLineMessageId: varchar('quoted_line_message_id', { length: 64 }),
     inputType: worklogRecordInputTypeEnum('input_type').notNull(),
@@ -219,10 +253,18 @@ export const worklogTransactions = pgTable(
   'worklog_transactions',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    workspaceId: bigint('workspace_id', { mode: 'number' }).notNull(),
-    recordId: bigint('record_id', { mode: 'number' }),
-    customerId: bigint('customer_id', { mode: 'number' }),
-    projectId: bigint('project_id', { mode: 'number' }),
+    workspaceId: bigint('workspace_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogWorkspaces.id, { onDelete: 'restrict' }),
+    recordId: bigint('record_id', { mode: 'number' }).references(() => worklogRecords.id, {
+      onDelete: 'restrict',
+    }),
+    customerId: bigint('customer_id', { mode: 'number' }).references(() => worklogCustomers.id, {
+      onDelete: 'restrict',
+    }),
+    projectId: bigint('project_id', { mode: 'number' }).references(() => worklogProjects.id, {
+      onDelete: 'restrict',
+    }),
     type: worklogTransactionTypeEnum('type').notNull(),
     amountTwd: numeric('amount_twd', { precision: 14, scale: 2 }).notNull(),
     occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
@@ -258,8 +300,12 @@ export const worklogUserSubscriptions = pgTable(
   'worklog_user_subscriptions',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    userId: bigint('user_id', { mode: 'number' }).notNull(),
-    planCode: varchar('plan_code', { length: 64 }).notNull(),
+    userId: bigint('user_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogUsers.id, { onDelete: 'restrict' }),
+    planCode: varchar('plan_code', { length: 64 })
+      .notNull()
+      .references(() => worklogSubscriptionPlans.code, { onDelete: 'restrict' }),
     status: worklogSubscriptionStatusEnum('status').default('ACTIVE').notNull(),
     source: worklogSubscriptionSourceEnum('source').default('FREE').notNull(),
     effectiveAt: timestamp('effective_at', { withTimezone: true }).defaultNow().notNull(),
@@ -278,9 +324,16 @@ export const worklogSubscriptionHistory = pgTable(
   'worklog_subscription_history',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    userId: bigint('user_id', { mode: 'number' }).notNull(),
-    previousPlanCode: varchar('previous_plan_code', { length: 64 }),
-    nextPlanCode: varchar('next_plan_code', { length: 64 }).notNull(),
+    userId: bigint('user_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogUsers.id, { onDelete: 'restrict' }),
+    previousPlanCode: varchar('previous_plan_code', { length: 64 }).references(
+      () => worklogSubscriptionPlans.code,
+      { onDelete: 'restrict' },
+    ),
+    nextPlanCode: varchar('next_plan_code', { length: 64 })
+      .notNull()
+      .references(() => worklogSubscriptionPlans.code, { onDelete: 'restrict' }),
     source: worklogSubscriptionSourceEnum('source').notNull(),
     actor: varchar('actor', { length: 128 }),
     metadata: jsonb('metadata'),
@@ -307,11 +360,21 @@ export const worklogAiUsageEvents = pgTable(
   'worklog_ai_usage_events',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    actorUserId: bigint('actor_user_id', { mode: 'number' }).notNull(),
-    chargedUserId: bigint('charged_user_id', { mode: 'number' }).notNull(),
-    workspaceId: bigint('workspace_id', { mode: 'number' }),
-    sourceId: bigint('source_id', { mode: 'number' }),
-    recordId: bigint('record_id', { mode: 'number' }),
+    actorUserId: bigint('actor_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogUsers.id, { onDelete: 'restrict' }),
+    chargedUserId: bigint('charged_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogUsers.id, { onDelete: 'restrict' }),
+    workspaceId: bigint('workspace_id', { mode: 'number' }).references(() => worklogWorkspaces.id, {
+      onDelete: 'restrict',
+    }),
+    sourceId: bigint('source_id', { mode: 'number' }).references(() => worklogSources.id, {
+      onDelete: 'restrict',
+    }),
+    recordId: bigint('record_id', { mode: 'number' }).references(() => worklogRecords.id, {
+      onDelete: 'restrict',
+    }),
     provider: varchar('provider', { length: 128 }).notNull(),
     model: varchar('model', { length: 255 }).notNull(),
     inputTokens: integer('input_tokens').default(0).notNull(),
@@ -341,7 +404,9 @@ export const worklogFeedback = pgTable(
   'worklog_feedback',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    userId: bigint('user_id', { mode: 'number' }).notNull(),
+    userId: bigint('user_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogUsers.id, { onDelete: 'restrict' }),
     displayNameSnapshot: varchar('display_name_snapshot', { length: 255 }),
     channel: worklogFeedbackChannelEnum('channel').notNull(),
     text: text('text').notNull(),
@@ -360,8 +425,12 @@ export const worklogAnomalyEvents = pgTable(
     status: worklogAnomalyStatusEnum('status').default('OPEN').notNull(),
     errorCode: varchar('error_code', { length: 128 }),
     summary: text('summary').notNull(),
-    userId: bigint('user_id', { mode: 'number' }),
-    sourceId: bigint('source_id', { mode: 'number' }),
+    userId: bigint('user_id', { mode: 'number' }).references(() => worklogUsers.id, {
+      onDelete: 'restrict',
+    }),
+    sourceId: bigint('source_id', { mode: 'number' }).references(() => worklogSources.id, {
+      onDelete: 'restrict',
+    }),
     lineMessageId: varchar('line_message_id', { length: 64 }),
     requestRef: varchar('request_ref', { length: 255 }),
     metadata: jsonb('metadata'),
@@ -379,8 +448,12 @@ export const worklogAuditLogs = pgTable(
   'worklog_audit_logs',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    workspaceId: bigint('workspace_id', { mode: 'number' }),
-    actorUserId: bigint('actor_user_id', { mode: 'number' }),
+    workspaceId: bigint('workspace_id', { mode: 'number' }).references(() => worklogWorkspaces.id, {
+      onDelete: 'restrict',
+    }),
+    actorUserId: bigint('actor_user_id', { mode: 'number' }).references(() => worklogUsers.id, {
+      onDelete: 'restrict',
+    }),
     actorAdmin: varchar('actor_admin', { length: 128 }),
     action: varchar('action', { length: 128 }).notNull(),
     targetType: varchar('target_type', { length: 64 }).notNull(),
