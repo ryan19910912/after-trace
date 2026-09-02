@@ -1,4 +1,5 @@
-import { bigint, bigserial, index, jsonb, pgTable, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { bigint, bigserial, check, index, jsonb, pgTable, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
 
 export const worklogAttachmentIngestions = pgTable(
   'worklog_attachment_ingestions',
@@ -21,5 +22,6 @@ export const worklogAttachmentIngestions = pgTable(
     uniqueIndex('worklog_attachment_ingestion_command_uq').on(table.commandLineMessageId),
     index('worklog_attachment_ingestion_source_status_idx').on(table.sourceId, table.status),
     index('worklog_attachment_ingestion_quoted_idx').on(table.quotedLineMessageId),
+    check('worklog_attachment_ingestion_status_ck', sql`${table.status} IN ('PROCESSING', 'RECORD_CREATED', 'SUCCEEDED', 'FAILED')`),
   ],
 );
