@@ -53,11 +53,18 @@ function baseContext(): GroupAuthorizationContext {
     actorIsActiveMember: true,
     actorRecordingEnabled: true,
     ownerPlanCode: 'SUB1',
+    ownerSubscriptionStatus: 'ACTIVE',
+    ownerEffectiveAt: new Date('2026-09-01T00:00:00Z'),
+    ownerPeriodStart: new Date('2026-09-01T00:00:00Z'),
+    ownerPeriodEnd: new Date('2026-10-01T00:00:00Z'),
+    ownerPlanEnabled: true,
     ownerCapabilities: { groupCollaboration: true },
     ownerAllowanceUnits: 100,
     ownerConsumedUnits: 20,
   };
 }
+
+const ACTIVE_AT = new Date('2026-09-02T00:00:00Z');
 
 describe('WorklogCollaborationService access authorization', () => {
   it('allows historical group read when recording is disabled but the owner plan is entitled', async () => {
@@ -66,7 +73,7 @@ describe('WorklogCollaborationService access authorization', () => {
     const service = new WorklogCollaborationService(repository);
 
     await expect(
-      service.authorizeGroupAccess({ sourceId: 10, actorUserId: 200 }),
+      service.authorizeGroupAccess({ sourceId: 10, actorUserId: 200, at: ACTIVE_AT }),
     ).resolves.toEqual({
       status: 'OK',
       actorUserId: 200,
@@ -82,7 +89,31 @@ describe('WorklogCollaborationService access authorization', () => {
     const service = new WorklogCollaborationService(repository);
 
     await expect(
-      service.authorizeGroupAccess({ sourceId: 10, actorUserId: 200 }),
+      service.authorizeGroupAccess({ sourceId: 10, actorUserId: 200, at: ACTIVE_AT }),
+    ).resolves.toEqual({ status: 'GROUP_NOT_ENTITLED' });
+  });
+
+  it('blocks group read when an ACTIVE row is already past its billing period', async () => {
+    const repository = new FakeRepository();
+    repository.context = { ...baseContext(), ownerPeriodEnd: new Date('2026-09-02T00:00:00Z') };
+    const service = new WorklogCollaborationService(repository);
+
+    await expect(
+      service.authorizeGroupAccess({ sourceId: 10, actorUserId: 200, at: ACTIVE_AT }),
+    ).resolves.toEqual({ status: 'GROUP_NOT_ENTITLED' });
+  });
+
+  it('blocks group read before the paid period becomes effective', async () => {
+    const repository = new FakeRepository();
+    repository.context = {
+      ...baseContext(),
+      ownerEffectiveAt: new Date('2026-09-03T00:00:00Z'),
+      ownerPeriodStart: new Date('2026-09-03T00:00:00Z'),
+    };
+    const service = new WorklogCollaborationService(repository);
+
+    await expect(
+      service.authorizeGroupAccess({ sourceId: 10, actorUserId: 200, at: ACTIVE_AT }),
     ).resolves.toEqual({ status: 'GROUP_NOT_ENTITLED' });
   });
 });
@@ -94,7 +125,7 @@ describe('WorklogCollaborationService authorization', () => {
     const service = new WorklogCollaborationService(repository);
 
     await expect(
-      service.authorizeGroupRecord({ sourceId: 10, actorUserId: 200, requestedAiUnits: 5 }),
+      service.authorizeGroupRecord({ sourceId: 10, actorUserId: 200, requestedAiUnits: 5, at: ACTIVE_AT }),
     ).resolves.toEqual({
       status: 'OK',
       actorUserId: 200,
@@ -111,7 +142,7 @@ describe('WorklogCollaborationService authorization', () => {
     const service = new WorklogCollaborationService(repository);
 
     await expect(
-      service.authorizeGroupRecord({ sourceId: 10, actorUserId: 200 }),
+      service.authorizeGroupRecord({ sourceId: 10, actorUserId: 200, at: ACTIVE_AT }),
     ).resolves.toEqual({ status: 'RECORDING_DISABLED' });
   });
 
@@ -121,7 +152,22 @@ describe('WorklogCollaborationService authorization', () => {
     const service = new WorklogCollaborationService(repository);
 
     await expect(
-      service.authorizeGroupRecord({ sourceId: 10, actorUserId: 200 }),
+      service.authorizeGroupRecord({ sourceId: 10, actorUserId: 200, at: ACTIVE_AT }),
+    ).resolves.toEqual({ status: 'GROUP_NOT_ENTITLED' });
+  });
+
+  it('blocks a stale ACTIVE subscription before quota checks or provider work', async () => {
+    const repository = new FakeRepository();
+    repository.context = {
+      ...baseContext(),
+      ownerPeriodEnd: new Date('2026-09-02T00:00:00Z'),
+      ownerAllowanceUnits: 1000,
+      ownerConsumedUnits: 0,
+    };
+    const service = new WorklogCollaborationService(repository);
+
+    await expect(
+      service.authorizeGroupRecord({ sourceId: 10, actorUserId: 200, requestedAiUnits: 1, at: ACTIVE_AT }),
     ).resolves.toEqual({ status: 'GROUP_NOT_ENTITLED' });
   });
 
@@ -135,7 +181,7 @@ describe('WorklogCollaborationService authorization', () => {
     const service = new WorklogCollaborationService(repository);
 
     await expect(
-      service.authorizeGroupRecord({ sourceId: 10, actorUserId: 200, requestedAiUnits: 2 }),
+      service.authorizeGroupRecord({ sourceId: 10, actorUserId: 200, requestedAiUnits: 2, at: ACTIVE_AT }),
     ).resolves.toEqual({ status: 'AI_QUOTA_EXHAUSTED' });
   });
 
@@ -145,7 +191,7 @@ describe('WorklogCollaborationService authorization', () => {
     const service = new WorklogCollaborationService(repository);
 
     await expect(
-      service.authorizeGroupRecord({ sourceId: 10, actorUserId: 200 }),
+      service.authorizeGroupRecord({ sourceId: 10, actorUserId: 200, at: ACTIVE_AT }),
     ).resolves.toEqual({ status: 'NOT_ACTIVE_MEMBER' });
   });
 });
