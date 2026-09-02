@@ -6,11 +6,11 @@ import { fileURLToPath } from 'node:url';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const apiDir = resolve(scriptDir, '..');
-const rootEnvPath = resolve(apiDir, '../..', '.env');
+const rootEnvPath = resolve(apiDir, '../..', '.env.local');
 
 if (!existsSync(rootEnvPath)) {
-  console.error(`Missing root .env: ${rootEnvPath}`);
-  console.error('Copy .env.example to .env and fill in local values.');
+  console.error(`Missing root .env.local: ${rootEnvPath}`);
+  console.error('Copy .env.example to .env.local and fill in local values.');
   process.exit(1);
 }
 
