@@ -20,6 +20,7 @@ const adminRoutes = createAdminRoutes();
 const worklogRoutes = createWorklogRoutes();
 const worklogSubscriptionRoutes = createWorklogSubscriptionRoutes();
 const LEGACY_PREFIXES = ['/api/v1/management', '/api/v1/energy', '/api/v1/internal/commerce', '/api/v1/internal/proactive'];
+const LEGACY_AUTH_PATHS = new Set(['/api/v1/auth/groups', '/api/v1/auth/memories']);
 
 async function runtimeEnv(env: Bindings): Promise<Bindings> {
   const database = createDatabase(env.DATABASE_URL);
@@ -30,8 +31,6 @@ async function runtimeEnv(env: Bindings): Promise<Bindings> {
 }
 
 function configureWorklogRuntime(env: Bindings): void {
-  // Ordinary group chat has already passed through the bounded Worklog TEXT cache.
-  // Never persist it into the retired conversation/Memory/Energy product runtime.
   disableLegacyConversationRuntime();
   const database = createDatabase(env.DATABASE_URL);
   configureWorklogAttachmentRuntime(new WorklogAttachmentIngestionService(
@@ -43,7 +42,8 @@ function configureWorklogRuntime(env: Bindings): void {
 }
 
 function legacyRoute(pathname: string): boolean {
-  return LEGACY_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  return LEGACY_AUTH_PATHS.has(pathname)
+    || LEGACY_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
 export default {
@@ -67,13 +67,11 @@ export default {
       const rewritten = new URL(request.url); rewritten.pathname = url.pathname.slice('/api/v1/worklog'.length) || '/';
       return worklogRoutes.fetch(new Request(rewritten, request), env as never, executionContext as never);
     }
-    // /webhooks/line, /api/v1/auth and /health still live in the main Hono app.
+    // Only health, LINE webhook and the still-needed auth entry/OAuth endpoints fall through.
     return app.fetch(request, env, executionContext as never);
   },
 
   scheduled(controller: ScheduledControllerLike, _rawEnv: Bindings, executionContext: ExecutionContextLike) {
-    // The previous scheduled reminder/proactive/legacy-retention product is retired.
-    // Keep the handler harmless until the deployed Worker cron binding is removed.
     executionContext.waitUntil(Promise.resolve().then(() => {
       console.log(JSON.stringify({ event: 'worklog_scheduled_legacy_noop', scheduledTime: controller.scheduledTime }));
     }));
