@@ -110,11 +110,16 @@ export type CheckoutSession = {
   expiresAt: string | null;
 };
 
+export type WebEntryContext =
+  | { type: 'GROUP'; lineGroupId: string }
+  | { type: 'PRIVATE'; userId: number; sourceId: number };
+
 export type WebAuthExchange = {
   sessionToken: string;
   lineUserId: string;
-  lineGroupId: string;
-  groupContextToken: string;
+  entryContext: WebEntryContext;
+  lineGroupId?: string;
+  groupContextToken?: string;
 };
 
 export type ManagedGroup = {
@@ -137,6 +142,19 @@ async function responseBody<T>(response: Response, fallback: string): Promise<{ 
   }
 }
 
+function isWebEntryContext(value: unknown): value is WebEntryContext {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const raw = value as Record<string, unknown>;
+  if (raw.type === 'GROUP') return typeof raw.lineGroupId === 'string' && raw.lineGroupId.length > 0;
+  return raw.type === 'PRIVATE'
+    && typeof raw.userId === 'number'
+    && Number.isSafeInteger(raw.userId)
+    && raw.userId > 0
+    && typeof raw.sourceId === 'number'
+    && Number.isSafeInteger(raw.sourceId)
+    && raw.sourceId > 0;
+}
+
 export class WebAuthApi {
   constructor(private readonly baseUrl: string) {}
 
@@ -156,6 +174,18 @@ export class WebAuthApi {
     });
     const body = await responseBody<WebAuthExchange>(response, '登入連結驗證失敗');
     if (!response.ok) throw new Error(body.error || `登入連結驗證失敗: ${response.status}`);
+    if (
+      typeof body.sessionToken !== 'string'
+      || !body.sessionToken
+      || typeof body.lineUserId !== 'string'
+      || !body.lineUserId
+      || !isWebEntryContext(body.entryContext)
+    ) {
+      throw new Error('登入連結驗證回傳格式不正確');
+    }
+    if (body.entryContext.type === 'GROUP' && typeof body.groupContextToken !== 'string') {
+      throw new Error('群組登入內容不完整');
+    }
     return body;
   }
 
