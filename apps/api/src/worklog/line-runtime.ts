@@ -2,6 +2,7 @@ import type { BufferedGroupMessage } from '../line/events';
 import type { GroupBootstrapResult, GroupOwnerBindResult } from './bootstrap';
 import type { GroupRecordAuthorizationResult } from './collaboration';
 import { parseWorklogCommand } from './command';
+import type { WorklogLineTextCacheService } from './line-text-cache';
 import type { WorklogTextRecordWriteResult } from './records';
 import type { WorklogTextNormalizationService } from './text-normalization';
 
@@ -37,10 +38,29 @@ export interface WorklogLineRecordWritePort {
     text: string;
     sourceTimestamp?: Date;
   }): Promise<WorklogTextRecordWriteResult>;
+  recordQuotedText(input: {
+    sourceId: number;
+    authorUserId: number;
+    lineMessageId: string;
+    quotedLineMessageId: string;
+    text: string;
+    sourceTimestamp?: Date;
+  }): Promise<WorklogTextRecordWriteResult>;
 }
 
 export interface WorklogLineTextNormalizationPort {
   normalizeText(recordId: number): ReturnType<WorklogTextNormalizationService['normalizeText']>;
+}
+
+export interface WorklogLineTextCachePort {
+  remember(input: {
+    lineMessageId: string;
+    lineGroupId: string;
+    lineUserId: string | null;
+    text: string;
+    lineTimestamp: Date;
+  }): ReturnType<WorklogLineTextCacheService['remember']>;
+  resolve(lineGroupId: string, quotedLineMessageId: string, now?: Date): ReturnType<WorklogLineTextCacheService['resolve']>;
 }
 
 export type WorklogLineRuntimeResult =
@@ -73,11 +93,15 @@ export class WorklogLineRuntime {
     private readonly collaboration: WorklogLineCollaborationPort,
     private readonly records: WorklogLineRecordWritePort,
     private readonly textNormalization?: WorklogLineTextNormalizationPort,
+    private readonly textCache?: WorklogLineTextCachePort,
   ) {}
 
   async handle(message: BufferedGroupMessage): Promise<WorklogLineRuntimeResult> {
     const command = parseWorklogCommand(message);
-    if (!command) return { status: 'NOT_HANDLED' };
+    if (!command) {
+      await this.cacheOrdinaryTextBestEffort(message);
+      return { status: 'NOT_HANDLED' };
+    }
     if (!message.lineUserId) {
       return {
         status: 'REJECTED',
@@ -127,9 +151,6 @@ export class WorklogLineRuntime {
       };
     }
 
-    // Recording permission controls creation only. A member who was blocked from adding
-    // new records must still be able to open the group's historical records. The Web
-    // entry exchange independently verifies current LINE membership before a session is issued.
     if (command.kind === 'QUERY') {
       return { status: 'QUERY', sourceId: group.sourceId, userId: group.userId };
     }
@@ -142,10 +163,24 @@ export class WorklogLineRuntime {
     if (authorization.status !== 'OK') return rejectedAuthorization(authorization.status);
 
     if (command.kind === 'RECORD_QUOTED') {
-      return {
-        status: 'QUOTED_NOT_READY',
-        replyText: '這版新的 Worklog 已先切到安全的文字紀錄流程；附件／音檔／圖片紀錄正在接新的 content-fetch 流程，這次沒有寫入舊 Memory。',
-      };
+      const cached = this.textCache
+        ? await this.textCache.resolve(message.lineGroupId, command.quotedLineMessageId, message.lineTimestamp)
+        : null;
+      if (!cached) {
+        return {
+          status: 'QUOTED_NOT_READY',
+          replyText: '找不到暫存文字；如果你回覆的是圖片、音檔或檔案，系統會改由 LINE content API 讀取。附件流程尚未接完，這次沒有建立紀錄。',
+        };
+      }
+      const write = await this.records.recordQuotedText({
+        sourceId: group.sourceId,
+        authorUserId: group.userId,
+        lineMessageId: message.lineMessageId,
+        quotedLineMessageId: command.quotedLineMessageId,
+        text: cached.text,
+        sourceTimestamp: cached.lineTimestamp,
+      });
+      return this.finishWrite(write, message, '已記錄你回覆的文字。');
     }
 
     const write = await this.records.recordText({
@@ -155,19 +190,19 @@ export class WorklogLineRuntime {
       text: command.text,
       sourceTimestamp: message.lineTimestamp,
     });
+    return this.finishWrite(write, message, '已記錄。');
+  }
+
+  private async finishWrite(
+    write: WorklogTextRecordWriteResult,
+    message: BufferedGroupMessage,
+    createdReplyText: string,
+  ): Promise<WorklogLineRuntimeResult> {
     if (write.status === 'CREATED') {
       await this.normalizeBestEffort(write.recordId, message);
-      return {
-        status: 'RECORDED',
-        recordId: write.recordId,
-        duplicate: false,
-        replyText: '已記錄。',
-      };
+      return { status: 'RECORDED', recordId: write.recordId, duplicate: false, replyText: createdReplyText };
     }
     if (write.status === 'ALREADY_RECORDED') {
-      // Redelivery is allowed to resume a normalization state that was already past
-      // provider execution / quota commit. The normalization state machine itself
-      // prevents a second provider call or double quota charge.
       await this.normalizeBestEffort(write.recordId, message);
       return {
         status: 'RECORDED',
@@ -190,13 +225,31 @@ export class WorklogLineRuntime {
     };
   }
 
+  private async cacheOrdinaryTextBestEffort(message: BufferedGroupMessage): Promise<void> {
+    if (!this.textCache || message.messageType !== 'text' || !message.textContent) return;
+    try {
+      await this.textCache.remember({
+        lineMessageId: message.lineMessageId,
+        lineGroupId: message.lineGroupId,
+        lineUserId: message.lineUserId,
+        text: message.textContent,
+        lineTimestamp: message.lineTimestamp,
+      });
+    } catch (error) {
+      console.error(JSON.stringify({
+        event: 'worklog_line_text_cache_failed',
+        lineGroupId: message.lineGroupId,
+        lineMessageId: message.lineMessageId,
+        message: error instanceof Error ? error.message : 'unknown error',
+      }));
+    }
+  }
+
   private async normalizeBestEffort(recordId: number, message: BufferedGroupMessage): Promise<void> {
     if (!this.textNormalization) return;
     try {
       await this.textNormalization.normalizeText(recordId);
     } catch (error) {
-      // Raw TEXT is already durable. Never convert a successful record into a failed
-      // LINE command because normalization infrastructure had a transient error.
       console.error(JSON.stringify({
         event: 'worklog_text_normalization_failed_after_persist',
         source: 'GROUP',
