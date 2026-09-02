@@ -1,4 +1,7 @@
 .worklog-shell { max-width: 960px; }
+.worklog-main-tabs { display:flex; gap:8px; margin:14px 0; overflow:auto; }
+.worklog-main-tabs button { border:1px solid rgba(127,127,127,.28); background:transparent; border-radius:10px; padding:9px 14px; white-space:nowrap; }
+.worklog-main-tabs button.active { font-weight:700; border-color:currentColor; }
 .worklog-scope-panel { padding: 12px; }
 .worklog-scope-row { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; }
 .worklog-scope { white-space: nowrap; border: 1px solid rgba(127,127,127,.3); border-radius: 999px; padding: 8px 14px; background: transparent; }
@@ -13,15 +16,29 @@
 .worklog-member small { opacity: .7; margin-top: 3px; }
 .worklog-member label { display: flex; gap: 6px; align-items: center; white-space: nowrap; }
 .worklog-filter-panel { display: grid; grid-template-columns: minmax(0,1fr) 140px 140px; gap: 10px; }
-.worklog-filter-panel input, .worklog-filter-panel select { width: 100%; min-height: 42px; border: 1px solid rgba(127,127,127,.3); border-radius: 10px; padding: 8px 10px; background: transparent; color: inherit; }
+.worklog-filter-panel input, .worklog-filter-panel select, .record-editor select, .record-editor textarea, .inline-create input, .inline-create select, .finance-form input, .finance-form select { width: 100%; min-height: 42px; border: 1px solid rgba(127,127,127,.3); border-radius: 10px; padding: 8px 10px; background: transparent; color: inherit; }
 .worklog-record-list { display: grid; gap: 12px; }
 .worklog-record-card { border: 1px solid rgba(127,127,127,.22); border-radius: 14px; padding: 14px; }
 .worklog-record-card strong { display: block; line-height: 1.55; }
-.worklog-record-meta { display: flex; flex-wrap: wrap; gap: 8px 12px; font-size: .82rem; opacity: .72; margin-bottom: 8px; }
+.worklog-record-meta { display: flex; flex-wrap: wrap; gap: 8px 12px; font-size: .82rem; opacity: .72; margin-bottom: 8px; align-items:center; }
 .worklog-raw { margin-bottom: 0; white-space: pre-wrap; }
+.link-button { border:0; background:transparent; padding:0; text-decoration:underline; color:inherit; font-size:inherit; }
+.record-editor { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px; }
+.record-editor textarea { grid-column:1/-1; resize:vertical; }
+.record-editor button { justify-self:start; }
+.management-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.inline-create { display:grid; gap:8px; margin-bottom:14px; }
+.simple-row { display:flex; justify-content:space-between; gap:12px; padding:10px 0; border-top:1px solid rgba(127,127,127,.18); align-items:center; }
+.simple-row strong,.simple-row small { display:block; }
+.simple-row small { opacity:.7; margin-top:3px; }
+.finance-form { display:grid; grid-template-columns:130px 130px 1fr 1fr; gap:8px; margin-bottom:16px; }
+.finance-form input:nth-of-type(2) { grid-column:1/-2; }
+.transaction-list { display:grid; gap:2px; }
 @media (max-width: 680px) {
-  .worklog-filter-panel { grid-template-columns: 1fr; }
+  .worklog-filter-panel, .management-grid, .record-editor, .finance-form { grid-template-columns: 1fr; }
+  .record-editor textarea, .finance-form input:nth-of-type(2) { grid-column:auto; }
   .worklog-record-card { padding: 12px; }
   .worklog-member { align-items: flex-start; }
   .worklog-usage { gap: 8px 12px; }
+  .simple-row { align-items:flex-start; }
 }
