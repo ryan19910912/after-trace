@@ -145,9 +145,10 @@ export class DrizzleWorklogBootstrapRepository implements WorklogBootstrapReposi
   async reactivateBoundGroup(sourceId: number, at: Date): Promise<boolean> {
     const result = await this.db.execute(sql`
       UPDATE worklog_sources
-      SET status = 'ACTIVE', inactive_at = NULL, updated_at = GREATEST(updated_at, ${at})
+      SET status = 'ACTIVE', inactive_at = NULL, updated_at = ${at}
       WHERE id = ${sourceId}
         AND type = 'GROUP'
+        AND updated_at <= ${at}
       RETURNING id
     `);
     return result.rows.length === 1;
@@ -166,9 +167,15 @@ export class DrizzleWorklogBootstrapRepository implements WorklogBootstrapReposi
       VALUES (${lineGroupId}, TRUE, ${at}, ${at}, ${at}, ${at})
       ON CONFLICT (line_group_id) DO UPDATE
       SET
-        is_active = TRUE,
+        is_active = CASE
+          WHEN EXCLUDED.last_seen_at >= worklog_pending_groups.last_seen_at THEN TRUE
+          ELSE worklog_pending_groups.is_active
+        END,
         last_seen_at = GREATEST(worklog_pending_groups.last_seen_at, EXCLUDED.last_seen_at),
-        inactive_at = NULL,
+        inactive_at = CASE
+          WHEN EXCLUDED.last_seen_at >= worklog_pending_groups.last_seen_at THEN NULL
+          ELSE worklog_pending_groups.inactive_at
+        END,
         updated_at = GREATEST(worklog_pending_groups.updated_at, EXCLUDED.updated_at)
       RETURNING id::text, line_group_id, is_active, promoted_source_id::text
     `);
@@ -201,7 +208,10 @@ export class DrizzleWorklogBootstrapRepository implements WorklogBootstrapReposi
       VALUES (${pendingGroupId}, ${userId}, ${isActive}, ${at}, ${at}, ${at}, ${at})
       ON CONFLICT (pending_group_id, user_id) DO UPDATE
       SET
-        is_active = EXCLUDED.is_active,
+        is_active = CASE
+          WHEN EXCLUDED.last_seen_at >= worklog_pending_group_members.last_seen_at THEN EXCLUDED.is_active
+          ELSE worklog_pending_group_members.is_active
+        END,
         last_seen_at = GREATEST(worklog_pending_group_members.last_seen_at, EXCLUDED.last_seen_at),
         updated_at = GREATEST(worklog_pending_group_members.updated_at, EXCLUDED.updated_at)
     `);
@@ -227,7 +237,10 @@ export class DrizzleWorklogBootstrapRepository implements WorklogBootstrapReposi
       VALUES (${sourceId}, ${userId}, ${isActive}, TRUE, ${at}, ${at}, ${at}, ${at})
       ON CONFLICT (source_id, user_id) DO UPDATE
       SET
-        is_active = EXCLUDED.is_active,
+        is_active = CASE
+          WHEN EXCLUDED.last_seen_at >= worklog_source_members.last_seen_at THEN EXCLUDED.is_active
+          ELSE worklog_source_members.is_active
+        END,
         last_seen_at = GREATEST(worklog_source_members.last_seen_at, EXCLUDED.last_seen_at),
         updated_at = GREATEST(worklog_source_members.updated_at, EXCLUDED.updated_at)
     `);
@@ -240,23 +253,27 @@ export class DrizzleWorklogBootstrapRepository implements WorklogBootstrapReposi
         SET status = 'INACTIVE', inactive_at = ${at}, updated_at = ${at}
         WHERE type = 'GROUP'
           AND line_group_id = ${lineGroupId}
+          AND updated_at <= ${at}
         RETURNING id
       ),
       deactivated_members AS (
         UPDATE worklog_source_members
         SET is_active = FALSE, last_seen_at = ${at}, updated_at = ${at}
         WHERE source_id IN (SELECT id FROM deactivated_source)
+          AND last_seen_at <= ${at}
         RETURNING id
       ),
       deactivated_pending AS (
         UPDATE worklog_pending_groups
         SET is_active = FALSE, inactive_at = ${at}, last_seen_at = ${at}, updated_at = ${at}
         WHERE line_group_id = ${lineGroupId}
+          AND last_seen_at <= ${at}
         RETURNING id
       )
       UPDATE worklog_pending_group_members
       SET is_active = FALSE, last_seen_at = ${at}, updated_at = ${at}
       WHERE pending_group_id IN (SELECT id FROM deactivated_pending)
+        AND last_seen_at <= ${at}
     `);
   }
 
@@ -309,8 +326,8 @@ export class DrizzleWorklogBootstrapRepository implements WorklogBootstrapReposi
         UPDATE worklog_sources AS source
         SET
           workspace_id = ${input.workspaceId},
-          status = 'ACTIVE',
-          inactive_at = NULL,
+          status = CASE WHEN source.updated_at <= ${input.at} THEN 'ACTIVE'::worklog_source_status ELSE source.status END,
+          inactive_at = CASE WHEN source.updated_at <= ${input.at} THEN NULL ELSE source.inactive_at END,
           owner_user_id = COALESCE(source.owner_user_id, ${input.ownerUserId}),
           subscription_owner_user_id = COALESCE(source.subscription_owner_user_id, ${input.ownerUserId}),
           owner_binding_method = CASE
@@ -321,7 +338,7 @@ export class DrizzleWorklogBootstrapRepository implements WorklogBootstrapReposi
             WHEN source.owner_user_id IS NULL THEN ${input.at}
             ELSE source.owner_bound_at
           END,
-          updated_at = ${input.at}
+          updated_at = GREATEST(source.updated_at, ${input.at})
         WHERE source.id = (SELECT id FROM chosen)
           AND (source.owner_user_id IS NULL OR source.owner_user_id = ${input.ownerUserId})
         RETURNING source.id, source.line_group_id, source.workspace_id, source.owner_user_id, source.status
@@ -353,7 +370,10 @@ export class DrizzleWorklogBootstrapRepository implements WorklogBootstrapReposi
           ON pending_member.pending_group_id = pending.id
         ON CONFLICT (source_id, user_id) DO UPDATE
         SET
-          is_active = EXCLUDED.is_active,
+          is_active = CASE
+            WHEN EXCLUDED.last_seen_at >= worklog_source_members.last_seen_at THEN EXCLUDED.is_active
+            ELSE worklog_source_members.is_active
+          END,
           first_seen_at = LEAST(worklog_source_members.first_seen_at, EXCLUDED.first_seen_at),
           last_seen_at = GREATEST(worklog_source_members.last_seen_at, EXCLUDED.last_seen_at),
           updated_at = GREATEST(worklog_source_members.updated_at, EXCLUDED.updated_at)
@@ -365,7 +385,7 @@ export class DrizzleWorklogBootstrapRepository implements WorklogBootstrapReposi
           is_active = FALSE,
           promoted_source_id = activated.id,
           promoted_at = ${input.at},
-          updated_at = ${input.at}
+          updated_at = GREATEST(pending.updated_at, ${input.at})
         FROM activated
         WHERE pending.line_group_id = ${input.lineGroupId}
         RETURNING pending.id
