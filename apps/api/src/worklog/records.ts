@@ -14,6 +14,7 @@ export type WorklogRecordListItem = {
   normalizedSummary: string | null;
   customerId: number | null;
   projectId: number | null;
+  sourceTimestamp: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -155,13 +156,8 @@ export class WorklogRecordReadService {
       this.repository.isOaFriend(userId),
       this.repository.listActiveGroupSurfaces(userId),
     ]);
-    const personalSourceId = oaFriend
-      ? await this.repository.getActivePersonalSourceId(userId)
-      : null;
-    return {
-      personal: personalSourceId === null ? null : { sourceId: personalSourceId },
-      groups,
-    };
+    const personalSourceId = oaFriend ? await this.repository.getActivePersonalSourceId(userId) : null;
+    return { personal: personalSourceId === null ? null : { sourceId: personalSourceId }, groups };
   }
 
   async personalRecords(userId: number, limit = 100): Promise<WorklogRecordListItem[]> {
@@ -171,18 +167,9 @@ export class WorklogRecordReadService {
     return this.repository.listRecordsBySource(sourceId, safeLimit(limit));
   }
 
-  async groupRecords(
-    userId: number,
-    sourceId: number,
-    limit = 100,
-  ): Promise<{ status: 'OK'; records: WorklogRecordListItem[] } | { status: 'FORBIDDEN' }> {
-    if (!(await this.repository.isActiveGroupMember(userId, sourceId))) {
-      return { status: 'FORBIDDEN' };
-    }
-    return {
-      status: 'OK',
-      records: await this.repository.listRecordsBySource(sourceId, safeLimit(limit)),
-    };
+  async groupRecords(userId: number, sourceId: number, limit = 100): Promise<{ status: 'OK'; records: WorklogRecordListItem[] } | { status: 'FORBIDDEN' }> {
+    if (!(await this.repository.isActiveGroupMember(userId, sourceId))) return { status: 'FORBIDDEN' };
+    return { status: 'OK', records: await this.repository.listRecordsBySource(sourceId, safeLimit(limit)) };
   }
 }
 
