@@ -8,4 +8,8 @@ const appDir = dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   envDir: resolve(appDir, '../..'),
   plugins: [react()],
+  server: {
+    port: 5174,
+    strictPort: true,
+  },
 });
