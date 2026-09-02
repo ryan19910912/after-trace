@@ -5,7 +5,7 @@ import { LineMessageContentResolver } from './line/content';
 import { WorklogAttachmentIngestionService } from './worklog/attachment-ingestion';
 import { configureWorklogAttachmentRuntime } from './worklog/attachment-runtime';
 import { DrizzleWorklogAttachmentRepository } from './worklog/drizzle-attachment-ingestion';
-import { DrizzleWorklogSubscriptionRepository } from './worklog/drizzle-subscription';
+import { SafeDrizzleWorklogSubscriptionRepository } from './worklog/drizzle-subscription-safe';
 import { GeminiWorklogAttachmentNormalizer } from './worklog/gemini-attachment-normalizer';
 import { createWorklogRoutes } from './worklog/routes';
 import { createWorklogSubscriptionRoutes } from './worklog/subscription-routes';
@@ -23,7 +23,7 @@ function configureWorklogRuntime(env: Bindings): void {
   const database = createDatabase(env.DATABASE_URL);
   configureWorklogAttachmentRuntime(new WorklogAttachmentIngestionService(
     new DrizzleWorklogAttachmentRepository(database),
-    new WorklogSubscriptionService(new DrizzleWorklogSubscriptionRepository(database)),
+    new WorklogSubscriptionService(new SafeDrizzleWorklogSubscriptionRepository(database)),
     new LineMessageContentResolver(env.LINE_CHANNEL_ACCESS_TOKEN),
     new GeminiWorklogAttachmentNormalizer({ apiKey: env.GEMINI_API_KEY }),
   ));
