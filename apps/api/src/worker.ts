@@ -1,7 +1,5 @@
 import app, { type Bindings } from './index';
 import { createAdminRoutes } from './admin/routes';
-import { loadOperationalRuntimeEnv, operationalSettingDefinitions } from './config/operational-settings';
-import { disableLegacyConversationRuntime } from './conversation/service';
 import { createDatabase } from './db/client';
 import { LineMessageContentResolver } from './line/content';
 import { WorklogAttachmentIngestionService } from './worklog/attachment-ingestion';
@@ -22,16 +20,7 @@ const worklogSubscriptionRoutes = createWorklogSubscriptionRoutes();
 const LEGACY_PREFIXES = ['/api/v1/management', '/api/v1/energy', '/api/v1/internal/commerce', '/api/v1/internal/proactive'];
 const LEGACY_AUTH_PATHS = new Set(['/api/v1/auth/groups', '/api/v1/auth/memories']);
 
-async function runtimeEnv(env: Bindings): Promise<Bindings> {
-  const database = createDatabase(env.DATABASE_URL);
-  const operational = await loadOperationalRuntimeEnv(database);
-  const infrastructure = { ...env } as Record<string, unknown>;
-  for (const definition of operationalSettingDefinitions) delete infrastructure[definition.key];
-  return { ...infrastructure, ...operational } as Bindings;
-}
-
 function configureWorklogRuntime(env: Bindings): void {
-  disableLegacyConversationRuntime();
   const database = createDatabase(env.DATABASE_URL);
   configureWorklogAttachmentRuntime(new WorklogAttachmentIngestionService(
     new DrizzleWorklogAttachmentRepository(database),
@@ -47,8 +36,7 @@ function legacyRoute(pathname: string): boolean {
 }
 
 export default {
-  async fetch(request: Request, rawEnv: Bindings, executionContext: ExecutionContextLike) {
-    const env = await runtimeEnv(rawEnv);
+  async fetch(request: Request, env: Bindings, executionContext: ExecutionContextLike) {
     configureWorklogRuntime(env);
     const url = new URL(request.url);
 
@@ -56,24 +44,26 @@ export default {
       return Response.json({ ok: false, error: 'LEGACY_AFTERTRACE_RUNTIME_DISABLED' }, { status: 410 });
     }
     if (url.pathname === '/api/v1/admin' || url.pathname.startsWith('/api/v1/admin/')) {
-      const rewritten = new URL(request.url); rewritten.pathname = url.pathname.slice('/api/v1/admin'.length) || '/';
+      const rewritten = new URL(request.url);
+      rewritten.pathname = url.pathname.slice('/api/v1/admin'.length) || '/';
       return adminRoutes.fetch(new Request(rewritten, request), env as never, executionContext as never);
     }
     if (url.pathname === '/api/v1/subscription' || url.pathname.startsWith('/api/v1/subscription/')) {
-      const rewritten = new URL(request.url); rewritten.pathname = url.pathname.slice('/api/v1/subscription'.length) || '/';
+      const rewritten = new URL(request.url);
+      rewritten.pathname = url.pathname.slice('/api/v1/subscription'.length) || '/';
       return worklogSubscriptionRoutes.fetch(new Request(rewritten, request), env as never, executionContext as never);
     }
     if (url.pathname === '/api/v1/worklog' || url.pathname.startsWith('/api/v1/worklog/')) {
-      const rewritten = new URL(request.url); rewritten.pathname = url.pathname.slice('/api/v1/worklog'.length) || '/';
+      const rewritten = new URL(request.url);
+      rewritten.pathname = url.pathname.slice('/api/v1/worklog'.length) || '/';
       return worklogRoutes.fetch(new Request(rewritten, request), env as never, executionContext as never);
     }
-    // Only health, LINE webhook and the still-needed auth entry/OAuth endpoints fall through.
     return app.fetch(request, env, executionContext as never);
   },
 
-  scheduled(controller: ScheduledControllerLike, _rawEnv: Bindings, executionContext: ExecutionContextLike) {
+  scheduled(controller: ScheduledControllerLike, _env: Bindings, executionContext: ExecutionContextLike) {
     executionContext.waitUntil(Promise.resolve().then(() => {
-      console.log(JSON.stringify({ event: 'worklog_scheduled_legacy_noop', scheduledTime: controller.scheduledTime }));
+      console.log(JSON.stringify({ event: 'worklog_scheduled_noop', scheduledTime: controller.scheduledTime }));
     }));
   },
 };

@@ -12,7 +12,8 @@ AFTERTRACE deploys as three independent Cloudflare Workers.
 - Responsibilities: LINE webhook, Worklog runtime, auth/session, PWA/Admin/subscription APIs, AI quota/provider orchestration and PostgreSQL/Drizzle.
 - Deployment config: `apps/api/wrangler.toml`.
 - Production helper: `worker-deploy.ps1` and API-only.
-- The deployed Worker runtime is now explicitly cut over to Worklog. Legacy `/management`, `/energy`, old commerce/proactive API prefixes return HTTP 410, and old conversation/Memory buffering is disabled at Worker runtime.
+- The API entrypoint is Worklog-only: LINE group traffic is terminated at the Worklog group boundary, so ordinary group chat can only hit the bounded PostgreSQL TEXT cache path and cannot fall through to retired conversation/Energy/Memory logic.
+- Legacy `/management`, `/energy`, old commerce/proactive API prefixes plus old `/auth/groups` and `/auth/memories` endpoints return HTTP 410 tombstones without mounting their old routers.
 - The previous reminder/proactive/legacy-retention scheduled handler is a no-op until its Cloudflare cron binding is removed.
 
 ### 2. aftertrace-web
@@ -63,6 +64,13 @@ The actual Rich Menu object/image is a LINE OA external configuration step and i
 - Other Admin endpoints require the HMAC bearer session.
 - Frontend never receives/bundles password or session secret; do not put API secrets in `VITE_*`.
 
+## AI runtime configuration boundary
+
+- `GEMINI_API_KEY` is the only Worklog Gemini provider credential expected from Worker environment/secrets.
+- Model name, token pricing, image/audio pricing and USD/TWD conversion are stored in the Worklog runtime configuration tables and edited through Worklog Admin.
+- Retired Energy/free-budget/rewarded-ad/Memory AI environment settings are not part of the Worklog deployment contract.
+- Historical Worklog AI usage keeps its own execution snapshot; changing Admin runtime configuration must not rewrite historical cost.
+
 ## Architecture rules
 
 - Keep all three Workers independently configurable/deployable.
@@ -85,6 +93,8 @@ Completed deployment-direction work:
 7. Added user-facing `/help`, `/subscription`, `/feedback` destinations.
 8. Added provider-neutral subscription plan/checkout-intent boundary.
 9. Added DB failure-to-anomaly triggers (`0009`) for attachment and TEXT normalization failures so Admin monitoring receives structured events.
+10. Replaced the mixed legacy LINE webhook entrypoint with Worklog-only group/OA processors; ordinary group traffic no longer invokes conversation, Energy, extraction or Memory services.
+11. Removed legacy group-list/memory-search auth reads from the mounted auth router while preserving one-time GROUP/PRIVATE entry exchange and LINE Login.
 
 Still required before production cutover:
 
@@ -97,6 +107,7 @@ Still required before production cutover:
 7. Configure LINE OA Rich Menu links/image externally.
 8. Decide/payment provider and connect it to existing checkout-intent boundary when ready.
 9. Run concentrated local build/typecheck/test/migration validation after major MVP paths are complete.
+10. After the Worklog schema cleanup migration is designed, remove retired legacy DB tables/schema declarations rather than leaving permanent storage debt.
 
 ## Validation expectations
 
@@ -111,6 +122,7 @@ Before production use validate independently:
 - subscription plan list + checkout intent idempotency / no false-success while provider disabled
 - deploying each Worker does not redeploy the others
 - legacy API prefixes return 410 and ordinary group chat does not enter old conversation/Memory storage
+- group command persistence remains successful even when LINE reply delivery fails
 - LINE webhook TEXT/Reply TEXT/media E2E
 - real Gemini image/audio/PDF usage/cost snapshots
 

@@ -143,19 +143,29 @@ Admin surfaces now read/write Worklog domain:
 - Structured anomaly status controls plus attachment/normalization failure views.
 - Worklog audit viewer.
 
-`docs/WORKLOG_DEPLOYMENT.md` and `.env.example` now describe configured Worklog Admin auth and three independent Workers.
+`docs/WORKLOG_DEPLOYMENT.md` and `.env.example` describe configured Worklog Admin auth and three independent Workers.
+
+## Completed live legacy runtime cutover
+
+- Replaced the mixed webhook body in `apps/api/src/index.ts` with a Worklog-only LINE entrypoint.
+- Group events now run through `processWorklogGroupWebhook`; OA private events remain in the separate Worklog OA boundary.
+- Ordinary group messages stop after `WorklogLineRuntime`: only ordinary TEXT can use the bounded PostgreSQL cache; there is no conversation ingestion, Energy grant, extraction, background Memory, old AI chat or reminder path after `NOT_HANDLED`.
+- Removed mounted legacy management/Energy/commerce routers from the Hono app. Worker-level HTTP 410 tombstones remain for old URLs without importing those routers.
+- Removed the runtime `disableLegacyConversationRuntime()` switch and the DB-backed legacy operational-env overlay from `worker.ts`; the Worklog runtime no longer depends on hidden legacy global state.
+- Removed legacy `/api/v1/auth/groups` and `/api/v1/auth/memories` implementation code. Their 410 tombstones remain, while GROUP/PRIVATE one-time entry exchange and LINE Login stay intact.
+- Removed auth repository/service reads of legacy `line_groups`, `group_members` and `memories` tables.
+- Group entry exchange now returns only the Worklog-used session + typed `entryContext`; the obsolete `groupContextToken` dependency on legacy management code is gone.
+- `.env.example` now exposes only active Worklog AI provider credential (`GEMINI_API_KEY`); model/pricing are DB/Admin-controlled and retired Energy/Memory budget vars were removed from the active deployment contract.
+- Group webhook reply delivery is failure-isolated: a successful persisted record remains successful if LINE reply delivery fails, and errors are structured-log counted.
 
 ## Static consistency work completed in the latest batch
 
-- PWA client aligned to deterministic customer/project/transaction APIs.
-- Record list maps DB snake_case rows to typed camelCase UI model.
-- Raw-text mutation removed from PWA.
-- Group record edit UI only appears for group Owner; API still enforces workspace ownership.
-- Customer/project/finance UI appears only when caller has personal workspace.
-- Admin CORS allows Authorization while restricting exact `ADMIN_WEB_ORIGIN`.
-- Admin credentials/session secret remain API-only.
-- Legacy customer/project routes that previously allowed raw record mutation were replaced by audited deterministic workspace management.
-- Structured failure anomalies now exist at DB boundary for attachment/normalization terminal failure.
+- Added `worklog/group-webhook.test.ts` covering ordinary-message termination, scoped query links, lifecycle state, explicit-command failure and reply-delivery failure behavior.
+- Extended auth service tests for exact LINE membership verification on GROUP one-time entry exchange and no-consume behavior after membership loss.
+- Preserved the existing attachment failure UX: expired/unavailable content asks resend; provider-uncertain processing is not automatically replayed.
+- Updated LINE event parser comments to Worklog boundaries and removed legacy cutover wording.
+- Static API/client review confirmed the PWA `EntryExchange` model only consumes `sessionToken`, `lineUserId` and typed `entryContext`, so removing `groupContextToken` does not break the current Worklog Web client contract.
+- No concentrated local command suite was run in this batch, per user direction.
 
 ## Verification status
 
@@ -179,14 +189,14 @@ Before production explicitly validate private auth, normalization race recovery,
 1. Payment provider is not connected. Checkout intent is durable but cannot charge/activate a plan yet.
 2. Plan definition allowance edits do not yet have an explicit policy for rewriting an already-active cycle's quota balance. Decide whether change is next-period-only or immediate-with-floor-at-used+reserved; never silently destroy used/reserved quota.
 3. Provider-uncertain attachment failures intentionally have no automatic retry because replay can double bill. Any Admin retry must be explicit and semantics-safe.
-4. Old Memory/Energy/commerce/conversation routes/runtime still exist in API code. Most important cutover audit: ordinary group messages currently still fall through old conversation/memory flow after Worklog's temporary TEXT cache. Remove/disable legacy product behavior once required Worklog replacement boundaries are confirmed.
+4. Retired Memory/Energy/commerce/conversation source modules, tests, old Drizzle schema declarations and historical DB tables still exist in the repository even though the live Worker entrypoint no longer imports or executes them. Removal needs an explicit DB/schema cleanup migration so production data is not dropped accidentally.
 5. Group display name remains generic because Worklog source persists LINE group id, not durable summary display metadata.
 6. Dedicated local compile/test/migration/schema/browser validation is still pending by user request.
 
 ## Next large batch
 
-1. Finish payment-provider decision/integration only if provider requirements are known; otherwise preserve honest disabled checkout.
-2. Perform legacy API cutover audit and remove old Memory/Energy/conversation behavior that is no longer part of Worklog, especially ordinary group-message fallthrough.
-3. Static TypeScript/API contract audit across the large Admin/PWA/subscription changes; add focused authorization/immutability/transaction/idempotency tests.
-4. Remove remaining dead files/routes/config instead of keeping compatibility debt.
+1. Perform repository-level legacy deletion: identify retired source/test/config/schema files that have no Worklog dependency, remove them, and design the explicit migration for obsolete DB tables rather than leaving dead storage indefinitely.
+2. Do a dedicated static Worklog API/TypeScript audit after deletion: imports, route contracts, auth boundaries, quota settlement, attachment state transitions and immutable raw input.
+3. Add focused tests for authorization/immutability/transaction/idempotency and any bugs found in that audit.
+4. Finish payment-provider integration only after provider requirements are known; otherwise preserve honest disabled checkout.
 5. Then do the user's requested concentrated local checkout/typecheck/test/migration/schema/browser smoke pass and fix all failures as one focused phase.

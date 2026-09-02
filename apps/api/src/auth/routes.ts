@@ -1,11 +1,10 @@
 import { Hono } from 'hono';
 import { createDatabase } from '../db/client';
-import { issueGroupContextToken } from '../management/group-context';
 import { issueLineLoginState, verifyLineLoginState } from './oauth-state';
 import { createPkceChallenge, createPkceVerifier } from './pkce';
 import { DrizzleWebAuthRepository } from './repository';
 import { WebAuthService } from './service';
-import { issueWebSessionToken, verifyWebSessionToken } from './token';
+import { issueWebSessionToken } from './token';
 
 export type WebAuthBindings = {
   DATABASE_URL: string;
@@ -20,27 +19,14 @@ export type WebAuthBindings = {
 
 type AuthEnv = { Bindings: WebAuthBindings };
 
-type LineTokenResponse = {
-  access_token?: unknown;
-};
-
-type LineProfile = {
-  userId?: unknown;
-};
+type LineTokenResponse = { access_token?: unknown };
+type LineProfile = { userId?: unknown };
 
 const OAUTH_COOKIE = 'aftertrace_line_oauth';
 
 function authSecret(env: WebAuthBindings): string | null {
   const value = env.WEB_AUTH_SECRET?.trim();
   return value && value.length >= 32 ? value : null;
-}
-
-function bearerToken(header: string | undefined): string | null {
-  if (!header) return null;
-  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
-  if (!match) return null;
-  const token = match[1]?.trim() ?? '';
-  return token && token.length <= 8192 ? token : null;
 }
 
 function lineLoginConfig(env: WebAuthBindings): { channelId: string; channelSecret: string; webAppUrl: string } | null {
@@ -128,14 +114,7 @@ export function createWebAuthRoutes() {
     const separator = stored?.lastIndexOf('|') ?? -1;
     const storedState = separator > 0 ? stored!.slice(0, separator) : null;
     const verifier = separator > 0 ? stored!.slice(separator + 1) : null;
-    if (
-      !code ||
-      !state ||
-      !storedState ||
-      state !== storedState ||
-      !verifier ||
-      !(await verifyLineLoginState(state, secret))
-    ) {
+    if (!code || !state || !storedState || state !== storedState || !verifier || !(await verifyLineLoginState(state, secret))) {
       return c.json({ ok: false, error: 'INVALID_LINE_LOGIN_CALLBACK' }, 400);
     }
 
@@ -165,10 +144,7 @@ export function createWebAuthRoutes() {
     const profile = (await profileResponse.json()) as LineProfile;
     if (typeof profile.userId !== 'string') return c.json({ ok: false, error: 'LINE_PROFILE_FAILED' }, 502);
 
-    const sessionToken = await issueWebSessionToken({
-      lineUserId: profile.userId,
-      secret,
-    });
+    const sessionToken = await issueWebSessionToken({ lineUserId: profile.userId, secret });
     const webUrl = new URL(config.webAppUrl);
     webUrl.hash = new URLSearchParams({ session: sessionToken }).toString();
     return c.redirect(webUrl.toString(), 302);
@@ -200,75 +176,12 @@ export function createWebAuthRoutes() {
     }
     if (result.status === 'LINE_UNAVAILABLE') return c.json({ ok: false, error: result.status }, 503);
 
-    if (result.entryContext.type === 'PRIVATE') {
-      return c.json({
-        ok: true,
-        sessionToken: result.sessionToken,
-        lineUserId: result.lineUserId,
-        entryContext: result.entryContext,
-      });
-    }
-
     return c.json({
       ok: true,
       sessionToken: result.sessionToken,
       lineUserId: result.lineUserId,
-      lineGroupId: result.entryContext.lineGroupId,
-      groupContextToken: await issueGroupContextToken(result.entryContext.lineGroupId, c.env.LINE_CHANNEL_SECRET),
       entryContext: result.entryContext,
     });
-  });
-
-  app.get('/groups', async (c) => {
-    const secret = authSecret(c.env);
-    if (!secret) return c.json({ ok: false, error: 'WEB_AUTH_NOT_CONFIGURED' }, 503);
-    const token = bearerToken(c.req.header('authorization'));
-    if (!token) return c.json({ ok: false, error: 'WEB_SESSION_REQUIRED' }, 401);
-    const session = await verifyWebSessionToken(token, secret);
-    if (!session) return c.json({ ok: false, error: 'INVALID_WEB_SESSION' }, 401);
-    try {
-      const service = new WebAuthService(
-        new DrizzleWebAuthRepository(createDatabase(c.env.DATABASE_URL)),
-        c.env.LINE_CHANNEL_ACCESS_TOKEN,
-        secret,
-      );
-      const groups = await service.listGroups(session.lineUserId);
-      return c.json({
-        ok: true,
-        groups: await Promise.all(groups.map(async (group) => ({
-          ...group,
-          groupContextToken: await issueGroupContextToken(group.lineGroupId, c.env.LINE_CHANNEL_SECRET),
-        }))),
-      });
-    } catch (error) {
-      if (error instanceof Error && (error.message === 'LINE_GROUP_SUMMARY_UNAVAILABLE' || error.message === 'LINE_GROUP_MEMBER_UNAVAILABLE')) {
-        return c.json({ ok: false, error: error.message }, 503);
-      }
-      throw error;
-    }
-  });
-
-  app.get('/memories', async (c) => {
-    const secret = authSecret(c.env);
-    if (!secret) return c.json({ ok: false, error: 'WEB_AUTH_NOT_CONFIGURED' }, 503);
-    const token = bearerToken(c.req.header('authorization'));
-    if (!token) return c.json({ ok: false, error: 'WEB_SESSION_REQUIRED' }, 401);
-    const session = await verifyWebSessionToken(token, secret);
-    if (!session) return c.json({ ok: false, error: 'INVALID_WEB_SESSION' }, 401);
-    try {
-      const service = new WebAuthService(
-        new DrizzleWebAuthRepository(createDatabase(c.env.DATABASE_URL)),
-        c.env.LINE_CHANNEL_ACCESS_TOKEN,
-        secret,
-      );
-      return c.json({ ok: true, memories: await service.searchMemories(session.lineUserId, c.req.query('q') ?? null) });
-    } catch (error) {
-      if (error instanceof Error && error.message === 'QUERY_TOO_LONG') return c.json({ ok: false, error: error.message }, 400);
-      if (error instanceof Error && (error.message === 'LINE_GROUP_SUMMARY_UNAVAILABLE' || error.message === 'LINE_GROUP_MEMBER_UNAVAILABLE')) {
-        return c.json({ ok: false, error: error.message }, 503);
-      }
-      throw error;
-    }
   });
 
   return app;
