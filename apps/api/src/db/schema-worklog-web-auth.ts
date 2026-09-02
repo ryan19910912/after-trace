@@ -1,4 +1,5 @@
 import { bigint, index, pgTable, timestamp, varchar } from 'drizzle-orm/pg-core';
+import { worklogSources, worklogUsers } from './schema-worklog';
 
 // The physical table keeps its historical name so GROUP one-time links remain
 // deployment-compatible while the ownership of the schema moves into Worklog.
@@ -23,8 +24,12 @@ export const worklogPrivateWebEntryNonces = pgTable(
   {
     nonce: varchar('nonce', { length: 128 }).primaryKey(),
     lineUserId: varchar('line_user_id', { length: 64 }).notNull(),
-    userId: bigint('user_id', { mode: 'number' }).notNull(),
-    sourceId: bigint('source_id', { mode: 'number' }).notNull(),
+    userId: bigint('user_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogUsers.id, { onDelete: 'restrict' }),
+    sourceId: bigint('source_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogSources.id, { onDelete: 'restrict' }),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     consumedAt: timestamp('consumed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
