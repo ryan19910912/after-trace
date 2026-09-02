@@ -86,7 +86,7 @@ export class AdminApi {
     if (filters.userType) params.set('type', filters.userType);
     params.set('sort', filters.sortUpdated ?? 'DESC');
     const suffix = params.toString() ? `?${params.toString()}` : '';
-    return (await this.request<{ users: Row[] }>(`/users${suffix}`)).users;
+    return applyServerLabels((await this.request<{ users: Row[] }>(`/users${suffix}`)).users);
   }
 
   async userDetail(id: string | number): Promise<Record<string, unknown>> {
@@ -98,13 +98,13 @@ export class AdminApi {
     const user = asRow(detail.user);
     const plan = plansResponse.plans.find((item) => item.code === String(user.plan_code ?? ''));
     const effectiveRow = { ...user, plan_enabled: plan?.enabled ?? false };
-    return {
+    return applyServerLabels({
       ...detail,
       user: {
         ...effectiveRow,
         subscription_effective_state: effectiveSubscriptionState(effectiveRow),
       },
-    };
+    });
   }
 
   async updateUserSubscription(id: string | number, planCode: string, currentPeriodEnd?: string | null): Promise<void> {
@@ -116,7 +116,7 @@ export class AdminApi {
 
   async groups(query = ''): Promise<Row[]> {
     const suffix = query.trim() ? `?q=${encodeURIComponent(query.trim())}` : '';
-    return (await this.request<{ groups: Row[] }>(`/groups${suffix}`)).groups;
+    return applyServerLabels((await this.request<{ groups: Row[] }>(`/groups${suffix}`)).groups);
   }
 
   async groupDetail(id: string | number): Promise<Record<string, unknown>> {
@@ -135,14 +135,14 @@ export class AdminApi {
       current_period_start: group.current_period_start,
       current_period_end: group.current_period_end,
     };
-    return {
+    return applyServerLabels({
       ...detail,
       group: {
         ...group,
         owner_plan_enabled: plan?.enabled ?? false,
         owner_subscription_effective_state: effectiveSubscriptionState(effectiveRow),
       },
-    };
+    });
   }
 
   async plans(): Promise<AdminPlan[]> {
@@ -181,11 +181,11 @@ export class AdminApi {
   }
 
   async feedback(): Promise<Row[]> {
-    return (await this.request<{ feedback: Row[] }>('/feedback')).feedback;
+    return applyServerLabels((await this.request<{ feedback: Row[] }>('/feedback')).feedback);
   }
 
   async anomalies(): Promise<AdminAnomalies> {
-    return (await this.request<{ anomalies: AdminAnomalies }>('/anomalies')).anomalies;
+    return applyServerLabels((await this.request<{ anomalies: AdminAnomalies }>('/anomalies')).anomalies);
   }
 
   async updateAnomaly(id: string | number, status: 'OPEN' | 'RESOLVED' | 'IGNORED'): Promise<void> {
@@ -193,7 +193,7 @@ export class AdminApi {
   }
 
   async audit(): Promise<Row[]> {
-    return (await this.request<{ audit: Row[] }>('/audit')).audit;
+    return applyServerLabels((await this.request<{ audit: Row[] }>('/audit')).audit);
   }
 
   private async request<T>(path: string, init?: RequestInit, authenticated = true): Promise<T> {
@@ -228,6 +228,24 @@ export function effectiveSubscriptionState(row: Row, now = new Date()): string {
   if (periodStart && timestamp < periodStart.getTime()) return 'PERIOD_NOT_STARTED';
   if (periodEnd && timestamp >= periodEnd.getTime()) return 'PERIOD_EXPIRED';
   return 'ACTIVE';
+}
+
+function applyServerLabels<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((item) => applyServerLabels(item)) as T;
+  if (!value || typeof value !== 'object') return value;
+
+  const source = value as Record<string, unknown>;
+  const result: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(source)) result[key] = applyServerLabels(item);
+
+  for (const [key, item] of Object.entries(source)) {
+    if (!key.endsWith('_label') || typeof item !== 'string') continue;
+    const baseKey = key.slice(0, -6);
+    if (!(baseKey in source)) continue;
+    result[`${baseKey}_code`] = source[baseKey];
+    result[baseKey] = item;
+  }
+  return result as T;
 }
 
 function optionalDate(value: unknown): Date | null {
