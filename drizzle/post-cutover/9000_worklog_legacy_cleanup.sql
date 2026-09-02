@@ -1,11 +1,12 @@
 -- AFTERTRACE Worklog post-cutover legacy cleanup.
 --
 -- Run only after the Worklog-only API Worker is deployed and healthy. This is intentionally
--- not in the automatic Drizzle journal yet: the production helper applies journaled migrations
+-- not in the automatic Drizzle journal: the production helper applies journaled migrations
 -- before deploying the Worker, while these tables belonged to the previous runtime. Keeping the
 -- destructive step post-cutover avoids a migration window where an older Worker could query
 -- tables that have already been dropped.
 --
+-- Numbered 9000 inside post-cutover/ so it cannot be confused with journaled Worklog migrations.
 -- The active GROUP one-time-link table `web_auth_entry_nonces` is deliberately preserved.
 
 DROP TABLE IF EXISTS "ai_usage_events" CASCADE;
