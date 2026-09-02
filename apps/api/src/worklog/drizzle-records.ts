@@ -1,5 +1,7 @@
 import { sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
+import { DrizzleWorklogLineTextCacheRepository } from './drizzle-line-text-cache';
+import type { CachedLineText } from './line-text-cache';
 import type {
   StoredTextRecordIdentity,
   WorklogGroupSurface,
@@ -33,7 +35,23 @@ type TextWriteRow = {
 };
 
 export class DrizzleWorklogRecordWriteRepository implements WorklogRecordWriteRepository {
-  constructor(private readonly db: Database) {}
+  private readonly lineTextCache: DrizzleWorklogLineTextCacheRepository;
+
+  constructor(private readonly db: Database) {
+    this.lineTextCache = new DrizzleWorklogLineTextCacheRepository(db);
+  }
+
+  async upsert(input: CachedLineText): Promise<void> {
+    return this.lineTextCache.upsert(input);
+  }
+
+  async pruneGroup(lineGroupId: string, keepNewest: number, now: Date): Promise<void> {
+    return this.lineTextCache.pruneGroup(lineGroupId, keepNewest, now);
+  }
+
+  async findActive(lineGroupId: string, lineMessageId: string, now: Date): Promise<CachedLineText | null> {
+    return this.lineTextCache.findActive(lineGroupId, lineMessageId, now);
+  }
 
   async insertTextRecord(input: {
     sourceId: number;
