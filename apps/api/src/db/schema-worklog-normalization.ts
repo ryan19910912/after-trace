@@ -1,5 +1,7 @@
+import { sql } from 'drizzle-orm';
 import {
   bigint,
+  check,
   index,
   integer,
   jsonb,
@@ -42,5 +44,9 @@ export const worklogRecordAiNormalizations = pgTable(
     uniqueIndex('worklog_record_ai_normalization_claim_uq').on(table.claimToken),
     index('worklog_record_ai_normalization_status_idx').on(table.status, table.updatedAt),
     index('worklog_record_ai_normalization_reservation_idx').on(table.reservationToken),
+    check(
+      'worklog_record_ai_normalization_status_check',
+      sql`${table.status} IN ('PENDING', 'PROCESSING', 'PROVIDER_SUCCEEDED', 'USAGE_COMMITTED', 'SUCCEEDED', 'FAILED')`,
+    ),
   ],
 );
