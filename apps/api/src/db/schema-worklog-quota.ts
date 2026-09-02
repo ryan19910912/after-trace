@@ -9,6 +9,7 @@ import {
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/pg-core';
+import { worklogSources, worklogUsers } from './schema-worklog';
 
 export const worklogAiReservationStatusEnum = pgEnum('worklog_ai_reservation_status', [
   'RESERVED',
@@ -21,7 +22,9 @@ export const worklogAiQuotaBalances = pgTable(
   'worklog_ai_quota_balances',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    userId: bigint('user_id', { mode: 'number' }).notNull(),
+    userId: bigint('user_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogUsers.id, { onDelete: 'restrict' }),
     periodStart: timestamp('period_start', { withTimezone: true }).notNull(),
     periodEnd: timestamp('period_end', { withTimezone: true }),
     allowanceUnits: integer('allowance_units').default(0).notNull(),
@@ -41,9 +44,15 @@ export const worklogAiQuotaReservations = pgTable(
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
     token: varchar('token', { length: 64 }).notNull(),
-    chargedUserId: bigint('charged_user_id', { mode: 'number' }).notNull(),
-    actorUserId: bigint('actor_user_id', { mode: 'number' }).notNull(),
-    sourceId: bigint('source_id', { mode: 'number' }),
+    chargedUserId: bigint('charged_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogUsers.id, { onDelete: 'restrict' }),
+    actorUserId: bigint('actor_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogUsers.id, { onDelete: 'restrict' }),
+    sourceId: bigint('source_id', { mode: 'number' }).references(() => worklogSources.id, {
+      onDelete: 'restrict',
+    }),
     unitsReserved: integer('units_reserved').notNull(),
     unitsCommitted: integer('units_committed').default(0).notNull(),
     status: worklogAiReservationStatusEnum('status').default('RESERVED').notNull(),
