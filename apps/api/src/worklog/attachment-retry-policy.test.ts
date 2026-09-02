@@ -11,6 +11,7 @@ describe('classifyAttachmentRetry', () => {
     'NOT_YET_EFFECTIVE',
     'PERIOD_NOT_STARTED',
     'PERIOD_EXPIRED',
+    'LINE_CONTENT_NOT_READY',
   ])('marks %s as safe pre-provider retry', (reason) => {
     expect(classifyAttachmentRetry(reason)).toEqual({
       disposition: 'SAFE_RETRY',
@@ -23,8 +24,9 @@ describe('classifyAttachmentRetry', () => {
     'LINE_CONTENT_EXPIRED',
     'LINE_CONTENT_EMPTY',
     'LINE_CONTENT_TOO_LARGE',
+    'LINE_CONTENT_NOT_RETRIEVABLE',
     'ATTACHMENT_UNSUPPORTED',
-  ])('requires resend for %s', (reason) => {
+  ])('requires resend/replacement for %s', (reason) => {
     const decision = classifyAttachmentRetry(reason);
     expect(decision.disposition).toBe('RESEND_REQUIRED');
     expect(decision.canRetryWithoutProviderReplay).toBe(false);
