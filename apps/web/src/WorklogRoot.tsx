@@ -18,7 +18,7 @@ function storedScope(): Scope | null {
       return { type: 'GROUP', sourceId: value.sourceId, lineGroupId: value.lineGroupId };
     }
   } catch {
-    // ignore stale client state
+    // Ignore stale client state. Server scope checks remain authoritative.
   }
   return null;
 }
@@ -77,9 +77,7 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
       setSurfaces(nextSurfaces);
       const remembered = storedScope();
       const validRemembered = remembered && scopeExists(remembered, nextSurfaces) ? remembered : null;
-      const initial = validRemembered ?? defaultScope(nextSurfaces);
-      setScope(initial);
-      if (initial) await loadRecords(token, initial);
+      setScope(validRemembered ?? defaultScope(nextSurfaces));
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : '載入失敗';
       if (/INVALID_WEB_SESSION|WEB_SESSION_REQUIRED/.test(message)) clearSession();
@@ -142,31 +140,18 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
   return (
     <main className="shell worklog-shell">
       <div className="topbar">
-        <div>
-          <p className="eyebrow">AFTERTRACE</p>
-          <h1>工作紀錄</h1>
-        </div>
+        <div><p className="eyebrow">AFTERTRACE</p><h1>工作紀錄</h1></div>
         <button className="ghost" type="button" onClick={clearSession}>登出</button>
       </div>
-
       {error ? <div className="error">{error}</div> : null}
 
       <section className="panel worklog-scope-panel">
         <div className="worklog-scope-row">
           {surfaces?.personal ? (
-            <button
-              type="button"
-              className={scope?.type === 'PERSONAL' ? 'worklog-scope active' : 'worklog-scope'}
-              onClick={() => setScope({ type: 'PERSONAL', sourceId: surfaces.personal!.sourceId })}
-            >個人紀錄</button>
+            <button type="button" className={scope?.type === 'PERSONAL' ? 'worklog-scope active' : 'worklog-scope'} onClick={() => setScope({ type: 'PERSONAL', sourceId: surfaces.personal!.sourceId })}>個人紀錄</button>
           ) : null}
           {surfaces?.groups.map((group, index) => (
-            <button
-              key={group.sourceId}
-              type="button"
-              className={scope?.type === 'GROUP' && scope.sourceId === group.sourceId ? 'worklog-scope active' : 'worklog-scope'}
-              onClick={() => setScope({ type: 'GROUP', sourceId: group.sourceId, lineGroupId: group.lineGroupId })}
-            >群組 {index + 1}</button>
+            <button key={group.sourceId} type="button" className={scope?.type === 'GROUP' && scope.sourceId === group.sourceId ? 'worklog-scope active' : 'worklog-scope'} onClick={() => setScope({ type: 'GROUP', sourceId: group.sourceId, lineGroupId: group.lineGroupId })}>群組 {index + 1}</button>
           ))}
         </div>
       </section>
@@ -185,9 +170,7 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
         {loading ? <div className="empty">載入中…</div> : null}
         {!loading && !scope ? <div className="empty">目前沒有可查看的紀錄範圍。</div> : null}
         {!loading && scope && visibleRecords.length === 0 ? <div className="empty">目前沒有符合條件的紀錄。</div> : null}
-        <div className="worklog-record-list">
-          {visibleRecords.map((record) => <RecordCard key={record.id} record={record} />)}
-        </div>
+        <div className="worklog-record-list">{visibleRecords.map((record) => <RecordCard key={record.id} record={record} />)}</div>
       </section>
     </main>
   );
@@ -195,10 +178,11 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
 
 function RecordCard({ record }: { record: WorklogRecord }) {
   const content = record.normalizedSummary || record.rawText || '尚無可顯示文字';
+  const timestamp = record.sourceTimestamp || record.createdAt;
   return (
     <article className="worklog-record-card">
       <div className="worklog-record-meta">
-        <span>{inputLabel(record.inputType)}</span><span>{categoryLabel(record.category)}</span><time>{new Date(record.createdAt).toLocaleString('zh-TW')}</time>
+        <span>{inputLabel(record.inputType)}</span><span>{categoryLabel(record.category)}</span><time>{new Date(timestamp).toLocaleString('zh-TW')}</time>
       </div>
       <strong>{content}</strong>
       {record.normalizedSummary && record.rawText && record.normalizedSummary !== record.rawText ? <p className="muted worklog-raw">原始內容：{record.rawText}</p> : null}
@@ -211,16 +195,9 @@ function defaultScope(surfaces: WorklogSurfaces): Scope | null {
   const group = surfaces.groups[0];
   return group ? { type: 'GROUP', sourceId: group.sourceId, lineGroupId: group.lineGroupId } : null;
 }
-
 function scopeExists(scope: Scope, surfaces: WorklogSurfaces) {
   if (scope.type === 'PERSONAL') return surfaces.personal?.sourceId === scope.sourceId;
   return surfaces.groups.some((group) => group.sourceId === scope.sourceId && group.lineGroupId === scope.lineGroupId);
 }
-
-function inputLabel(type: WorklogInputType) {
-  return ({ TEXT: '文字', AUDIO: '音檔', IMAGE: '圖片', FILE: '檔案' } as const)[type];
-}
-
-function categoryLabel(category: string) {
-  return ({ NOTE: '備註', WORK: '施工', ISSUE: '問題', PAYMENT: '收款', EXPENSE: '支出', MATERIAL: '材料', OTHER: '其他', PHOTO: '照片', AUDIO: '音訊' } as Record<string, string>)[category] ?? category;
-}
+function inputLabel(type: WorklogInputType) { return ({ TEXT: '文字', AUDIO: '音檔', IMAGE: '圖片', FILE: '檔案' } as const)[type]; }
+function categoryLabel(category: string) { return ({ NOTE: '備註', WORK: '施工', ISSUE: '問題', PAYMENT: '收款', EXPENSE: '支出', MATERIAL: '材料', OTHER: '其他', PHOTO: '照片', AUDIO: '音訊' } as Record<string, string>)[category] ?? category; }
