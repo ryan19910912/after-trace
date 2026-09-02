@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BufferedGroupMessage } from '../line/events';
+import type { WorklogAttachmentIngestionService } from './attachment-ingestion';
+import { configureWorklogAttachmentRuntime } from './attachment-runtime';
 import type { GroupBootstrapResult, GroupOwnerBindResult } from './bootstrap';
 import type { GroupAccessAuthorizationResult, GroupRecordAuthorizationResult } from './collaboration';
 import type { CachedLineText } from './line-text-cache';
@@ -230,19 +232,31 @@ describe('WorklogLineRuntime', () => {
     expect(normalizer.calls).toEqual([99]);
   });
 
-  it('rejects quoted media before LINE/provider work when the owner plan disables AI media', async () => {
+  it('passes disabled AI media capability into attachment classification/ingestion', async () => {
     const collaboration = new FakeCollaboration();
     if (collaboration.result.status === 'OK') {
       collaboration.result.ownerCapabilities.aiMediaIngestion = false;
     }
-    const runtime = new WorklogLineRuntime(new FakeBootstrap(), collaboration, new FakeRecords());
+    const calls: Array<{ allowAiMedia?: boolean }> = [];
+    configureWorklogAttachmentRuntime({
+      ingest: async (input: { allowAiMedia?: boolean }) => {
+        calls.push(input);
+        return { status: 'FAILED' as const, reason: 'AI_MEDIA_DISABLED' };
+      },
+    } as unknown as WorklogAttachmentIngestionService);
 
-    const result = await runtime.handle(message('@AFTERTRACE', {
-      lineMessageId: 'command-media-1',
-      quotedLineMessageId: 'quoted-media-1',
-    }));
-    expect(result.status).toBe('REJECTED');
-    if (result.status === 'REJECTED') expect(result.reason).toBe('AI_MEDIA_DISABLED');
+    try {
+      const runtime = new WorklogLineRuntime(new FakeBootstrap(), collaboration, new FakeRecords());
+      const result = await runtime.handle(message('@AFTERTRACE', {
+        lineMessageId: 'command-media-1',
+        quotedLineMessageId: 'quoted-media-1',
+      }));
+      expect(result.status).toBe('REJECTED');
+      if (result.status === 'REJECTED') expect(result.reason).toBe('AI_MEDIA_DISABLED');
+      expect(calls).toEqual([{ allowAiMedia: false }]);
+    } finally {
+      configureWorklogAttachmentRuntime(null);
+    }
   });
 
   it('treats LINE redelivery of the same record as a successful duplicate', async () => {
