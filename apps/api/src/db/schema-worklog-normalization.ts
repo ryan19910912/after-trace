@@ -11,6 +11,7 @@ import {
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/pg-core';
+import { worklogRecords } from './schema-worklog';
 
 /**
  * Durable orchestration state for post-persistence Worklog AI normalization.
@@ -23,7 +24,9 @@ import {
 export const worklogRecordAiNormalizations = pgTable(
   'worklog_record_ai_normalizations',
   {
-    recordId: bigint('record_id', { mode: 'number' }).primaryKey(),
+    recordId: bigint('record_id', { mode: 'number' })
+      .primaryKey()
+      .references(() => worklogRecords.id, { onDelete: 'restrict' }),
     status: varchar('status', { length: 32 }).default('PENDING').notNull(),
     claimToken: varchar('claim_token', { length: 64 }).notNull(),
     reservationToken: varchar('reservation_token', { length: 64 }),
