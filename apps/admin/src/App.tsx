@@ -316,25 +316,23 @@ function AiRuntimeEditor({ config, busy, onSave }: { config: AdminAiRuntimeConfi
   const [model, setModel] = useState(config?.model ?? '');
   const [inputPrice, setInputPrice] = useState(config?.input_usd_per_million ?? '0');
   const [outputPrice, setOutputPrice] = useState(config?.output_usd_per_million ?? '0');
-  const [audioPrice, setAudioPrice] = useState(config?.audio_usd_per_million ?? '');
-  const [imagePrice, setImagePrice] = useState(config?.image_usd_per_million ?? '');
   const [fx, setFx] = useState(config?.usd_twd_rate ?? '');
   useEffect(() => {
-    setProvider(config?.provider ?? 'GOOGLE'); setModel(config?.model ?? '');
-    setInputPrice(config?.input_usd_per_million ?? '0'); setOutputPrice(config?.output_usd_per_million ?? '0');
-    setAudioPrice(config?.audio_usd_per_million ?? ''); setImagePrice(config?.image_usd_per_million ?? ''); setFx(config?.usd_twd_rate ?? '');
+    setProvider(config?.provider ?? 'GOOGLE');
+    setModel(config?.model ?? '');
+    setInputPrice(config?.input_usd_per_million ?? '0');
+    setOutputPrice(config?.output_usd_per_million ?? '0');
+    setFx(config?.usd_twd_rate ?? '');
   }, [config?.updated_at]);
-  return <article className="card"><p className="eyebrow">AI 執行設定</p><h2>AI 供應商、模型與計價</h2><p className="muted">更新只會影響之後的 AI 呼叫；歷史使用紀錄會保留當時的計價資料。</p>
+  return <article className="card"><p className="eyebrow">AI 執行設定</p><h2>AI 供應商、模型與計價</h2><p className="muted">文字、語音與圖片輸入統一使用同一個輸入價格。更新只會影響之後的 AI 呼叫；歷史使用紀錄會保留當時的計價資料。</p>
     <div className="form-grid">
       <label>AI 供應商<input value={provider} onChange={(event) => setProvider(event.target.value)} /></label>
       <label>模型<input value={model} onChange={(event) => setModel(event.target.value)} /></label>
       <label>輸入價格（美元／100 萬單位）<input inputMode="decimal" value={inputPrice} onChange={(event) => setInputPrice(event.target.value)} /></label>
       <label>輸出價格（美元／100 萬單位）<input inputMode="decimal" value={outputPrice} onChange={(event) => setOutputPrice(event.target.value)} /></label>
-      <label>語音價格（美元／100 萬單位）<input inputMode="decimal" value={audioPrice} onChange={(event) => setAudioPrice(event.target.value)} placeholder="選填" /></label>
-      <label>圖片價格（美元／100 萬單位）<input inputMode="decimal" value={imagePrice} onChange={(event) => setImagePrice(event.target.value)} placeholder="選填" /></label>
       <label>美元兌新台幣匯率<input inputMode="decimal" value={fx} onChange={(event) => setFx(event.target.value)} placeholder="選填" /></label>
     </div>
-    <button disabled={busy || !provider.trim() || !model.trim()} onClick={() => void onSave({ provider: provider.trim(), model: model.trim(), inputUsdPerMillion: inputPrice.trim(), outputUsdPerMillion: outputPrice.trim(), audioUsdPerMillion: audioPrice.trim() || null, imageUsdPerMillion: imagePrice.trim() || null, usdTwdRate: fx.trim() || null })}>儲存 AI 設定</button>
+    <button disabled={busy || !provider.trim() || !model.trim()} onClick={() => void onSave({ provider: provider.trim(), model: model.trim(), inputUsdPerMillion: inputPrice.trim(), outputUsdPerMillion: outputPrice.trim(), audioUsdPerMillion: inputPrice.trim(), imageUsdPerMillion: inputPrice.trim(), usdTwdRate: fx.trim() || null })}>儲存 AI 設定</button>
     {config?.updated_at && <p className="muted">最後更新：{display(config.updated_at)}{config.updated_by ? ` · ${config.updated_by}` : ''}</p>}
   </article>;
 }
