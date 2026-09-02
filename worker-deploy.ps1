@@ -9,7 +9,6 @@ $ErrorActionPreference = 'Stop'
 
 $RepoRoot = $PSScriptRoot
 $WorkerUrl = 'https://after-trace-api.a0955625660.workers.dev'
-$PagesUrl = 'https://after-trace.pages.dev'
 
 function Write-Step([string]$Message) {
     Write-Host ''
@@ -31,7 +30,7 @@ function Invoke-CommandChecked {
 
 Push-Location $RepoRoot
 try {
-    Write-Host 'AFTERTRACE Worker production deployment' -ForegroundColor Green
+    Write-Host 'AFTERTRACE API Worker production deployment' -ForegroundColor Green
 
     Invoke-CommandChecked 'Check Git branch' {
         $branch = (git branch --show-current).Trim()
@@ -74,7 +73,7 @@ try {
         pnpm test
     }
 
-    Invoke-CommandChecked 'Worker production build / dry-run' {
+    Invoke-CommandChecked 'API Worker production build / dry-run' {
         pnpm --filter @aftertrace/api build
     }
 
@@ -86,29 +85,22 @@ try {
         pnpm --filter @aftertrace/api db:deploy:migrate
     }
 
-    Invoke-CommandChecked 'Deploy Cloudflare Worker' {
+    Invoke-CommandChecked 'Deploy aftertrace-api Worker' {
         pnpm --filter @aftertrace/api exec wrangler deploy
     }
 
-    Write-Step 'Verify Worker health'
+    Write-Step 'Verify API Worker health'
     $health = Invoke-RestMethod "$WorkerUrl/health" -Method Get
     if ($health.status -ne 'ok') {
         throw "Worker health check failed: $($health | ConvertTo-Json -Compress)"
     }
-    Write-Host "Worker health: $($health.status)" -ForegroundColor Green
+    Write-Host "API Worker health: $($health.status)" -ForegroundColor Green
 
     Write-Host ''
-    Write-Host 'Worker deployment completed successfully.' -ForegroundColor Green
-    Write-Host "Worker: $WorkerUrl"
-    Write-Host "Web   : $PagesUrl"
+    Write-Host 'API Worker deployment completed successfully.' -ForegroundColor Green
+    Write-Host "API: $WorkerUrl"
     Write-Host ''
-    Write-Host 'Recommended smoke tests:' -ForegroundColor Yellow
-    $helpCommand = '@AFTERTRACE ' + [char]0x5E6B + [char]0x52A9
-    $energyCommand = '@AFTERTRACE ' + [char]0x984D + [char]0x5EA6
-    Write-Host "  1. LINE group: $helpCommand"
-    Write-Host "  2. LINE group: $energyCommand and open the returned Web management link"
-    Write-Host '  3. Verify the Bot link opens the correct group without another LINE Login'
-    Write-Host '  4. Open Pages directly and verify LINE Login -> My Groups'
+    Write-Host 'Web and Admin deploy independently via web-worker-deploy.ps1 and admin-worker-deploy.ps1.' -ForegroundColor Yellow
 }
 finally {
     Pop-Location
