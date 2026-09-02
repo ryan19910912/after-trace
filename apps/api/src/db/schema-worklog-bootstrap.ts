@@ -8,6 +8,7 @@ import {
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/pg-core';
+import { worklogSources, worklogUsers } from './schema-worklog';
 
 /**
  * A LINE group can be observed before AFTERTRACE can reliably identify who added the bot.
@@ -23,7 +24,9 @@ export const worklogPendingGroups = pgTable(
     firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).defaultNow().notNull(),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).defaultNow().notNull(),
     inactiveAt: timestamp('inactive_at', { withTimezone: true }),
-    promotedSourceId: bigint('promoted_source_id', { mode: 'number' }),
+    promotedSourceId: bigint('promoted_source_id', { mode: 'number' }).references(() => worklogSources.id, {
+      onDelete: 'restrict',
+    }),
     promotedAt: timestamp('promoted_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -39,8 +42,12 @@ export const worklogPendingGroupMembers = pgTable(
   'worklog_pending_group_members',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    pendingGroupId: bigint('pending_group_id', { mode: 'number' }).notNull(),
-    userId: bigint('user_id', { mode: 'number' }).notNull(),
+    pendingGroupId: bigint('pending_group_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogPendingGroups.id, { onDelete: 'restrict' }),
+    userId: bigint('user_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogUsers.id, { onDelete: 'restrict' }),
     isActive: boolean('is_active').default(true).notNull(),
     firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).defaultNow().notNull(),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).defaultNow().notNull(),
