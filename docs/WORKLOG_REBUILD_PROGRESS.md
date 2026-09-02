@@ -26,7 +26,7 @@ Every development run must:
 - Owner/admin usage views need quota/used/reserved/remaining, group/member AI attribution, and TEXT/AUDIO/IMAGE/FILE counts.
 - Keep customer/project shape minimal; computed finance uses typed numeric data; invoice/Amego and real payment provider integration remain postponed.
 - Stack remains TypeScript + Hono/Cloudflare Workers + React/Vite Pages + PostgreSQL/Drizzle.
-- If delayed Reply-to-TEXT recovery is implemented, ordinary LINE text may be held only in a bounded **temporary PostgreSQL cache** (TTL + per-source count cap). Do not add Redis for this MVP and do not treat cached chat text as a permanent work record or AI input by default.
+- `docs/WORKLOG_LINE_CONTENT_POLICY.md` is now the durable LINE Reply/content-retention contract: only ordinary group TEXT is temporarily cached in PostgreSQL, with MVP defaults of **5 days / 1000 messages per group**; AUDIO/IMAGE/FILE are never locally cached and are fetched directly from LINE when the user Replies. Do not add Redis for this cache.
 
 ## Completed foundations
 
@@ -175,6 +175,17 @@ Every development run must:
 - Fixed an important delivery-consistency bug while wiring the boundary: a LINE reply API failure after a successful DB record write no longer changes the record outcome to `REJECTED` or attempts a second reply with the same reply token. Record success remains success; reply failure is tracked independently in `oaErrors`.
 - Added tests for human-support bypass/no reply, personal record result/duplicate counters, private query callback shape, explicit runtime failure, ordinary support runtime failure, lifecycle processing, and successful-record preservation when LINE reply delivery fails.
 
+### 2026-09-02 LINE Reply/content retention policy
+
+- Added `docs/WORKLOG_LINE_CONTENT_POLICY.md` as the durable implementation contract for LINE Reply recovery and attachment retention.
+- Only ordinary **group TEXT** is eligible for temporary local cache:
+  - PostgreSQL only
+  - 5-day default TTL
+  - 1000-message default per-group cap
+  - cached text is not a work record and is not AI input until an explicit Reply + `@AFTERTRACE`
+- AUDIO / IMAGE / FILE are never cached locally. Reply handling uses `quotedMessageId` to call LINE content API directly; unavailable/expired LINE content must produce clear resend UX.
+- Original attachment binaries are discarded after successful extraction/transcription/understanding; durable records retain textual/structured results plus LINE trace ids rather than the binary.
+
 ## Validation performed in latest pass
 
 - Read the latest product spec and progress document before editing.
@@ -189,8 +200,9 @@ Every development run must:
   - record outcome remaining durable when the LINE reply API fails
   - private query seam not inventing/reusing a group id
   - OA diagnostics remaining separate from group/legacy counters
-- Latest code HEAD before this progress-doc update is `7f710689748f555d7c08362996fbc2408772eb15`.
-- Unit tests were authored/expanded but **not executed** in this connector-only environment. A direct repository checkout attempt was also unavailable because the execution container cannot resolve GitHub; CI only runs on `main`/pull requests, not direct pushes to this branch.
+- Code HEAD after the implementation/test batch was `7f710689748f555d7c08362996fbc2408772eb15`.
+- The branch then advanced by two docs-only commits defining/clarifying the LINE content policy; reviewed those commits and aligned this progress file. Branch HEAD immediately before this progress update was `8f0a1a813c631f89beb93de4a854f7b529845a93`.
+- Unit tests were authored/expanded but **not executed** in this connector-only environment. A direct repository checkout attempt was unavailable because the execution container cannot resolve GitHub; CI only runs on `main`/pull requests, not direct pushes to this branch.
 
 ## Known cautions / blockers before real DB deployment
 
@@ -203,9 +215,9 @@ Every development run must:
 - Verify `0004` pending-group tables/promotion SQL and the new TEXT insert/idempotency SQL against real PostgreSQL before production traffic.
 - AI normalization is **not wired yet**. New TEXT records currently persist with raw text and `normalized_summary = NULL`; they do not consume AI quota yet.
 - The provider integration still must reserve a conservative maximum AI-unit estimate before each AI call, then commit actual usage or release on failure.
-- Reply AUDIO/IMAGE/FILE is deliberately intercepted but not persisted yet until the new content-fetch/attachment storage path is connected.
+- Reply AUDIO/IMAGE/FILE is deliberately intercepted but not persisted yet until the new content-fetch/attachment processing path is connected.
 - Personal `@AFTERTRACE 查詢` now reaches the webhook and resolves a personal source/user target, but the external Web-entry/auth boundary still needs a real private-user token/nonce path; do not fake a group id to reuse group membership verification.
-- The temporary PostgreSQL Reply-to-TEXT cache is only a recorded design direction; schema, TTL, per-source cap and pruning logic are not implemented yet. Exact defaults should be chosen conservatively and remain independent from permanent worklog records.
+- The 5-day / 1000-message PostgreSQL TEXT cache policy is documented but not implemented yet. It must be group/source isolated, safely pruned, and must never cache AUDIO/IMAGE/FILE.
 - Ordinary non-`@AFTERTRACE` group chat still flows through the legacy conversation runtime temporarily. New worklog commands do not. Remove the old path only after the new MVP runtime is proven end-to-end.
 
 ## Next prioritized implementation batch
@@ -225,17 +237,20 @@ Every development run must:
    - update normalized fields only after provider success
    - release reservation and retain raw record on every provider/error/parse failure
    - make normalization itself idempotent on LINE redelivery/retry
-3. Reuse existing LINE content fetch for quoted AUDIO/IMAGE/FILE:
+3. Implement the documented PostgreSQL Reply-to-TEXT cache:
+   - only ordinary group TEXT enters the cache
+   - keyed by LINE message id + exact group/source identity
+   - 5-day TTL and 1000-message per-group cap
+   - deterministic oldest-first cap pruning and expired-row cleanup
+   - Reply-to-TEXT resolves `quotedMessageId` from the cache and persists both command + quoted LINE ids
+   - cross-group lookup must be impossible
+   - no Redis and no AUDIO/IMAGE/FILE cache rows
+4. Reuse existing LINE content fetch for quoted AUDIO/IMAGE/FILE:
+   - use `quotedMessageId` to fetch directly from LINE; do not add an attachment cache
    - resolve quoted content type safely
-   - persist attachment metadata/source reference in new worklog tables
+   - persist durable extracted/transcribed text + metadata/source references, not binaries
    - return resend UX when LINE content has expired
    - enforce recording permission before content fetch/provider usage where possible
-4. Add the bounded PostgreSQL transient TEXT cache if Reply-to-TEXT is included in the final interaction contract:
-   - keyed by LINE message id + source identity
-   - TTL plus per-source count cap, with safe pruning
-   - never expose another group's cached text
-   - never let cache retention turn ordinary chat into permanent worklog/history
-   - no Redis for MVP
 5. Expose actual worklog PWA APIs using the new scoped read service and existing/new Web session identity:
    - personal/group surfaces remain separate
    - group reads require exact active membership
@@ -249,8 +264,10 @@ Every development run must:
 
 After core MVP flow exists, repeatedly audit:
 - duplicate LINE delivery/idempotency, including concurrent redelivery snapshot behavior
-- quoted content expiry/wrong content type
-- temporary quoted-TEXT cache expiry/pruning/cross-source isolation if enabled
+- only TEXT entering the temporary cache; no AUDIO/IMAGE/FILE cache rows/binaries
+- 5-day TEXT TTL pruning and 1000-message cap pruning order
+- Reply-to-TEXT cache expiry and cross-group isolation
+- quoted attachment expiry/wrong content type/content API errors
 - group leave/rejoin and pending -> promoted race
 - owner binding ambiguity/reassignment/transfer edge cases
 - blocked member still writing or consuming AI while retaining intended read access
