@@ -13,7 +13,7 @@ import {
   type WorklogRecordEditInput,
   type WorklogTransactionInput,
 } from './drizzle-workspace-management';
-import { WorklogRecordReadService } from './records';
+import { WorklogRecordReadService, type WorklogPwaSurfaces } from './records';
 import { WorklogUsageService } from './usage';
 
 export type WorklogRoutesBindings = {
@@ -90,7 +90,7 @@ export function createWorklogRoutes() {
   app.get('/surfaces', async (c) => {
     const context = await contextFor(c.env.DATABASE_URL, c.get('lineUserId'));
     if (!context) return c.json({ ok: false, error: 'WORKLOG_USER_NOT_FOUND' }, 404);
-    return c.json({ ok: true, userId: context.userId, surfaces: await context.records.surfaces(context.userId) });
+    return c.json({ ok: true, userId: context.userId, surfaces: await entitledSurfaces(context) });
   });
 
   app.get('/records/personal', async (c) => {
@@ -108,8 +108,23 @@ export function createWorklogRoutes() {
     if (!sourceId) return c.json({ ok: false, error: 'INVALID_SOURCE_ID' }, 400);
     const context = await contextFor(c.env.DATABASE_URL, c.get('lineUserId'));
     if (!context) return c.json({ ok: false, error: 'WORKLOG_USER_NOT_FOUND' }, 404);
-    if (!(await context.recordRepository.isActiveGroupMember(context.userId, sourceId))) {
-      return c.json({ ok: false, error: 'GROUP_SCOPE_FORBIDDEN' }, 403);
+    const access = await context.collaboration.authorizeGroupAccess({
+      sourceId,
+      actorUserId: context.userId,
+    });
+    if (access.status === 'GROUP_NOT_FOUND') return c.json({ ok: false, error: access.status }, 404);
+    if (access.status === 'OWNER_UNBOUND') return c.json({ ok: false, error: access.status }, 409);
+    if (access.status !== 'OK') {
+      return c.json({
+        ok: false,
+        error: access.status,
+        ...('ownerPlanDisplayName' in access && access.ownerPlanDisplayName
+          ? { ownerPlanDisplayName: access.ownerPlanDisplayName }
+          : {}),
+        ...('maxGroupCount' in access && access.maxGroupCount !== undefined
+          ? { maxGroupCount: access.maxGroupCount }
+          : {}),
+      }, 403);
     }
     const filter = recordFilter(c.req.query());
     if ('error' in filter) return c.json({ ok: false, error: filter.error }, 400);
@@ -314,6 +329,21 @@ async function contextFor(databaseUrl: string, lineUserId: string): Promise<Work
     usage: new WorklogUsageService(new DrizzleWorklogUsageRepository(database)),
     collaboration: new WorklogCollaborationService(new DrizzleWorklogCollaborationRepository(database)),
     management: new DrizzleWorklogWorkspaceManagementRepository(database),
+  };
+}
+
+async function entitledSurfaces(context: WorklogRouteContext): Promise<WorklogPwaSurfaces> {
+  const surfaces = await context.records.surfaces(context.userId);
+  const checked = await Promise.all(surfaces.groups.map(async (group) => ({
+    group,
+    access: await context.collaboration.authorizeGroupAccess({
+      sourceId: group.sourceId,
+      actorUserId: context.userId,
+    }),
+  })));
+  return {
+    personal: surfaces.personal,
+    groups: checked.filter((item) => item.access.status === 'OK').map((item) => item.group),
   };
 }
 
