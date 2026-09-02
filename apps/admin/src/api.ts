@@ -90,13 +90,19 @@ export class AdminApi {
   }
 
   async userDetail(id: string | number): Promise<Record<string, unknown>> {
-    const detail = (await this.request<{ detail: Record<string, unknown> }>(`/users/${id}`)).detail;
+    const [detailResponse, plansResponse] = await Promise.all([
+      this.request<{ detail: Record<string, unknown> }>(`/users/${id}`),
+      this.request<{ plans: AdminPlan[] }>('/plans'),
+    ]);
+    const detail = detailResponse.detail;
     const user = asRow(detail.user);
+    const plan = plansResponse.plans.find((item) => item.code === String(user.plan_code ?? ''));
+    const effectiveRow = { ...user, plan_enabled: plan?.enabled ?? false };
     return {
       ...detail,
       user: {
-        ...user,
-        subscription_effective_state: effectiveSubscriptionState(user),
+        ...effectiveRow,
+        subscription_effective_state: effectiveSubscriptionState(effectiveRow),
       },
     };
   }
@@ -114,18 +120,27 @@ export class AdminApi {
   }
 
   async groupDetail(id: string | number): Promise<Record<string, unknown>> {
-    const detail = (await this.request<{ detail: Record<string, unknown> }>(`/groups/${id}`)).detail;
+    const [detailResponse, plansResponse] = await Promise.all([
+      this.request<{ detail: Record<string, unknown> }>(`/groups/${id}`),
+      this.request<{ plans: AdminPlan[] }>('/plans'),
+    ]);
+    const detail = detailResponse.detail;
     const group = asRow(detail.group);
+    const planCode = String(group.owner_plan_code ?? '');
+    const plan = plansResponse.plans.find((item) => item.code === planCode);
+    const effectiveRow = {
+      subscription_status: planCode ? (group.owner_subscription_status ?? group.subscription_status ?? 'ACTIVE') : '',
+      plan_enabled: plan?.enabled ?? false,
+      effective_at: group.owner_effective_at ?? group.effective_at,
+      current_period_start: group.current_period_start,
+      current_period_end: group.current_period_end,
+    };
     return {
       ...detail,
       group: {
         ...group,
-        owner_subscription_effective_state: effectiveSubscriptionState({
-          subscription_status: group.owner_subscription_status ?? group.subscription_status ?? 'ACTIVE',
-          effective_at: group.owner_effective_at ?? group.effective_at,
-          current_period_start: group.current_period_start,
-          current_period_end: group.current_period_end,
-        }),
+        owner_plan_enabled: plan?.enabled ?? false,
+        owner_subscription_effective_state: effectiveSubscriptionState(effectiveRow),
       },
     };
   }
@@ -202,6 +217,7 @@ export function effectiveSubscriptionState(row: Row, now = new Date()): string {
   const persisted = String(row.subscription_status ?? '').toUpperCase();
   if (!persisted) return 'NO_SUBSCRIPTION';
   if (persisted !== 'ACTIVE') return persisted;
+  if (row.plan_enabled === false) return 'PLAN_DISABLED';
 
   const effectiveAt = optionalDate(row.effective_at);
   const periodStart = optionalDate(row.current_period_start);
