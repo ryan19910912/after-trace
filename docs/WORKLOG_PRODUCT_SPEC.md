@@ -225,7 +225,8 @@ Support operator-defined plan codes such as:
 Admin can configure for each level:
 
 - display name
-- monthly/subscription price
+- subscription price
+- billing type
 - enabled/disabled status
 - ordered rank/level
 - AI quota / allowance
@@ -244,6 +245,44 @@ Examples of permissions/capabilities that may be toggled per plan:
 - other future paid features
 
 Do not assume the final permission matrix yet; model it flexibly enough to add capability flags without a schema rewrite for every new plan feature.
+
+### Billing type and renewal semantics
+
+Plan billing cadence is a first-class plan property, not a capability flag.
+
+Initial supported billing types:
+
+- `ONE_TIME`: one-time purchase/assignment. The configured AI allowance is granted for that entitlement period and is not automatically replenished by a calendar schedule.
+- `MONTHLY`: recurring monthly subscription. Each successful monthly renewal creates a new billing/quota period and grants a fresh allowance snapshot from the plan template.
+
+Rules:
+
+- Do not model billing cadence inside the generic capabilities JSON.
+- Admin plan management must expose billing type as a dedicated field/select.
+- Future types such as `QUARTERLY` or `YEARLY` may be added later when the product actually offers them; do not implement unused cadence types now.
+- For `MONTHLY`, renewal/payment success is the event that starts the next period and establishes that period's quota snapshot. Merely reaching a date boundary must not silently grant paid quota when payment has failed or no valid recurring authorization exists.
+- Unused AI allowance does **not** roll over into a new period. A new monthly period starts from the new plan allowance snapshot; remaining units from the previous period are not added to it.
+- Used/reserved units and historical provider-cost events remain attached to their original period and are never rewritten when a new period begins.
+- Changing a plan template does not retroactively mutate an already-created quota snapshot for the current period.
+- `ONE_TIME` and `MONTHLY` must be distinguishable in API/admin/PWA presentation so price copy is not misleading.
+- Whether FREE ultimately uses `ONE_TIME` or `MONTHLY` remains a product/pricing decision until explicitly finalized; do not assume it from price `0` alone.
+
+### Recurring payment requirement
+
+For a paid `MONTHLY` plan, the payment integration must support a stored recurring-payment authorization/token (provider terminology may be recurring token, card token, mandate, MIT/merchant-initiated recurring charge, or equivalent).
+
+This is different from a temporary card pre-authorization/hold. AFTERTRACE needs a provider-approved mechanism that permits future recurring charges after the user has completed the initial authorization flow.
+
+Required behavior:
+
+- initial checkout obtains the recurring-payment authorization required by the selected provider;
+- each renewal charge is processed idempotently;
+- only a confirmed successful renewal advances the subscription into the next paid period and creates the new AI allowance snapshot;
+- failed renewal must not grant the next paid quota; subscription state should transition to an appropriate state such as `PAST_DUE` and follow the provider/retry policy later selected;
+- provider webhook/event handling must be idempotent so duplicate success notifications cannot create duplicate quota periods;
+- cancellation stops future renewal charges but should not erase historical usage or already-earned/current-period quota unless the product later defines a different cancellation rule.
+
+Payment provider remains undecided; provider-specific token fields/webhook semantics should be added only after a provider is selected.
 
 ### Group collaboration and max group count semantics
 
@@ -269,7 +308,7 @@ At minimum the system must support:
 - usage events that retain enough provider/model/token information to recalculate or audit cost later
 - admin override/adjustment when needed later
 
-Do not offer unlimited AI usage by default.
+Do not offer unlimited AI usage by default. Unused allowance does not roll over when a new recurring billing period is created.
 
 ### User subscription state
 
@@ -278,13 +317,15 @@ Admin must be able to manually change a subscribed user's plan level.
 Track at least:
 
 - current plan code
+- billing type applicable to the plan
 - subscription status
 - effective/start time
-- end/renewal time when known
+- current billing-period start/end when applicable
+- renewal/end time when known
 - source of assignment (`PAYMENT`, `ADMIN`, `FREE`, etc.)
 - updated time
 
-Payment provider is intentionally undecided. Build the subscription domain, plan configuration, UI, and checkout-intent boundary first.
+Payment provider is intentionally undecided. Build the subscription domain, plan configuration, UI, checkout-intent boundary, recurring-payment authorization boundary, and renewal/quota-period transition safely before claiming monthly auto-renewal works.
 
 ### Free versus collaboration
 
@@ -453,6 +494,7 @@ Admin must support:
 
 - create/edit plan levels/codes such as FREE, SUB1, SUB2
 - edit displayed subscription price
+- edit billing type (`ONE_TIME` or `MONTHLY` initially)
 - edit AI quota/allowance per plan
 - enable/disable permissions/capabilities for each plan
 - view plan assignment on users
@@ -522,6 +564,8 @@ Do not lock final pricing before usage data. Current product shape is:
 - collaboration/group access is a paid capability
 - every plan has a bounded, operator-editable AI allowance rather than unlimited usage
 - group usage burns the owning subscriber's allowance
+- plan billing type is explicitly `ONE_TIME` or `MONTHLY` initially; future cadences are added only when actually offered
+- monthly paid quota renews only after successful recurring payment and does not carry unused allowance forward
 
 Early validation should optimize for retention and willingness to pay, not infrastructure optimization.
 
