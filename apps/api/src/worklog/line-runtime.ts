@@ -180,14 +180,6 @@ export class WorklogLineRuntime {
         return this.finishWrite(write, message, '已記錄你回覆的文字。', allowAiText);
       }
 
-      if (!allowAiMedia) {
-        return {
-          status: 'REJECTED',
-          reason: 'AI_MEDIA_DISABLED',
-          replyText: '目前 Owner 的方案沒有開啟 AI 語音／圖片／檔案處理功能，這次沒有處理附件。',
-        };
-      }
-
       const attachments = worklogAttachmentRuntime();
       if (!attachments) {
         return { status: 'QUOTED_NOT_READY', replyText: '附件處理服務目前尚未啟用，這次沒有建立紀錄。' };
@@ -200,6 +192,7 @@ export class WorklogLineRuntime {
         quotedLineMessageId: command.quotedLineMessageId,
         sourceTimestamp: message.lineTimestamp,
         instruction: command.instruction,
+        allowAiMedia,
       });
       if (result.status === 'RECORDED') {
         return {
@@ -267,6 +260,7 @@ function attachmentFailure(reason: string): WorklogLineRuntimeResult {
   if (reason === 'LINE_CONTENT_EXPIRED') return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '這則內容已過期，請重新傳送後再 Reply @AFTERTRACE。' };
   if (reason === 'LINE_CONTENT_TOO_LARGE') return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '這個附件太大，目前無法處理，請縮小檔案後重新傳送。' };
   if (reason === 'ATTACHMENT_UNSUPPORTED') return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '目前不支援這個檔案格式，請改傳圖片、音檔、PDF 或文字檔。' };
+  if (reason === 'AI_MEDIA_DISABLED') return { status: 'REJECTED', reason: 'AI_MEDIA_DISABLED', replyText: '目前 Owner 的方案沒有開啟 AI 語音／圖片／檔案處理功能，這次沒有處理附件。' };
   if (/QUOTA|ALLOWANCE|SUBSCRIPTION/.test(reason)) return { status: 'REJECTED', reason: 'AI_QUOTA_EXHAUSTED', replyText: '目前 Owner 的 AI 額度不足，這次沒有處理附件。' };
   return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '這次附件沒有成功處理，請重新傳送後再試。' };
 }
