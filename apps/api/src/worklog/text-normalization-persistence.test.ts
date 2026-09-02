@@ -28,11 +28,11 @@ const config: WorklogAiRuntimeConfigSnapshot = {
 
 function repository(saveProviderResult: WorklogTextNormalizationRepository['saveProviderResult']): WorklogTextNormalizationRepository {
   return {
-    begin: vi.fn(async () => ({ status: 'CLAIMED', context, claimToken: 'claim-1' })),
+    begin: vi.fn(async () => ({ status: 'CLAIMED' as const, context, claimToken: 'claim-1' })),
     getRuntimeConfig: vi.fn(async () => config),
     setPending: vi.fn(async () => undefined),
     saveProviderResult,
-    getReservationStatus: vi.fn(async () => 'RESERVED'),
+    getReservationStatus: vi.fn(async () => 'RESERVED' as const),
     markUsageCommitted: vi.fn(async () => undefined),
     applyResult: vi.fn(async () => undefined),
     fail: vi.fn(async () => undefined),
