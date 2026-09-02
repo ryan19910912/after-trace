@@ -2,217 +2,177 @@
 
 Durable handoff for branch `revive/line-worklog`.
 
-Every development run must first read:
+Read first on every run:
 - `docs/WORKLOG_PRODUCT_SPEC.md`
 - this file
 - `docs/WORKLOG_LINE_CONTENT_POLICY.md`
 - `docs/WORKLOG_DEPLOYMENT.md`
 
-Then inspect current branch HEAD before editing. Prefer meaningful multi-part batches. The user explicitly prefers pushing core functionality quickly now and running the full local typecheck/test/migration pass after the major MVP paths are implemented; do not falsely claim unexecuted tests passed.
+The user currently prefers large functionality batches and wants the concentrated local typecheck/test/migration pass after the major MVP paths are implemented. Continue static consistency review and author tests now, but never claim unexecuted verification passed.
 
-## Product / architecture baseline
+## Stable product rules
 
-- LINE-first work-record product: LINE records, Web/PWA browses and manages.
+- LINE records; Web/PWA browses/manages.
 - `@AFTERTRACE <text>` records direct text.
 - Reply + `@AFTERTRACE` records quoted TEXT/AUDIO/IMAGE/FILE when recoverable.
-- `@AFTERTRACE 查詢` opens scoped Web/PWA; no LIFF.
+- `@AFTERTRACE 查詢` opens scoped Web/PWA without LIFF.
 - Ordinary OA private text without `@AFTERTRACE` remains human-support traffic.
-- Personal and group records remain clearly separated and source-scoped.
-- FREE is personal-only; group collaboration requires plan capability.
-- Group AI usage is charged to stable group Owner while preserving triggering member as actor.
-- Owner can disable member recording without removing historical read access.
-- Minimal customer/project fields; typed finance only for arithmetic. Invoice/payment-provider integrations remain postponed.
-- AI runtime model/pricing is DB-admin configurable; historical usage stores immutable pricing/model/cost snapshots.
-- Deployment is three independent Cloudflare Workers:
-  - `aftertrace-api`: Hono API Worker
-  - `aftertrace-web`: React/Vite Workers Static Assets
-  - `aftertrace-admin`: React/Vite Workers Static Assets
-- Cloudflare Pages is no longer a deployment target.
+- Personal and group records remain source-isolated and visibly separate.
+- FREE is personal-only; group collaboration is paid-capability driven.
+- Group AI charges stable Owner; triggering member remains actor.
+- Owner may disable member recording, not historical read access.
+- Customer/project stays minimal; finance that requires arithmetic is typed.
+- Three independent Cloudflare Workers: API, Web Static Assets, Admin Static Assets. Pages is not a deployment target.
 
-## LINE content policy
+## LINE content contract
 
-- Only ordinary GROUP TEXT is temporarily cached locally.
-- PostgreSQL cache defaults: TTL 5 days, max 1000 messages/group, deterministic oldest pruning.
-- No Redis.
-- AUDIO/IMAGE/FILE are never locally cached.
-- Reply media/file uses `quotedMessageId` to fetch LINE message content directly.
-- Binary content is processed in memory and never permanently stored.
-- Expired/unavailable LINE content must return clear resend UX.
-- Reply-created records persist both command `line_message_id` and source `quoted_line_message_id`.
+- Only ordinary GROUP TEXT is cached locally.
+- PostgreSQL cache: 5-day TTL, max 1000/group, oldest-first pruning, no Redis.
+- AUDIO/IMAGE/FILE are never cached.
+- Reply media/file uses direct LINE message-content API by `quotedMessageId`.
+- Binary is in-memory only and never persisted.
+- Expired/unavailable content returns resend UX.
+- Reply records keep both command `line_message_id` and `quoted_line_message_id`.
 
-## Completed backend foundations
+## Completed foundations
 
-### Worklog data/domain
-- Worklog users/OA friendship, workspaces, PRIVATE/GROUP sources, memberships, minimal customers/projects, records, typed transactions, plans/capabilities, subscriptions/history, AI runtime pricing, AI usage snapshots, feedback, anomalies and audit models exist.
-- Stable group owner and per-member `recording_enabled` exist.
-- Pending groups prevent guessed ownership; explicit `@AFTERTRACE 啟用` safely binds owner.
-- Race-safe AI quota balance/reservation/commit/release exists.
-- Scoped record-read service enforces personal OA friendship and exact active group membership.
+- Worklog users/OA friendship, workspace, PRIVATE/GROUP sources, membership, customer/project, record, typed transaction, plan/subscription, AI config/usage, feedback, anomaly and audit schema foundations.
+- Stable group owner, pending-group bootstrap and explicit `@AFTERTRACE 啟用`.
+- Member `recording_enabled` and Owner-only mutation.
+- Race-safe AI quota reservation/commit/release.
+- Scoped record read service for personal OA and exact group membership.
+- Group and OA raw TEXT recording with LINE message-id idempotency.
+- Secure group Web entry and separate PRIVATE one-time entry; no fake group id.
+- Post-persistence TEXT Gemini normalization with durable state, DB model/pricing, immutable cost snapshot and resume/no-double-charge behavior.
+- Reply TEXT PostgreSQL cache + migration `0007_worklog_line_text_cache.sql`; cache hit writes real TEXT record with both LINE ids and original cached timestamp.
+- Three-Worker deployment baseline; Web/Admin use Workers Static Assets.
 
-### LINE/OA runtime
-- Group and OA webhook streams are separated.
-- Group direct TEXT and OA private direct TEXT persist raw record first.
-- Ordinary OA text stays human support.
-- LINE raw record writes are idempotent by LINE message id.
-- Recording-disabled members are rejected before new record/AI work.
-- Group query remains allowed independently of recording permission.
-- OA follow/unfollow and stable private source bootstrap are wired.
+## Latest accelerated batch completed
 
-### Secure Web entry
-- Group Web entry remains membership-verified.
-- PRIVATE Web entry uses its own one-time token/nonce bound to exact LINE user + private source; no fake group id.
-- OA `@AFTERTRACE 查詢` is wired to real private entry URL.
+### Quoted AUDIO / IMAGE / FILE
 
-### TEXT AI normalization
-- Post-persistence Worklog TEXT normalization is implemented with a durable state machine.
-- Raw records survive missing config, quota exhaustion, provider failure and parse failure.
-- DB-backed active model/pricing is used.
-- GROUP charges owner while retaining member actor; PRIVATE charges self.
-- Provider/model/token/media/pricing/cost snapshots are persisted.
-- Redelivery does not rerun already-completed provider work or double-charge quota.
+- Generalized LINE content fetcher to bounded arbitrary content fetch while retaining image helper.
+- Added `worklog_attachment_ingestions` and migration `0008_worklog_attachment_ingestion.sql`.
+- Added durable `WorklogAttachmentIngestionService`:
+  - claim by command LINE id
+  - fetch direct LINE content by quoted id
+  - load DB AI runtime config
+  - reserve charged Owner/personal AI quota before Gemini
+  - analyze media/document
+  - persist durable worklog record with AUDIO/IMAGE/FILE input type
+  - persist both LINE ids
+  - commit immutable usage/cost snapshot
+  - resume `RECORD_CREATED` without another provider call
+  - completed redelivery returns duplicate without refetch/provider rerun
+  - provider/LINE/quota failure does not persist binary
+- Added Gemini attachment normalizer:
+  - images: multimodal text/factual description + summary
+  - audio: transcript + summary
+  - PDF: multimodal document extraction
+  - text-like files: text/JSON/XML/CSV/Markdown extraction
+  - DOCX/XLSX and unsupported binary formats fail clearly and ask for PDF/text instead of unreliable parsing
+  - structured output: raw/extracted text, concise summary, broad category
+- Group Reply resolves TEXT cache first; cache miss goes to direct attachment ingestion and charges Owner.
+- OA private Reply goes directly to attachment ingestion and charges personal user.
+- User-facing handling exists for expired content, oversized content, unsupported formats, insufficient quota and generic failures.
+- Added attachment ingestion tests for first execution, completed duplicate and quota-settlement resume.
+- Stale attachment `PROCESSING` older than 15 minutes is terminalized as uncertain rather than automatically replayed, preventing potential double provider billing. Explicit retry/admin retry can be added later.
 
-### Reply TEXT cache
-- `worklog_line_text_cache` + migration `0007_worklog_line_text_cache.sql` exist.
-- Ordinary group TEXT enters temporary cache best-effort without becoming a work record or AI input.
-- Non-text never enters cache.
-- Exact group + quoted message lookup enforces cross-group isolation.
-- Reply TEXT cache hit creates a real TEXT work record with both LINE ids and original source timestamp, then uses normal TEXT normalization.
+### Real Worklog PWA backend
 
-## Latest accelerated batch: attachment ingestion + real PWA + Owner management
+Mounted authenticated `/api/v1/worklog` routes:
+- `GET /surfaces`
+- `GET /records/personal`
+- `GET /records/group/:sourceId`
+- `GET /usage/me`
+- `GET /groups/:sourceId/owner-view`
+- `PATCH /groups/:sourceId/members/:memberUserId/recording`
 
-This batch intentionally implemented multiple previously separate roadmap items before local verification.
-
-### Quoted AUDIO / IMAGE / FILE ingestion
-- Generalized `LineMessageContentResolver.content()` to fetch arbitrary LINE content with bounded byte limits while preserving legacy image fetch behavior.
-- Added `worklog_attachment_ingestions` and `0008_worklog_attachment_ingestion.sql` for durable command-level attachment state.
-- Added `WorklogAttachmentIngestionService`:
-  - claim by command LINE message id
-  - direct LINE content fetch by quoted id
-  - DB AI runtime config
-  - conservative owner/personal quota reservation before Gemini
-  - provider execution
-  - durable record insert with `AUDIO`/`IMAGE`/`FILE`
-  - no binary persistence
-  - durable `line_message_id` + `quoted_line_message_id`
-  - immutable usage/cost commit
-  - resume from `RECORD_CREATED` without second provider call
-  - completed redelivery returns duplicate without LINE refetch/provider call
-- Added `GeminiWorklogAttachmentNormalizer`:
-  - IMAGE multimodal understanding
-  - AUDIO transcription/summary
-  - PDF multimodal document extraction
-  - text-like files (`text/*`, JSON, XML, CSV, Markdown) decoded/read and normalized
-  - DOCX/XLSX/other unsupported binary files currently fail clearly and ask for PDF/text rather than using an unreliable parser
-  - grounded structured output: raw/extracted text, concise summary, broad category
-- Group Reply flow now resolves TEXT cache first; cache miss proceeds to direct LINE attachment ingestion and charges group Owner.
-- OA private Reply media/file proceeds directly to attachment ingestion and charges personal user.
-- LINE content expiry, oversized content, unsupported format, quota failure and general provider failure have explicit user-facing outcomes.
-- Attachment ingestion tests were authored for first execution, completed duplicate, and quota-settlement resume.
-
-### Real Worklog PWA APIs
-- Added authenticated `/api/v1/worklog` routes mounted at Worker entry:
-  - `GET /surfaces`
-  - `GET /records/personal`
-  - `GET /records/group/:sourceId`
-  - `GET /usage/me`
-  - `GET /groups/:sourceId/owner-view`
-  - `PATCH /groups/:sourceId/members/:memberUserId/recording`
-- Routes use WEB_SESSION bearer token and resolve the actual Worklog user from LINE identity.
-- Group record API rechecks active membership; owner APIs recheck actual owner identity.
-- CORS is limited to configured `WEB_APP_ORIGIN`.
+Behavior:
+- WEB_SESSION bearer identity resolves actual Worklog user.
+- Group records recheck exact active membership.
+- Owner usage/member routes recheck stable Owner identity.
+- CORS is restricted to configured `WEB_APP_ORIGIN`.
 
 ### Real Worklog PWA UI
-- `aftertrace-web` main entry now renders the new `WorklogRoot`, not legacy Memory management UI.
-- Handles one-time LINE entry tokens and normal LINE login session.
-- Clearly separates personal vs accessible group surfaces.
-- Displays actual `worklog_records` rather than legacy Memory.
-- Basic non-AI client filters: record text, input type, category.
-- Uses original LINE `source_timestamp` for display/order when available.
-- Shows current plan AI allowance/used/remaining and TEXT/AUDIO/IMAGE/FILE counts.
-- For a group Owner, shows member usage and per-member recording toggle; owner cannot disable self.
-- Added mobile responsive styling.
 
-### Deployment cleanup
-- API Worker now mounts Worklog routes separately from legacy routes.
-- API `wrangler.toml` no longer hard-codes obsolete `after-trace.pages.dev`; deployment must configure `WEB_APP_URL` / `WEB_APP_ORIGIN` to the independent `aftertrace-web` Worker origin.
-- Web/Admin remain separate Workers Static Assets deployments.
+- `aftertrace-web` now boots `WorklogRoot` instead of legacy Memory management UI.
+- Supports one-time entry token and normal LINE login session.
+- Shows actual `worklog_records`.
+- Separate Personal / Group scopes.
+- Basic non-AI text/input-type/category filters.
+- Uses LINE `source_timestamp` for ordering/display when available.
+- Shows plan AI allowance / used / remaining and TEXT/AUDIO/IMAGE/FILE counts.
+- Group Owner view shows member counts/AI usage and recording enable/disable toggle; owner cannot disable self.
+- Responsive mobile styling added.
+- Removed duplicate initial PWA load.
 
-### Static fixes made during acceleration
-- Added missing runtime export for `schema-worklog-line-text-cache`.
-- Registered attachment schema in runtime schema and Drizzle config/journal.
-- Aligned attachment status CHECK in schema with migration.
-- Updated record fixtures/types for `sourceTimestamp`.
-- Removed duplicate initial PWA record load.
+### Static/deployment cleanup
 
-## Current validation policy / status
+- Fixed missing runtime export for line TEXT cache schema.
+- Registered attachment schema in runtime schema, Drizzle config and journal.
+- Aligned attachment status CHECK between Drizzle schema and migration.
+- API `wrangler.toml` no longer hard-codes old `after-trace.pages.dev`; deployment must configure Web Worker URL/origin explicitly.
+- Record read model now exposes `sourceTimestamp`; fixtures were updated.
 
-Per user direction, finish more of the MVP first, then perform one concentrated local verification pass.
+Latest code commit immediately before this progress update: `6351d668b5c5c94c7abcb23ecef2c6d16ecd2292`.
 
-Not yet executed for this accelerated batch:
+## Verification status
+
+Per current user direction, the concentrated local verification run is intentionally deferred until more MVP features are complete.
+
+Not executed yet for this accelerated branch state:
 - `pnpm typecheck`
 - `pnpm test`
 - `pnpm db:schema:check`
-- migrations on a disposable Neon/PostgreSQL DB
-- real LINE webhook/media E2E
-- real Gemini media calls
-- Web/Admin Workers build/deploy smoke test
+- migrations `0001`–`0008` on disposable PostgreSQL/Neon
+- real LINE Reply media E2E
+- real Gemini image/audio/PDF calls
+- Web/Admin Workers build/deploy smoke tests
 
-Therefore all tests mentioned above are **authored, not yet claimed passing**.
+Tests are authored but are **not claimed passing**.
 
-Before real deployment, validate migrations `0001` through `0008`, especially:
-- `0005` private entry/auth
-- `0006` TEXT normalization race recovery
-- `0007` TEXT cache TTL/cap pruning
-- `0008` attachment ingestion idempotency/quota settlement
+Before production, explicitly validate `0005` private auth, `0006` normalization race recovery, `0007` TEXT TTL/cap pruning and `0008` attachment idempotency/quota settlement. Worklog migrations remain hand-authored/journaled; check Drizzle drift locally.
 
-Worklog migrations are still hand-authored/journaled; Drizzle schema/snapshot drift must be checked locally.
+## Remaining important product work
 
-## Known cautions to address before production
+### 1. Internal Admin conversion — next large priority
+- Worklog user list/detail with plan, groups, AI quota/usage and TEXT/AUDIO/IMAGE/FILE counts.
+- Group owner/member usage detail.
+- Create/edit plan levels, price, capabilities and AI allowance.
+- Manual user plan assignment/history.
+- Edit active AI provider/model/input-output-media pricing/FX.
+- Feedback list and anomaly/system-error list.
+- Replace interim legacy Cloudflare Access-only assumption with simple configured username/password MVP boundary.
 
-- Attachment `PROCESSING` state still needs an explicit stale/uncertain terminal policy so a Worker death during provider execution cannot leave a command visually pending forever; automatic re-execution must not risk duplicate provider billing.
-- Reply TEXT cache miss is treated as possible attachment. Final expired UX depends on LINE content API response mapping; verify actual LINE status codes for old text vs expired attachment during E2E.
-- Attachment original file name is unavailable if not retained from the original webhook; by product decision attachments themselves are not cached. Current durable metadata stores MIME type/byte length/source.
-- Office DOCX/XLSX direct parsing is intentionally not implemented yet; MVP supports images, audio, PDF and text-like files.
-- PWA filter currently operates on the loaded recent record window; server-side pagination/filtering is still needed for larger histories.
-- Group display name is not yet stored/exposed; PWA currently labels accessible groups generically.
-- Legacy Energy/Memory/commerce/reminder paths remain in the API repository and should be removed only after Worklog replacement surfaces are complete and verified.
-- Admin UI still needs the full Worklog conversion and simple configured username/password boundary.
+### 2. Customer / Project / record management PWA
+- Minimal customer CRUD: name, phone, address, note.
+- Minimal project CRUD: customer, name, address, status, note.
+- Deterministic attach/detach record to customer/project; do not auto-link ambiguous AI hints.
+- Record edit flow.
+- Typed transaction CRUD for received/expense/receivable.
 
-## Next prioritized batches
+### 3. PWA scale / UX
+- Server pagination and filters for larger histories.
+- Customer/project/time/type filtering on server.
+- Better group display label if group-summary retrieval is later added.
+- Retry/error/empty states and mobile polish.
 
-1. **Admin conversion (large batch)**
-   - Worklog user list/detail
-   - plan level / price / capabilities / AI quota editing
-   - manual plan assignment/history
-   - AI provider/model/pricing editing
-   - group Owner/member usage
-   - feedback and anomaly list
-   - simple configured username/password auth replacing interim legacy Access-only dependency
-2. **Customer / Project / record management in PWA**
-   - CRUD minimal customer/project
-   - attach/detach records deterministically
-   - edit normalized/raw record fields where allowed
-   - typed transaction CRUD for received/expense/receivable
-   - avoid ambiguous AI auto-linking
-3. **Attachment reliability polish**
-   - stale PROCESSING terminalization
-   - explicit/admin retry for terminal failed AI operations
-   - actual LINE expiry status mapping
-   - file/media limits and provider cost tuning
-4. **PWA scaling/UX polish**
-   - server pagination/time/customer/project/type filters
-   - group labels if LINE profile/group-summary retrieval is added
-   - mobile empty/error/retry states
-5. **Legacy removal / final bug audit**
-   - remove old Memory/Energy paths no longer reachable/needed
-   - cross-source isolation audit
-   - LINE redelivery/idempotency audit
-   - AI/quota race/error recovery
-   - three-Worker CORS/origin/deep-link/deploy audit
-   - migrations/bootstrap reliability
-6. **Concentrated local verification requested by user**
-   - install/checkout locally
-   - typecheck/lint/test
-   - disposable DB migration/schema check
-   - fix all failures
-   - then manual LINE + PWA + Admin smoke/E2E before production.
+### 4. Attachment reliability polish
+- Explicit/admin retry for terminal failed attachment/AI operations.
+- Verify actual LINE status codes for old quoted TEXT versus expired attachment so final expired wording is exact.
+- Tune media/file byte limits and actual Gemini cost accounting with real provider calls.
+- Original attachment file name is not retained by design because attachment messages are not cached; current durable metadata keeps MIME/byte length/source.
+
+### 5. Legacy removal + bug audit
+- Remove old Energy/Memory/commerce/reminder paths only after Worklog equivalents are complete.
+- Audit cross-source leakage, LINE redelivery/idempotency, quota races, transaction duplication, concurrent edits, CORS/origin/deep-link Worker deployment, bootstrap/migration reliability.
+
+### 6. Concentrated local verification requested by user
+After major MVP features are done:
+- checkout/install locally
+- typecheck/lint/test
+- disposable DB migration/schema check
+- fix all failures
+- manual LINE + PWA + Admin smoke/E2E
+- production cutover only after that.
