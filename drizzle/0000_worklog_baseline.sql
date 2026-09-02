@@ -158,7 +158,8 @@ CREATE TABLE "worklog_sources" (
 	"subscription_owner_user_id" bigint,
 	"inactive_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "worklog_source_line_group_uq" UNIQUE("line_group_id")
 );
 --> statement-breakpoint
 CREATE TABLE "worklog_subscription_history" (
@@ -182,7 +183,8 @@ CREATE TABLE "worklog_subscription_plans" (
 	"ai_allowance_units" integer DEFAULT 0 NOT NULL,
 	"capabilities" jsonb DEFAULT '{}'::jsonb NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "worklog_subscription_plan_code_uq" UNIQUE("code")
 );
 --> statement-breakpoint
 CREATE TABLE "worklog_transactions" (
@@ -221,7 +223,8 @@ CREATE TABLE "worklog_users" (
 	"oa_friend_state_at" timestamp with time zone,
 	"last_interaction_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "worklog_user_line_user_uq" UNIQUE("line_user_id")
 );
 --> statement-breakpoint
 CREATE TABLE "worklog_workspaces" (
@@ -257,7 +260,8 @@ CREATE TABLE "worklog_ai_quota_reservations" (
 	"period_end" timestamp with time zone,
 	"expires_at" timestamp with time zone NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "worklog_ai_quota_reservation_token_uq" UNIQUE("token")
 );
 --> statement-breakpoint
 CREATE TABLE "worklog_pending_group_members" (
@@ -365,6 +369,61 @@ CREATE TABLE "worklog_checkout_intents" (
 	CONSTRAINT "worklog_checkout_intent_status_ck" CHECK ("worklog_checkout_intents"."status" IN ('PENDING_PROVIDER','READY','COMPLETED','CANCELLED','FAILED'))
 );
 --> statement-breakpoint
+ALTER TABLE "worklog_ai_usage_events" ADD CONSTRAINT "worklog_ai_usage_events_actor_user_id_worklog_users_id_fk" FOREIGN KEY ("actor_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_ai_usage_events" ADD CONSTRAINT "worklog_ai_usage_events_charged_user_id_worklog_users_id_fk" FOREIGN KEY ("charged_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_ai_usage_events" ADD CONSTRAINT "worklog_ai_usage_events_workspace_id_worklog_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."worklog_workspaces"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_ai_usage_events" ADD CONSTRAINT "worklog_ai_usage_events_source_id_worklog_sources_id_fk" FOREIGN KEY ("source_id") REFERENCES "public"."worklog_sources"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_ai_usage_events" ADD CONSTRAINT "worklog_ai_usage_events_record_id_worklog_records_id_fk" FOREIGN KEY ("record_id") REFERENCES "public"."worklog_records"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_anomaly_events" ADD CONSTRAINT "worklog_anomaly_events_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_anomaly_events" ADD CONSTRAINT "worklog_anomaly_events_source_id_worklog_sources_id_fk" FOREIGN KEY ("source_id") REFERENCES "public"."worklog_sources"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_audit_logs" ADD CONSTRAINT "worklog_audit_logs_workspace_id_worklog_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."worklog_workspaces"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_audit_logs" ADD CONSTRAINT "worklog_audit_logs_actor_user_id_worklog_users_id_fk" FOREIGN KEY ("actor_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_customers" ADD CONSTRAINT "worklog_customers_workspace_id_worklog_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."worklog_workspaces"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_feedback" ADD CONSTRAINT "worklog_feedback_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_projects" ADD CONSTRAINT "worklog_projects_workspace_id_worklog_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."worklog_workspaces"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_projects" ADD CONSTRAINT "worklog_projects_customer_id_worklog_customers_id_fk" FOREIGN KEY ("customer_id") REFERENCES "public"."worklog_customers"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_records" ADD CONSTRAINT "worklog_records_workspace_id_worklog_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."worklog_workspaces"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_records" ADD CONSTRAINT "worklog_records_source_id_worklog_sources_id_fk" FOREIGN KEY ("source_id") REFERENCES "public"."worklog_sources"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_records" ADD CONSTRAINT "worklog_records_author_user_id_worklog_users_id_fk" FOREIGN KEY ("author_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_records" ADD CONSTRAINT "worklog_records_customer_id_worklog_customers_id_fk" FOREIGN KEY ("customer_id") REFERENCES "public"."worklog_customers"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_records" ADD CONSTRAINT "worklog_records_project_id_worklog_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."worklog_projects"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_source_members" ADD CONSTRAINT "worklog_source_members_source_id_worklog_sources_id_fk" FOREIGN KEY ("source_id") REFERENCES "public"."worklog_sources"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_source_members" ADD CONSTRAINT "worklog_source_members_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_source_members" ADD CONSTRAINT "worklog_source_members_recording_updated_by_user_id_worklog_users_id_fk" FOREIGN KEY ("recording_updated_by_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_sources" ADD CONSTRAINT "worklog_sources_workspace_id_worklog_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."worklog_workspaces"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_sources" ADD CONSTRAINT "worklog_sources_private_user_id_worklog_users_id_fk" FOREIGN KEY ("private_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_sources" ADD CONSTRAINT "worklog_sources_owner_user_id_worklog_users_id_fk" FOREIGN KEY ("owner_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_sources" ADD CONSTRAINT "worklog_sources_subscription_owner_user_id_worklog_users_id_fk" FOREIGN KEY ("subscription_owner_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_subscription_history" ADD CONSTRAINT "worklog_subscription_history_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_subscription_history" ADD CONSTRAINT "worklog_subscription_history_previous_plan_code_worklog_subscription_plans_code_fk" FOREIGN KEY ("previous_plan_code") REFERENCES "public"."worklog_subscription_plans"("code") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_subscription_history" ADD CONSTRAINT "worklog_subscription_history_next_plan_code_worklog_subscription_plans_code_fk" FOREIGN KEY ("next_plan_code") REFERENCES "public"."worklog_subscription_plans"("code") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_transactions" ADD CONSTRAINT "worklog_transactions_workspace_id_worklog_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."worklog_workspaces"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_transactions" ADD CONSTRAINT "worklog_transactions_record_id_worklog_records_id_fk" FOREIGN KEY ("record_id") REFERENCES "public"."worklog_records"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_transactions" ADD CONSTRAINT "worklog_transactions_customer_id_worklog_customers_id_fk" FOREIGN KEY ("customer_id") REFERENCES "public"."worklog_customers"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_transactions" ADD CONSTRAINT "worklog_transactions_project_id_worklog_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."worklog_projects"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_user_subscriptions" ADD CONSTRAINT "worklog_user_subscriptions_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_user_subscriptions" ADD CONSTRAINT "worklog_user_subscriptions_plan_code_worklog_subscription_plans_code_fk" FOREIGN KEY ("plan_code") REFERENCES "public"."worklog_subscription_plans"("code") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_workspaces" ADD CONSTRAINT "worklog_workspaces_owner_user_id_worklog_users_id_fk" FOREIGN KEY ("owner_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_ai_quota_balances" ADD CONSTRAINT "worklog_ai_quota_balances_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_ai_quota_reservations" ADD CONSTRAINT "worklog_ai_quota_reservations_charged_user_id_worklog_users_id_fk" FOREIGN KEY ("charged_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_ai_quota_reservations" ADD CONSTRAINT "worklog_ai_quota_reservations_actor_user_id_worklog_users_id_fk" FOREIGN KEY ("actor_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_ai_quota_reservations" ADD CONSTRAINT "worklog_ai_quota_reservations_source_id_worklog_sources_id_fk" FOREIGN KEY ("source_id") REFERENCES "public"."worklog_sources"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_pending_group_members" ADD CONSTRAINT "worklog_pending_group_members_pending_group_id_worklog_pending_groups_id_fk" FOREIGN KEY ("pending_group_id") REFERENCES "public"."worklog_pending_groups"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_pending_group_members" ADD CONSTRAINT "worklog_pending_group_members_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_pending_groups" ADD CONSTRAINT "worklog_pending_groups_promoted_source_id_worklog_sources_id_fk" FOREIGN KEY ("promoted_source_id") REFERENCES "public"."worklog_sources"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "web_auth_entry_nonces" ADD CONSTRAINT "web_auth_entry_nonces_line_user_id_worklog_users_line_user_id_fk" FOREIGN KEY ("line_user_id") REFERENCES "public"."worklog_users"("line_user_id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "web_auth_entry_nonces" ADD CONSTRAINT "web_auth_entry_nonces_line_group_id_worklog_sources_line_group_id_fk" FOREIGN KEY ("line_group_id") REFERENCES "public"."worklog_sources"("line_group_id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_private_web_entry_nonces" ADD CONSTRAINT "worklog_private_web_entry_nonces_line_user_id_worklog_users_line_user_id_fk" FOREIGN KEY ("line_user_id") REFERENCES "public"."worklog_users"("line_user_id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_private_web_entry_nonces" ADD CONSTRAINT "worklog_private_web_entry_nonces_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_private_web_entry_nonces" ADD CONSTRAINT "worklog_private_web_entry_nonces_source_id_worklog_sources_id_fk" FOREIGN KEY ("source_id") REFERENCES "public"."worklog_sources"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_record_ai_normalizations" ADD CONSTRAINT "worklog_record_ai_normalizations_record_id_worklog_records_id_fk" FOREIGN KEY ("record_id") REFERENCES "public"."worklog_records"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_record_ai_normalizations" ADD CONSTRAINT "worklog_record_ai_normalizations_reservation_token_worklog_ai_quota_reservations_token_fk" FOREIGN KEY ("reservation_token") REFERENCES "public"."worklog_ai_quota_reservations"("token") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_attachment_ingestions" ADD CONSTRAINT "worklog_attachment_ingestions_source_id_worklog_sources_id_fk" FOREIGN KEY ("source_id") REFERENCES "public"."worklog_sources"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_attachment_ingestions" ADD CONSTRAINT "worklog_attachment_ingestions_actor_user_id_worklog_users_id_fk" FOREIGN KEY ("actor_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_attachment_ingestions" ADD CONSTRAINT "worklog_attachment_ingestions_reservation_token_worklog_ai_quota_reservations_token_fk" FOREIGN KEY ("reservation_token") REFERENCES "public"."worklog_ai_quota_reservations"("token") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_attachment_ingestions" ADD CONSTRAINT "worklog_attachment_ingestions_record_id_worklog_records_id_fk" FOREIGN KEY ("record_id") REFERENCES "public"."worklog_records"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_checkout_intents" ADD CONSTRAINT "worklog_checkout_intents_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_checkout_intents" ADD CONSTRAINT "worklog_checkout_intents_plan_code_worklog_subscription_plans_code_fk" FOREIGN KEY ("plan_code") REFERENCES "public"."worklog_subscription_plans"("code") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "worklog_ai_usage_actor_time_idx" ON "worklog_ai_usage_events" USING btree ("actor_user_id","created_at");--> statement-breakpoint
 CREATE INDEX "worklog_ai_usage_charged_time_idx" ON "worklog_ai_usage_events" USING btree ("charged_user_id","created_at");--> statement-breakpoint
 CREATE INDEX "worklog_ai_usage_source_actor_time_idx" ON "worklog_ai_usage_events" USING btree ("source_id","actor_user_id","created_at");--> statement-breakpoint
@@ -388,23 +447,19 @@ CREATE UNIQUE INDEX "worklog_source_member_uq" ON "worklog_source_members" USING
 CREATE INDEX "worklog_source_member_user_active_idx" ON "worklog_source_members" USING btree ("user_id","is_active");--> statement-breakpoint
 CREATE INDEX "worklog_source_member_source_recording_idx" ON "worklog_source_members" USING btree ("source_id","is_active","recording_enabled");--> statement-breakpoint
 CREATE UNIQUE INDEX "worklog_source_private_user_uq" ON "worklog_sources" USING btree ("private_user_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "worklog_source_line_group_uq" ON "worklog_sources" USING btree ("line_group_id");--> statement-breakpoint
 CREATE INDEX "worklog_source_workspace_type_idx" ON "worklog_sources" USING btree ("workspace_id","type");--> statement-breakpoint
 CREATE INDEX "worklog_source_owner_idx" ON "worklog_sources" USING btree ("owner_user_id");--> statement-breakpoint
 CREATE INDEX "worklog_source_subscription_owner_idx" ON "worklog_sources" USING btree ("subscription_owner_user_id");--> statement-breakpoint
 CREATE INDEX "worklog_subscription_history_user_time_idx" ON "worklog_subscription_history" USING btree ("user_id","created_at");--> statement-breakpoint
-CREATE UNIQUE INDEX "worklog_subscription_plan_code_uq" ON "worklog_subscription_plans" USING btree ("code");--> statement-breakpoint
 CREATE INDEX "worklog_transaction_workspace_time_idx" ON "worklog_transactions" USING btree ("workspace_id","occurred_at");--> statement-breakpoint
 CREATE INDEX "worklog_transaction_project_idx" ON "worklog_transactions" USING btree ("project_id");--> statement-breakpoint
 CREATE INDEX "worklog_transaction_record_idx" ON "worklog_transactions" USING btree ("record_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "worklog_user_subscription_user_uq" ON "worklog_user_subscriptions" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "worklog_user_subscription_plan_status_idx" ON "worklog_user_subscriptions" USING btree ("plan_code","status");--> statement-breakpoint
-CREATE UNIQUE INDEX "worklog_user_line_user_uq" ON "worklog_users" USING btree ("line_user_id");--> statement-breakpoint
 CREATE INDEX "worklog_user_oa_updated_idx" ON "worklog_users" USING btree ("is_oa_friend","updated_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "worklog_workspace_owner_uq" ON "worklog_workspaces" USING btree ("owner_user_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "worklog_ai_quota_balance_user_period_uq" ON "worklog_ai_quota_balances" USING btree ("user_id","period_start");--> statement-breakpoint
 CREATE INDEX "worklog_ai_quota_balance_user_time_idx" ON "worklog_ai_quota_balances" USING btree ("user_id","period_start","period_end");--> statement-breakpoint
-CREATE UNIQUE INDEX "worklog_ai_quota_reservation_token_uq" ON "worklog_ai_quota_reservations" USING btree ("token");--> statement-breakpoint
 CREATE INDEX "worklog_ai_quota_reservation_charged_status_expiry_idx" ON "worklog_ai_quota_reservations" USING btree ("charged_user_id","status","expires_at");--> statement-breakpoint
 CREATE INDEX "worklog_ai_quota_reservation_source_actor_idx" ON "worklog_ai_quota_reservations" USING btree ("source_id","actor_user_id","created_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "worklog_pending_group_member_uq" ON "worklog_pending_group_members" USING btree ("pending_group_id","user_id");--> statement-breakpoint
@@ -430,7 +485,6 @@ CREATE UNIQUE INDEX "worklog_checkout_intent_request_uq" ON "worklog_checkout_in
 CREATE INDEX "worklog_checkout_intent_user_time_idx" ON "worklog_checkout_intents" USING btree ("user_id","created_at");--> statement-breakpoint
 CREATE INDEX "worklog_checkout_intent_status_time_idx" ON "worklog_checkout_intents" USING btree ("status","created_at");
 --> statement-breakpoint
-
 CREATE OR REPLACE FUNCTION worklog_capture_attachment_failure_anomaly()
 RETURNS trigger
 LANGUAGE plpgsql

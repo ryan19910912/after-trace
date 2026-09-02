@@ -71,7 +71,7 @@ export const worklogUsers = pgTable(
   'worklog_users',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    lineUserId: varchar('line_user_id', { length: 64 }).notNull(),
+    lineUserId: varchar('line_user_id', { length: 64 }).notNull().unique('worklog_user_line_user_uq'),
     displayName: varchar('display_name', { length: 255 }),
     isOaFriend: boolean('is_oa_friend').default(false).notNull(),
     firstOaAddedAt: timestamp('first_oa_added_at', { withTimezone: true }),
@@ -81,7 +81,6 @@ export const worklogUsers = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    uniqueIndex('worklog_user_line_user_uq').on(table.lineUserId),
     index('worklog_user_oa_updated_idx').on(table.isOaFriend, table.updatedAt),
   ],
 );
@@ -112,7 +111,7 @@ export const worklogSources = pgTable(
     privateUserId: bigint('private_user_id', { mode: 'number' }).references(() => worklogUsers.id, {
       onDelete: 'restrict',
     }),
-    lineGroupId: varchar('line_group_id', { length: 64 }),
+    lineGroupId: varchar('line_group_id', { length: 64 }).unique('worklog_source_line_group_uq'),
     ownerUserId: bigint('owner_user_id', { mode: 'number' }).references(() => worklogUsers.id, {
       onDelete: 'restrict',
     }),
@@ -128,7 +127,6 @@ export const worklogSources = pgTable(
   },
   (table) => [
     uniqueIndex('worklog_source_private_user_uq').on(table.privateUserId),
-    uniqueIndex('worklog_source_line_group_uq').on(table.lineGroupId),
     index('worklog_source_workspace_type_idx').on(table.workspaceId, table.type),
     index('worklog_source_owner_idx').on(table.ownerUserId),
     index('worklog_source_subscription_owner_idx').on(table.subscriptionOwnerUserId),
@@ -283,7 +281,7 @@ export const worklogSubscriptionPlans = pgTable(
   'worklog_subscription_plans',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    code: varchar('code', { length: 64 }).notNull(),
+    code: varchar('code', { length: 64 }).notNull().unique('worklog_subscription_plan_code_uq'),
     displayName: varchar('display_name', { length: 255 }).notNull(),
     priceTwd: numeric('price_twd', { precision: 12, scale: 2 }).default('0').notNull(),
     rank: integer('rank').default(0).notNull(),
@@ -293,7 +291,7 @@ export const worklogSubscriptionPlans = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (table) => [uniqueIndex('worklog_subscription_plan_code_uq').on(table.code)],
+  () => [],
 );
 
 export const worklogUserSubscriptions = pgTable(

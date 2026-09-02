@@ -43,7 +43,7 @@ export const worklogAiQuotaReservations = pgTable(
   'worklog_ai_quota_reservations',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    token: varchar('token', { length: 64 }).notNull(),
+    token: varchar('token', { length: 64 }).notNull().unique('worklog_ai_quota_reservation_token_uq'),
     chargedUserId: bigint('charged_user_id', { mode: 'number' })
       .notNull()
       .references(() => worklogUsers.id, { onDelete: 'restrict' }),
@@ -63,7 +63,6 @@ export const worklogAiQuotaReservations = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    uniqueIndex('worklog_ai_quota_reservation_token_uq').on(table.token),
     index('worklog_ai_quota_reservation_charged_status_expiry_idx').on(
       table.chargedUserId,
       table.status,

@@ -1,5 +1,5 @@
 {
-  "id": "35087dc7-eccc-43f9-b2b9-6956104aee76",
+  "id": "3706b9d3-e7b2-456e-91b2-0479b88ebc1a",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -330,7 +330,73 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "worklog_ai_usage_events_actor_user_id_worklog_users_id_fk": {
+          "name": "worklog_ai_usage_events_actor_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_ai_usage_events",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "actor_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_ai_usage_events_charged_user_id_worklog_users_id_fk": {
+          "name": "worklog_ai_usage_events_charged_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_ai_usage_events",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "charged_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_ai_usage_events_workspace_id_worklog_workspaces_id_fk": {
+          "name": "worklog_ai_usage_events_workspace_id_worklog_workspaces_id_fk",
+          "tableFrom": "worklog_ai_usage_events",
+          "tableTo": "worklog_workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_ai_usage_events_source_id_worklog_sources_id_fk": {
+          "name": "worklog_ai_usage_events_source_id_worklog_sources_id_fk",
+          "tableFrom": "worklog_ai_usage_events",
+          "tableTo": "worklog_sources",
+          "columnsFrom": [
+            "source_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_ai_usage_events_record_id_worklog_records_id_fk": {
+          "name": "worklog_ai_usage_events_record_id_worklog_records_id_fk",
+          "tableFrom": "worklog_ai_usage_events",
+          "tableTo": "worklog_records",
+          "columnsFrom": [
+            "record_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -476,7 +542,34 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "worklog_anomaly_events_user_id_worklog_users_id_fk": {
+          "name": "worklog_anomaly_events_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_anomaly_events",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_anomaly_events_source_id_worklog_sources_id_fk": {
+          "name": "worklog_anomaly_events_source_id_worklog_sources_id_fk",
+          "tableFrom": "worklog_anomaly_events",
+          "tableTo": "worklog_sources",
+          "columnsFrom": [
+            "source_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -593,7 +686,34 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "worklog_audit_logs_workspace_id_worklog_workspaces_id_fk": {
+          "name": "worklog_audit_logs_workspace_id_worklog_workspaces_id_fk",
+          "tableFrom": "worklog_audit_logs",
+          "tableTo": "worklog_workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_audit_logs_actor_user_id_worklog_users_id_fk": {
+          "name": "worklog_audit_logs_actor_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_audit_logs",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "actor_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -678,7 +798,21 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "worklog_customers_workspace_id_worklog_workspaces_id_fk": {
+          "name": "worklog_customers_workspace_id_worklog_workspaces_id_fk",
+          "tableFrom": "worklog_customers",
+          "tableTo": "worklog_workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -751,7 +885,21 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "worklog_feedback_user_id_worklog_users_id_fk": {
+          "name": "worklog_feedback_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_feedback",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -859,7 +1007,34 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "worklog_projects_workspace_id_worklog_workspaces_id_fk": {
+          "name": "worklog_projects_workspace_id_worklog_workspaces_id_fk",
+          "tableFrom": "worklog_projects",
+          "tableTo": "worklog_workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_projects_customer_id_worklog_customers_id_fk": {
+          "name": "worklog_projects_customer_id_worklog_customers_id_fk",
+          "tableFrom": "worklog_projects",
+          "tableTo": "worklog_customers",
+          "columnsFrom": [
+            "customer_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -1106,7 +1281,73 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "worklog_records_workspace_id_worklog_workspaces_id_fk": {
+          "name": "worklog_records_workspace_id_worklog_workspaces_id_fk",
+          "tableFrom": "worklog_records",
+          "tableTo": "worklog_workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_records_source_id_worklog_sources_id_fk": {
+          "name": "worklog_records_source_id_worklog_sources_id_fk",
+          "tableFrom": "worklog_records",
+          "tableTo": "worklog_sources",
+          "columnsFrom": [
+            "source_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_records_author_user_id_worklog_users_id_fk": {
+          "name": "worklog_records_author_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_records",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "author_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_records_customer_id_worklog_customers_id_fk": {
+          "name": "worklog_records_customer_id_worklog_customers_id_fk",
+          "tableFrom": "worklog_records",
+          "tableTo": "worklog_customers",
+          "columnsFrom": [
+            "customer_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_records_project_id_worklog_projects_id_fk": {
+          "name": "worklog_records_project_id_worklog_projects_id_fk",
+          "tableFrom": "worklog_records",
+          "tableTo": "worklog_projects",
+          "columnsFrom": [
+            "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -1261,7 +1502,47 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "worklog_source_members_source_id_worklog_sources_id_fk": {
+          "name": "worklog_source_members_source_id_worklog_sources_id_fk",
+          "tableFrom": "worklog_source_members",
+          "tableTo": "worklog_sources",
+          "columnsFrom": [
+            "source_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_source_members_user_id_worklog_users_id_fk": {
+          "name": "worklog_source_members_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_source_members",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_source_members_recording_updated_by_user_id_worklog_users_id_fk": {
+          "name": "worklog_source_members_recording_updated_by_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_source_members",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "recording_updated_by_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -1372,21 +1653,6 @@
           "method": "btree",
           "with": {}
         },
-        "worklog_source_line_group_uq": {
-          "name": "worklog_source_line_group_uq",
-          "columns": [
-            {
-              "expression": "line_group_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "worklog_source_workspace_type_idx": {
           "name": "worklog_source_workspace_type_idx",
           "columns": [
@@ -1439,9 +1705,70 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "worklog_sources_workspace_id_worklog_workspaces_id_fk": {
+          "name": "worklog_sources_workspace_id_worklog_workspaces_id_fk",
+          "tableFrom": "worklog_sources",
+          "tableTo": "worklog_workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_sources_private_user_id_worklog_users_id_fk": {
+          "name": "worklog_sources_private_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_sources",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "private_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_sources_owner_user_id_worklog_users_id_fk": {
+          "name": "worklog_sources_owner_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_sources",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "owner_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_sources_subscription_owner_user_id_worklog_users_id_fk": {
+          "name": "worklog_sources_subscription_owner_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_sources",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "subscription_owner_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "worklog_source_line_group_uq": {
+          "name": "worklog_source_line_group_uq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "line_group_id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -1524,7 +1851,47 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "worklog_subscription_history_user_id_worklog_users_id_fk": {
+          "name": "worklog_subscription_history_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_subscription_history",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_subscription_history_previous_plan_code_worklog_subscription_plans_code_fk": {
+          "name": "worklog_subscription_history_previous_plan_code_worklog_subscription_plans_code_fk",
+          "tableFrom": "worklog_subscription_history",
+          "tableTo": "worklog_subscription_plans",
+          "columnsFrom": [
+            "previous_plan_code"
+          ],
+          "columnsTo": [
+            "code"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_subscription_history_next_plan_code_worklog_subscription_plans_code_fk": {
+          "name": "worklog_subscription_history_next_plan_code_worklog_subscription_plans_code_fk",
+          "tableFrom": "worklog_subscription_history",
+          "tableTo": "worklog_subscription_plans",
+          "columnsFrom": [
+            "next_plan_code"
+          ],
+          "columnsTo": [
+            "code"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -1603,26 +1970,18 @@
           "default": "now()"
         }
       },
-      "indexes": {
-        "worklog_subscription_plan_code_uq": {
-          "name": "worklog_subscription_plan_code_uq",
-          "columns": [
-            {
-              "expression": "code",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "worklog_subscription_plan_code_uq": {
+          "name": "worklog_subscription_plan_code_uq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "code"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -1754,7 +2113,60 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "worklog_transactions_workspace_id_worklog_workspaces_id_fk": {
+          "name": "worklog_transactions_workspace_id_worklog_workspaces_id_fk",
+          "tableFrom": "worklog_transactions",
+          "tableTo": "worklog_workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_transactions_record_id_worklog_records_id_fk": {
+          "name": "worklog_transactions_record_id_worklog_records_id_fk",
+          "tableFrom": "worklog_transactions",
+          "tableTo": "worklog_records",
+          "columnsFrom": [
+            "record_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_transactions_customer_id_worklog_customers_id_fk": {
+          "name": "worklog_transactions_customer_id_worklog_customers_id_fk",
+          "tableFrom": "worklog_transactions",
+          "tableTo": "worklog_customers",
+          "columnsFrom": [
+            "customer_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_transactions_project_id_worklog_projects_id_fk": {
+          "name": "worklog_transactions_project_id_worklog_projects_id_fk",
+          "tableFrom": "worklog_transactions",
+          "tableTo": "worklog_projects",
+          "columnsFrom": [
+            "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -1872,7 +2284,34 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "worklog_user_subscriptions_user_id_worklog_users_id_fk": {
+          "name": "worklog_user_subscriptions_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_user_subscriptions",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_user_subscriptions_plan_code_worklog_subscription_plans_code_fk": {
+          "name": "worklog_user_subscriptions_plan_code_worklog_subscription_plans_code_fk",
+          "tableFrom": "worklog_user_subscriptions",
+          "tableTo": "worklog_subscription_plans",
+          "columnsFrom": [
+            "plan_code"
+          ],
+          "columnsTo": [
+            "code"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -1942,21 +2381,6 @@
         }
       },
       "indexes": {
-        "worklog_user_line_user_uq": {
-          "name": "worklog_user_line_user_uq",
-          "columns": [
-            {
-              "expression": "line_user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "worklog_user_oa_updated_idx": {
           "name": "worklog_user_oa_updated_idx",
           "columns": [
@@ -1981,7 +2405,15 @@
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "worklog_user_line_user_uq": {
+          "name": "worklog_user_line_user_uq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "line_user_id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -2040,7 +2472,21 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "worklog_workspaces_owner_user_id_worklog_users_id_fk": {
+          "name": "worklog_workspaces_owner_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_workspaces",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "owner_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -2161,7 +2607,21 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "worklog_ai_quota_balances_user_id_worklog_users_id_fk": {
+          "name": "worklog_ai_quota_balances_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_ai_quota_balances",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -2257,21 +2717,6 @@
         }
       },
       "indexes": {
-        "worklog_ai_quota_reservation_token_uq": {
-          "name": "worklog_ai_quota_reservation_token_uq",
-          "columns": [
-            {
-              "expression": "token",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "worklog_ai_quota_reservation_charged_status_expiry_idx": {
           "name": "worklog_ai_quota_reservation_charged_status_expiry_idx",
           "columns": [
@@ -2327,9 +2772,57 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "worklog_ai_quota_reservations_charged_user_id_worklog_users_id_fk": {
+          "name": "worklog_ai_quota_reservations_charged_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_ai_quota_reservations",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "charged_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_ai_quota_reservations_actor_user_id_worklog_users_id_fk": {
+          "name": "worklog_ai_quota_reservations_actor_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_ai_quota_reservations",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "actor_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_ai_quota_reservations_source_id_worklog_sources_id_fk": {
+          "name": "worklog_ai_quota_reservations_source_id_worklog_sources_id_fk",
+          "tableFrom": "worklog_ai_quota_reservations",
+          "tableTo": "worklog_sources",
+          "columnsFrom": [
+            "source_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "worklog_ai_quota_reservation_token_uq": {
+          "name": "worklog_ai_quota_reservation_token_uq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "token"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -2436,7 +2929,34 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "worklog_pending_group_members_pending_group_id_worklog_pending_groups_id_fk": {
+          "name": "worklog_pending_group_members_pending_group_id_worklog_pending_groups_id_fk",
+          "tableFrom": "worklog_pending_group_members",
+          "tableTo": "worklog_pending_groups",
+          "columnsFrom": [
+            "pending_group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_pending_group_members_user_id_worklog_users_id_fk": {
+          "name": "worklog_pending_group_members_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_pending_group_members",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -2566,7 +3086,21 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "worklog_pending_groups_promoted_source_id_worklog_sources_id_fk": {
+          "name": "worklog_pending_groups_promoted_source_id_worklog_sources_id_fk",
+          "tableFrom": "worklog_pending_groups",
+          "tableTo": "worklog_sources",
+          "columnsFrom": [
+            "promoted_source_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -2647,7 +3181,34 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "web_auth_entry_nonces_line_user_id_worklog_users_line_user_id_fk": {
+          "name": "web_auth_entry_nonces_line_user_id_worklog_users_line_user_id_fk",
+          "tableFrom": "web_auth_entry_nonces",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "line_user_id"
+          ],
+          "columnsTo": [
+            "line_user_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "web_auth_entry_nonces_line_group_id_worklog_sources_line_group_id_fk": {
+          "name": "web_auth_entry_nonces_line_group_id_worklog_sources_line_group_id_fk",
+          "tableFrom": "web_auth_entry_nonces",
+          "tableTo": "worklog_sources",
+          "columnsFrom": [
+            "line_group_id"
+          ],
+          "columnsTo": [
+            "line_group_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -2761,7 +3322,47 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "worklog_private_web_entry_nonces_line_user_id_worklog_users_line_user_id_fk": {
+          "name": "worklog_private_web_entry_nonces_line_user_id_worklog_users_line_user_id_fk",
+          "tableFrom": "worklog_private_web_entry_nonces",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "line_user_id"
+          ],
+          "columnsTo": [
+            "line_user_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_private_web_entry_nonces_user_id_worklog_users_id_fk": {
+          "name": "worklog_private_web_entry_nonces_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_private_web_entry_nonces",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_private_web_entry_nonces_source_id_worklog_sources_id_fk": {
+          "name": "worklog_private_web_entry_nonces_source_id_worklog_sources_id_fk",
+          "tableFrom": "worklog_private_web_entry_nonces",
+          "tableTo": "worklog_sources",
+          "columnsFrom": [
+            "source_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -2925,7 +3526,34 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "worklog_record_ai_normalizations_record_id_worklog_records_id_fk": {
+          "name": "worklog_record_ai_normalizations_record_id_worklog_records_id_fk",
+          "tableFrom": "worklog_record_ai_normalizations",
+          "tableTo": "worklog_records",
+          "columnsFrom": [
+            "record_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_record_ai_normalizations_reservation_token_worklog_ai_quota_reservations_token_fk": {
+          "name": "worklog_record_ai_normalizations_reservation_token_worklog_ai_quota_reservations_token_fk",
+          "tableFrom": "worklog_record_ai_normalizations",
+          "tableTo": "worklog_ai_quota_reservations",
+          "columnsFrom": [
+            "reservation_token"
+          ],
+          "columnsTo": [
+            "token"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -3189,7 +3817,60 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "worklog_attachment_ingestions_source_id_worklog_sources_id_fk": {
+          "name": "worklog_attachment_ingestions_source_id_worklog_sources_id_fk",
+          "tableFrom": "worklog_attachment_ingestions",
+          "tableTo": "worklog_sources",
+          "columnsFrom": [
+            "source_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_attachment_ingestions_actor_user_id_worklog_users_id_fk": {
+          "name": "worklog_attachment_ingestions_actor_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_attachment_ingestions",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "actor_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_attachment_ingestions_reservation_token_worklog_ai_quota_reservations_token_fk": {
+          "name": "worklog_attachment_ingestions_reservation_token_worklog_ai_quota_reservations_token_fk",
+          "tableFrom": "worklog_attachment_ingestions",
+          "tableTo": "worklog_ai_quota_reservations",
+          "columnsFrom": [
+            "reservation_token"
+          ],
+          "columnsTo": [
+            "token"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_attachment_ingestions_record_id_worklog_records_id_fk": {
+          "name": "worklog_attachment_ingestions_record_id_worklog_records_id_fk",
+          "tableFrom": "worklog_attachment_ingestions",
+          "tableTo": "worklog_records",
+          "columnsFrom": [
+            "record_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -3334,7 +4015,34 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "worklog_checkout_intents_user_id_worklog_users_id_fk": {
+          "name": "worklog_checkout_intents_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_checkout_intents",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_checkout_intents_plan_code_worklog_subscription_plans_code_fk": {
+          "name": "worklog_checkout_intents_plan_code_worklog_subscription_plans_code_fk",
+          "tableFrom": "worklog_checkout_intents",
+          "tableTo": "worklog_subscription_plans",
+          "columnsFrom": [
+            "plan_code"
+          ],
+          "columnsTo": [
+            "code"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
