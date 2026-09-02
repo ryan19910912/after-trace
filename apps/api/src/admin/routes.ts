@@ -10,6 +10,7 @@ import {
   verifyAdminSessionToken,
   type AdminAccessEnv,
 } from './auth';
+import { ADMIN_CAPABILITY_DEFINITIONS, validateAdminCapabilities } from './capabilities';
 import { presentAdminPayload } from './presentation';
 import {
   DrizzleAdminRepository,
@@ -160,6 +161,8 @@ export function createAdminRoutes() {
     return detail ? c.json({ ok: true, detail: presentAdminPayload(detail) }) : c.json({ ok: false, error: 'GROUP_NOT_FOUND' }, 404);
   });
 
+  app.get('/capabilities', (c) => c.json({ ok: true, capabilityDefinitions: ADMIN_CAPABILITY_DEFINITIONS }));
+
   app.get('/plans', async (c) => c.json({ ok: true, plans: presentAdminPayload(await repository(c).plans()) }));
 
   app.put('/plans/:code', async (c) => {
@@ -274,7 +277,7 @@ function planInput(codeRaw: string, body: Record<string, unknown>): AdminPlanInp
   const rank = integer(body.rank, 'INVALID_PLAN_RANK', -100000, 100000);
   const enabled = boolean(body.enabled, 'INVALID_PLAN_ENABLED');
   const aiAllowanceUnits = integer(body.aiAllowanceUnits, 'INVALID_AI_ALLOWANCE', 0, 2_000_000_000);
-  const capabilities = capabilitiesObject(body.capabilities);
+  const capabilities = validateAdminCapabilities(body.capabilities);
   if (code === 'FREE') capabilities.groupCollaboration = false;
   return { code, displayName, priceTwd, rank, enabled, aiAllowanceUnits, capabilities };
 }
@@ -318,19 +321,6 @@ function integer(value: unknown, error: string, min: number, max: number): numbe
 function boolean(value: unknown, error: string): boolean {
   if (typeof value !== 'boolean') throw new Error(error);
   return value;
-}
-
-function capabilitiesObject(value: unknown): Record<string, boolean | number | string> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('INVALID_PLAN_CAPABILITIES');
-  const result: Record<string, boolean | number | string> = {};
-  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-    if (!/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(key)) throw new Error('INVALID_PLAN_CAPABILITIES');
-    if (typeof item !== 'boolean' && typeof item !== 'number' && typeof item !== 'string') throw new Error('INVALID_PLAN_CAPABILITIES');
-    if (typeof item === 'number' && !Number.isFinite(item)) throw new Error('INVALID_PLAN_CAPABILITIES');
-    if (typeof item === 'string' && item.length > 255) throw new Error('INVALID_PLAN_CAPABILITIES');
-    result[key] = item;
-  }
-  return result;
 }
 
 function optionalDate(value: unknown): Date | null | undefined {
