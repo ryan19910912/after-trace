@@ -199,14 +199,14 @@ export class DrizzleWorklogWorkspaceManagementRepository {
   }
 
   async updateRecord(workspaceId: number, actorUserId: number, recordId: number, input: WorklogRecordEditInput) {
-    if (!(await this.validCustomer(workspaceId, input.customerId))) return { status: 'CUSTOMER_NOT_FOUND' as const };
-    if (!(await this.validProject(workspaceId, input.projectId))) return { status: 'PROJECT_NOT_FOUND' as const };
+    const links = await this.resolveCustomerProjectLink(workspaceId, input.customerId, input.projectId);
+    if (links.status !== 'OK') return { status: links.status } as const;
     const before = await this.db.execute(sql`SELECT * FROM worklog_records WHERE id = ${recordId} AND workspace_id = ${workspaceId} LIMIT 1`);
     if (before.rows.length === 0) return { status: 'NOT_FOUND' as const };
     const result = await this.db.execute(sql`
       WITH changed AS (
         UPDATE worklog_records
-        SET normalized_summary = ${input.normalizedSummary}, category = ${input.category}, customer_id = ${input.customerId}, project_id = ${input.projectId}, edited_at = NOW(), updated_at = NOW()
+        SET normalized_summary = ${input.normalizedSummary}, category = ${input.category}, customer_id = ${links.customerId}, project_id = ${input.projectId}, edited_at = NOW(), updated_at = NOW()
         WHERE id = ${recordId} AND workspace_id = ${workspaceId}
         RETURNING *
       ), audit AS (
@@ -236,11 +236,11 @@ export class DrizzleWorklogWorkspaceManagementRepository {
 
   async createTransaction(workspaceId: number, actorUserId: number, input: WorklogTransactionInput) {
     const links = await this.validateLinks(workspaceId, input);
-    if (links !== 'OK') return { status: links } as const;
+    if (links.status !== 'OK') return { status: links.status } as const;
     const result = await this.db.execute(sql`
       WITH changed AS (
         INSERT INTO worklog_transactions (workspace_id, record_id, customer_id, project_id, type, amount_twd, occurred_at, note, created_at, updated_at)
-        VALUES (${workspaceId}, ${input.recordId}, ${input.customerId}, ${input.projectId}, ${input.type}, ${input.amountTwd}, ${input.occurredAt}, ${input.note}, NOW(), NOW())
+        VALUES (${workspaceId}, ${input.recordId}, ${links.customerId}, ${input.projectId}, ${input.type}, ${input.amountTwd}, ${input.occurredAt}, ${input.note}, NOW(), NOW())
         RETURNING *
       ), audit AS (
         INSERT INTO worklog_audit_logs (workspace_id, actor_user_id, action, target_type, target_id, before_value, after_value, created_at)
@@ -254,12 +254,12 @@ export class DrizzleWorklogWorkspaceManagementRepository {
 
   async updateTransaction(workspaceId: number, actorUserId: number, transactionId: number, input: WorklogTransactionInput) {
     const links = await this.validateLinks(workspaceId, input);
-    if (links !== 'OK') return { status: links } as const;
+    if (links.status !== 'OK') return { status: links.status } as const;
     const before = await this.db.execute(sql`SELECT * FROM worklog_transactions WHERE id = ${transactionId} AND workspace_id = ${workspaceId} LIMIT 1`);
     if (before.rows.length === 0) return { status: 'NOT_FOUND' as const };
     const result = await this.db.execute(sql`
       WITH changed AS (
-        UPDATE worklog_transactions SET record_id = ${input.recordId}, customer_id = ${input.customerId}, project_id = ${input.projectId},
+        UPDATE worklog_transactions SET record_id = ${input.recordId}, customer_id = ${links.customerId}, project_id = ${input.projectId},
                type = ${input.type}, amount_twd = ${input.amountTwd}, occurred_at = ${input.occurredAt}, note = ${input.note}, updated_at = NOW()
         WHERE id = ${transactionId} AND workspace_id = ${workspaceId} RETURNING *
       ), audit AS (
@@ -296,10 +296,17 @@ export class DrizzleWorklogWorkspaceManagementRepository {
     return result.rows.length > 0;
   }
 
-  private async validProject(workspaceId: number, projectId: number | null): Promise<boolean> {
-    if (projectId === null) return true;
-    const result = await this.db.execute(sql`SELECT 1 FROM worklog_projects WHERE id = ${projectId} AND workspace_id = ${workspaceId} LIMIT 1`);
-    return result.rows.length > 0;
+  private async projectCustomer(workspaceId: number, projectId: number | null): Promise<{ found: boolean; customerId: number | null }> {
+    if (projectId === null) return { found: true, customerId: null };
+    const result = await this.db.execute(sql`
+      SELECT customer_id::text AS customer_id
+      FROM worklog_projects
+      WHERE id = ${projectId} AND workspace_id = ${workspaceId}
+      LIMIT 1
+    `);
+    const row = result.rows[0] as { customer_id?: string | null } | undefined;
+    if (!row) return { found: false, customerId: null };
+    return { found: true, customerId: row.customer_id === null || row.customer_id === undefined ? null : positiveId(row.customer_id) };
   }
 
   private async validRecord(workspaceId: number, recordId: number | null): Promise<boolean> {
@@ -308,17 +315,41 @@ export class DrizzleWorklogWorkspaceManagementRepository {
     return result.rows.length > 0;
   }
 
-  private async validateLinks(workspaceId: number, input: Pick<WorklogTransactionInput, 'recordId' | 'customerId' | 'projectId'>): Promise<'OK' | 'RECORD_NOT_FOUND' | 'CUSTOMER_NOT_FOUND' | 'PROJECT_NOT_FOUND'> {
-    const [record, customer, project] = await Promise.all([
-      this.validRecord(workspaceId, input.recordId),
-      this.validCustomer(workspaceId, input.customerId),
-      this.validProject(workspaceId, input.projectId),
+  private async resolveCustomerProjectLink(
+    workspaceId: number,
+    customerId: number | null,
+    projectId: number | null,
+  ): Promise<{ status: 'OK'; customerId: number | null } | { status: 'CUSTOMER_NOT_FOUND' | 'PROJECT_NOT_FOUND' }> {
+    const [customerValid, project] = await Promise.all([
+      this.validCustomer(workspaceId, customerId),
+      this.projectCustomer(workspaceId, projectId),
     ]);
-    if (!record) return 'RECORD_NOT_FOUND';
-    if (!customer) return 'CUSTOMER_NOT_FOUND';
-    if (!project) return 'PROJECT_NOT_FOUND';
-    return 'OK';
+    if (!customerValid) return { status: 'CUSTOMER_NOT_FOUND' };
+    if (!project.found) return { status: 'PROJECT_NOT_FOUND' };
+    return { status: 'OK', customerId: canonicalCustomerId(customerId, project.customerId) };
   }
+
+  private async validateLinks(
+    workspaceId: number,
+    input: Pick<WorklogTransactionInput, 'recordId' | 'customerId' | 'projectId'>,
+  ): Promise<
+    | { status: 'OK'; customerId: number | null }
+    | { status: 'RECORD_NOT_FOUND' | 'CUSTOMER_NOT_FOUND' | 'PROJECT_NOT_FOUND' }
+  > {
+    const [record, links] = await Promise.all([
+      this.validRecord(workspaceId, input.recordId),
+      this.resolveCustomerProjectLink(workspaceId, input.customerId, input.projectId),
+    ]);
+    if (!record) return { status: 'RECORD_NOT_FOUND' };
+    return links;
+  }
+}
+
+export function canonicalCustomerId(
+  selectedCustomerId: number | null,
+  projectCustomerId: number | null,
+): number | null {
+  return projectCustomerId ?? selectedCustomerId;
 }
 
 function positiveId(value: string | number): number {
