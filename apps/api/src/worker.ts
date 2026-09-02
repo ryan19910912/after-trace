@@ -2,6 +2,7 @@ import app, { type Bindings } from './index';
 import { createAdminRoutes } from './admin/routes';
 import { loadOperationalRuntimeEnv, operationalSettingDefinitions } from './config/operational-settings';
 import { createDatabase } from './db/client';
+import { LineMessageContentResolver } from './line/content';
 import { LineMessagingPushClient } from './line/push';
 import { DrizzleProactiveRepository } from './proactive/drizzle-repository';
 import { createProactiveRoutes } from './proactive/routes';
@@ -10,7 +11,13 @@ import { ReminderDeliveryService } from './reminders/delivery';
 import { DrizzleUserReminderDeliveryRepository } from './reminders/drizzle-user-delivery-repository';
 import { DrizzleRetentionRepository } from './retention/drizzle-repository';
 import { GroupRetentionService } from './retention/service';
+import { WorklogAttachmentIngestionService } from './worklog/attachment-ingestion';
+import { configureWorklogAttachmentRuntime } from './worklog/attachment-runtime';
+import { DrizzleWorklogAttachmentRepository } from './worklog/drizzle-attachment-ingestion';
+import { DrizzleWorklogSubscriptionRepository } from './worklog/drizzle-subscription';
+import { GeminiWorklogAttachmentNormalizer } from './worklog/gemini-attachment-normalizer';
 import { createWorklogRoutes } from './worklog/routes';
+import { WorklogSubscriptionService } from './worklog/subscription';
 
 type ScheduledControllerLike = { scheduledTime: number };
 type ExecutionContextLike = { waitUntil(promise: Promise<unknown>): void };
@@ -23,10 +30,18 @@ async function runtimeEnv(env: Bindings): Promise<Bindings> {
   const database = createDatabase(env.DATABASE_URL);
   const operational = await loadOperationalRuntimeEnv(database);
   const infrastructure = { ...env } as Record<string, unknown>;
-  // DB is authoritative for mutable product settings. Old Cloudflare vars with the
-  // same names are intentionally ignored so an operator cannot create split-brain config.
   for (const definition of operationalSettingDefinitions) delete infrastructure[definition.key];
   return { ...infrastructure, ...operational } as Bindings;
+}
+
+function configureWorklogRuntime(env: Bindings): void {
+  const database = createDatabase(env.DATABASE_URL);
+  configureWorklogAttachmentRuntime(new WorklogAttachmentIngestionService(
+    new DrizzleWorklogAttachmentRepository(database),
+    new WorklogSubscriptionService(new DrizzleWorklogSubscriptionRepository(database)),
+    new LineMessageContentResolver(env.LINE_CHANNEL_ACCESS_TOKEN),
+    new GeminiWorklogAttachmentNormalizer({ apiKey: env.GEMINI_API_KEY }),
+  ));
 }
 
 async function runReminderSchedule(controller: ScheduledControllerLike, env: Bindings): Promise<void> {
@@ -48,6 +63,7 @@ async function runRetentionSchedule(controller: ScheduledControllerLike, env: Bi
 export default {
   async fetch(request: Request, rawEnv: Bindings, executionContext: ExecutionContextLike) {
     const env = await runtimeEnv(rawEnv);
+    configureWorklogRuntime(env);
     const url = new URL(request.url);
     if (url.pathname === '/api/v1/internal/proactive') {
       const rewritten = new URL(request.url); rewritten.pathname = '/';
