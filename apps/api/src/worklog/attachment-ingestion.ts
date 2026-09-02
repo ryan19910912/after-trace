@@ -42,20 +42,16 @@ export interface WorklogAttachmentRepository {
     quotedLineMessageId: string;
   }): Promise<WorklogAttachmentClaimState>;
   getRuntimeConfig(): Promise<WorklogAiRuntimeConfigSnapshot | null>;
-  insertRecord(input: {
+  persistRecordCreated(input: {
     sourceId: number;
     actorUserId: number;
     commandLineMessageId: string;
     quotedLineMessageId: string;
     sourceTimestamp: Date;
     output: WorklogAttachmentOutput;
-  }): Promise<{ status: 'CREATED' | 'EXISTING'; recordId: number } | { status: 'SOURCE_NOT_FOUND' }>;
-  saveRecordCreated(input: {
-    commandLineMessageId: string;
-    recordId: number;
     reservationToken: string;
     usage: WorklogAiUsageCommit;
-  }): Promise<void>;
+  }): Promise<{ status: 'CREATED' | 'EXISTING'; recordId: number } | { status: 'SOURCE_NOT_FOUND' }>;
   reservationStatus(token: string): Promise<'RESERVED' | 'COMMITTED' | 'RELEASED' | 'EXPIRED' | null>;
   markSucceeded(commandLineMessageId: string, recordId: number): Promise<void>;
   fail(commandLineMessageId: string, reason: string): Promise<void>;
@@ -115,12 +111,8 @@ export class WorklogAttachmentIngestionService {
     const commandLineMessageId = requiredText(input.commandLineMessageId, 'commandLineMessageId', 64);
     const quotedLineMessageId = requiredText(input.quotedLineMessageId, 'quotedLineMessageId', 64);
 
-    const claimed = await this.repository.claim({
-      sourceId,
-      actorUserId,
-      commandLineMessageId,
-      quotedLineMessageId,
-    });
+    const claimInput = { sourceId, actorUserId, commandLineMessageId, quotedLineMessageId };
+    const claimed = await this.repository.claim(claimInput);
     if (claimed.status === 'SUCCEEDED') {
       return { status: 'RECORDED', recordId: claimed.recordId, duplicate: true };
     }
@@ -129,6 +121,7 @@ export class WorklogAttachmentIngestionService {
     if (claimed.status === 'RECORD_CREATED') return this.settleExisting(commandLineMessageId, claimed);
 
     let reservationToken: string | null = null;
+    let providerCompleted = false;
     try {
       const content = await this.contentResolver.content(quotedLineMessageId);
       const config = await this.repository.getRuntimeConfig();
@@ -152,6 +145,7 @@ export class WorklogAttachmentIngestionService {
       reservationToken = reservation.reservation.token;
 
       const provider = await this.provider.analyze(content, config, input.instruction ?? null);
+      providerCompleted = true;
       const actualUnits = provider.inputTokens + provider.outputTokens;
       if (!Number.isSafeInteger(actualUnits) || actualUnits < 0 || actualUnits > reservation.reservation.unitsReserved) {
         await this.safeRelease(reservationToken);
@@ -183,38 +177,101 @@ export class WorklogAttachmentIngestionService {
         providerCostTwd: config.usdTwdRate === null ? null : providerCostUsd * config.usdTwdRate,
       };
 
-      const stored = await this.repository.insertRecord({
-        sourceId,
-        actorUserId,
-        commandLineMessageId,
-        quotedLineMessageId,
+      const persisted = await this.persistAfterProvider({
+        claimInput,
         sourceTimestamp: input.sourceTimestamp,
         output: provider.output,
-      });
-      if (stored.status === 'SOURCE_NOT_FOUND') {
-        await this.safeRelease(reservationToken);
-        await this.repository.fail(commandLineMessageId, 'SOURCE_NOT_FOUND');
-        return { status: 'FAILED', reason: 'SOURCE_NOT_FOUND' };
-      }
-
-      usage.recordId = stored.recordId;
-      await this.repository.saveRecordCreated({
-        commandLineMessageId,
-        recordId: stored.recordId,
         reservationToken,
         usage,
       });
+      if (persisted.status !== 'PERSISTED') return persisted.result;
+
+      const settledUsage = { ...usage, recordId: persisted.recordId };
       return this.settleExisting(commandLineMessageId, {
         status: 'RECORD_CREATED',
-        recordId: stored.recordId,
+        recordId: persisted.recordId,
         reservationToken,
-        usage,
+        usage: settledUsage,
       });
     } catch (error) {
+      // Once the provider returned successfully, do not release quota or overwrite
+      // ingestion state after an uncertain persistence failure. The repository writes
+      // record + RECORD_CREATED atomically; a later redelivery can safely inspect it.
+      if (providerCompleted && reservationToken) return { status: 'IN_PROGRESS' };
       if (reservationToken) await this.safeRelease(reservationToken);
       const reason = attachmentErrorCode(error);
       await this.repository.fail(commandLineMessageId, reason);
       return { status: 'FAILED', reason };
+    }
+  }
+
+  private async persistAfterProvider(input: {
+    claimInput: {
+      sourceId: number;
+      actorUserId: number;
+      commandLineMessageId: string;
+      quotedLineMessageId: string;
+    };
+    sourceTimestamp: Date;
+    output: WorklogAttachmentOutput;
+    reservationToken: string;
+    usage: WorklogAiUsageCommit;
+  }): Promise<
+    | { status: 'PERSISTED'; recordId: number }
+    | { status: 'STOP'; result: WorklogAttachmentIngestionResult }
+  > {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const stored = await this.repository.persistRecordCreated({
+          ...input.claimInput,
+          sourceTimestamp: input.sourceTimestamp,
+          output: input.output,
+          reservationToken: input.reservationToken,
+          usage: input.usage,
+        });
+        if (stored.status === 'SOURCE_NOT_FOUND') {
+          await this.safeRelease(input.reservationToken);
+          await this.repository.fail(input.claimInput.commandLineMessageId, 'SOURCE_NOT_FOUND');
+          return { status: 'STOP', result: { status: 'FAILED', reason: 'SOURCE_NOT_FOUND' } };
+        }
+        return { status: 'PERSISTED', recordId: stored.recordId };
+      } catch {
+        const recovered = await this.inspectAfterPersistenceError(input.claimInput);
+        if (recovered?.status === 'SUCCEEDED') {
+          return {
+            status: 'STOP',
+            result: { status: 'RECORDED', recordId: recovered.recordId, duplicate: true },
+          };
+        }
+        if (recovered?.status === 'RECORD_CREATED') {
+          return {
+            status: 'STOP',
+            result: await this.settleExisting(input.claimInput.commandLineMessageId, recovered),
+          };
+        }
+        if (recovered?.status === 'FAILED') {
+          return { status: 'STOP', result: { status: 'FAILED', reason: recovered.reason } };
+        }
+        if (recovered?.status !== 'PROCESSING' || attempt === 1) {
+          return { status: 'STOP', result: { status: 'IN_PROGRESS' } };
+        }
+        // State is confidently still PROCESSING, so retry only the atomic DB
+        // persistence using the provider output already in memory. Gemini is not called again.
+      }
+    }
+    return { status: 'STOP', result: { status: 'IN_PROGRESS' } };
+  }
+
+  private async inspectAfterPersistenceError(input: {
+    sourceId: number;
+    actorUserId: number;
+    commandLineMessageId: string;
+    quotedLineMessageId: string;
+  }): Promise<WorklogAttachmentClaimState | null> {
+    try {
+      return await this.repository.claim(input);
+    } catch {
+      return null;
     }
   }
 
