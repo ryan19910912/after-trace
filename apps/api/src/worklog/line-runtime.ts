@@ -3,6 +3,7 @@ import type { GroupBootstrapResult, GroupOwnerBindResult } from './bootstrap';
 import type { GroupRecordAuthorizationResult } from './collaboration';
 import { parseWorklogCommand } from './command';
 import type { WorklogTextRecordWriteResult } from './records';
+import type { WorklogTextNormalizationService } from './text-normalization';
 
 export interface WorklogLineBootstrapPort {
   bootstrapGroupInteraction(input: {
@@ -38,6 +39,10 @@ export interface WorklogLineRecordWritePort {
   }): Promise<WorklogTextRecordWriteResult>;
 }
 
+export interface WorklogLineTextNormalizationPort {
+  normalizeText(recordId: number): ReturnType<WorklogTextNormalizationService['normalizeText']>;
+}
+
 export type WorklogLineRuntimeResult =
   | { status: 'NOT_HANDLED' }
   | { status: 'QUERY'; sourceId: number; userId: number }
@@ -67,6 +72,7 @@ export class WorklogLineRuntime {
     private readonly bootstrap: WorklogLineBootstrapPort,
     private readonly collaboration: WorklogLineCollaborationPort,
     private readonly records: WorklogLineRecordWritePort,
+    private readonly textNormalization?: WorklogLineTextNormalizationPort,
   ) {}
 
   async handle(message: BufferedGroupMessage): Promise<WorklogLineRuntimeResult> {
@@ -150,6 +156,7 @@ export class WorklogLineRuntime {
       sourceTimestamp: message.lineTimestamp,
     });
     if (write.status === 'CREATED') {
+      await this.normalizeBestEffort(write.recordId, message);
       return {
         status: 'RECORDED',
         recordId: write.recordId,
@@ -158,6 +165,10 @@ export class WorklogLineRuntime {
       };
     }
     if (write.status === 'ALREADY_RECORDED') {
+      // Redelivery is allowed to resume a normalization state that was already past
+      // provider execution / quota commit. The normalization state machine itself
+      // prevents a second provider call or double quota charge.
+      await this.normalizeBestEffort(write.recordId, message);
       return {
         status: 'RECORDED',
         recordId: write.recordId,
@@ -177,6 +188,24 @@ export class WorklogLineRuntime {
       reason: 'SOURCE_NOT_FOUND',
       replyText: '這個群組目前無法建立紀錄，請重新啟用 AFTERTRACE 後再試。',
     };
+  }
+
+  private async normalizeBestEffort(recordId: number, message: BufferedGroupMessage): Promise<void> {
+    if (!this.textNormalization) return;
+    try {
+      await this.textNormalization.normalizeText(recordId);
+    } catch (error) {
+      // Raw TEXT is already durable. Never convert a successful record into a failed
+      // LINE command because normalization infrastructure had a transient error.
+      console.error(JSON.stringify({
+        event: 'worklog_text_normalization_failed_after_persist',
+        source: 'GROUP',
+        recordId,
+        lineGroupId: message.lineGroupId,
+        lineMessageId: message.lineMessageId,
+        message: error instanceof Error ? error.message : 'unknown error',
+      }));
+    }
   }
 }
 
