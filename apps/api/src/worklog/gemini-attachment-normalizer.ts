@@ -39,10 +39,19 @@ const responseJsonSchema = {
   required: ['raw_text', 'summary', 'category'],
 } as const;
 
+type GeminiModalityTokenCount = {
+  modality?: string;
+  tokenCount?: number;
+};
+
 type GeminiResponse = {
   responseId?: string;
   candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-  usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+  usageMetadata?: {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+    promptTokensDetails?: GeminiModalityTokenCount[];
+  };
 };
 
 export class GeminiWorklogAttachmentNormalizer implements WorklogAttachmentProvider {
@@ -105,6 +114,11 @@ export class GeminiWorklogAttachmentNormalizer implements WorklogAttachmentProvi
     const outputTokens = safeTokenCount(body.usageMetadata?.candidatesTokenCount, 'output');
     if (outputTokens > this.maxOutputTokens) throw new WorklogAttachmentProviderError('GEMINI_INVALID_RESPONSE', 'Gemini attachment output usage exceeds configured maximum');
 
+    // Gemini reports promptTokenCount as the total prompt across modalities and
+    // promptTokensDetails as modality subsets. Keep total prompt tokens for quota,
+    // while recording AUDIO/IMAGE subsets for provider-specific historical pricing.
+    const modality = promptModalityUsage(body.usageMetadata?.promptTokensDetails, inputTokens);
+
     const output: WorklogAttachmentOutput = {
       inputType,
       rawText: parsed.raw_text,
@@ -120,8 +134,8 @@ export class GeminiWorklogAttachmentNormalizer implements WorklogAttachmentProvi
       output,
       inputTokens,
       outputTokens,
-      audioInputUnits: inputType === 'AUDIO' ? inputTokens : 0,
-      imageInputUnits: inputType === 'IMAGE' ? inputTokens : 0,
+      audioInputUnits: modality.audioInputUnits,
+      imageInputUnits: modality.imageInputUnits,
       providerResponseId: body.responseId?.slice(0, 255) ?? null,
       latencyMs: Math.max(0, Date.now() - startedAt),
     };
@@ -160,6 +174,35 @@ function buildRequest(content: LineMessageContent, inputType: WorklogAttachmentI
       maxOutputTokens,
     },
   };
+}
+
+function promptModalityUsage(
+  details: GeminiModalityTokenCount[] | undefined,
+  totalPromptTokens: number,
+): { audioInputUnits: number; imageInputUnits: number } {
+  if (!details || details.length === 0) {
+    // Older/provider variants may omit detail arrays. In that case retain the
+    // provider total and use ordinary input pricing rather than inventing a media split.
+    return { audioInputUnits: 0, imageInputUnits: 0 };
+  }
+
+  let detailTotal = 0;
+  let audioInputUnits = 0;
+  let imageInputUnits = 0;
+  for (const detail of details) {
+    const tokenCount = safeTokenCount(detail.tokenCount, 'prompt modality');
+    detailTotal += tokenCount;
+    if (!Number.isSafeInteger(detailTotal) || detailTotal < 0) {
+      throw new WorklogAttachmentProviderError('GEMINI_INVALID_RESPONSE', 'Gemini modality usage overflow');
+    }
+    const modality = detail.modality?.trim().toUpperCase() ?? 'MODALITY_UNSPECIFIED';
+    if (modality === 'AUDIO') audioInputUnits += tokenCount;
+    if (modality === 'IMAGE') imageInputUnits += tokenCount;
+  }
+  if (detailTotal > totalPromptTokens) {
+    throw new WorklogAttachmentProviderError('GEMINI_INVALID_RESPONSE', 'Gemini modality usage exceeds total prompt usage');
+  }
+  return { audioInputUnits, imageInputUnits };
 }
 
 function attachmentType(mimeType: string): WorklogAttachmentInputType {
