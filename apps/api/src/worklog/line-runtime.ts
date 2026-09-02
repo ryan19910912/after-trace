@@ -2,6 +2,7 @@ import type { BufferedGroupMessage } from '../line/events';
 import type { GroupBootstrapResult, GroupOwnerBindResult } from './bootstrap';
 import type { GroupAccessAuthorizationResult, GroupRecordAuthorizationResult } from './collaboration';
 import { parseWorklogCommand } from './command';
+import { hasCapability } from './entitlements';
 import type { WorklogLineTextCacheService } from './line-text-cache';
 import { worklogAttachmentRuntime } from './attachment-runtime';
 import type { WorklogTextRecordWriteResult } from './records';
@@ -88,6 +89,7 @@ export type WorklogLineRuntimeResult =
         | 'GROUP_NOT_ENTITLED'
         | 'GROUP_LIMIT_REACHED'
         | 'AI_QUOTA_EXHAUSTED'
+        | 'AI_MEDIA_DISABLED'
         | 'SOURCE_NOT_FOUND'
         | 'IDEMPOTENCY_CONFLICT'
         | 'ATTACHMENT_FAILED';
@@ -161,6 +163,9 @@ export class WorklogLineRuntime {
     });
     if (authorization.status !== 'OK') return rejectedAuthorization(authorization);
 
+    const allowAiText = hasCapability(authorization.ownerCapabilities, 'aiTextRecording');
+    const allowAiMedia = hasCapability(authorization.ownerCapabilities, 'aiMediaIngestion');
+
     if (command.kind === 'RECORD_QUOTED') {
       const cached = await this.textCache.resolve(message.lineGroupId, command.quotedLineMessageId, message.lineTimestamp);
       if (cached) {
@@ -172,7 +177,15 @@ export class WorklogLineRuntime {
           text: cached.text,
           sourceTimestamp: cached.lineTimestamp,
         });
-        return this.finishWrite(write, message, '已記錄你回覆的文字。');
+        return this.finishWrite(write, message, '已記錄你回覆的文字。', allowAiText);
+      }
+
+      if (!allowAiMedia) {
+        return {
+          status: 'REJECTED',
+          reason: 'AI_MEDIA_DISABLED',
+          replyText: '目前 Owner 的方案沒有開啟 AI 語音／圖片／檔案處理功能，這次沒有處理附件。',
+        };
       }
 
       const attachments = worklogAttachmentRuntime();
@@ -204,16 +217,21 @@ export class WorklogLineRuntime {
       sourceId: group.sourceId, authorUserId: group.userId, lineMessageId: message.lineMessageId,
       text: command.text, sourceTimestamp: message.lineTimestamp,
     });
-    return this.finishWrite(write, message, '已記錄。');
+    return this.finishWrite(write, message, '已記錄。', allowAiText);
   }
 
-  private async finishWrite(write: WorklogTextRecordWriteResult, message: BufferedGroupMessage, createdReplyText: string): Promise<WorklogLineRuntimeResult> {
+  private async finishWrite(
+    write: WorklogTextRecordWriteResult,
+    message: BufferedGroupMessage,
+    createdReplyText: string,
+    allowAiText = true,
+  ): Promise<WorklogLineRuntimeResult> {
     if (write.status === 'CREATED') {
-      await this.normalizeBestEffort(write.recordId, message);
+      if (allowAiText) await this.normalizeBestEffort(write.recordId, message);
       return { status: 'RECORDED', recordId: write.recordId, duplicate: false, replyText: createdReplyText };
     }
     if (write.status === 'ALREADY_RECORDED') {
-      await this.normalizeBestEffort(write.recordId, message);
+      if (allowAiText) await this.normalizeBestEffort(write.recordId, message);
       return { status: 'RECORDED', recordId: write.recordId, duplicate: true, replyText: '這則訊息已經記錄過了。' };
     }
     if (write.status === 'IDEMPOTENCY_CONFLICT') {
