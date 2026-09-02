@@ -11,7 +11,7 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
-    "db:migrate": "pnpm --dir apps/api exec drizzle-kit migrate --config=../../drizzle.config.ts",
+    "db:migrate": "pnpm --filter @aftertrace/api run db:deploy:migrate",
     "db:schema:check": "pnpm --filter @aftertrace/api exec drizzle-kit export --dialect=postgresql --schema=src/db/schema-all.ts > aftertrace-schema.sql"
   },
   "devDependencies": {
