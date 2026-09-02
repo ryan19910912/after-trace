@@ -12,6 +12,7 @@
     {"idx":9,"version":"7","when":1788332400000,"tag":"0009_worklog_failure_anomaly_triggers","breakpoints":true},
     {"idx":10,"version":"7","when":1788336000000,"tag":"0010_worklog_checkout_intents","breakpoints":true},
     {"idx":11,"version":"7","when":1788340000000,"tag":"0011_worklog_active_web_auth","breakpoints":true},
-    {"idx":12,"version":"7","when":1788343600000,"tag":"0012_worklog_quota_cycle_snapshot","breakpoints":true}
+    {"idx":12,"version":"7","when":1788343600000,"tag":"0012_worklog_quota_cycle_snapshot","breakpoints":true},
+    {"idx":13,"version":"7","when":1788347200000,"tag":"0013_worklog_project_customer_consistency","breakpoints":true}
   ]
 }
