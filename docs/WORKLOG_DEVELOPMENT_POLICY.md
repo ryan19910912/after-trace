@@ -35,6 +35,25 @@ During scheduled or interactive development work:
 
 This includes subscription/pricing decisions. Current subscription design discussions must be persisted as they are agreed, including billing type, renewal behavior, quota refresh behavior, rollover rules, and payment-provider requirements.
 
+## AI provider accounting / settlement invariant
+
+Provider usage is a real external cost and must remain auditable even when quota estimation, Worker lifetime, persistence timing, or provider response size differs from expectations.
+
+For all AFTERTRACE AI paths:
+
+- a quota reservation is a **preflight hold**, not permission to erase a provider call that actually completed;
+- before the provider returns successfully, a failed/cancelled provider attempt may release its reservation when the code can establish that no usable provider result/cost exists;
+- after a provider call returns a usable success response, **never call reservation release merely because actual usage exceeded the estimate, settlement was delayed, or a later persistence step failed**;
+- successful provider output and its exact metering/pricing snapshot must be made durable before or as part of resumable settlement whenever the architecture permits;
+- unexpected actual usage above the reserved estimate must still be represented in the provider-usage/cost ledger. Preflight quota remains the gate for starting a call; it is not a hard cap that justifies dropping real cost after the fact;
+- a reservation expiring before a durable provider-success result is settled must not make the provider cost disappear. Settlement/recovery must distinguish already-released reservation capacity from unrecorded provider usage and avoid double-decrement or double-charge;
+- retry/resume after provider success must be idempotent and must not issue a second provider call just because quota or DB settlement is uncertain;
+- provider-dollar cost and customer-facing AI allowance are related but distinct concepts. Do not assume every future provider/model/modality uses one identical token unit or pricing shape;
+- when a provider exposes separately billable usage such as thinking/reasoning tokens or modality-specific input, capture/account it exactly once and preserve enough immutable data to audit historical cost;
+- do not claim provider cost/quota settlement is verified until executable concurrency, expiry, over-reservation and provider-success persistence cases have actually been run.
+
+If a proposed local fix would satisfy only one symptom while leaving a provider-success cost-loss path elsewhere, record the broader defect in `docs/WORKLOG_REBUILD_PROGRESS.md` and fix the invariant as one coherent settlement design instead of adding contradictory branches.
+
 ## Development validation policy
 
 During the accelerated MVP implementation phase:
