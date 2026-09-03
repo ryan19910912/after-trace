@@ -20,8 +20,39 @@ function message(textContent: string, quotedLineMessageId: string | null = null)
 }
 
 describe('parseWorklogCommand', () => {
-  it('opens PWA records with 查詢', () => {
-    expect(parseWorklogCommand(message('@AFTERTRACE 查詢'))).toEqual({ kind: 'QUERY' });
+  it('opens unfiltered PWA records with exact 查詢', () => {
+    expect(parseWorklogCommand(message('@AFTERTRACE 查詢'))).toEqual({ kind: 'QUERY', naturalText: null });
+  });
+
+  it('routes strong natural-language history requests away from Record persistence', () => {
+    expect(parseWorklogCommand(message('@AFTERTRACE 王大明這週做了什麼'))).toEqual({
+      kind: 'QUERY',
+      naturalText: '王大明這週做了什麼',
+    });
+    expect(parseWorklogCommand(message('@AFTERTRACE 這個群組今天發生什麼？'))).toEqual({
+      kind: 'QUERY',
+      naturalText: '這個群組今天發生什麼？',
+    });
+  });
+
+  it('does not treat ordinary time-bearing work facts as history requests', () => {
+    expect(parseWorklogCommand(message('@AFTERTRACE 王大明今天去晴空案換冷氣'))).toEqual({
+      kind: 'RECORD_TEXT',
+      text: '王大明今天去晴空案換冷氣',
+    });
+  });
+
+  it('separates obvious edit requests before they can become new Records', () => {
+    expect(parseWorklogCommand(message('@AFTERTRACE 幫我改成 2800'))).toEqual({
+      kind: 'EDIT_REQUEST',
+      instruction: '幫我改成 2800',
+      quotedLineMessageId: null,
+    });
+    expect(parseWorklogCommand(message('@AFTERTRACE 幫我改成 2800', 'record-message-1'))).toEqual({
+      kind: 'EDIT_REQUEST',
+      instruction: '幫我改成 2800',
+      quotedLineMessageId: 'record-message-1',
+    });
   });
 
   it('supports an explicit group owner claim instead of guessing ownership', () => {
@@ -44,7 +75,7 @@ describe('parseWorklogCommand', () => {
     });
   });
 
-  it('keeps optional instruction beside quoted content', () => {
+  it('keeps optional non-edit instruction beside quoted content', () => {
     expect(parseWorklogCommand(message('@AFTERTRACE 王先生現場問題', 'quoted-image-1'))).toEqual({
       kind: 'RECORD_QUOTED',
       quotedLineMessageId: 'quoted-image-1',
