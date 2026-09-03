@@ -43,10 +43,12 @@ export type WorklogAiReservationSnapshot = {
   expiresAt: Date;
 };
 
+/** Shared provider-usage payload. Legacy subscription quota ignores operation. */
 export type WorklogAiUsageCommit = {
   actualUnits: number;
   workspaceId?: number | null;
   recordId?: number | null;
+  operation?: string;
   provider: string;
   model: string;
   inputTokens: number;
@@ -363,6 +365,7 @@ function normalizeUsageCommit(value: WorklogAiUsageCommit): WorklogAiUsageCommit
     actualUnits: nonNegativeInteger(value.actualUnits, 'actualUnits'),
     workspaceId: value.workspaceId == null ? null : positiveInteger(value.workspaceId, 'workspaceId'),
     recordId: value.recordId == null ? null : positiveInteger(value.recordId, 'recordId'),
+    operation: value.operation?.trim().slice(0, 64) || undefined,
     provider: requiredText(value.provider, 'provider', 128),
     model: requiredText(value.model, 'model', 255),
     inputTokens: nonNegativeInteger(value.inputTokens, 'inputTokens'),
