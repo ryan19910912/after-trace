@@ -1,6 +1,5 @@
 import {
   canConsumeAiUnits,
-  canUseGroupCollaboration,
   parsePlanCapabilities,
   type PlanCapabilities,
 } from './entitlements';
@@ -23,7 +22,6 @@ export type GroupAuthorizationContext = {
   ownerCapabilities: unknown;
   ownerAllowanceUnits: number;
   ownerConsumedUnits: number;
-  ownerGroupPosition?: number;
 };
 
 export interface WorklogCollaborationRepository {
@@ -52,13 +50,11 @@ type GroupAuthorizationFailureStatus =
   | 'OWNER_UNBOUND'
   | 'OWNER_ABSENT'
   | 'NOT_ACTIVE_MEMBER'
-  | 'GROUP_NOT_ENTITLED'
-  | 'GROUP_LIMIT_REACHED';
+  | 'GROUP_NOT_ENTITLED';
 
 type GroupAuthorizationFailure = {
   status: GroupAuthorizationFailureStatus;
   ownerPlanDisplayName?: string;
-  maxGroupCount?: number;
 };
 
 export type GroupAccessAuthorizationResult =
@@ -238,20 +234,6 @@ function groupEntitlement(
 
   const planCode = context.ownerPlanCode ?? 'FREE';
   const capabilities = parsePlanCapabilities(context.ownerCapabilities);
-  if (!canUseGroupCollaboration(planCode, capabilities)) return notEntitled(context);
-
-  const maxGroupCount = configuredGroupLimit(capabilities);
-  if (maxGroupCount === null) return notEntitled(context);
-
-  const groupPosition = Math.max(1, nonNegativeInteger(context.ownerGroupPosition ?? 1));
-  if (groupPosition > maxGroupCount) {
-    return {
-      status: 'GROUP_LIMIT_REACHED',
-      ...(planDisplayName(context) ? { ownerPlanDisplayName: planDisplayName(context) } : {}),
-      maxGroupCount,
-    };
-  }
-
   return { status: 'OK', planCode, capabilities };
 }
 
@@ -268,12 +250,6 @@ function planDisplayName(context: GroupAuthorizationContext): string | undefined
   if (displayName) return displayName;
   const code = context.ownerPlanCode?.trim();
   return code || undefined;
-}
-
-function configuredGroupLimit(capabilities: PlanCapabilities): number | null {
-  const value = capabilities.maxGroupCount;
-  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
-  return Math.max(0, Math.floor(value));
 }
 
 function nonNegativeInteger(value: number): number {
