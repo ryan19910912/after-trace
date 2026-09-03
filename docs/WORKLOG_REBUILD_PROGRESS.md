@@ -7,112 +7,107 @@ Read first every run:
 - `docs/WORKLOG_PRODUCT_SPEC.md`
 - `docs/WORKLOG_ENTITY_MODEL.md`
 - `docs/WORKLOG_RECORD_EDIT_POLICY.md`
-- this file
+- `docs/WORKLOG_DEVELOPMENT_POLICY.md`
 - `docs/WORKLOG_LINE_CONTENT_POLICY.md`
 - `docs/WORKLOG_DEPLOYMENT.md`
-- `docs/WORKLOG_DEVELOPMENT_POLICY.md`
 
 ## Current stable product contract
 
-- Product/domain is general-purpose work recording, not a construction/finance-specific schema.
-- Core model is Source + Entity + Alias + Record + RecordEntity + Revision + Pending AI Confirmation.
-- PRIVATE and GROUP Sources are isolated data spaces.
-- PWA manual read/create/edit/delete/restore is free baseline functionality.
-- Active GROUP members may collaboratively use group records without paid plan, AI balance, AI responsible user or group-count restriction.
-- Customer-facing role name is `AI 額度負責人`.
-- AI allowance is user-owned and represented by separate FREE/subscription/top-up grants with independent PRIVATE/GROUP allocation/caps.
-- Subscription expiry does not disable separately eligible top-up grants.
-- AI request starts only when eligible balance > 0. If real provider usage exceeds remaining eligible units after start, user balance floors at zero and platform subsidy is durably recorded by user/source/group/responsible-user/request/provider cost.
-- Group PWA shows current group-specific AI availability plus complete historical group AI usage across responsible-user/grant changes without exposing unrelated private balances.
-- Responsible-user transfer uses two-party approval and does not transfer balances.
+- Product/domain is general-purpose work recording, not construction/finance-specific.
+- Core universal data model is Source + Entity + Alias + Record + RecordEntity + Revision + pending AI confirmation.
+- PRIVATE/GROUP Sources are isolated data spaces.
+- PWA manual CRUD/search is free baseline; AI compute is what consumes allowance.
+- FREE/PRO/TEAM have unlimited group count.
+- AI allowance is user-owned through separate FREE/subscription/top-up grants; each grant independently permits PRIVATE/selected GROUP scopes and optional caps.
+- Customer-facing role name is **AI 額度負責人**.
+- Any AI operation requires positive eligible balance at request start. Balance=0 means no AI call. If >0 at start and actual usage exceeds remaining units, user floors at 0 and platform subsidy is recorded with user/source/group/provider cost.
+- AI-assisted Record creation consumes AI allowance normally. Final customer-unit economics must be calibrated from measured real provider cost.
+- AI-assisted new Record parsing targets PRIMARY Entity, meaningful RELATED Entities, Entity/Alias matching, Alias confirmation candidates and `occurred_at`.
+- PRIMARY/RELATED are per-Record roles. The same Record exists once but can be found through every attached Entity.
+- Alias means a genuine alternate name for the same Entity. Ambiguous alias/entity/primary decisions create durable pending confirmation rather than guessing.
+- PWA manual create fields are `紀錄標題`, `紀錄內容`, `發生時間` via date/time picker. `紀錄標題` is user-facing PRIMARY Entity/context; selecting existing title reuses Entity, new title creates Entity. Manual create does not infer RELATED Entities because it does not call AI.
+- PWA search is bounded to Entity/title, fuzzy Entity/title/content search, and `occurred_at` date range.
+- LINE lookup/history requests do not become a broad autonomous AI retrieval agent. If a specific Entity is resolved, return PWA link with Entity id; otherwise return Source PWA history link. PWA performs actual retrieval.
+- Broad AI historical analysis/query is not MVP unless separately approved later.
+- Persistent per-record AI summaries are not maintained.
+- PWA manual edits are free, write immutable revisions, use integer version optimistic concurrency, and do not re-run AI/reassign Entity automatically.
+- LINE natural-language edit requires Reply-targeted deterministic Record id plus positive AI allowance; AI may change text and Entity associations when the edit intent requires it.
+- Record delete is soft delete with recycle bin/restore. Revision and RecordEntity history remain durable.
+- Entity merge is reversible. Undo restores originally moved associations even if Record text changed later.
+- Generic RecordRelation is not required for MVP.
+- PWA manual record input is text-only; no permanent attachment library. LINE image/audio/file can be converted to durable text then binary discarded.
+- GitHub Actions must not be run/triggered unless explicitly requested.
 
-## Entity model decisions
+## Durable docs added/updated during product refactor
 
-- Every concrete reusable lookup subject is an Entity: person, project/context, place, equipment/item, etc.
-- Entity metadata stays minimal and general-purpose.
-- `PRIMARY` and `RELATED` are roles of an Entity in one Record, not permanent Entity types.
-- One Record has at most one PRIMARY Entity and zero/many RELATED Entities.
-- The Record exists once and must be discoverable through every attached Entity.
-- Example: `王大明跟陳師傅今天去三重晴空案換冷氣` -> PRIMARY `晴空案`; RELATED `王大明`, `陳師傅`.
-- Do not extract every noun into an Entity; only meaningful future lookup targets.
-- Alias means another genuine name for the same Entity. Context phrases such as `王大明的晴空案` are not automatically aliases.
-- Possible alias/entity ambiguity must ask user confirmation rather than silently create duplicates or attach uncertain aliases.
-- Pending confirmation is durable, supporting at least `ALIAS_MATCH`, `PRIMARY_ENTITY`, `ENTITY_MATCH`.
-- Merge is reversible; undo moves associations that originally belonged to source Entity back even if Record text changed after merge.
-- Generic Record-to-Record relation is not required for MVP solely for chronological progression; Entity + occurred_at + on-demand AI is sufficient until a concrete deterministic feature requires relations.
+- `WORKLOG_PRODUCT_SPEC.md`: general-purpose product, grant model, Entity-first Record model, bounded PWA retrieval/navigation.
+- `WORKLOG_ENTITY_MODEL.md`: PRIMARY/RELATED, Alias, pending confirmation, PWA manual title semantics, PWA search/navigation.
+- `WORKLOG_RECORD_EDIT_POLICY.md`: revisions, soft delete, optimistic version, LINE Reply editing, PWA no-AI edit rule.
+- `WORKLOG_DEVELOPMENT_POLICY.md`: authoritative implementation rules aligned with the new model; old personal-only/max-group/Owner-presence assumptions removed.
 
-## Record / time / edit decisions
+## Major legacy code/schema debt to remove/refactor
 
-- Durable truth is raw Record text or durable textual extraction plus Entity associations and audit history.
-- No persistent per-record AI summary. AI summaries/queries are generated on demand and are ephemeral.
-- Record time distinguishes `created_at`, `occurred_at`, `updated_at`.
-- `occurred_at` defaults to message/create time when unspecified; AI can parse relative time such as yesterday/last Friday.
-- Every content edit creates immutable revision history.
-- PWA shows `已編輯` and lets authorized users inspect history.
-- Record editing uses DB integer `version` optimistic concurrency; no Redis/memory lock for normal edit concurrency.
-- PWA manual edit does not call AI and does not automatically reassign Entity associations.
-- Record delete is soft delete; RecordEntity/revision data remains stored, normal queries ignore deleted rows, recycle-bin view can restore them.
+Current implementation still contains substantial assumptions from the older model. Do not patch around them indefinitely.
 
-## LINE AI edit decisions
+High-priority cleanup includes:
 
-- LINE natural-language editing requires positive eligible AI balance.
-- Record target should be deterministic through Reply to the exact prior Record/AFTERTRACE success context.
-- If no reliable Reply target exists, do not guess; tell user to Reply to the Record or edit in PWA.
-- After target record id is fixed, AI interprets requested change.
-- AI may update text and, when user clearly changes subject, update PRIMARY/RELATED Entity associations.
-- Unknown/ambiguous new subject uses normal Entity/Alias/Pending Confirmation flow.
-- Backend performs authorization + version check + revision + update atomically; AI never receives arbitrary SQL mutation authority.
+1. remove `maxGroupCount`, stable group ordinal and `GROUP_LIMIT_REACHED` end-to-end;
+2. remove/reframe generic paid `groupCollaboration` gates that block free group/manual use;
+3. separate group/source data existence from AI allowance responsible-user binding;
+4. split manual PWA authorization from LINE AI allowance entitlement;
+5. replace universal Customer/Project/finance-centric core assumptions with Entity/Record foundation;
+6. add `worklog_entities`, `worklog_entity_aliases`, `worklog_record_entities`, `worklog_ai_confirmations` and revision/version/delete-state support;
+7. implement PWA manual create with title/content/date-time picker and free Entity reuse/create;
+8. implement PWA Entity/title + fuzzy content + date range search;
+9. implement bounded LINE history-link navigation with optional Entity id instead of arbitrary AI query function calls;
+10. implement user-owned grant/allocation/cap ledger and migrate AI reservation/settlement to eligible grants;
+11. add billing type + durable FREE/PRO/TEAM period grants + separate one-time top-up purchases;
+12. implement AI 額度負責人 transfer/recovery using the new terminology/domain separation;
+13. expose current/historical group AI usage plus platform-subsidized usage in Admin/PWA without leaking unrelated private balances;
+14. implement LINE success reply/deep link and Reply-based natural-language edit using revision/version safety;
+15. implement paid export after core Record/Entity model is stable;
+16. verify provider-native DOCX/XLSX ingestion and finish attachment hardening.
 
-## Current code/schema mismatch requiring refactor
+## Cost measurement requirement before final pricing/unit packs
 
-Legacy code/schema still reflects earlier workspace/customer/project/finance/Owner/capability assumptions and must not be treated as product truth.
+Current plan unit counts are launch placeholders until representative cost measurements exist.
 
-Major cleanup/refactor areas:
+Need measurement fixtures for:
 
-1. remove `maxGroupCount`, `GROUP_LIMIT_REACHED` and any group ordinal enforcement;
-2. remove/redefine generic paid `groupCollaboration` gating;
-3. separate GROUP existence/data ownership from AI allowance responsibility;
-4. split free manual/history authorization from AI entitlement/balance gates;
-5. replace workspace-owner-centric group edit/read with Source/member authorization;
-6. refactor fixed Customer/Project-centric core toward generic Entity/Alias/RecordEntity model;
-7. add `occurred_at`, record status/delete audit, integer `version`, revision history;
-8. add durable Entity merge history/undo and pending AI confirmations;
-9. remove dependence on persistent per-record normalized summary as product truth;
-10. implement user-owned AI grant/allocation/cap ledger and separate top-up purchases;
-11. implement platform-subsidy accounting for overage after a positive-balance AI request begins;
-12. implement AI 額度負責人 transfer and group AI history;
-13. implement LINE Reply AI edit with deterministic target and Entity reclassification when requested;
-14. implement on-demand AI query/summary retrieval after remaining query semantics are finalized;
-15. preserve LINE attachment policy and verify XLSX/DOCX provider-native ingestion.
+- short/long text Entity parsing;
+- image/audio/file ingestion;
+- LINE natural-language edit;
+- Gemini thinking/modality usage;
+- provider actual cost vs customer unit charge and platform subsidy.
 
-## Product discussions still open
+Do not finalize top-up pack sizes/prices without this evidence.
 
-Core model is close to freeze. Remaining high-value discussions:
-
-- exact charging semantics for AI-assisted Record creation/entity parsing;
-- exact AI create output beyond PRIMARY/RELATED/Alias candidate/occurred_at, if anything;
-- AI Query retrieval scope/UX: single Entity, whole Source/group, date ranges, questions without explicit Entity, and candidate retrieval strategy;
-- PWA manual flow for explicitly changing a Record's PRIMARY/RELATED Entity without AI;
-- final export/report behavior under the on-demand AI model;
-- final product/brand name and go-to-market positioning.
-
-Future backlog, not approved MVP work yet:
+## Future discussion backlog — do not implement implicitly
 
 - invoice integration;
-- full-history natural-language search expansion;
 - automatic reminders/follow-up;
-- project/engineering scheduling.
+- project/engineering scheduling;
+- broad AI historical analysis/reporting beyond bounded PWA navigation;
+- final product/brand name and go-to-market positioning.
 
 ## Validation status
 
-Schema/runtime implementation has not yet been refactored to this newly finalized Entity-first contract. Existing authored tests do not validate the new model yet.
+Recent product/schema changes are documentation/domain decisions. Concentrated executable validation remains pending.
 
-Concentrated typecheck/test/build/schema/browser/Worker/LINE/Gemini validation remains pending.
+Do not claim build/typecheck/test/schema/browser/Worker/LINE/Gemini/E2E success unless actually executed locally/runtime.
 
 **GitHub Actions were not run, dispatched, rerun, enabled or modified.**
 
-## Planning note
+## Planning estimate
 
-The recent product decisions are a meaningful domain refactor, so older percentage estimates are no longer useful until the Entity/grant/edit schema is implemented. Next implementation should prioritize coherent schema/domain migration rather than incremental patching of the legacy Customer/Project/Owner model.
+Because the product has shifted from the older Customer/Project/aggregate-quota architecture to a simpler but materially different Entity/Record + grant-allocation model, percentage estimates from earlier checkpoints are no longer very meaningful.
+
+Planning-only estimate from current branch state:
+
+- static product/domain contract: ~95% defined for the core MVP;
+- implementation against the latest domain: significant refactor still required;
+- expect roughly 5–7 substantial internal implementation batches before concentrated validation;
+- rough internal coding range before validation: ~18–32 focused hours, with payment-provider integration still separate;
+- after concentrated validation begins, reserve additional time for compile/schema/browser/runtime fixes.
 
 Do not use GitHub Actions as validation.
