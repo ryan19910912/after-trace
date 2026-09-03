@@ -386,21 +386,34 @@ export class DrizzleWorklogSubscriptionRepository implements WorklogSubscription
     at: Date,
   ): Promise<WorklogAiReservationSnapshot | null> {
     const result = await this.db.execute(sql`
-      WITH claimed AS (
+      WITH eligible AS (
+        SELECT token, status AS previous_status
+        FROM worklog_ai_quota_reservations
+        WHERE token = ${token}
+          AND status IN ('RESERVED', 'EXPIRED')
+        LIMIT 1
+      ),
+      claimed AS (
         UPDATE worklog_ai_quota_reservations AS reservation
         SET
           status = 'COMMITTED',
           units_committed = ${usage.actualUnits},
           updated_at = NOW()
-        WHERE reservation.token = ${token}
-          AND reservation.status = 'RESERVED'
-          AND reservation.units_reserved >= ${usage.actualUnits}
-        RETURNING *
+        FROM eligible
+        WHERE reservation.token = eligible.token
+          AND reservation.status = eligible.previous_status
+        RETURNING reservation.*, eligible.previous_status
       ),
       adjusted AS (
         UPDATE worklog_ai_quota_balances AS balance
         SET
-          reserved_units = GREATEST(0, balance.reserved_units - claimed.units_reserved),
+          reserved_units = GREATEST(
+            0,
+            balance.reserved_units - CASE
+              WHEN claimed.previous_status = 'RESERVED' THEN claimed.units_reserved
+              ELSE 0
+            END
+          ),
           used_units = balance.used_units + claimed.units_committed,
           updated_at = NOW()
         FROM claimed
