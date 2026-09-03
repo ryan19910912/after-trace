@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { providerCostToAiPoints } from './ai-points';
 import {
   normalizeWorklogTextOutput,
   type WorklogAiRuntimeConfigSnapshot,
@@ -108,16 +109,19 @@ export function buildGeminiWorklogTextRequestBody(
   };
 }
 
-export function worklogTextReservationUnits(
+/**
+ * Conservative provider-token upper bound used only to size a preflight point hold.
+ * Request bytes are intentionally treated as a token upper bound; output receives a
+ * second thinking-sized cushion. Actual customer points are always recomputed from
+ * provider-reported cost after the request succeeds.
+ */
+export function worklogTextReservationTokenUpperBound(
   input: WorklogTextProviderInput,
   maxOutputTokens = 256,
 ): number {
   const requestBytes = new TextEncoder().encode(
     JSON.stringify(buildGeminiWorklogTextRequestBody(input, maxOutputTokens)),
   ).byteLength;
-  // Transitional legacy quota reservation. The grant-ledger batch will convert
-  // provider cost to output-price-equivalent AI points; until then keep a conservative
-  // request/output cushion so the provider cannot be started with an obviously tiny hold.
   const outputBudget = positiveInteger(maxOutputTokens, 'maxOutputTokens');
   const total = requestBytes + outputBudget + outputBudget;
   if (!Number.isSafeInteger(total) || total <= 0) {
@@ -125,6 +129,9 @@ export function worklogTextReservationUnits(
   }
   return total;
 }
+
+/** Backward-compatible export name for tests/tools that only inspect the upper bound. */
+export const worklogTextReservationUnits = worklogTextReservationTokenUpperBound;
 
 export class GeminiWorklogTextNormalizer implements WorklogTextNormalizationProvider {
   private readonly fetchFn: typeof fetch;
@@ -139,7 +146,15 @@ export class GeminiWorklogTextNormalizer implements WorklogTextNormalizationProv
 
   reservationUnits(input: WorklogTextProviderInput, config: WorklogAiRuntimeConfigSnapshot): number {
     this.assertConfig(config);
-    return worklogTextReservationUnits(input, this.maxOutputTokens);
+    const upperBound = worklogTextReservationTokenUpperBound(input, this.maxOutputTokens);
+    // Price every conservative upper-bound unit at the more expensive of input/output
+    // pricing. This is deliberately a hold estimate, not customer billing.
+    const conservativeCostUsd =
+      (upperBound / 1_000_000) * Math.max(config.inputUsdPerMillion, config.outputUsdPerMillion);
+    return Math.max(1, providerCostToAiPoints({
+      providerCostUsd: conservativeCostUsd,
+      outputUsdPerMillion: config.outputUsdPerMillion,
+    }));
   }
 
   async normalize(
@@ -227,8 +242,6 @@ export class GeminiWorklogTextNormalizer implements WorklogTextNormalizationProv
     return {
       output,
       inputTokens,
-      // Gemini bills thinking under output for this selected model family. Fold it into
-      // billed output exactly once so provider cost remains auditable.
       outputTokens,
       providerResponseId: body.responseId?.slice(0, 255) ?? null,
       latencyMs,
@@ -246,7 +259,7 @@ export class GeminiWorklogTextNormalizer implements WorklogTextNormalizationProv
       throw new WorklogTextProviderError('GEMINI_CONFIG_INVALID', `Worklog currently supports only ${STABLE_WORKLOG_MODEL}`);
     }
     nonNegativeFinite(config.inputUsdPerMillion, 'inputUsdPerMillion');
-    nonNegativeFinite(config.outputUsdPerMillion, 'outputUsdPerMillion');
+    positiveFinite(config.outputUsdPerMillion, 'outputUsdPerMillion');
     if (config.usdTwdRate !== null) nonNegativeFinite(config.usdTwdRate, 'usdTwdRate');
   }
 }
@@ -309,5 +322,11 @@ function positiveInteger(value: number, label: string): number {
 function nonNegativeFinite(value: number, label: string): void {
   if (!Number.isFinite(value) || value < 0) {
     throw new WorklogTextProviderError('GEMINI_CONFIG_INVALID', `${label} must be a non-negative finite number`);
+  }
+}
+
+function positiveFinite(value: number, label: string): void {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new WorklogTextProviderError('GEMINI_CONFIG_INVALID', `${label} must be a positive finite number`);
   }
 }
