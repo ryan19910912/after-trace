@@ -8,8 +8,9 @@ const VALUE_LABELS: Record<string, string> = {
   OPEN: '待處理',
   RESOLVED: '已解決',
   IGNORED: '已忽略',
-  INDIVIDUAL: '個人使用者',
-  GROUP_ENABLED: '群組擁有者',
+  INDIVIDUAL: '一般使用者',
+  GROUP_ENABLED: 'AI 額度負責人',
+  AI_RESPONSIBLE: 'AI 額度負責人',
   USER: '使用者',
   GROUP: '群組',
   ENABLED: '啟用',
@@ -38,7 +39,6 @@ const VALUE_LABELS: Record<string, string> = {
   PRIVATE: '私人',
   LINE: 'LINE',
   ADMIN: '管理後台',
-  OWNER: '擁有者',
   MEMBER: '成員',
 };
 
@@ -52,7 +52,6 @@ const LABELED_FIELDS = new Set([
   'input_type',
   'category',
   'billing_relation',
-  'owner_binding_method',
   'source',
   'action',
   'target_type',
@@ -87,12 +86,8 @@ function withRetryDisposition(row: AdminRecord): AdminRecord {
   const safe = new Set([
     'AI_RUNTIME_CONFIG_MISSING',
     'AI_QUOTA_EXHAUSTED',
-    'NO_SUBSCRIPTION',
-    'SUBSCRIPTION_INACTIVE',
-    'PLAN_DISABLED',
-    'NOT_YET_EFFECTIVE',
-    'PERIOD_NOT_STARTED',
-    'PERIOD_EXPIRED',
+    'AI_POINTS_EXHAUSTED',
+    'NO_ELIGIBLE_AI_GRANT',
   ]);
   const resend = new Set([
     'LINE_CONTENT_EXPIRED',
@@ -104,7 +99,7 @@ function withRetryDisposition(row: AdminRecord): AdminRecord {
     return {
       ...row,
       retry_disposition: 'SAFE_RETRY',
-      retry_guidance: '可安全重新嘗試；請先確認原始 LINE 內容仍可取得。',
+      retry_guidance: '可安全重新嘗試；請先確認該 Source 有可用 AI 點數，且原始 LINE 內容仍可取得。',
     };
   }
   if (resend.has(code)) {
