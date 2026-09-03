@@ -1,11 +1,12 @@
 import type { LineMessageContent } from '../line/content';
-import { snapshotAiUsage } from './entitlements';
 import type {
-  AiCommitResult,
-  AiReleaseResult,
-  AiReservationResult,
-  WorklogAiUsageCommit,
-} from './subscription';
+  AiPointCommitResult,
+  AiPointReleaseResult,
+  AiPointReservationResult,
+} from './ai-point-ledger';
+import { providerCostToAiPoints } from './ai-points';
+import { snapshotAiUsage } from './entitlements';
+import type { WorklogAiUsageCommit } from './subscription';
 import type { WorklogAiRuntimeConfigSnapshot } from './text-normalization';
 
 export type WorklogAttachmentInputType = 'AUDIO' | 'IMAGE' | 'FILE';
@@ -75,6 +76,7 @@ export interface WorklogAttachmentContentPort {
 }
 
 export interface WorklogAttachmentProvider {
+  /** Conservative customer-point hold estimate; a smaller positive balance may still start AI. */
   reservationUnits(content: LineMessageContent, config: WorklogAiRuntimeConfigSnapshot): number;
   analyze(
     content: LineMessageContent,
@@ -83,7 +85,7 @@ export interface WorklogAttachmentProvider {
   ): Promise<WorklogAttachmentProviderResponse>;
 }
 
-export interface WorklogAttachmentSubscriptionPort {
+export interface WorklogAttachmentAiPointPort {
   reserveAi(input: {
     chargedUserId: number;
     actorUserId: number;
@@ -91,9 +93,9 @@ export interface WorklogAttachmentSubscriptionPort {
     requestedUnits: number;
     at?: Date;
     ttlMs?: number;
-  }): Promise<AiReservationResult>;
-  commitAiUsage(token: string, usage: WorklogAiUsageCommit, at?: Date): Promise<AiCommitResult>;
-  releaseAi(token: string, at?: Date): Promise<AiReleaseResult>;
+  }): Promise<AiPointReservationResult>;
+  commitAiUsage(token: string, usage: WorklogAiUsageCommit, at?: Date): Promise<AiPointCommitResult>;
+  releaseAi(token: string, at?: Date): Promise<AiPointReleaseResult>;
 }
 
 export type WorklogAttachmentIngestionResult =
@@ -104,7 +106,7 @@ export type WorklogAttachmentIngestionResult =
 export class WorklogAttachmentIngestionService {
   constructor(
     private readonly repository: WorklogAttachmentRepository,
-    private readonly subscriptions: WorklogAttachmentSubscriptionPort,
+    private readonly aiPoints: WorklogAttachmentAiPointPort,
     private readonly contentResolver: WorklogAttachmentContentPort,
     private readonly provider: WorklogAttachmentProvider,
   ) {}
@@ -160,12 +162,12 @@ export class WorklogAttachmentIngestionService {
         return { status: 'FAILED', reason: 'AI_RUNTIME_CONFIG_MISSING' };
       }
 
-      const requestedUnits = positiveInteger(this.provider.reservationUnits(content, config), 'requestedUnits');
-      const reservation = await this.subscriptions.reserveAi({
+      const requestedPoints = positiveInteger(this.provider.reservationUnits(content, config), 'requestedPoints');
+      const reservation = await this.aiPoints.reserveAi({
         chargedUserId,
         actorUserId,
         sourceId,
-        requestedUnits,
+        requestedUnits: requestedPoints,
         ttlMs: 10 * 60_000,
       });
       if (reservation.status !== 'RESERVED') {
@@ -176,13 +178,6 @@ export class WorklogAttachmentIngestionService {
 
       const provider = await this.provider.analyze(content, config, input.instruction ?? null);
       providerCompleted = true;
-      // Reservation is a preflight estimate only. Once provider output exists, full
-      // actual usage must be settled even if it exceeded the held estimate.
-      const actualUnits = provider.inputTokens + provider.outputTokens;
-      if (!Number.isSafeInteger(actualUnits) || actualUnits < 0) {
-        await this.repository.fail(commandLineMessageId, 'AI_USAGE_INVALID');
-        return { status: 'FAILED', reason: 'AI_USAGE_INVALID' };
-      }
 
       const pricingSnapshot = snapshotAiUsage({
         provider: config.provider,
@@ -198,8 +193,14 @@ export class WorklogAttachmentIngestionService {
         audioInputUnits: provider.audioInputUnits,
         imageInputUnits: provider.imageInputUnits,
       });
+      const actualPoints = providerCostToAiPoints({
+        providerCostUsd: pricingSnapshot.providerCostUsd,
+        outputUsdPerMillion: pricingSnapshot.outputUsdPerMillion,
+      });
       const usage: WorklogAiUsageCommit = {
-        actualUnits,
+        // Transitional reporting field. The point ledger independently recomputes
+        // actual customer points from immutable provider cost at settlement.
+        actualUnits: actualPoints,
         workspaceId: null,
         recordId: null,
         ...pricingSnapshot,
@@ -319,7 +320,7 @@ export class WorklogAttachmentIngestionService {
     commandLineMessageId: string,
     state: Extract<WorklogAttachmentClaimState, { status: 'RECORD_CREATED' }>,
   ): Promise<WorklogAttachmentIngestionResult> {
-    const committed = await this.subscriptions.commitAiUsage(state.reservationToken, state.usage);
+    const committed = await this.aiPoints.commitAiUsage(state.reservationToken, state.usage);
     if (committed.status !== 'COMMITTED') {
       if (await this.repository.reservationStatus(state.reservationToken) !== 'COMMITTED') {
         await this.repository.fail(commandLineMessageId, committed.status);
@@ -336,7 +337,7 @@ export class WorklogAttachmentIngestionService {
     usage: WorklogAiUsageCommit,
     failureReason: string,
   ): Promise<WorklogAttachmentIngestionResult> {
-    const committed = await this.subscriptions.commitAiUsage(reservationToken, usage);
+    const committed = await this.aiPoints.commitAiUsage(reservationToken, usage);
     if (committed.status !== 'COMMITTED') {
       const reservationStatus = await this.repository.reservationStatus(reservationToken);
       if (reservationStatus !== 'COMMITTED') return { status: 'IN_PROGRESS' };
@@ -346,7 +347,7 @@ export class WorklogAttachmentIngestionService {
   }
 
   private async safeRelease(token: string): Promise<void> {
-    try { await this.subscriptions.releaseAi(token); } catch { /* reservation expiry is fallback */ }
+    try { await this.aiPoints.releaseAi(token); } catch { /* reservation expiry is fallback */ }
   }
 }
 
