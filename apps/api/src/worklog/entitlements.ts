@@ -1,10 +1,7 @@
 export type PlanCapabilities = {
   privateOaRecording?: boolean;
-  groupCollaboration?: boolean;
-  maxGroupCount?: number;
   aiTextRecording?: boolean;
   aiMediaIngestion?: boolean;
-  pwaEditing?: boolean;
   export?: boolean;
   [key: string]: boolean | number | string | undefined;
 };
@@ -60,8 +57,13 @@ export function hasCapability(capabilities: PlanCapabilities, key: string): bool
   return capabilities[key] === true;
 }
 
-export function canUseGroupCollaboration(planCode: string, capabilities: PlanCapabilities): boolean {
-  return planCode.toUpperCase() !== 'FREE' && hasCapability(capabilities, 'groupCollaboration');
+/**
+ * Group/manual collaboration is baseline product functionality and is no longer a
+ * paid plan capability. Keep this compatibility helper temporarily while legacy
+ * callers are removed; it must never be used to block group access.
+ */
+export function canUseGroupCollaboration(_planCode: string, _capabilities: PlanCapabilities): boolean {
+  return true;
 }
 
 export function remainingAiAllowance(allowanceUnits: number, consumedUnits: number): number {
@@ -93,8 +95,6 @@ export function snapshotAiUsage(pricing: AiPricing, usage: AiMeteredUsage): AiUs
   const imageUsdPerMillion = optionalPrice(pricing.imageUsdPerMillion);
   const usdTwdRate = pricing.usdTwdRate == null ? null : finiteAtLeastZero(pricing.usdTwdRate);
 
-  // A null modality-specific price means the provider uses the ordinary input
-  // rate for that modality. It never means that those input tokens are free.
   const providerCostUsd =
     perMillionCost(ordinaryInputTokens, inputUsdPerMillion) +
     perMillionCost(audioInputUnits, audioUsdPerMillion ?? inputUsdPerMillion) +
