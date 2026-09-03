@@ -27,19 +27,18 @@ const THINKING_LEVEL = 'low';
 
 const outputSchema = z.object({
   raw_text: z.string().trim().min(1).max(20_000),
-  summary: z.string().trim().min(1).max(2_000),
-  category: z.enum(['NOTE', 'WORK', 'ISSUE', 'PAYMENT', 'EXPENSE', 'MATERIAL', 'OTHER']),
 }).strict();
 
 const responseJsonSchema = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    raw_text: { type: 'string', description: 'Faithful transcript, extracted visible text, or factual description of the attachment. Do not invent details.' },
-    summary: { type: 'string', description: 'Concise Traditional Chinese summary grounded only in the attachment.' },
-    category: { type: 'string', enum: ['NOTE', 'WORK', 'ISSUE', 'PAYMENT', 'EXPENSE', 'MATERIAL', 'OTHER'] },
+    raw_text: {
+      type: 'string',
+      description: 'Faithful transcript, extracted visible text, or factual description of the attachment. Do not invent details.',
+    },
   },
-  required: ['raw_text', 'summary', 'category'],
+  required: ['raw_text'],
 } as const;
 
 type GeminiModalityTokenCount = {
@@ -74,7 +73,9 @@ export class GeminiWorklogAttachmentNormalizer implements WorklogAttachmentProvi
     const outputBudget = this.maxOutputTokens;
     const overhead = 8_000 + outputBudget + outputBudget;
     const total = content.byteLength + overhead;
-    if (!Number.isSafeInteger(total) || total <= 0) throw new WorklogAttachmentProviderError('AI_RESERVATION_ESTIMATE_INVALID', 'attachment reservation estimate invalid');
+    if (!Number.isSafeInteger(total) || total <= 0) {
+      throw new WorklogAttachmentProviderError('AI_RESERVATION_ESTIMATE_INVALID', 'attachment reservation estimate invalid');
+    }
     return total;
   }
 
@@ -118,16 +119,17 @@ export class GeminiWorklogAttachmentNormalizer implements WorklogAttachmentProvi
     const inputTokens = safeTokenCount(body.usageMetadata?.promptTokenCount, 'prompt');
     const candidateTokens = safeTokenCount(body.usageMetadata?.candidatesTokenCount, 'candidate output');
     const thoughtsTokens = optionalTokenCount(body.usageMetadata?.thoughtsTokenCount, 'thinking');
-    if (candidateTokens > this.maxOutputTokens) throw new WorklogAttachmentProviderError('GEMINI_INVALID_RESPONSE', 'Gemini attachment candidate output usage exceeds configured maximum');
+    if (candidateTokens > this.maxOutputTokens) {
+      throw new WorklogAttachmentProviderError('GEMINI_INVALID_RESPONSE', 'Gemini attachment candidate output usage exceeds configured maximum');
+    }
     const outputTokens = safeAddTokens(candidateTokens, thoughtsTokens, 'billed output');
-
     const modality = promptModalityUsage(body.usageMetadata?.promptTokensDetails, inputTokens);
 
     const output: WorklogAttachmentOutput = {
       inputType,
       rawText: parsed.raw_text,
-      summary: parsed.summary,
-      category: parsed.category,
+      // Useful source metadata is kept only in the provider result while processing;
+      // the MVP does not persist an attachment library/binary/summary metadata on Record.
       attachmentMetadata: {
         mimeType: content.mimeType,
         byteLength: content.byteLength,
@@ -137,8 +139,6 @@ export class GeminiWorklogAttachmentNormalizer implements WorklogAttachmentProvi
     return {
       output,
       inputTokens,
-      // Gemini 3.5 bills thinking as output. Fold thoughts into billed output so the
-      // existing immutable usage/cost schema captures them without a migration.
       outputTokens,
       audioInputUnits: modality.audioInputUnits,
       imageInputUnits: modality.imageInputUnits,
@@ -148,13 +148,24 @@ export class GeminiWorklogAttachmentNormalizer implements WorklogAttachmentProvi
   }
 
   private assertConfig(config: WorklogAiRuntimeConfigSnapshot) {
-    if (config.provider.trim().toUpperCase() !== 'GOOGLE') throw new WorklogAttachmentProviderError('AI_PROVIDER_UNSUPPORTED', `Unsupported provider: ${config.provider}`);
-    if (!this.options.apiKey.trim()) throw new WorklogAttachmentProviderError('GEMINI_CONFIG_INVALID', 'Gemini API key required');
-    if (config.model.trim() !== STABLE_WORKLOG_MODEL) throw new WorklogAttachmentProviderError('GEMINI_CONFIG_INVALID', `Worklog currently supports only ${STABLE_WORKLOG_MODEL}`);
+    if (config.provider.trim().toUpperCase() !== 'GOOGLE') {
+      throw new WorklogAttachmentProviderError('AI_PROVIDER_UNSUPPORTED', `Unsupported provider: ${config.provider}`);
+    }
+    if (!this.options.apiKey.trim()) {
+      throw new WorklogAttachmentProviderError('GEMINI_CONFIG_INVALID', 'Gemini API key required');
+    }
+    if (config.model.trim() !== STABLE_WORKLOG_MODEL) {
+      throw new WorklogAttachmentProviderError('GEMINI_CONFIG_INVALID', `Worklog currently supports only ${STABLE_WORKLOG_MODEL}`);
+    }
   }
 }
 
-function buildRequest(content: LineMessageContent, inputType: WorklogAttachmentInputType, instruction: string | null | undefined, maxOutputTokens: number) {
+function buildRequest(
+  content: LineMessageContent,
+  inputType: WorklogAttachmentInputType,
+  instruction: string | null | undefined,
+  maxOutputTokens: number,
+) {
   const userParts: Array<Record<string, unknown>> = [];
   const textFile = inputType === 'FILE' && isTextLike(content.mimeType);
   if (textFile) {
@@ -163,14 +174,17 @@ function buildRequest(content: LineMessageContent, inputType: WorklogAttachmentI
   } else {
     userParts.push({ inlineData: { mimeType: content.mimeType, data: content.dataBase64 } });
   }
-  if (instruction?.trim()) userParts.push({ text: `使用者補充指示：${instruction.trim().slice(0, 1000)}` });
+  if (instruction?.trim()) {
+    userParts.push({ text: `使用者補充指示：${instruction.trim().slice(0, 1000)}` });
+  }
 
   return {
     systemInstruction: { parts: [{ text: [
-      'You convert a LINE attachment into a durable AFTERTRACE work record.',
-      'For audio, transcribe faithfully. For images, extract visible text and describe only factual visible work-related details. For PDF/files, extract useful readable content.',
-      'Never invent customer names, amounts, dates, work completion, defects, or other facts.',
-      'Return concise Traditional Chinese unless preserving source wording is useful.',
+      'You convert a LINE attachment into durable AFTERTRACE Record text.',
+      'For audio, transcribe faithfully. For images, extract visible text and describe only factual visible work details. For PDF/files, extract useful readable content.',
+      'Never invent customer names, amounts, dates, completion, defects, or other facts.',
+      'Do not create a category, summary, Customer, Project, payment or material schema. Return only the durable textual representation.',
+      'Use Traditional Chinese when adding factual descriptions, while preserving useful source wording.',
     ].join(' ') }] },
     contents: [{ role: 'user', parts: userParts }],
     generationConfig: {
@@ -233,7 +247,9 @@ function providerHttpError(status: number, detail: string) {
 }
 
 function safeTokenCount(value: unknown, label: string) {
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new WorklogAttachmentProviderError('GEMINI_INVALID_RESPONSE', `Gemini ${label} usage missing`);
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw new WorklogAttachmentProviderError('GEMINI_INVALID_RESPONSE', `Gemini ${label} usage missing`);
+  }
   return value;
 }
 
@@ -244,11 +260,15 @@ function optionalTokenCount(value: unknown, label: string): number {
 
 function safeAddTokens(left: number, right: number, label: string): number {
   const total = left + right;
-  if (!Number.isSafeInteger(total) || total < 0) throw new WorklogAttachmentProviderError('GEMINI_INVALID_RESPONSE', `Gemini ${label} usage overflow`);
+  if (!Number.isSafeInteger(total) || total < 0) {
+    throw new WorklogAttachmentProviderError('GEMINI_INVALID_RESPONSE', `Gemini ${label} usage overflow`);
+  }
   return total;
 }
 
 function positiveInteger(value: number, label: string) {
-  if (!Number.isSafeInteger(value) || value <= 0) throw new WorklogAttachmentProviderError('GEMINI_CONFIG_INVALID', `${label} invalid`);
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new WorklogAttachmentProviderError('GEMINI_CONFIG_INVALID', `${label} invalid`);
+  }
   return value;
 }
