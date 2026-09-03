@@ -4,23 +4,20 @@ import {
   type WorklogBootstrapRepository,
   type WorklogBootstrapUser,
   type WorklogBoundGroup,
-  type WorklogPendingGroup,
 } from './bootstrap';
 
 class FakeRepository implements WorklogBootstrapRepository {
   nextUserId = 1;
   nextWorkspaceId = 100;
   nextSourceId = 1000;
-  nextPendingId = 5000;
   usersByLineId = new Map<string, WorklogBootstrapUser>();
   workspaces = new Map<number, number>();
   privateSources = new Map<number, number>();
   boundGroups = new Map<string, WorklogBoundGroup>();
-  pendingGroups = new Map<string, WorklogPendingGroup>();
-  pendingMembers = new Map<string, boolean>();
   boundMembers = new Map<string, boolean>();
   workspaceEnsureCalls: number[] = [];
   promoteCalls: Array<Parameters<WorklogBootstrapRepository['promoteGroup']>[0]> = [];
+  ensureGroupCalls: Array<{ lineGroupId: string; workspaceId: number }> = [];
 
   async upsertLineUser(input: Parameters<WorklogBootstrapRepository['upsertLineUser']>[0]) {
     const existing = this.usersByLineId.get(input.lineUserId);
@@ -64,6 +61,25 @@ class FakeRepository implements WorklogBootstrapRepository {
     return this.boundGroups.get(lineGroupId) ?? null;
   }
 
+  async ensureGroupSource(lineGroupId: string, workspaceId: number) {
+    this.ensureGroupCalls.push({ lineGroupId, workspaceId });
+    const existing = this.boundGroups.get(lineGroupId);
+    if (existing) {
+      const active = { ...existing, status: 'ACTIVE' as const };
+      this.boundGroups.set(lineGroupId, active);
+      return active;
+    }
+    const created: WorklogBoundGroup = {
+      sourceId: this.nextSourceId++,
+      lineGroupId,
+      workspaceId,
+      ownerUserId: null,
+      status: 'ACTIVE',
+    };
+    this.boundGroups.set(lineGroupId, created);
+    return created;
+  }
+
   async reactivateBoundGroup(sourceId: number) {
     for (const [lineGroupId, group] of this.boundGroups) {
       if (group.sourceId === sourceId) {
@@ -74,23 +90,6 @@ class FakeRepository implements WorklogBootstrapRepository {
     return false;
   }
 
-  async upsertPendingGroup(lineGroupId: string) {
-    const existing = this.pendingGroups.get(lineGroupId);
-    if (existing) return existing;
-    const created: WorklogPendingGroup = {
-      pendingGroupId: this.nextPendingId++,
-      lineGroupId,
-      isActive: true,
-      promotedSourceId: null,
-    };
-    this.pendingGroups.set(lineGroupId, created);
-    return created;
-  }
-
-  async upsertPendingGroupMember(pendingGroupId: number, userId: number, isActive: boolean) {
-    this.pendingMembers.set(`${pendingGroupId}:${userId}`, isActive);
-  }
-
   async upsertBoundGroupMember(sourceId: number, userId: number, isActive: boolean) {
     this.boundMembers.set(`${sourceId}:${userId}`, isActive);
   }
@@ -98,8 +97,6 @@ class FakeRepository implements WorklogBootstrapRepository {
   async markGroupInactive(lineGroupId: string) {
     const bound = this.boundGroups.get(lineGroupId);
     if (bound) this.boundGroups.set(lineGroupId, { ...bound, status: 'INACTIVE' });
-    const pending = this.pendingGroups.get(lineGroupId);
-    if (pending) this.pendingGroups.set(lineGroupId, { ...pending, isActive: false });
   }
 
   async promoteGroup(input: Parameters<WorklogBootstrapRepository['promoteGroup']>[0]) {
@@ -110,31 +107,16 @@ class FakeRepository implements WorklogBootstrapRepository {
       sourceId: this.nextSourceId++,
       lineGroupId: input.lineGroupId,
       workspaceId: input.workspaceId,
-      ownerUserId: input.ownerUserId,
+      ownerUserId: null,
       status: 'ACTIVE',
     };
-    const promoted = {
+    const promoted: WorklogBoundGroup = {
       ...source,
       workspaceId: input.workspaceId,
       ownerUserId: input.ownerUserId,
-      status: 'ACTIVE' as const,
+      status: 'ACTIVE',
     };
     this.boundGroups.set(input.lineGroupId, promoted);
-
-    const pending = this.pendingGroups.get(input.lineGroupId);
-    if (pending) {
-      this.pendingGroups.set(input.lineGroupId, {
-        ...pending,
-        isActive: false,
-        promotedSourceId: promoted.sourceId,
-      });
-      for (const [key, active] of this.pendingMembers) {
-        const [pendingId, userId] = key.split(':').map(Number);
-        if (pendingId === pending.pendingGroupId) {
-          this.boundMembers.set(`${promoted.sourceId}:${userId}`, active);
-        }
-      }
-    }
     return promoted;
   }
 }
@@ -193,7 +175,7 @@ describe('OA bootstrap', () => {
 });
 
 describe('group bootstrap', () => {
-  it('keeps an unowned group pending without inventing a workspace or owner', async () => {
+  it('creates a durable active group Source immediately without assigning an AI responsible user', async () => {
     const repository = new FakeRepository();
     const service = new WorklogBootstrapService(repository);
 
@@ -203,17 +185,31 @@ describe('group bootstrap', () => {
       at: new Date('2026-09-02T01:00:00Z'),
     });
 
-    expect(result).toMatchObject({ status: 'PENDING_OWNER', userId: 1 });
-    expect(repository.workspaceEnsureCalls).toEqual([]);
+    expect(result).toMatchObject({ status: 'BOUND', userId: 1, ownerUserId: null });
+    expect(repository.ensureGroupCalls).toHaveLength(1);
     expect(repository.promoteCalls).toEqual([]);
-    expect(repository.pendingMembers.get('5000:1')).toBe(true);
+    expect(repository.boundMembers.get(`${result.sourceId}:1`)).toBe(true);
   });
 
-  it('promotes pending identity only after reliable actor/explicit owner evidence', async () => {
+  it('reuses the same unowned Source for later members instead of creating pending-group state', async () => {
     const repository = new FakeRepository();
     const service = new WorklogBootstrapService(repository);
 
-    await service.bootstrapGroupInteraction({ lineGroupId: 'C1', lineUserId: 'MEMBER' });
+    const first = await service.bootstrapGroupInteraction({ lineGroupId: 'C1', lineUserId: 'MEMBER-1' });
+    const second = await service.bootstrapGroupInteraction({ lineGroupId: 'C1', lineUserId: 'MEMBER-2' });
+
+    expect(second.sourceId).toBe(first.sourceId);
+    expect(second.ownerUserId).toBeNull();
+    expect(repository.ensureGroupCalls).toHaveLength(1);
+    expect(repository.boundMembers.get(`${first.sourceId}:1`)).toBe(true);
+    expect(repository.boundMembers.get(`${first.sourceId}:2`)).toBe(true);
+  });
+
+  it('assigns AI responsibility later without changing Source identity', async () => {
+    const repository = new FakeRepository();
+    const service = new WorklogBootstrapService(repository);
+
+    const source = await service.bootstrapGroupInteraction({ lineGroupId: 'C1', lineUserId: 'MEMBER' });
     const result = await service.bindGroupOwner({
       lineGroupId: 'C1',
       ownerLineUserId: 'OWNER',
@@ -221,16 +217,13 @@ describe('group bootstrap', () => {
       at: new Date('2026-09-02T02:00:00Z'),
     });
 
-    expect(result.status).toBe('BOUND');
-    if (result.status === 'BOUND') {
-      expect(repository.boundMembers.get(`${result.sourceId}:1`)).toBe(true);
-      expect(repository.boundMembers.get(`${result.sourceId}:2`)).toBe(true);
-      expect(repository.pendingGroups.get('C1')?.promotedSourceId).toBe(result.sourceId);
-    }
+    expect(result).toMatchObject({ status: 'BOUND', sourceId: source.sourceId, ownerUserId: 2 });
     expect(repository.promoteCalls[0]?.bindingMethod).toBe('EXPLICIT_CLAIM');
+    expect(repository.boundMembers.get(`${source.sourceId}:1`)).toBe(true);
+    expect(repository.boundMembers.get(`${source.sourceId}:2`)).toBe(true);
   });
 
-  it('never reassigns an already-owned group to a different user', async () => {
+  it('never reassigns an already-owned group to a different active responsible user', async () => {
     const repository = new FakeRepository();
     const service = new WorklogBootstrapService(repository);
 
@@ -247,18 +240,13 @@ describe('group bootstrap', () => {
 
     expect(first.status).toBe('BOUND');
     expect(second).toMatchObject({ status: 'OWNER_CONFLICT', ownerUserId: 1 });
-    expect(repository.promoteCalls).toHaveLength(1);
+    expect(repository.promoteCalls).toHaveLength(2);
   });
 
   it('reactivates a known member without changing recording permission semantics', async () => {
     const repository = new FakeRepository();
     const service = new WorklogBootstrapService(repository);
-    const bound = await service.bindGroupOwner({
-      lineGroupId: 'C1',
-      ownerLineUserId: 'OWNER',
-      evidence: 'EXPLICIT_CLAIM',
-    });
-    if (bound.status !== 'BOUND') throw new Error('expected bound group');
+    const group = await service.bootstrapGroupInteraction({ lineGroupId: 'C1', lineUserId: 'OWNER' });
 
     await service.setGroupMemberPresence({
       lineGroupId: 'C1',
@@ -271,35 +259,29 @@ describe('group bootstrap', () => {
       isActive: true,
     });
 
-    expect(repository.boundMembers.get(`${bound.sourceId}:2`)).toBe(true);
+    expect(repository.boundMembers.get(`${group.sourceId}:2`)).toBe(true);
   });
 
-  it('reactivates the existing source and owner when a previously-left group sends a new interaction', async () => {
+  it('reactivates the existing Source after a group leave without requiring an AI responsible user', async () => {
     const repository = new FakeRepository();
     const service = new WorklogBootstrapService(repository);
-    const bound = await service.bindGroupOwner({
-      lineGroupId: 'C1',
-      ownerLineUserId: 'OWNER',
-      evidence: 'EXPLICIT_CLAIM',
-    });
-    if (bound.status !== 'BOUND') throw new Error('expected bound group');
+    const group = await service.bootstrapGroupInteraction({ lineGroupId: 'C1', lineUserId: 'MEMBER' });
 
     await service.handleGroupLeave({ lineGroupId: 'C1', at: new Date('2026-09-02T03:00:00Z') });
     expect(repository.boundGroups.get('C1')?.status).toBe('INACTIVE');
 
     const rejoined = await service.bootstrapGroupInteraction({
       lineGroupId: 'C1',
-      lineUserId: 'OWNER',
+      lineUserId: 'MEMBER',
       at: new Date('2026-09-02T04:00:00Z'),
     });
 
     expect(rejoined).toEqual({
       status: 'BOUND',
       userId: 1,
-      sourceId: bound.sourceId,
-      ownerUserId: bound.ownerUserId,
+      sourceId: group.sourceId,
+      ownerUserId: null,
     });
     expect(repository.boundGroups.get('C1')?.status).toBe('ACTIVE');
-    expect(repository.boundGroups.get('C1')?.sourceId).toBe(bound.sourceId);
   });
 });
