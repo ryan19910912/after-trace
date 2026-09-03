@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   WorklogApi,
+  type GroupFunding,
   type RecordFilters,
   type RecordPage,
+  type RecordScope,
   type UserUsage,
   type WebEntryContext,
+  type WorklogConfirmation,
+  type WorklogConfirmationDecision,
   type WorklogEntity,
   type WorklogInputType,
   type WorklogRecord,
@@ -38,6 +42,8 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
   const [entities, setEntities] = useState<WorklogEntity[]>([]);
   const [recordPage, setRecordPage] = useState<RecordPage | null>(null);
   const [usage, setUsage] = useState<UserUsage | null>(null);
+  const [groupFunding, setGroupFunding] = useState<GroupFunding | null>(null);
+  const [confirmations, setConfirmations] = useState<WorklogConfirmation[]>([]);
   const [page, setPage] = useState<Page>('RECORDS');
   const [filterDraft, setFilterDraft] = useState<FilterDraft>(initialFilters);
   const [filters, setFilters] = useState<FilterDraft>(initialFilters);
@@ -70,9 +76,13 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
     if (!session || !scope) return;
     localStorage.setItem(ACTIVE_SCOPE_KEY, JSON.stringify(scope));
     setSelected(new Set());
+    setGroupFunding(null);
+    setConfirmations([]);
     void Promise.all([
       loadScope(session, scope, filters, false, showDeleted),
       loadEntities(session, scope),
+      loadConfirmations(session, scope),
+      loadGroupFunding(session, scope),
     ]);
   }, [session, scope?.type, scope?.sourceId, filters, showDeleted]);
 
@@ -132,9 +142,7 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
     setError(null);
     try {
       const requestFilters = apiFilters(nextFilters, append ? recordPage?.nextOffset ?? 0 : 0);
-      const apiScope = nextScope.type === 'PERSONAL'
-        ? { type: 'PERSONAL' as const, sourceId: nextScope.sourceId }
-        : { type: 'GROUP' as const, sourceId: nextScope.sourceId };
+      const apiScope = recordScope(nextScope);
       const result = deleted
         ? await api.deletedRecords(token, apiScope, requestFilters)
         : nextScope.type === 'PERSONAL'
@@ -152,12 +160,29 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
 
   async function loadEntities(token: string, nextScope: Scope) {
     try {
-      const apiScope = nextScope.type === 'PERSONAL'
-        ? { type: 'PERSONAL' as const, sourceId: nextScope.sourceId }
-        : { type: 'GROUP' as const, sourceId: nextScope.sourceId };
-      setEntities(await api.entities(token, apiScope));
+      setEntities(await api.entities(token, recordScope(nextScope)));
     } catch (cause) {
       setError(message(cause, '紀錄標題載入失敗'));
+    }
+  }
+
+  async function loadConfirmations(token: string, nextScope: Scope) {
+    try {
+      setConfirmations(await api.pendingConfirmations(token, recordScope(nextScope)));
+    } catch (cause) {
+      setError(message(cause, '待確認紀錄載入失敗'));
+    }
+  }
+
+  async function loadGroupFunding(token: string, nextScope: Scope) {
+    if (nextScope.type !== 'GROUP') {
+      setGroupFunding(null);
+      return;
+    }
+    try {
+      setGroupFunding(await api.groupFunding(token, nextScope.sourceId));
+    } catch (cause) {
+      setError(message(cause, '群組 AI 點數載入失敗'));
     }
   }
 
@@ -167,6 +192,7 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
     setError(null);
     await loadScope(session, scope, filters, false, showDeleted);
     if (reloadEntities) await loadEntities(session, scope);
+    await loadConfirmations(session, scope);
   }
 
   function clearSession() {
@@ -178,6 +204,8 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
     setRecords([]);
     setEntities([]);
     setUsage(null);
+    setGroupFunding(null);
+    setConfirmations([]);
   }
 
   function applyFilters() {
@@ -196,10 +224,7 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const apiScope = scope.type === 'PERSONAL'
-        ? { type: 'PERSONAL' as const, sourceId: scope.sourceId }
-        : { type: 'GROUP' as const, sourceId: scope.sourceId };
-      await api.createRecord(session, apiScope, {
+      await api.createRecord(session, recordScope(scope), {
         title: createDraft.title.trim(),
         rawText: createDraft.rawText.trim(),
         occurredAt: new Date(createDraft.occurredAt).toISOString(),
@@ -314,6 +339,42 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
     }
   }
 
+  async function resolveConfirmation(confirmationId: number, decision: WorklogConfirmationDecision) {
+    if (!session || !scope) return;
+    setLoading(true);
+    setError(null);
+    try {
+      await api.resolveConfirmation(session, recordScope(scope), confirmationId, decision);
+      await Promise.all([
+        loadScope(session, scope, filters, false, showDeleted),
+        loadEntities(session, scope),
+        loadConfirmations(session, scope),
+      ]);
+      setNotice(decision.action === 'REJECT' ? '已略過這次 AI 標題建議。' : '紀錄標題已確認。');
+    } catch (cause) {
+      setError(message(cause, '待確認紀錄處理失敗'));
+      await loadConfirmations(session, scope);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function configureGroupGrant(grantId: number, enabled: boolean, capPoints: number | null) {
+    if (!session || scope?.type !== 'GROUP') return;
+    setLoading(true);
+    setError(null);
+    try {
+      const nextFunding = await api.configureGroupGrant(session, scope.sourceId, grantId, { enabled, capPoints });
+      setGroupFunding(nextFunding);
+      setNotice('群組 AI 點數分配已更新。');
+    } catch (cause) {
+      setError(message(cause, '群組 AI 點數設定失敗'));
+      await loadGroupFunding(session, scope);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function startEdit(record: WorklogRecord) {
     setEditing(record);
     setEditDraft({
@@ -348,7 +409,9 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
 
     {error ? <div className="error">{error}</div> : null}
     {notice ? <div className="worklog-notice">{notice}</div> : null}
-    {usage ? <UsageBar usage={usage} /> : null}
+    {scope?.type === 'GROUP'
+      ? groupFunding ? <GroupFundingPanel funding={groupFunding} busy={loading} onSave={configureGroupGrant} /> : null
+      : usage ? <UsageBar usage={usage} /> : null}
 
     <nav className="worklog-main-tabs">
       <button className={page === 'RECORDS' ? 'active' : ''} onClick={() => setPage('RECORDS')}>紀錄</button>
@@ -357,6 +420,13 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
 
     {page === 'RECORDS' ? <>
       <ScopePicker surfaces={surfaces} scope={scope} onChange={setScope} />
+
+      {confirmations.length > 0 ? <PendingConfirmationsPanel
+        confirmations={confirmations}
+        busy={loading}
+        onResolve={resolveConfirmation}
+      /> : null}
+
       <section className="panel">
         <div className="filter-actions">
           <button onClick={() => setCreateOpen((value) => !value)}>＋新增紀錄</button>
@@ -429,7 +499,7 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
 
       {editing && editDraft ? <section className="panel">
         <RecordEditor
-          heading={`編輯：${editing.title ?? '待整理'}`}
+          heading={`編輯：${editing.title ?? '待確認'}`}
           draft={editDraft}
           entities={entities}
           hideTitle
@@ -498,6 +568,130 @@ function UsageBar({ usage }: { usage: UserUsage }) {
     <strong>{usage.planCode}</strong>
     <span>AI 點數 {usage.aiUsedUnits.toLocaleString('zh-TW')} / {usage.aiAllowanceUnits.toLocaleString('zh-TW')}</span>
     <span>剩餘 {usage.aiRemainingUnits.toLocaleString('zh-TW')}</span>
+  </section>;
+}
+
+function GroupFundingPanel({ funding, busy, onSave }: {
+  funding: GroupFunding;
+  busy: boolean;
+  onSave: (grantId: number, enabled: boolean, capPoints: number | null) => Promise<void>;
+}) {
+  return <section className="panel stack">
+    <div className="topbar">
+      <div>
+        <p className="eyebrow">GROUP AI</p>
+        <h2>群組 AI 點數</h2>
+      </div>
+      <div className="muted">
+        {funding.responsibleUser
+          ? `AI 額度負責人：${funding.responsibleUser.displayName ?? `使用者 ${funding.responsibleUser.id}`}${funding.responsibleUserActive ? '' : '（目前不在群組）'}`
+          : '尚未設定 AI 額度負責人'}
+      </div>
+    </div>
+    <div className="worklog-usage">
+      <span>可用 {funding.availablePoints.toLocaleString('zh-TW')}</span>
+      <span>處理中 {funding.reservedPoints.toLocaleString('zh-TW')}</span>
+      <span>歷史已用 {funding.usedPoints.toLocaleString('zh-TW')}</span>
+      <span>平台補貼 {funding.platformSubsidizedPoints.toLocaleString('zh-TW')}</span>
+    </div>
+    {!funding.responsibleUser ? <p className="muted">手動查看、新增、編輯與搜尋仍可免費使用；只有需要 AI 時才需要設定 AI 額度負責人。</p> : null}
+    {funding.responsibleUser && !funding.responsibleUserActive ? <p className="muted">AI 額度負責人目前不在群組，因此群組 AI 暫停；手動 PWA 功能不受影響。</p> : null}
+    {funding.canManage ? <div className="stack">
+      <h3>我的 AI 點數分配</h3>
+      <p className="muted">只會列出你自己的 Grant。啟用後這個群組才能使用該筆點數；上限留空代表不另外限制這個群組。</p>
+      {funding.grants.length === 0 ? <p className="muted">目前沒有可設定的 AI Grant。</p> : funding.grants.map((grant) => <GrantFundingRow
+        key={`${grant.id}:${grant.enabled}:${grant.capPoints ?? 'none'}:${grant.usedPoints}:${grant.reservedPoints}`}
+        grant={grant}
+        busy={busy}
+        onSave={onSave}
+      />)}
+    </div> : null}
+  </section>;
+}
+
+function GrantFundingRow({ grant, busy, onSave }: {
+  grant: GroupFunding['grants'][number];
+  busy: boolean;
+  onSave: (grantId: number, enabled: boolean, capPoints: number | null) => Promise<void>;
+}) {
+  const [enabled, setEnabled] = useState(grant.enabled);
+  const [cap, setCap] = useState(grant.capPoints === null ? '' : String(grant.capPoints));
+  const normalizedCap = cap.trim();
+  const capNumber = normalizedCap === '' ? null : Number(normalizedCap);
+  const capValid = normalizedCap === '' || (/^\d+$/.test(normalizedCap) && Number.isSafeInteger(capNumber) && (capNumber ?? 0) >= 0);
+  return <article className="worklog-record-card">
+    <div className="worklog-record-meta">
+      <strong>{grant.type}</strong>
+      <span>{grant.status}</span>
+      <span>剩餘 {grant.remainingPoints.toLocaleString('zh-TW')}</span>
+      <span>此群組可用 {grant.sourceAvailablePoints.toLocaleString('zh-TW')}</span>
+      {grant.expiresAt ? <span>到期 {new Date(grant.expiresAt).toLocaleDateString('zh-TW')}</span> : <span>無固定到期日</span>}
+    </div>
+    <div className="filter-actions">
+      <label><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> 啟用於此群組</label>
+      <label>群組上限
+        <input type="number" min="0" step="1" value={cap} onChange={(event) => setCap(event.target.value)} placeholder="不限制" />
+      </label>
+      <button disabled={busy || !capValid} onClick={() => void onSave(grant.id, enabled, capNumber)}>儲存分配</button>
+    </div>
+    <p className="muted">此群組已用 {grant.usedPoints.toLocaleString('zh-TW')} · 處理中 {grant.reservedPoints.toLocaleString('zh-TW')}</p>
+  </article>;
+}
+
+function PendingConfirmationsPanel({ confirmations, busy, onResolve }: {
+  confirmations: WorklogConfirmation[];
+  busy: boolean;
+  onResolve: (confirmationId: number, decision: WorklogConfirmationDecision) => Promise<void>;
+}) {
+  const [drafts, setDrafts] = useState<Record<number, string>>({});
+  return <section className="panel stack">
+    <div><p className="eyebrow">待確認</p><h2>AI 需要你確認紀錄標題</h2></div>
+    <p className="muted">這些紀錄已經保存；以下選擇不會再呼叫 AI，也不會再扣 AI 點數。</p>
+    {confirmations.map((confirmation) => {
+      const customTitle = drafts[confirmation.id] ?? confirmation.proposedName ?? confirmation.candidateTitle ?? '';
+      const extraCandidate = confirmation.candidateEntityId
+        && !confirmation.candidates.some((candidate) => candidate.entityId === confirmation.candidateEntityId)
+        ? { entityId: confirmation.candidateEntityId, name: confirmation.candidateTitle ?? `標題 ${confirmation.candidateEntityId}` }
+        : null;
+      return <article className="worklog-record-card" key={confirmation.id}>
+        <div className="worklog-record-meta">
+          <span>{confirmation.confirmationType}</span>
+          <time>{new Date(confirmation.occurredAt).toLocaleString('zh-TW')}</time>
+        </div>
+        <strong>{confirmation.recordRawText}</strong>
+        {(confirmation.candidates.length > 0 || extraCandidate) ? <div className="stack">
+          <p className="muted">可能是既有紀錄標題：</p>
+          <div className="filter-actions">
+            {confirmation.candidates.map((candidate) => <button
+              key={candidate.entityId}
+              disabled={busy}
+              onClick={() => void onResolve(confirmation.id, { action: 'USE_EXISTING', entityId: candidate.entityId })}
+            >使用「{candidate.name}」</button>)}
+            {extraCandidate ? <button
+              disabled={busy}
+              onClick={() => void onResolve(confirmation.id, { action: 'USE_EXISTING', entityId: extraCandidate.entityId })}
+            >使用「{extraCandidate.name}」</button> : null}
+          </div>
+        </div> : null}
+        <div className="stack">
+          <label>建立／採用新紀錄標題
+            <input
+              list="aftertrace-title-options"
+              value={customTitle}
+              onChange={(event) => setDrafts((current) => ({ ...current, [confirmation.id]: event.target.value }))}
+              placeholder="輸入正確的紀錄標題"
+            />
+          </label>
+          <div className="filter-actions">
+            <button
+              disabled={busy || !customTitle.trim()}
+              onClick={() => void onResolve(confirmation.id, { action: 'CREATE_TITLE', title: customTitle.trim() })}
+            >使用這個新標題</button>
+            <button className="ghost" disabled={busy} onClick={() => void onResolve(confirmation.id, { action: 'REJECT' })}>略過</button>
+          </div>
+        </div>
+      </article>;
+    })}
   </section>;
 }
 
@@ -573,7 +767,7 @@ function RecordCard({ record, deleted, selected, onSelect, onEdit, onMove, onHis
     <div className="worklog-record-meta">
       {!deleted ? <input type="checkbox" checked={selected} onChange={(event) => onSelect(event.target.checked)} /> : null}
       <span>{inputLabel(record.inputType)}</span>
-      <span>{record.title ?? '待整理'}</span>
+      <span>{record.title ?? '待確認'}</span>
       {record.version > 1 ? <span>已編輯</span> : null}
       <time>{new Date(record.occurredAt).toLocaleString('zh-TW')}</time>
     </div>
@@ -591,10 +785,10 @@ function HistoryPanel({ record, revisions, onClose }: {
   onClose: () => void;
 }) {
   return <section className="panel stack">
-    <div className="topbar"><div><p className="eyebrow">HISTORY</p><h2>{record.title ?? '待整理'} · 編輯紀錄</h2></div><button className="ghost" onClick={onClose}>關閉</button></div>
+    <div className="topbar"><div><p className="eyebrow">HISTORY</p><h2>{record.title ?? '待確認'} · 編輯紀錄</h2></div><button className="ghost" onClick={onClose}>關閉</button></div>
     {revisions.length === 0 ? <p className="muted">這筆紀錄尚無修改歷史。</p> : revisions.map((revision) => <article className="worklog-record-card" key={revision.id}>
       <div className="worklog-record-meta"><span>版本 {revision.version}</span><span>{revision.editorDisplayName ?? `使用者 ${revision.editorUserId ?? '-'}`}</span><time>{new Date(revision.createdAt).toLocaleString('zh-TW')}</time></div>
-      <p>{revision.previousTitle ?? '待整理'} → {revision.newTitle ?? '待整理'}</p>
+      <p>{revision.previousTitle ?? '待確認'} → {revision.newTitle ?? '待確認'}</p>
       <p>{revision.previousRawText}</p><p>→</p><strong>{revision.newRawText}</strong>
       {revision.previousStatus !== revision.newStatus ? <p>{revision.previousStatus} → {revision.newStatus}</p> : null}
     </article>)}
@@ -609,6 +803,12 @@ function FeedbackPanel({ busy, onSubmit }: { busy: boolean; onSubmit: (text: str
     <textarea rows={7} value={text} onChange={(event) => setText(event.target.value)} placeholder="例如：群組紀錄篩選很難找、某個附件一直失敗…" />
     <button disabled={busy || !text.trim()} onClick={() => void onSubmit(text.trim()).then(() => setText(''))}>送出意見</button>
   </section>;
+}
+
+function recordScope(value: Scope): RecordScope {
+  return value.type === 'PERSONAL'
+    ? { type: 'PERSONAL', sourceId: value.sourceId }
+    : { type: 'GROUP', sourceId: value.sourceId };
 }
 
 function apiFilters(value: FilterDraft, offset: number): RecordFilters {
