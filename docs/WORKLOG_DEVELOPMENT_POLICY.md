@@ -2,119 +2,220 @@
 
 Durable development rules for branch `revive/line-worklog`.
 
-This file is part of the Worklog handoff contract and must be read by scheduled development runs together with the product/spec/progress/content-policy/deployment documents.
+Read before every scheduled or interactive development run:
+
+- `docs/WORKLOG_PRODUCT_SPEC.md`
+- `docs/WORKLOG_ENTITY_MODEL.md`
+- `docs/WORKLOG_RECORD_EDIT_POLICY.md`
+- `docs/WORKLOG_REBUILD_PROGRESS.md`
+- `docs/WORKLOG_LINE_CONTENT_POLICY.md`
+- `docs/WORKLOG_DEPLOYMENT.md`
 
 ## GitHub Actions / CI policy
 
-**Do not run GitHub Actions for AFTERTRACE development unless the user explicitly asks for it.**
+**Do not run, dispatch, rerun, enable, modify, or otherwise trigger GitHub Actions unless the user explicitly asks.**
 
-Scheduled or interactive development work must not:
+Do not use Actions as validation. Tests may be authored but must not be claimed passed unless actually executed locally/runtime.
 
-- manually run, dispatch, rerun, enable, or otherwise trigger GitHub Actions workflows;
-- add/modify workflow files merely to obtain verification;
-- rely on GitHub Actions as a build/test/typecheck/migration workaround;
-- make CI-only commits just to trigger workflows;
-- wait for GitHub Actions before continuing source development.
+## Durable product-decision policy
 
-Existing workflow files stay untouched unless the user explicitly requests CI/workflow changes.
+Agreed product decisions must not live only in chat.
 
-## Product-decision documentation policy
+In the same work batch:
 
-Product decisions agreed with the user are durable development contract and must not live only in chat history.
+- update `WORKLOG_PRODUCT_SPEC.md` for product/monetization/access/AI/LINE/data rules;
+- update `WORKLOG_ENTITY_MODEL.md` when Entity/Record/alias/query identity rules change;
+- update `WORKLOG_RECORD_EDIT_POLICY.md` when edit/revision/delete/LINE-edit rules change;
+- update `WORKLOG_REBUILD_PROGRESS.md` when implementation debt/priorities/estimates change;
+- surface code/doc mismatches instead of redefining product behavior to match legacy code.
 
-During scheduled or interactive development work:
+## Current product architecture rules
 
-- update `docs/WORKLOG_PRODUCT_SPEC.md` in the same batch when product/subscription/entitlement/LINE/billing/copy/data-access/architecture rules are agreed;
-- update `docs/WORKLOG_REBUILD_PROGRESS.md` when the decision changes implementation status, debt, validation scope or next work;
-- update deployment/content/development docs when the decision changes those operating contracts;
-- read durable documents first on every future run;
-- surface code/doc mismatches instead of silently redefining product behavior to match code;
-- document both desired behavior and pending implementation when a decision requires migration/payment/provider/background work.
+Treat these as authoritative until the user changes them:
 
-This explicitly includes pricing/cadence, quota refresh/rollover, Owner lifecycle, record edit authorization, LINE success replies/edit links, export scope, supported attachment types and AI-model policy.
+- Product/domain is general-purpose work recording; do not hard-code construction/finance/customer/project as the universal schema.
+- PRIVATE and GROUP Sources are independent data spaces.
+- A GROUP can exist and be used manually without a paid subscription, AI allowance, or AI allowance responsible user.
+- Manual PWA read/create/edit/delete/restore is baseline free functionality and consumes no AI units unless an explicit AI operation is invoked.
+- Group active members may read/create/edit group records; private records remain private-owner scoped.
+- No plan limits number of groups.
+- Customer-facing term is **AI 額度負責人**, not group/data Owner.
+- AI allowance is user-owned; every FREE/subscription/top-up grant remains independently identifiable and independently allocatable to PRIVATE and selected GROUP scopes with optional caps.
+- Multiple top-up purchases must not be merged when independent allocation settings would be lost.
+- Subscription expiry does not disable AI when another eligible grant remains; a grant not authorized for the requested scope must never be used as implicit fallback.
 
-## Current implementation target decisions
+## Plan defaults
 
-Treat these as durable until the user changes them:
+Current launch defaults:
 
-- Current production AI target is stable Gemini 3.5 Flash (`gemini-3.5-flash`). Gemini 2.5 compatibility is not an MVP requirement.
-- Gemini 3.5 uses Gemini-3 thinking controls and thinking-token accounting; do not retain old low-temperature overrides merely for legacy compatibility.
-- FREE is `ONE_TIME`, personal-only, gets 500 AI units once, does not expire by calendar and does not refresh.
-- PRO is NT$99/month, `MONTHLY`, 500 AI units per successful paid period, max 3 groups.
-- TEAM is NT$299/month, `MONTHLY`, 2500 AI units per successful paid period, max 20 groups.
-- Paid monthly quota refresh occurs only after confirmed renewal success; unused allowance does not roll over.
-- Group use requires the bound Owner to remain an active member. Owner absence suspends new group query/record/provider work.
-- While Owner is absent, an active member may run `@AFTERTRACE 啟用` to take Owner/billing responsibility. Successful rebind remains authoritative even if old Owner later returns; if nobody rebinds and old Owner rejoins, original binding resumes.
-- `export` is MVP and must be truthful/server-enforced before being advertised.
-- XLSX and DOCX are MVP attachment targets; add bounded extraction rather than forwarding unsupported Office binary MIME blindly to Gemini.
-- Initial plan matrix is FREE / PRO / TEAM and remains DB/Admin-driven.
+- FREE: NT$0, `ONE_TIME`, 500 AI units once, no calendar expiry/no refresh.
+- PRO: NT$99/month, `MONTHLY`, 500 included AI units per confirmed successful renewal.
+- TEAM: NT$299/month, `MONTHLY`, 2500 included AI units per confirmed successful renewal.
+- Paid included monthly allowance does not roll over.
+- Top-up units survive monthly renewal and are separate grants.
+- Export remains an intended paid capability until changed.
 
-## Baseline record-editing rule
+## AI execution / zero-balance rule
 
-Work-record correction is a **basic product safety function**, not a paid feature. AI can be wrong, therefore:
+Any operation requiring AI compute requires a positive eligible AI balance at request start.
 
-- remove/ignore `pwaEditing` as a plan capability;
-- every plan may edit records the current user is authorized to edit;
-- private OA records are editable only by their owning user;
-- group records are collaboratively editable by currently authorized members of that group;
-- group edit authorization remains subject to current group access rules (active membership, Owner presence, entitlement/maxGroupCount as applicable);
-- preserve original input/reference and retain editor/time auditability where supported;
-- successful LINE record flows should reply with what AFTERTRACE actually saved/AI-normalized and include a short-lived scoped edit link to that exact record;
-- if AI fails/is disabled but the raw record is safely stored, say so truthfully and still provide an edit link rather than inventing an AI result.
+Examples requiring AI allowance when implemented:
 
-Do not reintroduce record editing as a subscription differentiator.
+- LINE AI-assisted Record creation/entity parsing;
+- LINE natural-language Record editing;
+- AI summary/query;
+- AI report generation;
+- attachment understanding/transcription/extraction when provider AI is required.
 
-## Prelaunch database/schema policy
+If eligible balance is exactly zero at request start, do not start the AI/provider call. Direct the user to free PWA manual functionality or top-up/subscription paths as appropriate.
 
-AFTERTRACE is not live yet. The user has confirmed both development and production databases may be destructively rebuilt while schema/product work continues.
+If balance is positive at request start but actual provider usage exceeds the user's remaining eligible units, customer balance floors at zero and AFTERTRACE may absorb the remainder. Durable Admin/accounting must retain at least:
 
-During this prelaunch phase:
+- provider actual units/cost;
+- customer-charged units;
+- platform-subsidized units/cost;
+- user id;
+- PRIVATE/GROUP source id;
+- AI allowance responsible user when GROUP;
+- related Record/request where available;
+- model/pricing snapshot and timestamp.
 
-- current repository migration/schema is authoritative;
-- do not preserve obsolete migration-history compatibility solely for empty/non-live databases;
-- if an environment has stale migration history, rebuild it from the current journal/baseline;
-- new migrations/schema changes may proceed without a legacy-history reconciliation design for disposable databases;
-- confirm no real user/business data needs preservation before destructive reset;
-- once real production data exists, destructive-reset freedom ends immediately and normal forward-only migration discipline becomes mandatory.
+Do not create negative customer balances for this accepted overage policy.
 
-## AI provider accounting / settlement invariant
+## Entity / Record implementation rules
 
-Provider usage is a real external cost and must remain auditable even when quota estimation, Worker lifetime, persistence timing or provider response size differs from expectations.
+Core universal model is Source + Entity + Alias + Record + RecordEntity + Revision + pending AI confirmation.
 
-For all AFTERTRACE AI paths:
+- An Entity is a reusable lookup subject such as a person, project/context, place, equipment/item, etc.
+- Entity metadata stays lightweight; do not add universal address/phone/payment/construction columns merely because one use case has them.
+- PRIMARY/RELATED are roles of an Entity inside one Record, not permanent Entity types.
+- A Record has at most one PRIMARY and zero/many RELATED Entities.
+- A single Record must be discoverable through all of its Entity relations.
+- Only concrete future lookup targets become Entities; do not entity-extract every noun.
+- Alias is a confirmed alternate name for one Entity; contextual phrases expressing relationships must not be silently converted into aliases.
+- Entity/Alias matching is Source-scoped and must never cross unrelated PRIVATE/GROUP data spaces.
 
-- quota reservation is a **preflight hold**, not permission to erase a provider call that completed;
-- before provider success, a failed/cancelled attempt may release only when no usable provider result/cost exists;
-- after usable provider success, **never release merely because actual usage exceeded estimate, settlement was delayed, reservation expired, or later persistence failed**;
-- durable/resumable settlement should preserve successful provider output and exact metering/pricing snapshot whenever architecture permits;
-- actual usage above reservation must still be recorded;
-- expiry/recovery must avoid double-decrement/double-charge;
-- resume after provider success is idempotent and must not call Gemini again;
-- provider-dollar cost and customer allowance units remain distinct concepts;
-- thinking/reasoning and modality-specific usage are captured exactly once;
-- do not claim provider-cost/quota correctness until executable overage/expiry/concurrency/persistence cases run.
+## AI-assisted Record parsing
 
-## Development validation policy
+When a new Record uses AI, current target parsing responsibilities are:
 
-During accelerated MVP implementation:
+- determine PRIMARY Entity candidate;
+- determine meaningful RELATED Entity candidates;
+- resolve existing Entity/Alias candidates inside the same Source;
+- detect possible Alias matches requiring confirmation;
+- resolve `occurred_at` when time language is present.
 
-- prefer static consistency review/source contract checking/authored tests;
-- record authored but unexecuted tests as **not executed**;
-- never claim typecheck/test/migration/schema/browser/Worker/LINE/Gemini/E2E success without actual logs;
-- do not repeatedly spend scheduled runs attempting unavailable local execution;
-- keep concentrated executable validation separate until major MVP paths are complete and the user wants it.
+Do not require AI to extract universal fixed finance/address/material/task fields. Those are not core schema until a separately approved feature requires deterministic typed state.
 
-The concentrated pass should include install/build/typecheck/test/schema/migration/browser/Worker/LINE/Gemini checks locally/runtime, not through GitHub Actions.
+## Pending AI confirmation
 
-## Scheduled-run handoff requirement
+Ambiguous AI identity decisions must be durable, not Worker-memory-only.
 
-Before finishing each scheduled or interactive development run, update `docs/WORKLOG_REBUILD_PROGRESS.md` with:
+Implement a durable pending-confirmation domain/table for cases such as:
 
-- completed changes;
-- static validation performed;
-- tests authored/updated but not executed;
-- known risks;
-- next large batch;
-- confirmation GitHub Actions were not run/triggered.
+- `ALIAS_MATCH`;
+- `PRIMARY_ENTITY` ambiguity;
+- `ENTITY_MATCH` ambiguity.
 
-End-of-run reports should include estimated MVP completion, production readiness, remaining code/static work versus external/payment/config work, remaining large batches and time to concentrated validation/post-validation fixes. These are planning estimates, not test results.
+Never silently create an uncertain alias or choose among multiple plausible existing Entities. Ask the user and persist pending/resolved state.
+
+## Record time model
+
+Records distinguish:
+
+- `created_at`: stored in AFTERTRACE;
+- `occurred_at`: real-world event time; defaults to message/create time when unspecified;
+- `updated_at`: current row last changed.
+
+AI-assisted ingestion may interpret relative time expressions. Query/filter code must prefer `occurred_at` for “yesterday/this week/last month” business-history questions.
+
+## Record editing / revision rule
+
+PWA manual edits are free and do not invoke AI automatically.
+
+- every content-changing edit writes immutable revision history;
+- Record current row holds latest state;
+- preserve previous/new text, actor, channel, time and relevant Entity snapshots where needed;
+- show `已編輯` and revision history in PWA;
+- restoring an old revision creates a new revision; do not erase newer history;
+- use integer `version` optimistic concurrency; stale saves fail rather than overwrite;
+- do not use in-memory locks or Redis for ordinary Record edit concurrency.
+
+PWA manual text editing does **not** automatically re-parse/reassign Entity associations. If the user manually changes `晴空案` text to `信義案`, the system does not spend AI to infer intent. The user should explicitly adjust context/create the correct Record as needed.
+
+## LINE natural-language Record edit
+
+LINE AI edit is allowed only with reliable target identification and positive AI allowance.
+
+Preferred rule:
+
+- require Reply to the specific prior Record/AFTERTRACE success context so backend can deterministically recover `record_id`;
+- if not Replying and target cannot be deterministically identified, do not guess; reply that the user must Reply to the Record or edit in PWA;
+- AI interprets the requested mutation after target Record is fixed;
+- AI may change raw text and, when the instruction clearly changes the subject, propose/update PRIMARY/RELATED Entity associations;
+- if new subject is not existing, use normal Entity/Alias/pending-confirmation flow;
+- commit through deterministic backend functions, authorization, expected-version check and atomic revision write; AI never receives arbitrary SQL mutation authority.
+
+## Soft delete / recycle bin
+
+Record deletion is status-based, not physical.
+
+- require a safety confirmation;
+- store delete actor/time;
+- hide deleted Records from normal views/AI queries;
+- show them in a dedicated PWA deleted-record/recycle-bin view;
+- allow restore;
+- keep RecordEntity associations and revision history durable while deleted.
+
+## Entity merge / undo
+
+Merge is reversible and Source-scoped.
+
+- show safety confirmation;
+- retain source Entity as MERGED rather than physically deleting it;
+- record which Record associations originally belonged to source;
+- undo restores those associations to source even if Record text was edited after merge;
+- content edits remain intact.
+
+## Summary policy
+
+Do not maintain a persistent per-record AI summary as a second source of truth.
+
+- stored truth is raw Record/durable textual extraction + Entity relations + audit history;
+- AI summary/query is on-demand and ephemeral;
+- users do not manually edit a stored summary;
+- edits/merge/undo therefore do not trigger summary regeneration.
+
+## Generic Record-to-Record relation policy
+
+Do not add a universal RecordRelation table for MVP merely because two Records appear chronologically related. Entity + time history is sufficient for AI to answer many progress questions.
+
+Add deterministic typed Record relations later only when a separately approved feature genuinely needs them (e.g. payment settlement, reminder lifecycle, task completion).
+
+## Attachment policy
+
+- PWA manual create/edit is text/structured-data only; no permanent PWA file/photo library for MVP.
+- LINE image/audio/file can be fetched and converted into durable textual information; original binary is not permanently retained.
+- Follow `WORKLOG_LINE_CONTENT_POLICY.md` for reply cache/content retrieval/Office/PDF handling.
+
+## AI provider accounting invariant
+
+Provider cost and customer allowance are separate ledgers/facts.
+
+- reservation is preflight only;
+- provider-success usage is never erased because settlement is late/over-estimate/persistence later fails;
+- avoid double settlement/double provider calls on resume;
+- thinking/modality usage is counted exactly once;
+- grant consumption and platform subsidy must remain auditable.
+
+## Prelaunch database policy
+
+Both dev/prod are prelaunch/disposable while schema is being finalized. Current repository migration/schema is authoritative and may be destructively rebuilt after confirming no real user/business data requires preservation.
+
+Once real production data exists, immediately switch to forward-only migration discipline.
+
+## Validation and handoff
+
+- never claim unexecuted tests passed;
+- use local/runtime validation, not GitHub Actions;
+- every meaningful development run updates `WORKLOG_REBUILD_PROGRESS.md` with completed work, remaining debt, validation state, next batch, estimates, and explicit confirmation that GitHub Actions were not run/triggered.
