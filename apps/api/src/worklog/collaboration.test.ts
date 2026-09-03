@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   WorklogCollaborationService,
   type GroupAuthorizationContext,
+  type GroupManualAccessContext,
   type WorklogCollaborationRepository,
 } from './collaboration';
 
 class FakeRepository implements WorklogCollaborationRepository {
+  manualContext: GroupManualAccessContext | null = null;
   context: GroupAuthorizationContext | null = null;
   owners = new Map<number, number | null>();
   activeMembers = new Set<string>();
@@ -17,6 +19,7 @@ class FakeRepository implements WorklogCollaborationRepository {
   }> = [];
   bindSucceeds = true;
 
+  async getGroupManualAccessContext() { return this.manualContext; }
   async getGroupAuthorizationContext() { return this.context; }
   async getGroupOwnerUserId(sourceId: number) { return this.owners.get(sourceId) ?? null; }
   async isActiveGroupMember(sourceId: number, userId: number) { return this.activeMembers.has(`${sourceId}:${userId}`); }
@@ -28,6 +31,14 @@ class FakeRepository implements WorklogCollaborationRepository {
     this.owners.set(sourceId, ownerUserId);
     return true;
   }
+}
+
+function manualContext(): GroupManualAccessContext {
+  return {
+    sourceId: 10,
+    sourceStatus: 'ACTIVE',
+    actorIsActiveMember: true,
+  };
 }
 
 function baseContext(): GroupAuthorizationContext {
@@ -45,150 +56,170 @@ function baseContext(): GroupAuthorizationContext {
     ownerPeriodStart: new Date('2026-09-01T00:00:00Z'),
     ownerPeriodEnd: new Date('2026-10-01T00:00:00Z'),
     ownerPlanEnabled: true,
-    ownerCapabilities: { groupCollaboration: true, maxGroupCount: 3 },
+    ownerCapabilities: {},
     ownerAllowanceUnits: 100,
     ownerConsumedUnits: 20,
-    ownerGroupPosition: 1,
   };
 }
 
 const ACTIVE_AT = new Date('2026-09-02T00:00:00Z');
 
-describe('WorklogCollaborationService access authorization', () => {
-  it('allows historical group read when recording is disabled but the owner plan is entitled', async () => {
+describe('WorklogCollaborationService manual group access', () => {
+  it('allows an active member without consulting owner/subscription AI state', async () => {
     const repository = new FakeRepository();
-    repository.context = { ...baseContext(), actorRecordingEnabled: false };
+    repository.manualContext = manualContext();
+    repository.context = {
+      ...baseContext(),
+      ownerUserId: null,
+      ownerIsActiveMember: false,
+      ownerSubscriptionStatus: null,
+      ownerPlanEnabled: false,
+    };
     const service = new WorklogCollaborationService(repository);
-    await expect(service.authorizeGroupAccess({ sourceId: 10, actorUserId: 200, at: ACTIVE_AT })).resolves.toEqual({
-      status: 'OK', actorUserId: 200, ownerUserId: 100, ownerPlanCode: 'SUB1',
-      ownerCapabilities: { groupCollaboration: true, maxGroupCount: 3 },
-    });
+
+    await expect(service.authorizeGroupAccess({ sourceId: 10, actorUserId: 200, at: ACTIVE_AT }))
+      .resolves.toEqual({ status: 'OK', actorUserId: 200 });
   });
 
-  it('suspends group read when the bound owner is no longer an active member', async () => {
+  it('does not require the legacy owner to still be a member for manual access', async () => {
     const repository = new FakeRepository();
+    repository.manualContext = manualContext();
     repository.context = { ...baseContext(), ownerIsActiveMember: false };
     const service = new WorklogCollaborationService(repository);
+
     await expect(service.authorizeGroupAccess({ sourceId: 10, actorUserId: 200, at: ACTIVE_AT }))
-      .resolves.toEqual({ status: 'OWNER_ABSENT' });
+      .resolves.toEqual({ status: 'OK', actorUserId: 200 });
   });
 
-  it('keeps FREE personal-only for group query/read access', async () => {
+  it('blocks a non-member even if legacy billing state is valid', async () => {
     const repository = new FakeRepository();
-    repository.context = { ...baseContext(), ownerPlanCode: 'FREE', ownerPlanDisplayName: '免費版' };
+    repository.manualContext = { ...manualContext(), actorIsActiveMember: false };
+    repository.context = baseContext();
     const service = new WorklogCollaborationService(repository);
+
     await expect(service.authorizeGroupAccess({ sourceId: 10, actorUserId: 200, at: ACTIVE_AT }))
-      .resolves.toEqual({ status: 'GROUP_NOT_ENTITLED', ownerPlanDisplayName: '免費版' });
+      .resolves.toEqual({ status: 'NOT_ACTIVE_MEMBER' });
   });
 
-  it('blocks group read when an ACTIVE row is already past its billing period', async () => {
+  it('blocks inactive and missing group sources', async () => {
     const repository = new FakeRepository();
-    repository.context = { ...baseContext(), ownerPeriodEnd: new Date('2026-09-02T00:00:00Z') };
     const service = new WorklogCollaborationService(repository);
-    await expect(service.authorizeGroupAccess({ sourceId: 10, actorUserId: 200, at: ACTIVE_AT }))
-      .resolves.toEqual({ status: 'GROUP_NOT_ENTITLED', ownerPlanDisplayName: '專業版' });
-  });
 
-  it('blocks group read before the paid period becomes effective', async () => {
-    const repository = new FakeRepository();
-    repository.context = { ...baseContext(), ownerEffectiveAt: new Date('2026-09-03T00:00:00Z'), ownerPeriodStart: new Date('2026-09-03T00:00:00Z') };
-    const service = new WorklogCollaborationService(repository);
-    await expect(service.authorizeGroupAccess({ sourceId: 10, actorUserId: 200, at: ACTIVE_AT }))
-      .resolves.toEqual({ status: 'GROUP_NOT_ENTITLED', ownerPlanDisplayName: '專業版' });
-  });
+    repository.manualContext = { ...manualContext(), sourceStatus: 'INACTIVE' };
+    await expect(service.authorizeGroupAccess({ sourceId: 10, actorUserId: 200 }))
+      .resolves.toEqual({ status: 'GROUP_INACTIVE' });
 
-  it('fails closed when a group-enabled legacy plan omits maxGroupCount', async () => {
-    const repository = new FakeRepository();
-    repository.context = { ...baseContext(), ownerCapabilities: { groupCollaboration: true } };
-    const service = new WorklogCollaborationService(repository);
-    await expect(service.authorizeGroupAccess({ sourceId: 10, actorUserId: 200, at: ACTIVE_AT }))
-      .resolves.toEqual({ status: 'GROUP_NOT_ENTITLED', ownerPlanDisplayName: '專業版' });
-  });
-
-  it('blocks a group whose stable owner ordinal is beyond maxGroupCount', async () => {
-    const repository = new FakeRepository();
-    repository.context = { ...baseContext(), ownerGroupPosition: 4 };
-    const service = new WorklogCollaborationService(repository);
-    await expect(service.authorizeGroupAccess({ sourceId: 10, actorUserId: 200, at: ACTIVE_AT })).resolves.toEqual({
-      status: 'GROUP_LIMIT_REACHED', ownerPlanDisplayName: '專業版', maxGroupCount: 3,
-    });
+    repository.manualContext = null;
+    await expect(service.authorizeGroupAccess({ sourceId: 10, actorUserId: 200 }))
+      .resolves.toEqual({ status: 'GROUP_NOT_FOUND' });
   });
 });
 
-describe('WorklogCollaborationService authorization', () => {
-  it('charges group AI usage to the group owner while retaining the actor', async () => {
-    const repository = new FakeRepository(); repository.context = baseContext();
+describe('WorklogCollaborationService temporary legacy AI authorization', () => {
+  it('charges group AI usage to the legacy bound owner while retaining the actor', async () => {
+    const repository = new FakeRepository();
+    repository.context = baseContext();
     const service = new WorklogCollaborationService(repository);
-    await expect(service.authorizeGroupRecord({ sourceId: 10, actorUserId: 200, requestedAiUnits: 5, at: ACTIVE_AT })).resolves.toEqual({
-      status: 'OK', actorUserId: 200, chargedUserId: 100, ownerPlanCode: 'SUB1',
-      ownerCapabilities: { groupCollaboration: true, maxGroupCount: 3 }, remainingAiUnits: 75,
-    });
+
+    await expect(service.authorizeGroupRecord({ sourceId: 10, actorUserId: 200, requestedAiUnits: 5, at: ACTIVE_AT }))
+      .resolves.toEqual({
+        status: 'OK',
+        actorUserId: 200,
+        chargedUserId: 100,
+        ownerPlanCode: 'SUB1',
+        ownerCapabilities: {},
+        remainingAiUnits: 75,
+      });
   });
 
-  it('suspends recording and quota use when the bound owner has left the group', async () => {
-    const repository = new FakeRepository(); repository.context = { ...baseContext(), ownerIsActiveMember: false };
+  it('still pauses legacy AI use when the bound owner is absent until grant/responsible-user refactor lands', async () => {
+    const repository = new FakeRepository();
+    repository.context = { ...baseContext(), ownerIsActiveMember: false };
     const service = new WorklogCollaborationService(repository);
+
     await expect(service.authorizeGroupRecord({ sourceId: 10, actorUserId: 200, requestedAiUnits: 5, at: ACTIVE_AT }))
       .resolves.toEqual({ status: 'OWNER_ABSENT' });
   });
 
-  it('blocks a member before AI usage when owner disabled recording permission', async () => {
-    const repository = new FakeRepository(); repository.context = { ...baseContext(), actorRecordingEnabled: false };
+  it('blocks a member before legacy AI usage when recording permission is disabled', async () => {
+    const repository = new FakeRepository();
+    repository.context = { ...baseContext(), actorRecordingEnabled: false };
     const service = new WorklogCollaborationService(repository);
+
     await expect(service.authorizeGroupRecord({ sourceId: 10, actorUserId: 200, at: ACTIVE_AT }))
       .resolves.toEqual({ status: 'RECORDING_DISABLED' });
   });
 
-  it('never lets FREE use group collaboration even if bad capability data says true', async () => {
-    const repository = new FakeRepository(); repository.context = { ...baseContext(), ownerPlanCode: 'FREE', ownerPlanDisplayName: '免費版' };
+  it('blocks a stale legacy subscription before quota/provider work', async () => {
+    const repository = new FakeRepository();
+    repository.context = {
+      ...baseContext(),
+      ownerPeriodEnd: new Date('2026-09-02T00:00:00Z'),
+      ownerAllowanceUnits: 1000,
+      ownerConsumedUnits: 0,
+    };
     const service = new WorklogCollaborationService(repository);
-    await expect(service.authorizeGroupRecord({ sourceId: 10, actorUserId: 200, at: ACTIVE_AT }))
-      .resolves.toEqual({ status: 'GROUP_NOT_ENTITLED', ownerPlanDisplayName: '免費版' });
-  });
 
-  it('blocks a stale ACTIVE subscription before quota checks or provider work', async () => {
-    const repository = new FakeRepository(); repository.context = { ...baseContext(), ownerPeriodEnd: new Date('2026-09-02T00:00:00Z'), ownerAllowanceUnits: 1000, ownerConsumedUnits: 0 };
-    const service = new WorklogCollaborationService(repository);
     await expect(service.authorizeGroupRecord({ sourceId: 10, actorUserId: 200, requestedAiUnits: 1, at: ACTIVE_AT }))
       .resolves.toEqual({ status: 'GROUP_NOT_ENTITLED', ownerPlanDisplayName: '專業版' });
   });
 
-  it('blocks the provider call when owner allowance cannot cover requested AI units', async () => {
-    const repository = new FakeRepository(); repository.context = { ...baseContext(), ownerAllowanceUnits: 100, ownerConsumedUnits: 99 };
+  it('blocks the provider call when legacy allowance cannot cover requested AI units', async () => {
+    const repository = new FakeRepository();
+    repository.context = { ...baseContext(), ownerAllowanceUnits: 100, ownerConsumedUnits: 99 };
     const service = new WorklogCollaborationService(repository);
+
     await expect(service.authorizeGroupRecord({ sourceId: 10, actorUserId: 200, requestedAiUnits: 2, at: ACTIVE_AT }))
       .resolves.toEqual({ status: 'AI_QUOTA_EXHAUSTED' });
   });
 
-  it('does not let a stale/non-member group identity consume owner quota', async () => {
-    const repository = new FakeRepository(); repository.context = { ...baseContext(), actorIsActiveMember: false };
+  it('does not let a stale/non-member group identity consume legacy owner quota', async () => {
+    const repository = new FakeRepository();
+    repository.context = { ...baseContext(), actorIsActiveMember: false };
     const service = new WorklogCollaborationService(repository);
+
     await expect(service.authorizeGroupRecord({ sourceId: 10, actorUserId: 200, at: ACTIVE_AT }))
       .resolves.toEqual({ status: 'NOT_ACTIVE_MEMBER' });
   });
 });
 
 describe('WorklogCollaborationService member permissions', () => {
-  it('allows only the owner to change a member recording permission', async () => {
-    const repository = new FakeRepository(); repository.owners.set(10, 100); repository.activeMembers.add('10:200');
+  it('allows only the legacy owner to change a member recording permission', async () => {
+    const repository = new FakeRepository();
+    repository.owners.set(10, 100);
+    repository.activeMembers.add('10:200');
     const service = new WorklogCollaborationService(repository);
-    await expect(service.setMemberRecordingPermission({ sourceId: 10, actorUserId: 999, memberUserId: 200, enabled: false })).resolves.toEqual({ status: 'FORBIDDEN' });
+
+    await expect(service.setMemberRecordingPermission({ sourceId: 10, actorUserId: 999, memberUserId: 200, enabled: false }))
+      .resolves.toEqual({ status: 'FORBIDDEN' });
     expect(repository.permissionWrites).toEqual([]);
-    await expect(service.setMemberRecordingPermission({ sourceId: 10, actorUserId: 100, memberUserId: 200, enabled: false })).resolves.toEqual({ status: 'UPDATED' });
-    expect(repository.permissionWrites).toEqual([{ sourceId: 10, memberUserId: 200, enabled: false, updatedByUserId: 100 }]);
+
+    await expect(service.setMemberRecordingPermission({ sourceId: 10, actorUserId: 100, memberUserId: 200, enabled: false }))
+      .resolves.toEqual({ status: 'UPDATED' });
+    expect(repository.permissionWrites).toEqual([
+      { sourceId: 10, memberUserId: 200, enabled: false, updatedByUserId: 100 },
+    ]);
   });
 
-  it('does not allow the owner to disable their own recording permission', async () => {
-    const repository = new FakeRepository(); repository.owners.set(10, 100); repository.activeMembers.add('10:100');
+  it('does not allow the legacy owner to disable their own recording permission', async () => {
+    const repository = new FakeRepository();
+    repository.owners.set(10, 100);
+    repository.activeMembers.add('10:100');
     const service = new WorklogCollaborationService(repository);
-    await expect(service.setMemberRecordingPermission({ sourceId: 10, actorUserId: 100, memberUserId: 100, enabled: false })).resolves.toEqual({ status: 'OWNER_CANNOT_BE_DISABLED' });
+
+    await expect(service.setMemberRecordingPermission({ sourceId: 10, actorUserId: 100, memberUserId: 100, enabled: false }))
+      .resolves.toEqual({ status: 'OWNER_CANNOT_BE_DISABLED' });
   });
 });
 
-describe('WorklogCollaborationService owner binding', () => {
-  it('binds once and refuses accidental ownership reassignment', async () => {
-    const repository = new FakeRepository(); const service = new WorklogCollaborationService(repository);
-    await expect(service.bindGroupOwner({ sourceId: 10, ownerUserId: 100, bindingMethod: 'line_actor' })).resolves.toEqual({ status: 'BOUND', ownerUserId: 100 });
-    await expect(service.bindGroupOwner({ sourceId: 10, ownerUserId: 200, bindingMethod: 'line_actor' })).resolves.toEqual({ status: 'OWNER_CONFLICT', ownerUserId: 100 });
+describe('WorklogCollaborationService legacy owner binding', () => {
+  it('binds once and refuses accidental reassignment', async () => {
+    const repository = new FakeRepository();
+    const service = new WorklogCollaborationService(repository);
+
+    await expect(service.bindGroupOwner({ sourceId: 10, ownerUserId: 100, bindingMethod: 'line_actor' }))
+      .resolves.toEqual({ status: 'BOUND', ownerUserId: 100 });
+    await expect(service.bindGroupOwner({ sourceId: 10, ownerUserId: 200, bindingMethod: 'line_actor' }))
+      .resolves.toEqual({ status: 'OWNER_CONFLICT', ownerUserId: 100 });
   });
 });
