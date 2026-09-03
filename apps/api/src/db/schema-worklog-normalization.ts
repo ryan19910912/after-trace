@@ -11,8 +11,8 @@ import {
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/pg-core';
+import { worklogAiPointReservations } from './schema-worklog-grants';
 import { worklogRecords } from './schema-worklog-record-core';
-import { worklogAiQuotaReservations } from './schema-worklog-quota';
 
 /**
  * Durable orchestration state for post-persistence Worklog AI interpretation.
@@ -21,6 +21,10 @@ import { worklogAiQuotaReservations } from './schema-worklog-quota';
  * longer a summary/category normalization. It stores the bounded single-title and
  * occurred-at interpretation used by LINE-created Records. A single row per Record
  * keeps provider execution and settlement idempotent across LINE redelivery.
+ *
+ * reservation_token references the grant-backed point reservation table. Keeping a
+ * foreign key to the removed aggregate-quota reservation would make every successful
+ * grant-backed provider result fail exactly at durable result persistence.
  */
 export const worklogRecordAiNormalizations = pgTable(
   'worklog_record_ai_normalizations',
@@ -31,7 +35,7 @@ export const worklogRecordAiNormalizations = pgTable(
     status: varchar('status', { length: 32 }).default('PENDING').notNull(),
     claimToken: varchar('claim_token', { length: 64 }).notNull(),
     reservationToken: varchar('reservation_token', { length: 64 }).references(
-      () => worklogAiQuotaReservations.token,
+      () => worklogAiPointReservations.token,
       { onDelete: 'restrict' },
     ),
     resultJson: jsonb('result_json'),
