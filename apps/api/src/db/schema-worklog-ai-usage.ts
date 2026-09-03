@@ -5,9 +5,13 @@ import { worklogRecords } from './schema-worklog-record-core';
 /**
  * Durable provider/accounting facts for each successful AI request.
  *
- * `ai_units_consumed` is the current transitional aggregate-quota column name. The
- * grant/AI-point batch will migrate settlement to customer AI points + platform
- * subsidy without changing the immutable provider usage/cost facts kept here.
+ * Provider usage/cost is immutable factual accounting. Customer points and platform
+ * subsidy are separate settlement facts: customer_points_charged can never exceed the
+ * eligible balance available to the already-started request, while any remainder is
+ * retained as platform_subsidized_points/cost rather than customer overdraw.
+ *
+ * ai_units_consumed remains transitional until every executable caller has moved from
+ * the legacy aggregate quota repository to the grant ledger.
  */
 export const worklogAiUsageEvents = pgTable(
   'worklog_ai_usage_events',
@@ -28,6 +32,7 @@ export const worklogAiUsageEvents = pgTable(
     recordId: bigint('record_id', { mode: 'number' }).references(() => worklogRecords.id, {
       onDelete: 'restrict',
     }),
+    operation: varchar('operation', { length: 64 }).default('UNKNOWN').notNull(),
     provider: varchar('provider', { length: 128 }).notNull(),
     model: varchar('model', { length: 255 }).notNull(),
     inputTokens: integer('input_tokens').default(0).notNull(),
@@ -41,6 +46,10 @@ export const worklogAiUsageEvents = pgTable(
     usdTwdRate: numeric('usd_twd_rate', { precision: 12, scale: 6 }),
     providerCostUsd: numeric('provider_cost_usd', { precision: 18, scale: 8 }).notNull(),
     providerCostTwd: numeric('provider_cost_twd', { precision: 18, scale: 6 }),
+    customerPointsCharged: integer('customer_points_charged').default(0).notNull(),
+    platformSubsidizedPoints: integer('platform_subsidized_points').default(0).notNull(),
+    platformSubsidizedCostUsd: numeric('platform_subsidized_cost_usd', { precision: 18, scale: 8 }).default('0').notNull(),
+    platformSubsidizedCostTwd: numeric('platform_subsidized_cost_twd', { precision: 18, scale: 6 }),
     aiUnitsConsumed: integer('ai_units_consumed').default(0).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -49,6 +58,7 @@ export const worklogAiUsageEvents = pgTable(
     index('worklog_ai_usage_charged_time_idx').on(table.chargedUserId, table.createdAt),
     index('worklog_ai_usage_source_actor_time_idx').on(table.sourceId, table.actorUserId, table.createdAt),
     index('worklog_ai_usage_workspace_time_idx').on(table.workspaceId, table.createdAt),
+    index('worklog_ai_usage_operation_time_idx').on(table.operation, table.createdAt),
     index('worklog_ai_usage_record_idx').on(table.recordId),
   ],
 );
