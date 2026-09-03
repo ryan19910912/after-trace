@@ -2,371 +2,330 @@
 
 ## Product direction
 
-AFTERTRACE is a LINE-first work-record assistant for individual tradespeople and small crews.
+AFTERTRACE is a general-purpose LINE-first work-record assistant for individuals and groups.
 
-Primary surfaces:
+Core surfaces:
 
-- LINE OA private chat: personal/private work records, subscription entry, feedback, help.
-- LINE group bot: shared work-record surface for crews/projects.
-- Web/PWA: browse, filter, manually create, edit, organize and export records; manage customers/projects/finance; owner usage/member controls.
-- Internal Admin: users/groups/plans/quota, AI pricing, anomalies, feedback and audit.
-- AI: Gemini 3.5 normalizes human input into concise work records. AI output is derived and must remain editable by users.
+- LINE OA/private chat: personal work records, AI query/edit entry, subscription/top-up/help.
+- LINE group bot: shared work-record capture and AI query/edit entry.
+- Web/PWA: free manual browse/search/filter/create/edit/delete/restore; Entity views; AI allowance settings; AI history; paid export where enabled.
+- Internal Admin: users/groups/plans/grants/usage/subsidy/anomalies/audit.
 
-## Product monetization principle
+The product/domain is intentionally general-purpose. Do not hard-code construction, finance, Customer, Project, payment, materials, etc. as universal schema. Future vertical features may add structured domain-specific state later.
 
-AFTERTRACE charges for AI convenience and paid capabilities, not for access to a user's own data, manual record keeping, or the number of LINE groups used.
+## Monetization principle
 
-Baseline functions available without AI quota:
+AFTERTRACE charges for AI compute/convenience and selected paid capabilities, not for access to the user's own data or manual CRUD.
 
-- add AFTERTRACE Bot to a LINE group;
-- open that group's PWA record surface;
+Free baseline:
+
+- add Bot to LINE groups;
 - read/search/filter authorized records;
-- manually create records in PWA;
-- manually edit authorized records in PWA.
+- manually create/edit/delete/restore PWA records;
+- group manual collaboration for active members;
+- no maximum group count.
 
-AI-assisted ingestion consumes AI allowance. When allowance is exhausted, users may keep working manually for free or purchase additional one-time AI allowance.
+Any operation that requires AI compute requires a positive eligible AI balance at request start.
 
-## LINE interaction contract
+If eligible AI balance is exactly zero, do not start AI. Manual PWA functions remain available.
 
-### AI-assisted record commands
+If balance is positive when AI starts but actual provider usage exceeds the remaining eligible units, user balance floors at zero and AFTERTRACE may absorb the shortfall. Admin must show how much was subsidized, for which user/group/private source/request, and the actual provider cost.
 
-- `@AFTERTRACE <text>` is the fast AI-assisted recording path and requires spendable AI allowance plus any required AI allowance-responsible-user binding for that source.
-- Reply to an image/audio/file and send `@AFTERTRACE` to use AI-assisted attachment ingestion.
-- Ordinary group chat is not persisted as product records unless explicitly triggered.
-- Ordinary private OA text without `@AFTERTRACE` remains human-support traffic.
-- Group quoted TEXT is available only through the bounded temporary cache. If an old quoted TEXT can no longer be reconstructed, ask the user to re-enter the original text.
-- If LINE attachment content has expired/unavailable, ask the user to resend it.
+## Plans
 
-### Non-AI group actions
-
-The Bot may exist in FREE groups even when no paid subscription or AI allowance responsible user is active.
-
-Non-AI commands such as opening the PWA/group history must not require paid entitlement or AI allowance. The exact command copy may remain `@AFTERTRACE 查詢` or an equivalent entry action.
-
-### Success reply after recording
-
-Every successful LINE AI record flow must tell the user what AFTERTRACE actually recorded.
-
-Preferred structure:
-
-```text
-已記錄：
-{{AI 整理後摘要或實際保存內容}}
-
-修改紀錄：
-https://<aftertrace-web>/records/{{recordId}}
-```
-
-Rules:
-
-- When AI normalization succeeds, show the normalized summary/category-relevant result rather than only `已記錄。`.
-- When raw content is saved but AI is disabled/deferred/failed, state that truthfully and never fabricate an AI summary.
-- The record URL is a durable PWA deep link containing the durable record id.
-- PWA authentication/authorization remains authoritative; knowing a record id/URL never grants access by itself.
-- If the new message appears to update/resolve an earlier business item but AFTERTRACE cannot determine the exact target confidently, the reply must say so explicitly instead of pretending the relationship is known.
-
-## PWA manual record creation and editing
-
-Manual PWA recording/editing is a baseline product function for every user, including FREE users and users whose AI allowance is exhausted.
-
-Manual PWA create/edit must not consume AI allowance unless the user explicitly invokes an AI-assisted action.
-
-### Private scope
-
-- Only the owning LINE/OA user may view, manually create into, and edit their private record scope.
-- Losing AI quota or paid subscription state never removes manual read/create/edit access to existing personal data.
-
-### Group scope
-
-- Any currently active member of a LINE group that has AFTERTRACE may view existing records, manually create PWA records into that group, and manually edit that group's records.
-- Manual PWA group use is available on FREE and paid plans.
-- Manual group use does not require an AI allowance responsible user to be present, an active paid subscription, or AI allowance.
-- Group membership/source authorization still applies; unrelated users cannot access the group by guessing ids.
-- If a previous AI allowance responsible user leaves or their subscription expires, active members may continue all manual PWA work.
-
-### Record deletion / restore
-
-Record deletion is reversible soft deletion, not physical deletion.
-
-- Before deleting, PWA must show a clear confirmation asking whether the user really wants to delete the record.
-- A confirmed deletion changes durable record state (for example `DELETED`) and records who deleted it and when; the row/raw history is not physically removed.
-- Deleted records disappear from the normal active-record list but appear in a dedicated PWA `已刪除紀錄` / recycle-bin list.
-- Authorized users may restore a deleted record at any time unless a later retention policy explicitly says otherwise.
-- Restore/delete operations are auditable.
-- If a record has deterministic downstream state such as finance allocations or other relations, deletion/restore must not silently corrupt those relations; the exact derived-state behavior is finalized with the related finance/domain implementation.
-
-### Edit auditability
-
-- Preserve original user-provided content/reference as source-of-truth where practical.
-- Retain actor/editor identity and timestamps for manual create/edit.
-- Keep enough audit history to distinguish original AI/raw input from later user corrections.
-
-`pwaEditing` is not a plan capability.
-
-## Data ownership by source
-
-PRIVATE and GROUP data scopes are independent data spaces. A group's customer/project data is group data; it must not become the private data of whichever user happens to fund AI for that group.
-
-Rules:
-
-- PRIVATE customer/project entities belong to that private source/scope.
-- Each GROUP source owns/contains its own customer/project entities and relations.
-- The same real-world person/project name may legitimately exist independently in PRIVATE, Group A and Group B.
-- AI candidate matching for customers/projects/relations must never cross PRIVATE/GROUP source boundaries merely because names look similar.
-- Changing the AI allowance responsible user does not transfer or re-own the group's customer/project/record data.
-
-## Customer / project merge and restore
-
-PWA should support reversible duplicate-entity merge for customers and projects.
-
-Flow:
-
-1. user selects the duplicate entity/entities;
-2. user selects the canonical destination entity to merge into;
-3. PWA shows a clear confirmation before executing;
-4. related records/relations are repointed to the canonical entity as appropriate;
-5. the merged source entity is retained durably with a `MERGED`-style status and a reference to the canonical target rather than being physically deleted;
-6. merge history records the actor, source entity, target entity, time and enough previous-reference information to restore safely;
-7. PWA allows an authorized user to undo/restore an accidental merge.
-
-Customer/project merge is source-scoped; do not merge entities across unrelated PRIVATE/GROUP scopes as an accidental convenience feature.
-
-## Concurrent PWA editing
-
-Multiple group members may open the same record simultaneously. Lost updates must be prevented.
-
-Implementation mechanism is still under design. Preferred direction is database-backed optimistic concurrency using a durable record version/revision (or an equivalent compare-and-update field) rather than an in-memory or single-instance lock. The final implementation should reject a stale save and ask the user to reload rather than silently overwrite a newer edit.
-
-## Group identity versus AI allowance responsibility
-
-A LINE group existing in AFTERTRACE and a user agreeing to fund AI for that group are separate concepts.
-
-Customer-facing terminology should use **AI 額度負責人**. Existing code/database fields named `owner_user_id` / `subscription_owner_user_id` are legacy implementation names and should be separated/renamed during domain refactor so they are not confused with data ownership.
-
-### Group existence
-
-- FREE users may add AFTERTRACE Bot to groups.
-- Group creation/onboarding must not require a paid plan.
-- Group members may use the group's PWA manual record surface without paying for AI.
-- There is no maximum group count on FREE/PRO/TEAM for manual collaboration.
-
-### AI allowance responsible user
-
-The AI allowance responsible user is specifically the user whose authorized AI allowance grants may be consumed for LINE AI-assisted group recording.
-
-- If none is bound, manual group PWA functionality still works.
-- Before a LINE AI-assisted group action spends quota, the system must have a current eligible responsible user and at least one allowance grant that permits that group.
-- `@AFTERTRACE 啟用` is the MVP action for a member to accept AI allowance responsibility for that group when needed.
-- A claim must not overwrite a different active responsible user accidentally.
-- If the responsible user leaves, new LINE AI activity pauses, but manual PWA group activity continues.
-- While the previous responsible user is absent, another active member may run `@AFTERTRACE 啟用` and become the new responsible user.
-- If nobody rebinds and the original responsible user returns, the existing binding may resume.
-
-### AI allowance responsible-user transfer
-
-The current AI allowance responsible user may explicitly transfer future group AI funding responsibility to another current group member.
-
-Preferred LINE initiation form:
-
-`@AFTERTRACE 擁有者轉移 @Ryan Hsu`
-
-The transfer is a two-party approval flow:
-
-1. only the current AI allowance responsible user may initiate while they still hold the role;
-2. the target must be an active member of the same LINE group;
-3. when LINE mention metadata includes a reliable target `userId`, bind the pending request to that exact user id rather than matching display-name text;
-4. if LINE cannot provide a reliable mentioned-user id, do not guess by nickname; direct the initiator to choose the target member in PWA instead;
-5. AFTERTRACE replies that the transfer has been submitted and gives the target a PWA confirmation link;
-6. the target must authenticate in PWA and explicitly accept before responsibility changes;
-7. the request must be single-use and expire after a bounded window such as 24–72 hours; acceptance/rejection/cancellation/role change invalidates it;
-8. until acceptance, the existing responsible user remains authoritative and their permitted allowance grants continue to fund eligible AI usage;
-9. after acceptance, future group AI usage may consume only the new responsible user's own allowance grants that they permitted for that group.
-
-AI balances are personal and do not transfer with the role.
-
-### Group AI visibility and history
-
-The group PWA must show both the current AI funding state and the historical AI usage ledger for that group.
-
-Current-state view includes current AI allowance responsible user, group-permitted grants at an appropriate product level, used amount and currently available/remaining group amount.
-
-Historical group AI view remains queryable across responsible-user transfers, plan renewals, FREE grants and individual top-up grants. It includes time, actor, charged responsible user, grant source/type, units consumed, related record where useful, and group-period totals.
-
-History is group-scoped and must not expose unrelated private AI usage, total/global wallet, other groups' allocations/usage or unnecessary payment details.
-
-## Data principles
-
-Always preserve original user-provided content/reference. AI output is derived metadata and may be corrected/regenerated.
-
-A record retains at least source/scope, LINE ids where applicable, author, original raw input/attachment metadata, normalized summary, entity relations, creation/edit timestamps, and creation mode such as `LINE_AI` / `PWA_MANUAL`.
-
-### PWA attachment scope
-
-MVP PWA manual create/edit is text/structured-data only. It does not become a permanent file/photo storage product.
-
-- Do not add persistent PWA image/file attachment storage merely because manual create/edit exists.
-- LINE image/audio/file input continues to be read/normalized into durable textual/structured information according to the LINE content policy; original binary is not retained.
-
-## Related records and current business state
-
-Worklog records are event history. Later events should usually create new records and update deterministic current state through explicit relations instead of overwriting the earlier record.
-
-Example:
-
-```text
-Day 1: 三重王先生 裝潢 30000 還沒給
-Day 4: 三重王先生 裝潢 30000 已給
-```
-
-The exact structured-summary/finance representation is being refined below. Regardless of presentation format:
-
-- Day 1 and Day 4 remain separate historical records;
-- later events may link to earlier records/entities when the relation is known;
-- uncertain AI relation matching fails safe and does not mutate earlier state;
-- partial/continued events must be representable rather than assuming every update is a full overwrite.
-
-### AI relation matching and ambiguity
-
-AI candidate matching is hierarchical and source-scoped. It should resolve identity before stateful relations, for example:
-
-1. same PRIVATE/GROUP scope;
-2. customer/person identity;
-3. project/context identity;
-4. candidate open business item such as receivable/issue;
-5. amount/event type/recency and other deterministic facts.
-
-If any important level is ambiguous, do not confidently continue to later levels and mutate state.
-
-Rules:
-
-- a unique, high-confidence match may be auto-linked according to accepted confidence policy;
-- if multiple plausible targets exist, identifying data conflicts, or confidence is insufficient, do not automatically settle/resolve/change the earlier item;
-- save the new user's record truthfully even when relation is unresolved;
-- tell the user clearly that AFTERTRACE currently cannot determine which previous item this refers to;
-- provide a PWA deep link/action allowing the user to select the correct target manually.
-
-## Raw record + AI summary model — design under discussion
-
-The product direction under consideration is to separate every work record into at least two durable representations:
-
-1. **original/raw record** — the user's original text or durable textual extraction from LINE image/audio/file input;
-2. **AI summary/structured presentation** — AI-derived, editable presentation data used primarily by PWA.
-
-The proposed summary should support ordered, dynamic display rather than forcing every industry/use case into one fixed form. For example, a summary may contain ordered key/value blocks such as person, project/building name, amount, status, note, location or other AI-identified facts when they exist.
-
-Important constraint still under discussion: dynamic presentation must not make deterministic business state unreliable. If AFTERTRACE is expected to calculate outstanding money, reconcile partial payments, trigger future reminders, or perform exact state transitions, those operations need durable typed facts/relations somewhere even if the visible PWA summary is dynamic. Do not rely on free-form AI-generated labels alone as accounting truth.
-
-Likewise, future AI-generated exports may choose report columns dynamically from raw records + summaries, but deterministic source data and audit history must remain available underneath.
-
-## Subscription plan model
-
-Subscription configuration is data-driven.
+Current launch defaults:
 
 ### FREE
 
-- price: NT$0
+- NT$0
 - billing type: `ONE_TIME`
-- initial AI allowance: **500 units one time**
-- allowance has no calendar expiry and never refreshes
-- may add Bot to unlimited LINE groups
-- manual PWA personal/group read/create/edit: free
-- AI use is available while an eligible user-owned grant permits the requested scope and has remaining allowance
-- `export = false` initially
+- initial AI allowance: 500 units once
+- no calendar expiry/no refresh
+- unlimited groups
+- manual PWA PRIVATE/GROUP use is free
 
 ### PRO
 
-- price: **NT$99/month**
+- NT$99/month
 - billing type: `MONTHLY`
-- AI allowance: **500 units per successful monthly period**
-- unlimited LINE groups
-- manual PWA read/create/edit: free baseline
-- `export = true`
+- 500 included AI units per confirmed successful renewal
+- unused monthly included allowance does not roll over
+- unlimited groups
+- export intended as paid capability
 
 ### TEAM
 
-- price: **NT$299/month**
+- NT$299/month
 - billing type: `MONTHLY`
-- AI allowance: **2500 units per successful monthly period**
-- unlimited LINE groups
-- manual PWA read/create/edit: free baseline
-- `export = true`
+- 2500 included AI units per confirmed successful renewal
+- unused monthly included allowance does not roll over
+- unlimited groups
+- export intended as paid capability
 
-Suggested ranks: FREE 0, PRO 10, TEAM 20.
+## AI allowance grants and allocation
 
-## AI allowance sources and allocation
+AI allowance is always owned by a user, never by a group.
 
-AI allowance is user-owned, not group-owned. Every FREE initial grant, subscription-period grant and each top-up purchase remains an independently identifiable grant.
+Every allowance source is an identifiable grant:
+
+- FREE initial grant;
+- current subscription-period grant;
+- each individual one-time top-up purchase.
+
+Do not merge separate top-up purchases if doing so would lose independent configuration.
 
 Each grant independently configures:
 
 - PRIVATE allowed/not allowed;
 - selected GROUP sources allowed/not allowed;
-- optional PRIVATE cap;
-- optional per-GROUP cap.
+- optional PRIVATE usage cap;
+- optional per-GROUP usage cap.
 
-Multiple top-up purchases are not merged if doing so would lose independent settings.
+No cap means that allowed scope may continue using the grant until the grant itself is exhausted. Aggregate usage across scopes can never exceed the grant's true remaining units.
 
-If no cap is configured for an allowed scope, that scope may consume until the grant itself is exhausted. Aggregate use across scopes can never exceed the real grant amount.
+Recommended spend order: current included grant first, then oldest top-up grants.
 
-Recommended grant selection order is current included grant first, then top-up grants oldest first.
+Subscription expiry does not disable AI if another eligible grant remains. Authorization never silently falls through to a grant that was not permitted for that scope.
 
-### Subscription expiry with top-up grants
+## AI allowance responsible user
 
-Subscription activity is not itself required for AI use if another eligible grant remains.
+Customer-facing terminology is **AI 額度負責人**.
 
-- When a monthly subscription expires, the expired period grant stops being eligible according to its period rules.
-- A separate top-up grant remains usable after subscription expiry if that exact grant permits the requested PRIVATE/GROUP scope.
-- Authorization does not automatically fall through to an unrelated top-up grant. Example: if the expired subscription grant allowed Group A but top-up #2 permits only PRIVATE, Group A cannot consume top-up #2.
+A group's data ownership/existence is separate from who funds AI.
 
-### Provider usage above the user's remaining grant — proposed policy
+- A group may exist with no AI 額度負責人 and still use all manual PWA functions.
+- Group AI use requires a current responsible user and at least one of that user's grants permitted for the group.
+- Group AI usage is charged to that responsible user's eligible grants, while retaining the actor user id separately.
+- If responsible user leaves, group AI pauses; manual PWA continues.
+- An active member may take over while previous responsible user is absent according to the accepted activation/recovery flow.
 
-The user has proposed that when an eligible request ultimately costs more AI units than the user's available amount, AFTERTRACE may absorb the shortfall instead of creating a negative customer balance. Customer balance floors at zero and Admin records how much provider usage/cost was subsidized by the platform.
+### AI 額度負責人 transfer
 
-The safety boundary for when such subsidy is allowed is still under design. It must not accidentally turn a near-zero balance into an unlimited provider-cost loophole. Admin must be able to report subsidized units and actual provider cost separately from customer-charged usage.
+Current responsible user may initiate transfer to another active group member.
 
-## AI runtime
+Preferred flow:
 
-Current production target remains the approved Gemini 3.5 model. Gemini 2.5 compatibility is not MVP work.
+1. initiate in LINE/PWA, e.g. `@AFTERTRACE 擁有者轉移 @Ryan Hsu`;
+2. target identity uses reliable LINE mention user id when available; never guess by display name;
+3. target authenticates in PWA and explicitly accepts;
+4. request is single-use and expires after a bounded period;
+5. existing responsible user remains active until acceptance;
+6. balances do not transfer; new responsible user uses/configures their own grants;
+7. transfer history is auditable.
 
-Use Gemini 3.x thinking controls, include reported thinking usage in accounting, and keep historical pricing snapshots immutable.
+## Group AI visibility/history
 
-## Attachment/file scope
+Active group members can see:
 
-MVP AI input targets: text, image, audio, PDF, common text-like files, XLSX/Excel and DOCX/Word.
+- current AI 額度負責人;
+- current group-permitted AI amount / used / remaining;
+- historical group AI usage across prior responsible users, subscription periods and individual top-up grants;
+- usage time, actor, charged responsible user, grant source/type, units used and related record where useful.
 
-For DOCX/XLSX, prefer the simplest verified provider-native Files/File Search path supported by the selected Gemini API before building custom Office extraction. Enforce file/request-size limits, MIME allowlists, provider failure handling and real E2E verification.
+Do not expose unrelated private usage, total personal wallet, other groups' allocation/usage or unnecessary payment details.
+
+History is append-only/auditable and survives responsible-user transfer, grant changes, plan renewal/expiry, AI pause and group inactivation.
+
+## Source isolation
+
+PRIVATE and GROUP Sources are separate data spaces.
+
+Entities, aliases, records and relationships are Source-scoped. The same real-world name may exist independently in different Sources. AI identity matching must not cross Sources unless a future explicit cross-source feature is approved.
+
+## Entity / 主體 model
+
+The core searchable object is **Entity / 主體**.
+
+Examples:
+
+- `王大明`
+- `陳師傅`
+- `晴空案`
+- `信義門市`
+- `3 號冷氣主機`
+
+Entity metadata stays lightweight: name, optional loose type, status/merge state and aliases. Do not require universal address/phone/payment/construction fields.
+
+### PRIMARY / RELATED
+
+PRIMARY and RELATED are per-Record roles, not permanent Entity types.
+
+Example Record:
+
+`王大明跟陳師傅今天去三重晴空案換冷氣，材料費 5000，人工 5000`
+
+Conceptual result:
+
+- PRIMARY: `晴空案`
+- RELATED: `王大明`
+- RELATED: `陳師傅`
+
+All three have Entity rows. The Record exists only once and is discoverable from all three Entity views/queries.
+
+One Record has at most one PRIMARY and zero/many RELATED Entities. Only concrete future lookup targets become Entities; do not extract every noun.
+
+## Alias / 其他稱呼
+
+Alias is another genuine name for the same Entity.
+
+Example:
+
+- Entity: `晴空案`
+- Alias after confirmation: `三重晴空案`
+
+A contextual phrase such as `王大明的晴空案` is not automatically an alias; it usually represents a relationship between Entity subjects.
+
+If AI believes a new name may be an existing Entity, ask for confirmation instead of silently creating a duplicate or alias. Confirmed aliases resolve directly in future.
+
+## Pending AI confirmation
+
+Ambiguous identity decisions must be stored durably, not only in Worker memory.
+
+A pending-confirmation domain/table supports at least:
+
+- `ALIAS_MATCH`
+- `PRIMARY_ENTITY`
+- `ENTITY_MATCH`
+
+Status includes `PENDING` and resolved states such as `CONFIRMED`, `REJECTED`, `EXPIRED`.
+
+If multiple candidate Entities are plausible, ask the user to choose one or create a new Entity. Do not silently guess.
+
+## AI responsibilities when creating an AI-assisted Record
+
+At minimum AI should determine:
+
+- PRIMARY Entity candidate;
+- meaningful RELATED Entity candidates;
+- existing Entity/Alias match candidates in the same Source;
+- possible alias candidates needing confirmation;
+- `occurred_at` from relative date/time language when present.
+
+Do not require universal extraction of amount/address/payment/material/task fields. Those remain raw Record content until a separately approved feature needs deterministic typed state.
+
+## Record model
+
+A durable Record stores the user's original text or durable textual extraction from LINE image/audio/file input plus source/author/time/status/version/trace data.
+
+Important time fields:
+
+- `created_at`: when AFTERTRACE stored the Record;
+- `occurred_at`: when the event actually happened; defaults to create/message time when unspecified;
+- `updated_at`: last modification.
+
+`occurred_at` is used for queries such as yesterday/this week/last month.
+
+## AI summaries are on-demand only
+
+Do not maintain a persistent per-record AI summary.
+
+- Raw Record + Entity relationships are durable truth.
+- Users do not edit an AI summary.
+- AI summary/query is generated only when requested in LINE/PWA.
+- Generated summary is ephemeral and not stored as a second source of truth.
+- Therefore edit/merge/undo/new records do not need summary regeneration.
+
+## Record editing and revision history
+
+PWA manual editing is free and does not call AI automatically.
+
+Every content edit creates immutable revision history with actor/time/channel and previous/new content; Entity snapshots may be retained when AI edit changes Entity associations.
+
+PWA shows `已編輯` and lets authorized users inspect history.
+
+Restoring an older revision creates a new revision and does not delete newer history.
+
+Use DB optimistic locking with integer `version`; stale saves are rejected. Do not use memory locks or Redis for normal edit concurrency.
+
+### PWA manual edit and Entity associations
+
+Manual text editing does not automatically re-run AI or reassign Entities.
+
+If a user manually changes `王大明去晴空案換冷氣` to `王大明去信義案換冷氣`, AFTERTRACE does not silently spend AI to move the Record. The user owns that manual edit; if they need a different filing context they should explicitly move/create the correct Record as provided by PWA UX.
+
+### LINE natural-language edit
+
+LINE AI edit requires positive eligible AI balance and reliable target resolution.
+
+Preferred MVP behavior:
+
+- user Replies to the exact prior Record/AFTERTRACE success message and sends an edit command;
+- if there is no reliable Reply target, do not guess which Record; tell the user to Reply to the Record or edit in PWA;
+- after deterministic `record_id` resolution, AI interprets what should change;
+- AI may modify raw text and, when instruction changes the subject, change PRIMARY/RELATED Entity associations;
+- if a new subject is unknown, use normal Entity/Alias/pending-confirmation flow;
+- backend performs authorization/version/revision transaction; AI never writes arbitrary SQL.
+
+Example:
+
+Original: `王大明去晴空案換冷氣`
+
+Reply: `@AFTERTRACE 幫我改成去信義案換冷氣`
+
+AI may propose text update plus PRIMARY `晴空案 -> 信義案`; create/resolve `信義案` as needed.
+
+## Soft delete / recycle bin
+
+Delete is reversible state change, not physical deletion.
+
+- show confirmation before delete;
+- mark Record `DELETED`, keep delete actor/time;
+- normal views and AI query ignore deleted Records;
+- PWA has a dedicated deleted-record/recycle-bin list;
+- restore returns Record to active state;
+- RecordEntity relationships and revision history remain stored while deleted.
+
+## Entity merge / undo
+
+PWA supports reversible duplicate Entity merge.
+
+- user chooses duplicate source and canonical target;
+- show confirmation;
+- source Entity is retained with MERGED state/reference;
+- Record associations are moved to canonical target;
+- merge history retains exactly which associations originally belonged to source;
+- undo moves those original associations back even if the Record text was later edited;
+- current Record content remains unchanged.
+
+## Generic Record-to-Record relation
+
+MVP does not require a universal RecordRelation table just because two Records concern the same subject over time.
+
+Example:
+
+- 9/1 `晴空案冷氣壞掉`
+- 9/3 `晴空案冷氣已修好`
+
+Both attach to PRIMARY `晴空案`. An AI query can read chronological relevant Records and infer current status.
+
+Add deterministic typed relations later only when an approved feature truly requires them, such as payment settlement, reminder lifecycle or task completion.
+
+## LINE attachment/input policy
+
+PWA manual create/edit is text-only for MVP; it is not a permanent attachment library.
+
+LINE image/audio/file/PDF/DOCX/XLSX inputs may be fetched, understood/extracted into durable text and then discarded. Original binary is not permanently retained. Follow `WORKLOG_LINE_CONTENT_POLICY.md` for exact content-retrieval/caching behavior.
 
 ## Export
 
-Export is MVP and initially remains a paid capability.
+Export remains MVP and initially paid. Exact report UX can be discussed separately. Any AI-generated report requires AI allowance and must not overwrite raw source/audit truth.
 
-The exact export format is under refinement together with the dynamic AI summary model. A future export may provide a standard raw/audit export and/or an AI-generated report whose columns are selected from the chosen record set. AI-generated report structure must not replace durable source data or auditability.
+## Future discussion backlog
 
-## Internal Admin
+Do not implement implicitly until separately approved:
 
-Admin supports users/groups, AI allowance responsible-user visibility/transfer history, plans/billing cadence, individual AI grants/allocation policies/caps, top-up products/purchases, AI pricing, anomalies, feedback, manual subscription changes and audit.
+- invoice integration;
+- AI natural-language search across full history / final retrieval strategy;
+- automatic reminders/follow-up such as unpaid-item reminders;
+- project/engineering scheduling;
+- final product/brand name and go-to-market positioning.
 
-Group detail shows current group-specific allocation state and historical group AI usage across all prior responsible users/grants without exposing unrelated private or other-group balances.
+## Platform / deployment
 
-Admin also needs visibility into platform-subsidized AI overage if that proposed policy is adopted.
+Stack: TypeScript/Node, Hono on Cloudflare Workers API, React/Vite Web/PWA, React/Vite Admin, PostgreSQL + Drizzle.
 
-## Future discussion backlog — not MVP decisions yet
+Deploy as three Workers: `aftertrace-api`, `aftertrace-web`, `aftertrace-admin`.
 
-The following product directions are intentionally captured for later discussion rather than implemented implicitly now:
+## Prelaunch DB policy
 
-- **Invoice integration** — whether/how to connect invoice providers and what accounting boundary AFTERTRACE should own.
-- **AI natural-language search across full history** — asking questions over historical work records rather than only current structured filters.
-- **Automatic reminders / follow-up** — for example detecting and reminding that `王先生還沒付款`; requires explicit reminder consent, state confidence and notification policy.
-- **Engineering scheduling / project schedule** — dates, milestones, dependencies, overdue work and possibly timeline/Gantt-style views.
-
-Do not expand the current MVP into these areas until separately discussed and approved.
-
-## Platform and deployment
-
-MVP stack: TypeScript/Node ecosystem, Hono on Cloudflare Workers API, React/Vite Web/PWA, React/Vite Internal Admin, PostgreSQL + Drizzle.
-
-Deploy as three Workers: `aftertrace-api`, `aftertrace-web`, `aftertrace-admin`. No new Cloudflare Pages work.
-
-## Prelaunch database policy
-
-Development/production databases are prelaunch and may be rebuilt while schema is finalized. Current repository migration history is authoritative. Once real production user data exists, switch to forward-only migrations.
+Dev/prod are prelaunch and may be destructively rebuilt while schema is finalized. Current repository schema/migration history is authoritative. Once real production data exists, switch immediately to forward-only migrations.
