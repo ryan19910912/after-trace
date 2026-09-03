@@ -22,7 +22,8 @@ export type WorklogAdminOverview = {
 export type AdminUserQuery = {
   query: string | null;
   planCode: string | null;
-  userType: 'INDIVIDUAL' | 'AI_RESPONSIBLE' | null;
+  /** Compatibility request value; semantics are now AI-responsibility, not group ownership. */
+  userType: 'INDIVIDUAL' | 'GROUP_ENABLED' | null;
   sortUpdated: 'ASC' | 'DESC';
   limit: number;
 };
