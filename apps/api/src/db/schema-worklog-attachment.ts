@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { bigint, bigserial, check, index, jsonb, pgTable, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
-import { worklogRecords, worklogSources, worklogUsers } from './schema-worklog';
+import { worklogSources, worklogUsers } from './schema-worklog';
+import { worklogRecords } from './schema-worklog-record-core';
 import { worklogAiQuotaReservations } from './schema-worklog-quota';
 
 export const worklogAttachmentIngestions = pgTable(
