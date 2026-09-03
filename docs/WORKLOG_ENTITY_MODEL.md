@@ -19,7 +19,7 @@ Core domain tables planned:
 
 A generic `worklog_record_entities` many-to-many table is no longer required by the accepted MVP model unless a later feature introduces multi-Entity relationships.
 
-Legacy fixed `Customer` / `Project` concepts should not remain the universal core model. Future vertical features may add structured domain data without changing the general Record/Entity foundation.
+Legacy fixed `Customer` / `Project` concepts should not remain the universal core model.
 
 ## Entity = 紀錄標題
 
@@ -39,12 +39,11 @@ Recommended `worklog_entities` fields:
 - `id`
 - `source_id`
 - `name`
-- optional lightweight `entity_type` such as `PERSON`, `PROJECT`, `PLACE`, `ITEM`, `OTHER`; type must not impose rigid industry behavior
-- `status` such as `ACTIVE`, `MERGED`
-- `merged_into_entity_id` when merged
+- optional lightweight `entity_type`
+- `status`
 - timestamps
 
-Entity metadata stays intentionally small. Address, phone, finance columns, construction-specific fields, etc. are not universal requirements.
+Entity metadata stays intentionally small. Do not add universal address, phone, finance or construction-specific columns.
 
 ## One Record has one title
 
@@ -57,9 +56,9 @@ Example:
 Expected result:
 
 - 紀錄標題 / Entity: `晴空案`
-- Record content retains `王大明`, `陳師傅`, `換冷氣`, amounts, and other details as text
+- Record content retains `王大明`, `陳師傅`, work details and amounts as text
 
-Do **not** automatically create extra Entities such as `王大明` or `陳師傅` merely because AI noticed those names in the Record. This avoids noisy title lists and unwanted cross-linking in groups whose natural filing unit is a project/site/context.
+Do **not** automatically create extra Entities such as `王大明` or `陳師傅` merely because AI noticed those names in the Record.
 
 If a user later searches `王大明`, PWA fuzzy search searches Record content and can still find all matching Records and show which titles they belong to.
 
@@ -68,7 +67,7 @@ Consequences:
 - no `PRIMARY` / `RELATED` role distinction is needed for the accepted MVP;
 - `worklog_records` may hold `entity_id` directly;
 - a Record title is its filing/search context;
-- other names/details remain searchable raw content unless the user explicitly creates/uses them as titles in other Records.
+- other names/details remain searchable raw content unless explicitly used as titles in other Records.
 
 ## Alias / 其他稱呼
 
@@ -87,24 +86,24 @@ Recommended `worklog_entity_aliases` fields:
 - `entity_id`
 - `alias`
 - `created_by_user_id`
-- `created_via`, e.g. `AI_CONFIRM`, `PWA_MANUAL`
+- `created_via`
 - timestamps
 
-Confirmed aliases resolve directly in future and are removable/correctable in PWA.
+Confirmed aliases resolve directly in future.
 
 ## AI title parsing on new AI-assisted Record
 
-For an AI-assisted new Record, AI should keep its structured work small and predictable:
+For an AI-assisted new Record, AI should keep structured work small and predictable:
 
 1. determine the single best Record title / Entity;
 2. resolve whether that title matches an existing Entity or confirmed alias in the same Source;
 3. detect a possible alias match that needs user confirmation;
-4. resolve `occurred_at` when the message expresses an event time such as `昨天`, `上週五`, or `今天下午`;
-5. preserve the user's Record text/durable textual extraction as the stored content.
+4. resolve `occurred_at` when the message expresses an event time;
+5. preserve the user's Record text/durable textual extraction as stored content.
 
 AI does not need to create relationships for every person/object mentioned in the Record and does not need universal extraction of amount/address/payment/material/task fields.
 
-AI-assisted creation consumes AI allowance normally. Pricing/unit conversion is calibrated separately from provider usage/cost.
+AI-assisted creation consumes AI allowance normally.
 
 ## Pending AI confirmation
 
@@ -121,16 +120,12 @@ Recommended fields:
 - `confirmation_type`
 - `candidate_entity_id` when applicable
 - `proposed_name` / candidate payload
-- `status`: `PENDING`, `CONFIRMED`, `REJECTED`, `EXPIRED`, or equivalent resolved state
+- `status`
 - `created_at`
 - `expires_at` where appropriate
 - `resolved_at`
 
-Initial confirmation types may include:
-
-- `ALIAS_MATCH`: e.g. `三重晴空案` may be existing `晴空案`;
-- `RECORD_TITLE`: AI cannot safely decide the title;
-- `ENTITY_MATCH`: a title/name may match more than one existing Entity.
+Initial confirmation types may include `ALIAS_MATCH`, `RECORD_TITLE`, and `ENTITY_MATCH`.
 
 If multiple candidates are plausible, ask the user to choose among them or create a new title. Do not silently guess.
 
@@ -151,6 +146,29 @@ Behavior:
 - entering a new title creates a new Entity in that Source;
 - no AI relationship inference occurs;
 - names mentioned only in Record content remain searchable through fuzzy search.
+
+## PWA title operations — simplified MVP
+
+Do not create a dedicated title-management area for MVP.
+
+Title and Record operations should stay close to the normal Record list/detail UX. Authorized users can, where appropriate:
+
+- rename/change a Record's title;
+- edit Record content;
+- delete/restore Records;
+- inspect edit history.
+
+A separate complex Entity administration surface is not required merely to manage titles.
+
+### Duplicate titles / merge
+
+Generic title merge/undo is **deferred and not required for MVP**.
+
+If a Record was filed under the wrong title, the user can manually change that Record's title. If duplicate titles exist, users may manually correct affected Records as needed.
+
+Do not build merge batches, merged states, moved-record history, or undo-merge machinery unless real user feedback later proves duplicate-title cleanup is a meaningful pain point.
+
+This deliberately prefers a simple, obvious manual correction flow over a complex feature that may not be used.
 
 ## Record time
 
@@ -182,14 +200,8 @@ AI first classifies the user's intent. If the message is a history/search reques
 
 Examples:
 
-- `王大明這週做了什麼`:
-  - if `王大明` is an existing title, title/entity filter may be used;
-  - otherwise use fuzzy-search keyword `王大明`;
-  - include the recognized date range for this week.
-
-- `這個群組今天發生什麼`:
-  - no title filter required;
-  - include today's date range.
+- `王大明這週做了什麼`: use title filter if `王大明` is a title; otherwise fuzzy keyword `王大明`; include the recognized date range.
+- `這個群組今天發生什麼`: no title filter required; include today's date range.
 
 The accepted boundary is **natural language -> deterministic PWA filters**, not AI reading arbitrary history and generating a historical answer.
 
@@ -198,21 +210,6 @@ Keep the backend function surface small, conceptually one operation such as:
 `build_history_link(source_id, entity_id?, keyword?, from?, to?)`
 
 PWA/API performs the real deterministic query.
-
-## Merge and undo
-
-Alias prevents duplicates before creation. Merge repairs duplicate titles after they already exist.
-
-Accepted merge rules:
-
-- user selects duplicate source and canonical target;
-- show a safety confirmation;
-- source Entity remains durable with `MERGED` state and target reference;
-- Records pointing to source are moved to canonical target;
-- merge history retains exactly which Records originally pointed to source;
-- undo moves those original Records back even if Record text was edited after the merge;
-- Record content edits are preserved;
-- merge/undo is Source-scoped.
 
 ## Delete / restore behavior
 
@@ -226,12 +223,7 @@ Do not delete an Entity/Alias merely because one Record was deleted.
 
 A generic `RecordRelation` table is not required for MVP merely because two Records concern the same event progression.
 
-Example:
-
-- 9/1 `晴空案冷氣壞掉`
-- 9/3 `晴空案冷氣已修好`
-
-Both use title `晴空案`. PWA chronological history is sufficient for MVP.
+Both `晴空案冷氣壞掉` and later `晴空案冷氣已修好` can simply use title `晴空案`; chronological PWA history is sufficient for MVP.
 
 Only introduce durable typed Record-to-Record relations later when a concrete approved feature needs deterministic state.
 
@@ -245,7 +237,7 @@ Accepted direction:
 - users edit the Record, not an AI summary;
 - broad AI historical analysis/query is not required for MVP;
 - LINE history requests navigate to filtered PWA views;
-- a future explicit AI report/summary feature may be added separately, would consume AI allowance, and must remain ephemeral.
+- future explicit AI report/summary may be added separately, consume AI allowance, and remain ephemeral.
 
 ## Concurrency
 
