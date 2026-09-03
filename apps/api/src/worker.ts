@@ -10,6 +10,7 @@ import {
 } from './worklog/anomalies';
 import { WorklogAttachmentIngestionService } from './worklog/attachment-ingestion';
 import { configureWorklogAttachmentRuntime } from './worklog/attachment-runtime';
+import { createWorklogConfirmationRoutes } from './worklog/confirmation-routes';
 import { DrizzleWorklogAttachmentRepository } from './worklog/drizzle-attachment-ingestion';
 import { SafeDrizzleWorklogSubscriptionRepository } from './worklog/drizzle-subscription-safe';
 import { GeminiWorklogAttachmentNormalizer } from './worklog/gemini-attachment-normalizer';
@@ -22,6 +23,7 @@ type ApiBoundary = 'ADMIN_API' | 'SUBSCRIPTION_API' | 'WORKLOG_WEB_API';
 
 const adminRoutes = createAdminRoutes();
 const worklogRoutes = createWorklogRoutes();
+const worklogConfirmationRoutes = createWorklogConfirmationRoutes();
 const worklogSubscriptionRoutes = createWorklogSubscriptionRoutes();
 const LEGACY_PREFIXES = ['/api/v1/management', '/api/v1/energy', '/api/v1/internal/commerce', '/api/v1/internal/proactive'];
 const LEGACY_AUTH_PATHS = new Set(['/api/v1/auth/groups', '/api/v1/auth/memories']);
@@ -116,6 +118,13 @@ export default {
       const routedRequest = new Request(rewritten, request);
       return withApiAnomalyBoundary('SUBSCRIPTION_API', request, env, () =>
         worklogSubscriptionRoutes.fetch(routedRequest, env as never, executionContext as never));
+    }
+    if (url.pathname === '/api/v1/worklog/confirmations' || url.pathname.startsWith('/api/v1/worklog/confirmations/')) {
+      const rewritten = new URL(request.url);
+      rewritten.pathname = url.pathname.slice('/api/v1/worklog/confirmations'.length) || '/';
+      const routedRequest = new Request(rewritten, request);
+      return withApiAnomalyBoundary('WORKLOG_WEB_API', request, env, () =>
+        worklogConfirmationRoutes.fetch(routedRequest, env as never, executionContext as never));
     }
     if (url.pathname === '/api/v1/worklog' || url.pathname.startsWith('/api/v1/worklog/')) {
       const rewritten = new URL(request.url);
