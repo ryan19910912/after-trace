@@ -6,15 +6,19 @@ import type {
   AiReservationResult,
   WorklogAiUsageCommit,
 } from './subscription';
-import type { WorklogAiRuntimeConfigSnapshot, WorklogTextCategory } from './text-normalization';
+import type { WorklogAiRuntimeConfigSnapshot } from './text-normalization';
 
 export type WorklogAttachmentInputType = 'AUDIO' | 'IMAGE' | 'FILE';
 
+/**
+ * Attachment understanding produces the durable textual Record representation only.
+ * Persistent summary/category/finance metadata is intentionally not part of the
+ * accepted single-title Record model. Title/time interpretation is handled by the
+ * bounded Record intent/title pipeline rather than by legacy attachment categories.
+ */
 export type WorklogAttachmentOutput = {
   inputType: WorklogAttachmentInputType;
   rawText: string;
-  summary: string;
-  category: WorklogTextCategory;
   attachmentMetadata: Record<string, unknown>;
 };
 
@@ -143,7 +147,7 @@ export class WorklogAttachmentIngestionService {
     try {
       // Resolve only enough LINE content to distinguish a retrievable attachment from
       // an old quoted TEXT. The latter returns LINE_CONTENT_NOT_RETRIEVABLE and must
-      // keep the explicit re-entry guidance even when AI media capability is disabled.
+      // keep explicit re-entry guidance even when AI media capability is disabled.
       const content = await this.contentResolver.content(quotedLineMessageId);
       if (input.allowAiMedia === false) {
         await this.repository.fail(commandLineMessageId, 'AI_MEDIA_DISABLED');
@@ -176,8 +180,6 @@ export class WorklogAttachmentIngestionService {
       // actual usage must be settled even if it exceeded the held estimate.
       const actualUnits = provider.inputTokens + provider.outputTokens;
       if (!Number.isSafeInteger(actualUnits) || actualUnits < 0) {
-        // The provider returned, so do not release the reservation. This response is
-        // unusable for exact accounting and must remain an operator-visible failure.
         await this.repository.fail(commandLineMessageId, 'AI_USAGE_INVALID');
         return { status: 'FAILED', reason: 'AI_USAGE_INVALID' };
       }
@@ -220,9 +222,6 @@ export class WorklogAttachmentIngestionService {
         usage: settledUsage,
       });
     } catch (error) {
-      // Once the provider returned successfully, do not release quota or overwrite
-      // ingestion state after an uncertain persistence failure. The repository writes
-      // record + RECORD_CREATED atomically; a later redelivery can safely inspect it.
       if (providerCompleted && reservationToken) return { status: 'IN_PROGRESS' };
       if (reservationToken) await this.safeRelease(reservationToken);
       const reason = attachmentErrorCode(error);
@@ -256,9 +255,6 @@ export class WorklogAttachmentIngestionService {
           usage: input.usage,
         });
         if (stored.status === 'SOURCE_NOT_FOUND') {
-          // persistRecordCreated durably stores the provider usage/reservation on the
-          // ingestion row before returning SOURCE_NOT_FOUND. Settle that real provider
-          // cost even though no work record can be attached to the now-inactive source.
           return {
             status: 'STOP',
             result: await this.settleProviderFailure(
@@ -301,8 +297,6 @@ export class WorklogAttachmentIngestionService {
         if (recovered?.status !== 'PROCESSING' || attempt === 1) {
           return { status: 'STOP', result: { status: 'IN_PROGRESS' } };
         }
-        // State is confidently still PROCESSING, so retry only the atomic DB
-        // persistence using the provider output already in memory. Gemini is not called again.
       }
     }
     return { status: 'STOP', result: { status: 'IN_PROGRESS' } };
@@ -345,11 +339,7 @@ export class WorklogAttachmentIngestionService {
     const committed = await this.subscriptions.commitAiUsage(reservationToken, usage);
     if (committed.status !== 'COMMITTED') {
       const reservationStatus = await this.repository.reservationStatus(reservationToken);
-      if (reservationStatus !== 'COMMITTED') {
-        // Keep the durable PROCESSING+provider-usage state so a later redelivery can
-        // retry settlement without re-fetching the attachment or calling Gemini again.
-        return { status: 'IN_PROGRESS' };
-      }
+      if (reservationStatus !== 'COMMITTED') return { status: 'IN_PROGRESS' };
     }
     await this.repository.fail(commandLineMessageId, failureReason);
     return { status: 'FAILED', reason: failureReason };
