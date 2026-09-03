@@ -21,9 +21,11 @@ Read first every run:
 - Multiple one-time top-up purchases must not be merged if doing so would lose independent allocation settings.
 - If a scope has no cap, it may consume until the shared grant is exhausted; aggregate usage across all scopes can never exceed the real grant balance.
 - Recommended grant spend order: current included grant first, then one-time top-up grants oldest first.
-- Group members may see only group-specific AI billing Owner + available/used/remaining amount for that group, not the Owner's private/global/other-group balances.
+- Group members may see current group-specific AI billing Owner + available/used/remaining amount **and the historical AI usage ledger for that group across prior Billing Owners/grants**.
+- Historical group AI usage must remain visible after Owner transfer, plan renewal/expiry, allocation changes or AI pause; history is append-only/auditable and group-scoped.
+- Group history may show actor, charged Owner, grant source/type, units used, record reference/type and time, but must not reveal Owner private/global/other-group balances or unrelated payment details.
 - Platform does not police private agreements about whether an Owner also uses their own allowance privately; it enforces only the Owner's configured allocation/caps.
-- Group dissolution requires no quota refund because units never leave the user's grant; the obsolete group allocation simply stops being eligible.
+- Group dissolution requires no quota refund because units never leave the user's grant; the obsolete group allocation simply stops being eligible while historical group usage remains intact.
 - Paid plans and FREE do **not** limit group count.
 - FREE may add AFTERTRACE Bot to LINE groups and use group PWA manually.
 - Group existence/manual collaboration is free; AI billing ownership is required only when LINE AI/provider work spends quota.
@@ -113,27 +115,46 @@ Required grant model:
 - reservation/commit spanning multiple grants must be transactional/idempotent;
 - deterministic initial grant selection order: current included grant first, then oldest top-up grants;
 - monthly renewal replaces/creates only the included-period grant; top-up grants survive;
-- group closure simply disables that group's allocation eligibility; no refund/ownership transfer is necessary.
+- group closure simply disables that group's allocation eligibility; no refund/ownership transfer is necessary;
+- immutable usage/grant-consumption references must be sufficient to reconstruct group history across Owner/grant/allocation changes.
 
 Recommended default allocation on new grant:
 - PRIVATE allowed;
 - no group automatically allowed until the user explicitly accepts/configures billing responsibility for that group;
 - no per-scope caps by default.
 
-## Group AI visibility requirement
+## Group AI visibility/history requirement
 
-Group members should be able to understand the group's AI status without seeing the billing Owner's private finances.
+Group members should be able to understand both the group's **current AI state** and **historical AI consumption** without seeing a Billing Owner's unrelated personal finances.
 
-Expose to active group members:
+Current state exposed to active group members:
 - current AI billing Owner;
-- amount currently available to this group under eligible allocations;
-- amount already used by this group;
+- amount currently available to this group under eligible allocations/caps;
+- amount already used from the current eligible group allocations;
 - amount remaining available to this group.
 
+Historical group AI ledger exposed to active group members:
+- usage timestamp/date;
+- actor who triggered the AI work;
+- charged Billing Owner at that time;
+- funding grant source/type (`FREE`, subscription-period grant, or individual top-up grant) at an appropriate non-sensitive level;
+- AI units consumed by this group for the usage event;
+- related record id/type where useful;
+- group totals/period totals so users can understand historical consumption;
+- Owner-transfer/period boundaries sufficient to explain why the funding Owner/grant changed.
+
+History rules:
+- Owner transfer must not hide or rewrite previous Owner usage;
+- subscription renewal/expiry or allocation/cap changes must not rewrite old group usage;
+- group AI pause/resume must not erase history;
+- group close/inactive state may stop future use but preserves history;
+- usage history should come from immutable provider/AI usage events plus funding-grant references, not from recomputing only the current Owner state.
+
 Do not expose:
-- Owner's unrelated private balance;
-- Owner's global remaining balance beyond what is made available to this group;
-- other groups' allocation or usage.
+- Owner's unrelated private balance or private AI usage;
+- Owner's global remaining balance beyond what is made available/consumed by this group;
+- other groups' allocation or usage;
+- raw payment method/provider secrets or unrelated purchase details.
 
 ## High-priority implementation queue
 
@@ -141,16 +162,17 @@ Do not expose:
 2. Separate free group/source existence from AI billing-owner binding.
 3. Split manual group authorization from LINE AI entitlement.
 4. Implement PWA manual create + collaborative group edit/private-owner edit.
-5. Implement user-owned AI grant/allocation/cap model and migrate quota reservation/settlement to eligible-grant selection.
+5. Implement user-owned AI grant/allocation/cap model and migrate quota reservation/settlement to eligible-grant selection, retaining immutable grant-funding references for group history.
 6. Add billing_type and durable FREE/PRO/TEAM defaults now that DBs are rebuildable.
 7. Add one-time top-up products/purchases as separate grant creators.
 8. Implement AI billing-owner transfer requests/approval; after acceptance new Owner must use/configure their own eligible grants.
 9. Implement LINE success summary + durable record deep link.
 10. Implement private OA AI entitlement/allocation gates while preserving manual PWA access.
-11. Fix Admin effective included/top-up/grant allocation facts and AI media pricing; expose billing-owner transfer and group-specific AI availability.
-12. Implement CSV export.
-13. Verify Gemini provider-native XLSX/DOCX path.
-14. Finish AI hardening and enter concentrated local validation.
+11. Fix Admin effective included/top-up/grant allocation facts and AI media pricing; expose billing-owner transfer, current group-specific AI availability and **historical group AI usage**.
+12. Implement group PWA AI history UI/API (current state + paginated historical ledger/summary).
+13. Implement CSV export.
+14. Verify Gemini provider-native XLSX/DOCX path.
+15. Finish AI hardening and enter concentrated local validation.
 
 ## AI billing-owner transfer requirement
 
@@ -185,10 +207,10 @@ Recent tests are authored but not executed. Typecheck/test/build/schema/browser/
 ## Planning estimate
 
 Planning estimates only:
-- MVP non-payment-provider implementation: about **90–93%** after introducing per-grant allocation/cap accounting, free-group/manual scope, top-up, and billing-owner transfer.
+- MVP non-payment-provider implementation: about **90–93%** after introducing per-grant allocation/cap accounting, free-group/manual scope, top-up, billing-owner transfer and group AI history UI requirements.
 - Static architecture/logic audit: about **98–99%**.
 - Production readiness including unrun validation/provider integration: about **79–83%**.
-- Remaining internal development before concentrated validation: about **4–5 large batches / roughly 12–22 focused hours** because the AI quota ledger now needs a real grant-allocation refactor rather than a single aggregate balance.
+- Remaining internal development before concentrated validation: about **4–5 large batches / roughly 13–23 focused hours** because the AI quota ledger needs a real grant-allocation refactor plus group-history reporting/API/UI.
 - After concentrated validation begins, reserve **2–8 focused hours** for ordinary compile/schema/browser/runtime fixes.
 - Payment-provider recurring + top-up purchase integration remains separate and likely **1–3 working days after provider selection**.
 
