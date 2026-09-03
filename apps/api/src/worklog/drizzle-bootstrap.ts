@@ -4,7 +4,6 @@ import type {
   WorklogBootstrapRepository,
   WorklogBootstrapUser,
   WorklogBoundGroup,
-  WorklogPendingGroup,
 } from './bootstrap';
 
 type UserRow = {
@@ -153,6 +152,51 @@ export class DrizzleWorklogBootstrapRepository implements WorklogBootstrapReposi
     return row ? mapBoundGroup(row) : null;
   }
 
+  async ensureGroupSource(lineGroupId: string, workspaceId: number, at: Date): Promise<WorklogBoundGroup> {
+    const result = await this.db.execute(sql`
+      INSERT INTO worklog_sources (
+        workspace_id,
+        type,
+        status,
+        line_group_id,
+        owner_user_id,
+        subscription_owner_user_id,
+        created_at,
+        updated_at
+      )
+      VALUES (
+        ${workspaceId},
+        'GROUP',
+        'ACTIVE',
+        ${lineGroupId},
+        NULL,
+        NULL,
+        ${at},
+        ${at}
+      )
+      ON CONFLICT (line_group_id) DO UPDATE
+      SET
+        status = CASE
+          WHEN worklog_sources.updated_at <= EXCLUDED.updated_at THEN 'ACTIVE'::worklog_source_status
+          ELSE worklog_sources.status
+        END,
+        inactive_at = CASE
+          WHEN worklog_sources.updated_at <= EXCLUDED.updated_at THEN NULL
+          ELSE worklog_sources.inactive_at
+        END,
+        updated_at = GREATEST(worklog_sources.updated_at, EXCLUDED.updated_at)
+      RETURNING
+        id::text,
+        line_group_id,
+        workspace_id::text,
+        owner_user_id::text,
+        status
+    `);
+    const row = result.rows[0] as BoundGroupRow | undefined;
+    if (!row) throw new Error('failed to ensure worklog group source');
+    return mapBoundGroup(row);
+  }
+
   async reactivateBoundGroup(sourceId: number, at: Date): Promise<boolean> {
     const result = await this.db.execute(sql`
       UPDATE worklog_sources
@@ -163,69 +207,6 @@ export class DrizzleWorklogBootstrapRepository implements WorklogBootstrapReposi
       RETURNING id
     `);
     return result.rows.length === 1;
-  }
-
-  async upsertPendingGroup(lineGroupId: string, at: Date): Promise<WorklogPendingGroup> {
-    const result = await this.db.execute(sql`
-      INSERT INTO worklog_pending_groups (
-        line_group_id,
-        is_active,
-        first_seen_at,
-        last_seen_at,
-        created_at,
-        updated_at
-      )
-      VALUES (${lineGroupId}, TRUE, ${at}, ${at}, ${at}, ${at})
-      ON CONFLICT (line_group_id) DO UPDATE
-      SET
-        is_active = CASE
-          WHEN EXCLUDED.last_seen_at >= worklog_pending_groups.last_seen_at THEN TRUE
-          ELSE worklog_pending_groups.is_active
-        END,
-        last_seen_at = GREATEST(worklog_pending_groups.last_seen_at, EXCLUDED.last_seen_at),
-        inactive_at = CASE
-          WHEN EXCLUDED.last_seen_at >= worklog_pending_groups.last_seen_at THEN NULL
-          ELSE worklog_pending_groups.inactive_at
-        END,
-        updated_at = GREATEST(worklog_pending_groups.updated_at, EXCLUDED.updated_at)
-      RETURNING id::text, line_group_id, is_active, promoted_source_id::text
-    `);
-    const row = result.rows[0] as PendingGroupRow | undefined;
-    if (!row) throw new Error('failed to ensure pending LINE group');
-    return {
-      pendingGroupId: Number(row.id),
-      lineGroupId: row.line_group_id,
-      isActive: row.is_active,
-      promotedSourceId: nullableNumber(row.promoted_source_id),
-    };
-  }
-
-  async upsertPendingGroupMember(
-    pendingGroupId: number,
-    userId: number,
-    isActive: boolean,
-    at: Date,
-  ): Promise<void> {
-    await this.db.execute(sql`
-      INSERT INTO worklog_pending_group_members (
-        pending_group_id,
-        user_id,
-        is_active,
-        first_seen_at,
-        last_seen_at,
-        created_at,
-        updated_at
-      )
-      VALUES (${pendingGroupId}, ${userId}, ${isActive}, ${at}, ${at}, ${at}, ${at})
-      ON CONFLICT (pending_group_id, user_id) DO UPDATE
-      SET
-        is_active = CASE
-          WHEN EXCLUDED.last_seen_at >= worklog_pending_group_members.last_seen_at THEN EXCLUDED.is_active
-          ELSE worklog_pending_group_members.is_active
-        END,
-        last_seen_at = GREATEST(worklog_pending_group_members.last_seen_at, EXCLUDED.last_seen_at),
-        updated_at = GREATEST(worklog_pending_group_members.updated_at, EXCLUDED.updated_at)
-    `);
   }
 
   async upsertBoundGroupMember(
@@ -266,24 +247,10 @@ export class DrizzleWorklogBootstrapRepository implements WorklogBootstrapReposi
           AND line_group_id = ${lineGroupId}
           AND updated_at <= ${at}
         RETURNING id
-      ),
-      deactivated_members AS (
-        UPDATE worklog_source_members
-        SET is_active = FALSE, last_seen_at = ${at}, updated_at = ${at}
-        WHERE source_id IN (SELECT id FROM deactivated_source)
-          AND last_seen_at <= ${at}
-        RETURNING id
-      ),
-      deactivated_pending AS (
-        UPDATE worklog_pending_groups
-        SET is_active = FALSE, inactive_at = ${at}, last_seen_at = ${at}, updated_at = ${at}
-        WHERE line_group_id = ${lineGroupId}
-          AND last_seen_at <= ${at}
-        RETURNING id
       )
-      UPDATE worklog_pending_group_members
+      UPDATE worklog_source_members
       SET is_active = FALSE, last_seen_at = ${at}, updated_at = ${at}
-      WHERE pending_group_id IN (SELECT id FROM deactivated_pending)
+      WHERE source_id IN (SELECT id FROM deactivated_source)
         AND last_seen_at <= ${at}
     `);
   }
@@ -363,53 +330,6 @@ export class DrizzleWorklogBootstrapRepository implements WorklogBootstrapReposi
             )
           )
         RETURNING source.id, source.line_group_id, source.workspace_id, source.owner_user_id, source.status
-      ),
-      migrated_members AS (
-        INSERT INTO worklog_source_members (
-          source_id,
-          user_id,
-          is_active,
-          recording_enabled,
-          first_seen_at,
-          last_seen_at,
-          created_at,
-          updated_at
-        )
-        SELECT
-          activated.id,
-          pending_member.user_id,
-          pending_member.is_active,
-          TRUE,
-          pending_member.first_seen_at,
-          pending_member.last_seen_at,
-          ${input.at},
-          ${input.at}
-        FROM activated
-        INNER JOIN worklog_pending_groups AS pending
-          ON pending.line_group_id = ${input.lineGroupId}
-        INNER JOIN worklog_pending_group_members AS pending_member
-          ON pending_member.pending_group_id = pending.id
-        ON CONFLICT (source_id, user_id) DO UPDATE
-        SET
-          is_active = CASE
-            WHEN EXCLUDED.last_seen_at >= worklog_source_members.last_seen_at THEN EXCLUDED.is_active
-            ELSE worklog_source_members.is_active
-          END,
-          first_seen_at = LEAST(worklog_source_members.first_seen_at, EXCLUDED.first_seen_at),
-          last_seen_at = GREATEST(worklog_source_members.last_seen_at, EXCLUDED.last_seen_at),
-          updated_at = GREATEST(worklog_source_members.updated_at, EXCLUDED.updated_at)
-        RETURNING id
-      ),
-      marked_pending AS (
-        UPDATE worklog_pending_groups AS pending
-        SET
-          is_active = FALSE,
-          promoted_source_id = activated.id,
-          promoted_at = ${input.at},
-          updated_at = GREATEST(pending.updated_at, ${input.at})
-        FROM activated
-        WHERE pending.line_group_id = ${input.lineGroupId}
-        RETURNING pending.id
       )
       SELECT
         activated.id::text,
@@ -423,6 +343,68 @@ export class DrizzleWorklogBootstrapRepository implements WorklogBootstrapReposi
 
     const row = result.rows[0] as BoundGroupRow | undefined;
     return row ? mapBoundGroup(row) : null;
+  }
+
+  /**
+   * Deprecated pre-source bootstrap helpers retained only until the destructive
+   * baseline migration removes worklog_pending_groups tables. Runtime code no longer
+   * calls them; keeping these methods temporarily avoids mixing a migration rewrite
+   * into this behavioral batch.
+   */
+  async upsertPendingGroup(lineGroupId: string, at: Date) {
+    const result = await this.db.execute(sql`
+      INSERT INTO worklog_pending_groups (
+        line_group_id,
+        is_active,
+        first_seen_at,
+        last_seen_at,
+        created_at,
+        updated_at
+      )
+      VALUES (${lineGroupId}, TRUE, ${at}, ${at}, ${at}, ${at})
+      ON CONFLICT (line_group_id) DO UPDATE
+      SET
+        is_active = TRUE,
+        last_seen_at = GREATEST(worklog_pending_groups.last_seen_at, EXCLUDED.last_seen_at),
+        updated_at = GREATEST(worklog_pending_groups.updated_at, EXCLUDED.updated_at)
+      RETURNING id::text, line_group_id, is_active, promoted_source_id::text
+    `);
+    const row = result.rows[0] as PendingGroupRow | undefined;
+    if (!row) throw new Error('failed to ensure deprecated pending LINE group');
+    return {
+      pendingGroupId: Number(row.id),
+      lineGroupId: row.line_group_id,
+      isActive: row.is_active,
+      promotedSourceId: nullableNumber(row.promoted_source_id),
+    };
+  }
+
+  async upsertPendingGroupMember(
+    pendingGroupId: number,
+    userId: number,
+    isActive: boolean,
+    at: Date,
+  ): Promise<void> {
+    await this.db.execute(sql`
+      INSERT INTO worklog_pending_group_members (
+        pending_group_id,
+        user_id,
+        is_active,
+        first_seen_at,
+        last_seen_at,
+        created_at,
+        updated_at
+      )
+      VALUES (${pendingGroupId}, ${userId}, ${isActive}, ${at}, ${at}, ${at}, ${at})
+      ON CONFLICT (pending_group_id, user_id) DO UPDATE
+      SET
+        is_active = CASE
+          WHEN EXCLUDED.last_seen_at >= worklog_pending_group_members.last_seen_at THEN EXCLUDED.is_active
+          ELSE worklog_pending_group_members.is_active
+        END,
+        last_seen_at = GREATEST(worklog_pending_group_members.last_seen_at, EXCLUDED.last_seen_at),
+        updated_at = GREATEST(worklog_pending_group_members.updated_at, EXCLUDED.updated_at)
+    `);
   }
 }
 
