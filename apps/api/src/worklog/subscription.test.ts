@@ -106,14 +106,14 @@ class FakeRepository implements WorklogSubscriptionRepository {
   async commitAiReservationAtomic(token: string, usage: WorklogAiUsageCommit) {
     this.commitCalls.push({ token, usage });
     const reservation = this.reservations.get(token);
-    if (!reservation || reservation.status !== 'RESERVED') return null;
-    if (usage.actualUnits > reservation.unitsReserved) return null;
+    if (!reservation || (reservation.status !== 'RESERVED' && reservation.status !== 'EXPIRED')) return null;
     const subscription = this.subscriptions.get(reservation.chargedUserId);
     if (!subscription) return null;
 
+    const previousStatus = reservation.status;
     reservation.status = 'COMMITTED';
     reservation.unitsCommitted = usage.actualUnits;
-    subscription.aiUnitsReserved -= reservation.unitsReserved;
+    if (previousStatus === 'RESERVED') subscription.aiUnitsReserved -= reservation.unitsReserved;
     subscription.aiUnitsUsed += usage.actualUnits;
     return reservation;
   }
@@ -325,9 +325,9 @@ describe('atomic AI quota lifecycle', () => {
     expect(repository.subscriptions.get(100)).toMatchObject({ aiUnitsUsed: 23, aiUnitsReserved: 0 });
   });
 
-  it('refuses a commit that exceeds the conservative reservation', async () => {
+  it('records full provider usage even when actual usage exceeds the conservative reservation', async () => {
     const repository = new FakeRepository();
-    repository.subscriptions.set(100, sub({ aiUnitsReserved: 5 }));
+    repository.subscriptions.set(100, sub({ aiUnitsUsed: 20, aiUnitsReserved: 5 }));
     repository.reservations.set('r1', {
       token: 'r1',
       chargedUserId: 100,
@@ -342,10 +342,60 @@ describe('atomic AI quota lifecycle', () => {
     });
     const service = new WorklogSubscriptionService(repository);
 
-    await expect(service.commitAiUsage('r1', usage(6))).resolves.toEqual({
-      status: 'ACTUAL_EXCEEDS_RESERVED',
+    await expect(service.commitAiUsage('r1', usage(6))).resolves.toMatchObject({
+      status: 'COMMITTED',
+      reservation: { unitsReserved: 5, unitsCommitted: 6, status: 'COMMITTED' },
     });
-    expect(repository.commitCalls).toEqual([]);
+    expect(repository.commitCalls).toHaveLength(1);
+    expect(repository.subscriptions.get(100)).toMatchObject({ aiUnitsUsed: 26, aiUnitsReserved: 0 });
+  });
+
+  it('settles a provider-success reservation after expiry without subtracting the hold twice', async () => {
+    const repository = new FakeRepository();
+    repository.subscriptions.set(100, sub({ aiUnitsUsed: 20, aiUnitsReserved: 0 }));
+    repository.reservations.set('expired', {
+      token: 'expired',
+      chargedUserId: 100,
+      actorUserId: 200,
+      sourceId: 10,
+      unitsReserved: 5,
+      unitsCommitted: 0,
+      status: 'EXPIRED',
+      periodStart: new Date('2026-09-01T00:00:00Z'),
+      periodEnd: new Date('2026-10-01T00:00:00Z'),
+      expiresAt: new Date('2026-09-02T00:00:00Z'),
+    });
+    const service = new WorklogSubscriptionService(repository);
+
+    await expect(service.commitAiUsage('expired', usage(6))).resolves.toMatchObject({
+      status: 'COMMITTED',
+      reservation: { unitsReserved: 5, unitsCommitted: 6, status: 'COMMITTED' },
+    });
+    expect(repository.subscriptions.get(100)).toMatchObject({ aiUnitsUsed: 26, aiUnitsReserved: 0 });
+  });
+
+  it('treats an already committed reservation as an idempotent successful settlement', async () => {
+    const repository = new FakeRepository();
+    repository.subscriptions.set(100, sub({ aiUnitsUsed: 26, aiUnitsReserved: 0 }));
+    repository.reservations.set('done', {
+      token: 'done',
+      chargedUserId: 100,
+      actorUserId: 200,
+      sourceId: 10,
+      unitsReserved: 5,
+      unitsCommitted: 6,
+      status: 'COMMITTED',
+      periodStart: new Date('2026-09-01T00:00:00Z'),
+      periodEnd: new Date('2026-10-01T00:00:00Z'),
+      expiresAt: new Date('2026-09-02T00:00:00Z'),
+    });
+    const service = new WorklogSubscriptionService(repository);
+
+    await expect(service.commitAiUsage('done', usage(6))).resolves.toMatchObject({
+      status: 'COMMITTED',
+      reservation: { token: 'done', unitsCommitted: 6 },
+    });
+    expect(repository.commitCalls).toHaveLength(0);
   });
 
   it('releases unused reservations without consuming quota', async () => {
