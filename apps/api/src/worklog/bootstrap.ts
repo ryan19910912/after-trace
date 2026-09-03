@@ -12,13 +12,6 @@ export type WorklogBoundGroup = {
   status: 'ACTIVE' | 'INACTIVE';
 };
 
-export type WorklogPendingGroup = {
-  pendingGroupId: number;
-  lineGroupId: string;
-  isActive: boolean;
-  promotedSourceId: number | null;
-};
-
 export interface WorklogBootstrapRepository {
   upsertLineUser(input: {
     lineUserId: string;
@@ -29,14 +22,8 @@ export interface WorklogBootstrapRepository {
   ensureWorkspace(ownerUserId: number, at: Date): Promise<number>;
   ensurePrivateSource(userId: number, workspaceId: number, at: Date): Promise<number>;
   findBoundGroupByLineId(lineGroupId: string): Promise<WorklogBoundGroup | null>;
+  ensureGroupSource(lineGroupId: string, workspaceId: number, at: Date): Promise<WorklogBoundGroup>;
   reactivateBoundGroup(sourceId: number, at: Date): Promise<boolean>;
-  upsertPendingGroup(lineGroupId: string, at: Date): Promise<WorklogPendingGroup>;
-  upsertPendingGroupMember(
-    pendingGroupId: number,
-    userId: number,
-    isActive: boolean,
-    at: Date,
-  ): Promise<void>;
   upsertBoundGroupMember(sourceId: number, userId: number, isActive: boolean, at: Date): Promise<void>;
   markGroupInactive(lineGroupId: string, at: Date): Promise<void>;
   promoteGroup(input: {
@@ -52,9 +39,19 @@ export type PrivateBootstrapResult =
   | { status: 'READY'; userId: number; workspaceId: number; sourceId: number }
   | { status: 'NOT_OA_FRIEND'; userId: number };
 
-export type GroupBootstrapResult =
-  | { status: 'BOUND'; userId: number; sourceId: number; ownerUserId: number | null }
-  | { status: 'PENDING_OWNER'; userId: number; pendingGroupId: number };
+/**
+ * GROUP Source existence is independent from AI funding. A group becomes a durable
+ * Source as soon as a known member interacts; ownerUserId may remain null indefinitely.
+ * Manual PWA access is authorized by Source membership elsewhere, not by this legacy
+ * owner field. The field remains transitional only until the grant/responsible-user
+ * schema replaces it.
+ */
+export type GroupBootstrapResult = {
+  status: 'BOUND';
+  userId: number;
+  sourceId: number;
+  ownerUserId: number | null;
+};
 
 export type GroupOwnerBindResult =
   | { status: 'BOUND'; sourceId: number; ownerUserId: number }
@@ -136,24 +133,31 @@ export class WorklogBootstrapService {
       at,
     });
 
-    const bound = await this.repository.findBoundGroupByLineId(lineGroupId);
-    if (bound) {
-      if (bound.status === 'INACTIVE') {
-        const reactivated = await this.repository.reactivateBoundGroup(bound.sourceId, at);
-        if (!reactivated) throw new Error('failed to reactivate known Worklog group');
+    let group = await this.repository.findBoundGroupByLineId(lineGroupId);
+    if (!group) {
+      // workspace_id is still a non-null legacy column. Use the first observed member's
+      // workspace only as a temporary storage parent; it is NOT authorization or data
+      // ownership. The final Source schema batch removes this accidental coupling.
+      const storageWorkspaceId = await this.repository.ensureWorkspace(user.userId, at);
+      group = await this.repository.ensureGroupSource(lineGroupId, storageWorkspaceId, at);
+    } else if (group.status === 'INACTIVE') {
+      const reactivated = await this.repository.reactivateBoundGroup(group.sourceId, at);
+      if (reactivated) group = { ...group, status: 'ACTIVE' };
+      else {
+        // A newer lifecycle event may legitimately win. Re-read rather than treating
+        // an older delayed interaction as authority to reactivate the Source.
+        const refreshed = await this.repository.findBoundGroupByLineId(lineGroupId);
+        if (refreshed) group = refreshed;
       }
-      await this.repository.upsertBoundGroupMember(bound.sourceId, user.userId, true, at);
-      return {
-        status: 'BOUND',
-        userId: user.userId,
-        sourceId: bound.sourceId,
-        ownerUserId: bound.ownerUserId,
-      };
     }
 
-    const pending = await this.repository.upsertPendingGroup(lineGroupId, at);
-    await this.repository.upsertPendingGroupMember(pending.pendingGroupId, user.userId, true, at);
-    return { status: 'PENDING_OWNER', userId: user.userId, pendingGroupId: pending.pendingGroupId };
+    await this.repository.upsertBoundGroupMember(group.sourceId, user.userId, true, at);
+    return {
+      status: 'BOUND',
+      userId: user.userId,
+      sourceId: group.sourceId,
+      ownerUserId: group.ownerUserId,
+    };
   }
 
   async setGroupMemberPresence(input: {
@@ -171,23 +175,16 @@ export class WorklogBootstrapService {
       at,
     });
 
-    const bound = await this.repository.findBoundGroupByLineId(lineGroupId);
-    if (bound) {
-      if (input.isActive && bound.status === 'INACTIVE') {
-        const reactivated = await this.repository.reactivateBoundGroup(bound.sourceId, at);
-        if (!reactivated) throw new Error('failed to reactivate known Worklog group');
-      }
-      await this.repository.upsertBoundGroupMember(bound.sourceId, user.userId, input.isActive, at);
-      return;
+    let group = await this.repository.findBoundGroupByLineId(lineGroupId);
+    if (!group) {
+      const storageWorkspaceId = await this.repository.ensureWorkspace(user.userId, at);
+      group = await this.repository.ensureGroupSource(lineGroupId, storageWorkspaceId, at);
+    } else if (input.isActive && group.status === 'INACTIVE') {
+      const reactivated = await this.repository.reactivateBoundGroup(group.sourceId, at);
+      if (reactivated) group = { ...group, status: 'ACTIVE' };
     }
 
-    const pending = await this.repository.upsertPendingGroup(lineGroupId, at);
-    await this.repository.upsertPendingGroupMember(
-      pending.pendingGroupId,
-      user.userId,
-      input.isActive,
-      at,
-    );
+    await this.repository.upsertBoundGroupMember(group.sourceId, user.userId, input.isActive, at);
   }
 
   async handleGroupLeave(input: { lineGroupId: string; at?: Date }): Promise<void> {
@@ -218,6 +215,13 @@ export class WorklogBootstrapService {
       return { status: 'ALREADY_BOUND', sourceId: existing.sourceId, ownerUserId: owner.userId };
     }
 
+    // Ensure the data Source exists before assigning AI funding responsibility. This
+    // keeps manual group history available even when no responsible user is configured.
+    if (!existing) {
+      const storageWorkspaceId = await this.repository.ensureWorkspace(owner.userId, at);
+      await this.repository.ensureGroupSource(lineGroupId, storageWorkspaceId, at);
+    }
+
     const workspaceId = await this.repository.ensureWorkspace(owner.userId, at);
     const promoted = await this.repository.promoteGroup({
       lineGroupId,
@@ -230,7 +234,7 @@ export class WorklogBootstrapService {
     if (!promoted) {
       const winner = await this.repository.findBoundGroupByLineId(lineGroupId);
       if (!winner || winner.ownerUserId === null) {
-        throw new Error('group owner binding failed without a winning owner');
+        throw new Error('group AI responsible-user binding failed without a winning user');
       }
       return winner.ownerUserId === owner.userId
         ? { status: 'ALREADY_BOUND', sourceId: winner.sourceId, ownerUserId: owner.userId }
