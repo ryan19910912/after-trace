@@ -6,6 +6,8 @@ This document is part of the durable product/development contract for branch `re
 
 A work record may be created and edited manually in PWA. Editing never destroys prior content. The current record row represents the latest visible state; every content-changing edit also creates an immutable revision/history row.
 
+Each Record belongs to exactly one Source-scoped Entity / user-facing **紀錄標題**. The accepted MVP does not use PRIMARY/RELATED many-to-many Entity associations.
+
 ## Record times
 
 A record needs distinct time concepts:
@@ -28,7 +30,7 @@ Recommended durable revision fields include:
 - previous raw text;
 - new raw text or enough snapshot/diff data to reconstruct the revision;
 - previous/new `occurred_at` when changed;
-- previous/new Entity associations when changed;
+- previous/new `entity_id` when an edit explicitly moves the Record to another title;
 - edit timestamp.
 
 Prefer complete snapshots for MVP if simpler and safer than reconstructing long diff chains.
@@ -59,7 +61,7 @@ Use database-backed optimistic concurrency, not process memory and not Redis loc
 Deletion remains status change, not physical deletion.
 
 - current record becomes `DELETED` (or equivalent);
-- original Entity associations and revisions remain durable;
+- original title/entity reference and revisions remain durable;
 - normal record/entity queries ignore deleted records;
 - recycle-bin view includes deleted records and their history;
 - restore changes the record back to active state and retains all prior delete/restore/edit audit history.
@@ -70,11 +72,21 @@ PWA manual editing is free and deliberately non-AI.
 
 - The user edits the current raw record text directly.
 - Saving the manual edit does not invoke AI and consumes zero AI allowance.
-- PWA manual text editing does **not** automatically re-evaluate or change the record's Primary/Related Entity associations.
-- If a user changes `王大明去晴空案換冷氣` into `王大明去信義案換冷氣` manually, the product treats that as the user's intentional manual text edit and does not silently move the record from `晴空案` to `信義案`.
-- If the user intends to move the business context/subject as well, the expected manual workflow is to explicitly manage the record/entity association in PWA when that capability exists, or delete/replace the mistaken record as appropriate. Do not hide AI work inside a free manual save.
+- PWA manual text editing does **not** automatically re-evaluate or change the Record's title/entity.
+- If a user changes `王大明去晴空案換冷氣` into `王大明去信義案換冷氣` manually, the product treats that as an intentional text edit and does not silently move the Record from `晴空案` to `信義案`.
+- If the user intends to change filing context as well, they explicitly change/move the Record title in PWA. Single-record and batch title transfer are deterministic manual operations and consume no AI.
 
 This boundary keeps free PWA CRUD deterministic and avoids unexpected AI cost or silent reclassification.
+
+## Manual PWA authorization
+
+Manual PWA access is data authorization, not billing entitlement.
+
+- PRIVATE: the current user must own/authorize the PRIVATE Source.
+- GROUP: the current user must be an active member of the active GROUP Source.
+- GROUP manual read/create/edit/delete/restore/title-move must not depend on a legacy Owner, subscription, plan capability, AI 額度負責人 or positive AI balance.
+
+AI entitlement is checked only when an operation actually requires AI compute.
 
 ## LINE natural-language edit
 
@@ -111,18 +123,17 @@ LINE natural-language editing is an AI-assisted action.
 
 General product rule: **whenever a requested operation requires AI compute, zero eligible balance means that AI operation is unavailable. Manual PWA CRUD remains free.**
 
-### AI edit interpretation and Entity changes
+### AI edit interpretation and title changes
 
-For a valid replied-to target, AI may interpret both the text change and whether the requested edit changes the record's subject/entity associations.
+For a valid replied-to target, AI may interpret both the text change and whether the requested edit explicitly changes the Record title.
 
 Example current record:
 
 `王大明去晴空案換冷氣`
 
-Current associations:
+Current title:
 
-- Primary Entity: `晴空案`
-- Related Entity: `王大明`
+- `晴空案`
 
 Reply command:
 
@@ -131,12 +142,13 @@ Reply command:
 AI-assisted edit may determine that:
 
 - raw text should become `王大明去信義案換冷氣` (or equivalent faithful updated text);
-- Primary Entity should change from `晴空案` to `信義案`;
-- `王大明` remains Related.
+- title should change from `晴空案` to `信義案`.
 
-If `信義案` already exists in the same source, re-associate the record to that Entity. If it does not exist, the AI-assisted entity-resolution flow may create it, subject to the same duplicate/Alias confirmation rules used for normal AI ingestion.
+If `信義案` already exists in the same Source, re-associate the Record to that Entity. If it does not exist, the AI-assisted title-resolution flow may create it, subject to the same duplicate/Alias confirmation rules used for normal AI ingestion.
 
-If AI is not confident whether the subject should change, it must not silently reclassify the record; ask the user for confirmation.
+If AI is not confident whether the title should change, it must not silently reclassify the Record; ask the user for confirmation.
+
+Names such as `王大明` remain ordinary searchable Record content unless they are themselves the chosen title. Do not create RELATED Entity associations merely because the name appears in text.
 
 ### Backend mutation boundary
 
@@ -146,24 +158,24 @@ Conceptual operations may include:
 
 - resolve replied-to record target;
 - interpret requested text change;
-- resolve/create Entity candidates;
+- resolve/create title Entity candidates;
 - update record with `expected_version`;
-- replace/add/remove record-Entity associations when explicitly determined;
+- update the Record's single `entity_id` when explicitly determined;
 - append immutable revision history.
 
 Before commit:
 
 - verify PRIVATE owner or active GROUP membership authorization;
 - verify record is active/editable;
-- verify target source matches the current private/group scope;
-- verify any Entity belongs to the same source;
+- verify target Source matches the current private/group scope;
+- verify any Entity/title belongs to the same Source;
 - apply optimistic version check;
-- create revision history atomically with the record/entity update.
+- create revision history atomically with the Record update.
 
-If any material target/entity decision is ambiguous, do not partially mutate the record. Ask the user to confirm instead.
+If any material target/title decision is ambiguous, do not partially mutate the record. Ask the user to confirm instead.
 
 ## AI-derived summaries
 
-Current product direction is moving away from permanently stored per-record AI summaries. If on-demand AI summary/query becomes the accepted model, record edit history remains based on raw durable records and Entity associations; no persistent summary revision needs to be maintained.
+Persistent per-record AI summaries are not part of the accepted MVP. Record edit history is based on raw durable Record text, `occurred_at`, title/entity and revision state. Future explicit on-demand summaries/reports may consume AI allowance and remain ephemeral.
 
 GitHub Actions must not be used as validation unless explicitly requested by the user.
