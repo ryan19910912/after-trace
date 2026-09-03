@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   buildGeminiWorklogTextRequestBody,
   GeminiWorklogTextNormalizer,
-  WorklogTextProviderError,
 } from './gemini-text-normalizer';
 import type { WorklogAiRuntimeConfigSnapshot } from './text-normalization';
 
@@ -75,7 +74,7 @@ describe('GeminiWorklogTextNormalizer', () => {
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 
-  it('accepts a null title only when the provider marks it for confirmation', async () => {
+  it('accepts a null title when the provider explicitly marks it for confirmation', async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({
       candidates: [{ content: { parts: [{ text: JSON.stringify({
         title: null,
@@ -107,7 +106,7 @@ describe('GeminiWorklogTextNormalizer', () => {
     }), { status: 200 }));
     const provider = new GeminiWorklogTextNormalizer({ apiKey: 'test-key', fetchFn: fetchFn as typeof fetch });
 
-    await expect(provider.normalize(input, config)).rejects.toMatchObject<Partial<WorklogTextProviderError>>({
+    await expect(provider.normalize(input, config)).rejects.toMatchObject({
       code: 'GEMINI_INVALID_RESPONSE',
     });
   });
