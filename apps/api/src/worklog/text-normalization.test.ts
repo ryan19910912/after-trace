@@ -149,6 +149,35 @@ describe('WorklogTextNormalizationService', () => {
     expect(subscriptions.releaseAi).not.toHaveBeenCalled();
   });
 
+  it('persists and commits full provider usage even when actual usage exceeds the preflight estimate', async () => {
+    const repository = baseRepository();
+    const subscriptions = baseSubscriptions();
+    const provider = baseProvider();
+    vi.mocked(provider.normalize).mockResolvedValue({
+      output: {
+        summary: '超出預估仍應記帳。',
+        category: 'NOTE',
+        customerHint: null,
+        projectHint: null,
+      },
+      inputTokens: 450,
+      outputTokens: 100,
+      providerResponseId: 'response-overage',
+      latencyMs: 50,
+    });
+    const service = new WorklogTextNormalizationService(repository, subscriptions, provider, () => 'claim-1');
+
+    await expect(service.normalizeText(11)).resolves.toEqual({ status: 'NORMALIZED' });
+    expect(repository.saveProviderResult).toHaveBeenCalledWith(expect.objectContaining({
+      usage: expect.objectContaining({ actualUnits: 550 }),
+    }));
+    expect(subscriptions.commitAiUsage).toHaveBeenCalledWith(
+      'reserve-1',
+      expect.objectContaining({ actualUnits: 550 }),
+    );
+    expect(subscriptions.releaseAi).not.toHaveBeenCalled();
+  });
+
   it('defers without calling the provider when quota cannot be reserved', async () => {
     const repository = baseRepository();
     const subscriptions = baseSubscriptions();
@@ -164,7 +193,7 @@ describe('WorklogTextNormalizationService', () => {
     expect(provider.normalize).not.toHaveBeenCalled();
   });
 
-  it('releases reservation and terminally fails after an uncertain provider attempt', async () => {
+  it('releases reservation and terminally fails when no usable provider response exists', async () => {
     const repository = baseRepository();
     const subscriptions = baseSubscriptions();
     const provider = baseProvider();
