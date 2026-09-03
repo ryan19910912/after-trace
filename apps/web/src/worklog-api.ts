@@ -1,15 +1,49 @@
 export type WorklogInputType = 'TEXT' | 'AUDIO' | 'IMAGE' | 'FILE';
+export type WorklogRecordStatus = 'ACTIVE' | 'DELETED';
 
 export type WorklogRecord = {
   id: number;
   sourceId: number;
+  entityId: number | null;
+  title: string | null;
   authorUserId: number | null;
+  authorDisplayName: string | null;
   inputType: WorklogInputType;
-  rawText: string | null;
-  sourceTimestamp: string | null;
-  editedAt: string | null;
+  rawText: string;
+  occurredAt: string;
+  status: WorklogRecordStatus;
+  version: number;
+  deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type WorklogEntity = {
+  id: number;
+  name: string;
+  entityType: string | null;
+  status: string;
+  aliases: string[];
+};
+
+export type WorklogRecordRevision = {
+  id: number;
+  recordId: number;
+  version: number;
+  editorUserId: number | null;
+  editorDisplayName: string | null;
+  channel: string;
+  previousRawText: string;
+  newRawText: string;
+  previousOccurredAt: string;
+  newOccurredAt: string;
+  previousEntityId: number | null;
+  previousTitle: string | null;
+  newEntityId: number | null;
+  newTitle: string | null;
+  previousStatus: WorklogRecordStatus;
+  newStatus: WorklogRecordStatus;
+  createdAt: string;
 };
 
 export type RecordPage = {
@@ -20,6 +54,7 @@ export type RecordPage = {
 };
 
 export type RecordFilters = {
+  entityId?: number;
   query?: string;
   from?: string;
   to?: string;
@@ -89,6 +124,17 @@ export type CheckoutIntent = {
   message?: string;
 };
 
+export type RecordScope =
+  | { type: 'PERSONAL'; sourceId: number }
+  | { type: 'GROUP'; sourceId: number };
+
+export type ManualRecordInput = {
+  entityId?: number;
+  title?: string;
+  rawText: string;
+  occurredAt: string;
+};
+
 async function json<T>(response: Response, fallback: string): Promise<T & { error?: string }> {
   const text = await response.text();
   let body: T & { error?: string };
@@ -131,12 +177,7 @@ export class WorklogApi {
     sessionToken: string,
     filters: RecordFilters = {},
   ): Promise<{ records: WorklogRecord[]; page: RecordPage }> {
-    return this.recordPage(
-      sessionToken,
-      '/api/v1/worklog/records/personal',
-      filters,
-      '個人紀錄載入失敗',
-    );
+    return this.recordPage(sessionToken, '/api/v1/worklog/records/personal', filters, '個人紀錄載入失敗');
   }
 
   async groupRecords(
@@ -144,12 +185,108 @@ export class WorklogApi {
     sourceId: number,
     filters: RecordFilters = {},
   ): Promise<{ records: WorklogRecord[]; page: RecordPage }> {
-    return this.recordPage(
-      sessionToken,
-      `/api/v1/worklog/records/group/${sourceId}`,
-      filters,
-      '群組紀錄載入失敗',
+    return this.recordPage(sessionToken, `/api/v1/worklog/records/group/${sourceId}`, filters, '群組紀錄載入失敗');
+  }
+
+  async deletedRecords(
+    sessionToken: string,
+    scope: RecordScope,
+    filters: RecordFilters = {},
+  ): Promise<{ records: WorklogRecord[]; page: RecordPage }> {
+    const path = scope.type === 'PERSONAL'
+      ? '/api/v1/worklog/records/personal/deleted'
+      : `/api/v1/worklog/records/group/${scope.sourceId}/deleted`;
+    return this.recordPage(sessionToken, path, filters, '回收桶載入失敗');
+  }
+
+  async entities(sessionToken: string, scope: RecordScope, query?: string): Promise<WorklogEntity[]> {
+    const path = scope.type === 'PERSONAL'
+      ? '/api/v1/worklog/entities/personal'
+      : `/api/v1/worklog/entities/group/${scope.sourceId}`;
+    const suffix = query?.trim() ? `?q=${encodeURIComponent(query.trim())}` : '';
+    const body = await json<{ entities: Array<Record<string, unknown>> }>(
+      await this.request(sessionToken, `${path}${suffix}`),
+      '紀錄標題載入失敗',
     );
+    return body.entities.map(entityFromApi);
+  }
+
+  async createRecord(sessionToken: string, scope: RecordScope, input: ManualRecordInput) {
+    const path = scope.type === 'PERSONAL'
+      ? '/api/v1/worklog/records/personal'
+      : `/api/v1/worklog/records/group/${scope.sourceId}`;
+    const body = await json<{ record: Record<string, unknown> }>(
+      await this.request(sessionToken, path, this.body('POST', input)),
+      '新增紀錄失敗',
+    );
+    return recordFromApi(body.record);
+  }
+
+  async updateRecord(
+    sessionToken: string,
+    recordId: number,
+    input: { expectedVersion: number; rawText?: string; occurredAt?: string },
+  ) {
+    const body = await json<{ record: Record<string, unknown> }>(
+      await this.request(sessionToken, `/api/v1/worklog/records/${recordId}`, this.body('PATCH', input)),
+      '更新紀錄失敗',
+    );
+    return recordFromApi(body.record);
+  }
+
+  async moveRecord(
+    sessionToken: string,
+    recordId: number,
+    input: { expectedVersion: number; entityId?: number; title?: string },
+  ) {
+    const body = await json<{ record: Record<string, unknown> }>(
+      await this.request(sessionToken, `/api/v1/worklog/records/${recordId}/move`, this.body('POST', input)),
+      '移動紀錄失敗',
+    );
+    return recordFromApi(body.record);
+  }
+
+  async batchMoveRecords(
+    sessionToken: string,
+    records: Array<{ id: number; expectedVersion: number }>,
+    target: { entityId?: number; title?: string },
+  ) {
+    return json<{ updatedCount: number }>(
+      await this.request(sessionToken, '/api/v1/worklog/records/batch-move', this.body('POST', { records, ...target })),
+      '批次移動失敗',
+    );
+  }
+
+  async deleteRecord(sessionToken: string, recordId: number, expectedVersion: number) {
+    const body = await json<{ record: Record<string, unknown> }>(
+      await this.request(
+        sessionToken,
+        `/api/v1/worklog/records/${recordId}`,
+        this.body('DELETE', { expectedVersion }),
+      ),
+      '刪除紀錄失敗',
+    );
+    return recordFromApi(body.record);
+  }
+
+  async restoreRecord(sessionToken: string, recordId: number, expectedVersion: number) {
+    const body = await json<{ record: Record<string, unknown> }>(
+      await this.request(
+        sessionToken,
+        `/api/v1/worklog/records/${recordId}/restore`,
+        this.body('POST', { expectedVersion }),
+      ),
+      '還原紀錄失敗',
+    );
+    return recordFromApi(body.record);
+  }
+
+  async recordRevisions(sessionToken: string, recordId: number): Promise<WorklogRecordRevision[]> {
+    const body = await json<{ revisions: Array<Record<string, unknown>> }>(
+      await this.request(sessionToken, `/api/v1/worklog/records/${recordId}/revisions`),
+      '編輯紀錄載入失敗',
+    );
+    return body.revisions.map(revisionFromApi);
   }
 
   async myUsage(sessionToken: string) {
@@ -206,6 +343,7 @@ export class WorklogApi {
     fallback: string,
   ) {
     const params = new URLSearchParams();
+    if (filters.entityId) params.set('entityId', String(filters.entityId));
     if (filters.query?.trim()) params.set('q', filters.query.trim());
     if (filters.from) params.set('from', filters.from);
     if (filters.to) params.set('to', filters.to);
@@ -238,13 +376,50 @@ function recordFromApi(raw: Record<string, unknown>): WorklogRecord {
   return {
     id: Number(raw.id),
     sourceId: Number(raw.source_id ?? raw.sourceId),
+    entityId: nullableNumber(raw.entity_id ?? raw.entityId),
+    title: nullableString(raw.title),
     authorUserId: nullableNumber(raw.author_user_id ?? raw.authorUserId),
+    authorDisplayName: nullableString(raw.author_display_name ?? raw.authorDisplayName),
     inputType: String(raw.input_type ?? raw.inputType) as WorklogInputType,
-    rawText: nullableString(raw.raw_text ?? raw.rawText),
-    sourceTimestamp: nullableString(raw.source_timestamp ?? raw.sourceTimestamp),
-    editedAt: nullableString(raw.edited_at ?? raw.editedAt),
+    rawText: String(raw.raw_text ?? raw.rawText ?? ''),
+    occurredAt: String(raw.occurred_at ?? raw.occurredAt),
+    status: String(raw.status) as WorklogRecordStatus,
+    version: Number(raw.version),
+    deletedAt: nullableString(raw.deleted_at ?? raw.deletedAt),
     createdAt: String(raw.created_at ?? raw.createdAt),
     updatedAt: String(raw.updated_at ?? raw.updatedAt),
+  };
+}
+
+function entityFromApi(raw: Record<string, unknown>): WorklogEntity {
+  return {
+    id: Number(raw.id),
+    name: String(raw.name),
+    entityType: nullableString(raw.entity_type ?? raw.entityType),
+    status: String(raw.status),
+    aliases: Array.isArray(raw.aliases) ? raw.aliases.map(String) : [],
+  };
+}
+
+function revisionFromApi(raw: Record<string, unknown>): WorklogRecordRevision {
+  return {
+    id: Number(raw.id),
+    recordId: Number(raw.record_id ?? raw.recordId),
+    version: Number(raw.version),
+    editorUserId: nullableNumber(raw.editor_user_id ?? raw.editorUserId),
+    editorDisplayName: nullableString(raw.editor_display_name ?? raw.editorDisplayName),
+    channel: String(raw.channel),
+    previousRawText: String(raw.previous_raw_text ?? raw.previousRawText ?? ''),
+    newRawText: String(raw.new_raw_text ?? raw.newRawText ?? ''),
+    previousOccurredAt: String(raw.previous_occurred_at ?? raw.previousOccurredAt),
+    newOccurredAt: String(raw.new_occurred_at ?? raw.newOccurredAt),
+    previousEntityId: nullableNumber(raw.previous_entity_id ?? raw.previousEntityId),
+    previousTitle: nullableString(raw.previous_title ?? raw.previousTitle),
+    newEntityId: nullableNumber(raw.new_entity_id ?? raw.newEntityId),
+    newTitle: nullableString(raw.new_title ?? raw.newTitle),
+    previousStatus: String(raw.previous_status ?? raw.previousStatus) as WorklogRecordStatus,
+    newStatus: String(raw.new_status ?? raw.newStatus) as WorklogRecordStatus,
+    createdAt: String(raw.created_at ?? raw.createdAt),
   };
 }
 
