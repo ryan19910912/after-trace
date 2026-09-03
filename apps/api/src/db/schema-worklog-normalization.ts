@@ -11,16 +11,16 @@ import {
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/pg-core';
-import { worklogRecords } from './schema-worklog';
+import { worklogRecords } from './schema-worklog-record-core';
 import { worklogAiQuotaReservations } from './schema-worklog-quota';
 
 /**
- * Durable orchestration state for post-persistence Worklog AI normalization.
+ * Durable orchestration state for post-persistence Worklog AI interpretation.
  *
- * This table deliberately sits beside worklog_records instead of turning the raw
- * record itself into a transient job queue. A single row per record gives LINE
- * redelivery an idempotent state machine and lets a partially completed provider /
- * quota settlement be resumed without calling the provider a second time.
+ * The historical table name is retained while the current output is still being
+ * migrated from legacy summary/category normalization to CREATE/EDIT/HISTORY title
+ * and occurred-at interpretation. A single row per Record keeps provider execution
+ * and settlement idempotent across LINE redelivery.
  */
 export const worklogRecordAiNormalizations = pgTable(
   'worklog_record_ai_normalizations',
