@@ -46,6 +46,7 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
     occurredAt: nowLocalValue(),
   }));
   const [editing, setEditing] = useState<WorklogRecord | null>(null);
+  const [editDraft, setEditDraft] = useState<RecordDraft | null>(null);
   const [moving, setMoving] = useState<WorklogRecord | null>(null);
   const [moveTitle, setMoveTitle] = useState('');
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -126,7 +127,9 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
     setError(null);
     try {
       const requestFilters = apiFilters(nextFilters, append ? recordPage?.nextOffset ?? 0 : 0);
-      const apiScope = { type: nextScope.type, sourceId: nextScope.sourceId } as const;
+      const apiScope = nextScope.type === 'PERSONAL'
+        ? { type: 'PERSONAL' as const, sourceId: nextScope.sourceId }
+        : { type: 'GROUP' as const, sourceId: nextScope.sourceId };
       const result = deleted
         ? await api.deletedRecords(token, apiScope, requestFilters)
         : nextScope.type === 'PERSONAL'
@@ -144,7 +147,10 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
 
   async function loadEntities(token: string, nextScope: Scope) {
     try {
-      setEntities(await api.entities(token, { type: nextScope.type, sourceId: nextScope.sourceId }));
+      const apiScope = nextScope.type === 'PERSONAL'
+        ? { type: 'PERSONAL' as const, sourceId: nextScope.sourceId }
+        : { type: 'GROUP' as const, sourceId: nextScope.sourceId };
+      setEntities(await api.entities(token, apiScope));
     } catch (cause) {
       setError(message(cause, '紀錄標題載入失敗'));
     }
@@ -181,11 +187,14 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
   }
 
   async function createRecord() {
-    if (!session || !scope) return;
+    if (!session || !scope || !validLocalDate(createDraft.occurredAt)) return;
     setLoading(true);
     setError(null);
     try {
-      await api.createRecord(session, { type: scope.type, sourceId: scope.sourceId }, {
+      const apiScope = scope.type === 'PERSONAL'
+        ? { type: 'PERSONAL' as const, sourceId: scope.sourceId }
+        : { type: 'GROUP' as const, sourceId: scope.sourceId };
+      await api.createRecord(session, apiScope, {
         title: createDraft.title.trim(),
         rawText: createDraft.rawText.trim(),
         occurredAt: new Date(createDraft.occurredAt).toISOString(),
@@ -201,7 +210,7 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
   }
 
   async function saveEdit(record: WorklogRecord, draft: RecordDraft) {
-    if (!session) return;
+    if (!session || !validLocalDate(draft.occurredAt)) return;
     setLoading(true);
     setError(null);
     try {
@@ -211,6 +220,7 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
         occurredAt: new Date(draft.occurredAt).toISOString(),
       });
       setEditing(null);
+      setEditDraft(null);
       await refreshAfterMutation('紀錄已更新。');
     } catch (cause) {
       setError(message(cause, '更新紀錄失敗'));
@@ -299,6 +309,20 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
     }
   }
 
+  function startEdit(record: WorklogRecord) {
+    setEditing(record);
+    setEditDraft({
+      title: record.title ?? '',
+      rawText: record.rawText,
+      occurredAt: datetimeLocalValue(record.occurredAt),
+    });
+  }
+
+  function cancelEdit() {
+    setEditing(null);
+    setEditDraft(null);
+  }
+
   if (!session) {
     return <main className="shell fatal-shell">
       <section className="fatal-card">
@@ -384,7 +408,7 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
               checked ? next.add(record.id) : next.delete(record.id);
               return next;
             })}
-            onEdit={() => setEditing(record)}
+            onEdit={() => startEdit(record)}
             onMove={() => { setMoving(record); setMoveTitle(record.title ?? ''); }}
             onHistory={() => void openHistory(record)}
             onDelete={() => void deleteRecord(record)}
@@ -398,23 +422,15 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
         >{loading ? '載入中…' : '載入更多'}</button> : null}
       </section>
 
-      {editing ? <section className="panel">
+      {editing && editDraft ? <section className="panel">
         <RecordEditor
           heading={`編輯：${editing.title ?? '待整理'}`}
-          draft={{ title: editing.title ?? '', rawText: editing.rawText, occurredAt: datetimeLocalValue(editing.occurredAt) }}
+          draft={editDraft}
           entities={entities}
           hideTitle
-          onChange={(draft) => setEditing((current) => current ? {
-            ...current,
-            rawText: draft.rawText,
-            occurredAt: new Date(draft.occurredAt).toISOString(),
-          } : null)}
-          onCancel={() => setEditing(null)}
-          onSave={() => editing && void saveEdit(editing, {
-            title: editing.title ?? '',
-            rawText: editing.rawText,
-            occurredAt: datetimeLocalValue(editing.occurredAt),
-          })}
+          onChange={setEditDraft}
+          onCancel={cancelEdit}
+          onSave={() => void saveEdit(editing, editDraft)}
           busy={loading}
         />
       </section> : null}
@@ -515,6 +531,7 @@ function RecordEditor({ heading, draft, entities, hideTitle = false, onChange, o
   onSave: () => void;
   busy: boolean;
 }) {
+  const occurredAtValid = validLocalDate(draft.occurredAt);
   return <div className="stack">
     <h2>{heading}</h2>
     {!hideTitle ? <label>紀錄標題
@@ -523,7 +540,7 @@ function RecordEditor({ heading, draft, entities, hideTitle = false, onChange, o
     <label>紀錄內容<textarea rows={6} value={draft.rawText} onChange={(event) => onChange({ ...draft, rawText: event.target.value })} /></label>
     <label>發生時間<input type="datetime-local" value={draft.occurredAt} onChange={(event) => onChange({ ...draft, occurredAt: event.target.value })} /></label>
     <div className="filter-actions">
-      <button disabled={busy || (!hideTitle && !draft.title.trim()) || !draft.rawText.trim() || !draft.occurredAt} onClick={onSave}>儲存</button>
+      <button disabled={busy || (!hideTitle && !draft.title.trim()) || !draft.rawText.trim() || !occurredAtValid} onClick={onSave}>儲存</button>
       <button className="ghost" onClick={onCancel}>取消</button>
     </div>
     <TitleDatalist entities={entities} />
@@ -593,8 +610,8 @@ function apiFilters(value: FilterDraft, offset: number): RecordFilters {
   return {
     entityId: value.entityId ? Number(value.entityId) : undefined,
     query: value.query,
-    from: value.from ? new Date(value.from).toISOString() : undefined,
-    to: value.to ? new Date(value.to).toISOString() : undefined,
+    from: value.from && validLocalDate(value.from) ? new Date(value.from).toISOString() : undefined,
+    to: value.to && validLocalDate(value.to) ? new Date(value.to).toISOString() : undefined,
     limit: 50,
     offset,
   };
@@ -634,6 +651,11 @@ function inputLabel(type: WorklogInputType) { return ({ TEXT: '文字', AUDIO: '
 function nowLocalValue() { return datetimeLocalValue(new Date().toISOString()); }
 function datetimeLocalValue(value: string) {
   const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
   return local.toISOString().slice(0, 16);
+}
+function validLocalDate(value: string) {
+  if (!value.trim()) return false;
+  return !Number.isNaN(new Date(value).getTime());
 }
