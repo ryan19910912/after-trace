@@ -89,6 +89,7 @@ export class DrizzleWorklogAiGrantRepository implements WorklogAiGrantRepository
         source_id,
         cap_points,
         used_points,
+        reserved_points,
         enabled,
         created_at,
         updated_at
@@ -97,6 +98,7 @@ export class DrizzleWorklogAiGrantRepository implements WorklogAiGrantRepository
         ${input.grantId},
         ${input.sourceId},
         ${input.capPoints},
+        0,
         0,
         TRUE,
         ${input.at},
@@ -119,13 +121,13 @@ export class DrizzleWorklogAiGrantRepository implements WorklogAiGrantRepository
         grant.remaining_points,
         CASE
           WHEN scope.cap_points IS NULL THEN grant.remaining_points
-          ELSE GREATEST(0, scope.cap_points - scope.used_points)
+          ELSE GREATEST(0, scope.cap_points - scope.used_points - scope.reserved_points)
         END AS scope_remaining_points,
         LEAST(
           grant.remaining_points,
           CASE
             WHEN scope.cap_points IS NULL THEN grant.remaining_points
-            ELSE GREATEST(0, scope.cap_points - scope.used_points)
+            ELSE GREATEST(0, scope.cap_points - scope.used_points - scope.reserved_points)
           END
         ) AS usable_points,
         grant.expires_at
