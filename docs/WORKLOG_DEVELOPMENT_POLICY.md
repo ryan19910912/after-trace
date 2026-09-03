@@ -33,7 +33,21 @@ During scheduled or interactive development work:
 - if code and durable product documentation disagree, explicitly surface the mismatch. Do not silently redefine the product contract to match existing code unless the user has approved that behavior;
 - if a newly agreed decision requires a migration, payment-provider behavior, background renewal process, or other work that is not implemented yet, document both the desired contract and the fact that implementation is still pending.
 
-This includes subscription/pricing decisions. Current subscription design discussions must be persisted as they are agreed, including billing type, renewal behavior, quota refresh behavior, rollover rules, and payment-provider requirements.
+This includes subscription/pricing decisions. Current subscription design discussions must be persisted as they are agreed, including billing type, renewal behavior, quota refresh behavior, rollover rules, payment-provider requirements, default plan matrix, Owner lifecycle, supported attachment types, export scope, and active AI model policy.
+
+## Current implementation target decisions
+
+These decisions are current product/development targets and must be treated as durable until the user explicitly changes them:
+
+- Current production AI target is stable Gemini 3.5 Flash (`gemini-3.5-flash`). Do not spend implementation effort preserving Gemini 2.5 thinking compatibility now. A later model migration should be handled as a deliberate compatibility/pricing change.
+- Gemini 3.5 work-record normalization should use Gemini 3-style thinking controls and account thinking tokens in provider cost/quota. Sampling overrides such as the old hard-coded low temperature should not be retained merely for legacy compatibility.
+- FREE is a `ONE_TIME` personal entitlement. It receives a one-time AI allowance equal to the current NT$99 PRO monthly allowance, does not expire merely because a month passes, does not auto-refresh, and remains usable until its granted AI allowance is exhausted.
+- Paid PRO/TEAM are `MONTHLY` plans. A new monthly allowance is granted only after confirmed successful renewal; unused prior-period allowance does not roll over.
+- Group use requires the bound Owner to remain an active member of that LINE group. If the Owner leaves, new group query/record/provider work is suspended before quota/provider usage.
+- While the bound Owner is absent, an active group member may explicitly run `@AFTERTRACE 啟用` to take over Owner/billing responsibility. After a successful rebind, the previous Owner returning later must not reclaim ownership automatically. If nobody rebinds and the previous Owner rejoins, the original binding remains and group usage resumes.
+- `export` is part of the MVP and should be implemented truthfully before advertising that capability to customers.
+- DOCX and XLSX are part of the MVP attachment target. Do not fake support by forwarding unsupported raw Office MIME bytes to Gemini; add an explicit extraction/conversion path appropriate for Cloudflare Workers, then feed extracted content into the normal record pipeline.
+- The initial recommended plan matrix is FREE / PRO / TEAM. Keep plan behavior data-driven in DB/Admin rather than scattering plan-code conditionals through frontend/runtime beyond the explicit FREE personal-only safety rule.
 
 ## AI provider accounting / settlement invariant
 
