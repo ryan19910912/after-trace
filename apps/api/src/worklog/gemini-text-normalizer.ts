@@ -26,8 +26,15 @@ export type GeminiWorklogTextNormalizerOptions = {
 type GeminiGenerateContentResponse = {
   responseId?: string;
   candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-  usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+  usageMetadata?: {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+    thoughtsTokenCount?: number;
+  };
 };
+
+const STABLE_WORKLOG_MODEL = 'gemini-3.5-flash';
+const THINKING_LEVEL = 'low';
 
 const structuredOutputSchema = z.object({
   summary: z.string().trim().min(1).max(2000),
@@ -79,7 +86,7 @@ export function buildGeminiWorklogTextRequestBody(text: string, maxOutputTokens 
     generationConfig: {
       responseMimeType: 'application/json',
       responseJsonSchema,
-      temperature: 0.1,
+      thinkingConfig: { thinkingLevel: THINKING_LEVEL },
       maxOutputTokens: maxTokens,
     },
   };
@@ -89,12 +96,14 @@ export function worklogTextReservationUnits(text: string, maxOutputTokens = 384)
   const requestBytes = new TextEncoder().encode(
     JSON.stringify(buildGeminiWorklogTextRequestBody(text, maxOutputTokens)),
   ).byteLength;
-  const total = requestBytes + positiveInteger(maxOutputTokens, 'maxOutputTokens');
+  // Gemini 3.5 low thinking has no strict numeric thought-token ceiling. Reserve an
+  // additional output-sized cushion to reduce ordinary overrun; exact settlement
+  // remains authoritative when real provider usage is higher.
+  const outputBudget = positiveInteger(maxOutputTokens, 'maxOutputTokens');
+  const total = requestBytes + outputBudget + outputBudget;
   if (!Number.isSafeInteger(total) || total <= 0) {
     throw new WorklogTextProviderError('AI_RESERVATION_ESTIMATE_INVALID', 'Worklog AI reservation estimate is invalid');
   }
-  // One TEXT AI unit currently represents one provider token-equivalent. UTF-8 request
-  // bytes are a deliberately conservative upper bound for Gemini prompt tokens.
   return total;
 }
 
@@ -177,17 +186,21 @@ export class GeminiWorklogTextNormalizer implements WorklogTextNormalizationProv
     const output = normalizeWorklogTextOutput(parsed);
 
     const inputTokens = safeTokenCount(body.usageMetadata?.promptTokenCount, 'prompt');
-    const outputTokens = safeTokenCount(body.usageMetadata?.candidatesTokenCount, 'output');
+    const candidateTokens = safeTokenCount(body.usageMetadata?.candidatesTokenCount, 'candidate output');
+    const thoughtsTokens = optionalTokenCount(body.usageMetadata?.thoughtsTokenCount, 'thinking');
     if (inputTokens > requestTokenUpperBound) {
       throw new WorklogTextProviderError('GEMINI_INVALID_RESPONSE', 'Gemini reported input token usage above conservative request-byte bound');
     }
-    if (outputTokens > this.maxOutputTokens) {
-      throw new WorklogTextProviderError('GEMINI_INVALID_RESPONSE', 'Gemini reported output token usage above configured maximum');
+    if (candidateTokens > this.maxOutputTokens) {
+      throw new WorklogTextProviderError('GEMINI_INVALID_RESPONSE', 'Gemini reported candidate output usage above configured maximum');
     }
+    const outputTokens = safeAddTokens(candidateTokens, thoughtsTokens, 'billed output');
 
     return {
       output,
       inputTokens,
+      // Gemini 3.5 bills thinking as output. Fold thought usage into billed output so
+      // existing durable usage/cost schema remains correct without a migration.
       outputTokens,
       providerResponseId: body.responseId?.slice(0, 255) ?? null,
       latencyMs,
@@ -201,8 +214,8 @@ export class GeminiWorklogTextNormalizer implements WorklogTextNormalizationProv
     if (!this.options.apiKey.trim()) {
       throw new WorklogTextProviderError('GEMINI_CONFIG_INVALID', 'Gemini API key is required for Worklog AI normalization');
     }
-    if (!config.model.trim() || config.model.length > 255) {
-      throw new WorklogTextProviderError('GEMINI_CONFIG_INVALID', 'Worklog Gemini model is invalid');
+    if (config.model.trim() !== STABLE_WORKLOG_MODEL) {
+      throw new WorklogTextProviderError('GEMINI_CONFIG_INVALID', `Worklog currently supports only ${STABLE_WORKLOG_MODEL}`);
     }
     nonNegativeFinite(config.inputUsdPerMillion, 'inputUsdPerMillion');
     nonNegativeFinite(config.outputUsdPerMillion, 'outputUsdPerMillion');
@@ -226,6 +239,19 @@ function safeTokenCount(value: unknown, label: string): number {
     throw new WorklogTextProviderError('GEMINI_INVALID_RESPONSE', `Gemini response is missing valid ${label} token usage`);
   }
   return value;
+}
+
+function optionalTokenCount(value: unknown, label: string): number {
+  if (value === undefined || value === null) return 0;
+  return safeTokenCount(value, label);
+}
+
+function safeAddTokens(left: number, right: number, label: string): number {
+  const total = left + right;
+  if (!Number.isSafeInteger(total) || total < 0) {
+    throw new WorklogTextProviderError('GEMINI_INVALID_RESPONSE', `Gemini ${label} token usage overflow`);
+  }
+  return total;
 }
 
 function requiredText(value: string, label: string, max: number): string {
