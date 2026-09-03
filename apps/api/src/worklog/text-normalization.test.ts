@@ -45,7 +45,8 @@ function baseRepository(): WorklogTextNormalizationRepository {
         sourceId: 3,
         actorUserId: 7,
         chargedUserId: 99,
-        rawText: '王先生案場今天換了兩顆燈泡',
+        rawText: '王先生今天在晴空案換了兩顆燈泡',
+        occurredAt: now,
       },
     }),
     getRuntimeConfig: vi.fn().mockResolvedValue(config),
@@ -53,7 +54,7 @@ function baseRepository(): WorklogTextNormalizationRepository {
     saveProviderResult: vi.fn().mockResolvedValue(undefined),
     getReservationStatus: vi.fn().mockResolvedValue('COMMITTED'),
     markUsageCommitted: vi.fn().mockResolvedValue(undefined),
-    applyResult: vi.fn().mockResolvedValue(undefined),
+    applyResult: vi.fn().mockResolvedValue({ status: 'APPLIED', entityId: 71, createdEntity: true }),
     fail: vi.fn().mockResolvedValue(undefined),
   };
 }
@@ -81,10 +82,9 @@ function baseProvider(): WorklogTextNormalizationProvider {
     reservationUnits: vi.fn().mockReturnValue(500),
     normalize: vi.fn().mockResolvedValue({
       output: {
-        summary: '王先生案場今日更換兩顆燈泡。',
-        category: 'WORK',
-        customerHint: '王先生',
-        projectHint: null,
+        title: '晴空案',
+        titleRequiresConfirmation: false,
+        occurredAt: '2026-09-02T03:00:00.000Z',
       },
       inputTokens: 10,
       outputTokens: 5,
@@ -95,7 +95,7 @@ function baseProvider(): WorklogTextNormalizationProvider {
 }
 
 describe('WorklogTextNormalizationService', () => {
-  it('reserves owner quota, persists provider output, commits usage, then applies normalized fields', async () => {
+  it('reserves quota, persists provider output, commits usage, then applies one title/time interpretation', async () => {
     const repository = baseRepository();
     const subscriptions = baseSubscriptions();
     const provider = baseProvider();
@@ -106,7 +106,18 @@ describe('WorklogTextNormalizationService', () => {
       () => 'claim-1',
     );
 
-    await expect(service.normalizeText(11)).resolves.toEqual({ status: 'NORMALIZED' });
+    await expect(service.normalizeText(11)).resolves.toEqual({
+      status: 'NORMALIZED',
+      entityId: 71,
+      createdEntity: true,
+    });
+    expect(provider.reservationUnits).toHaveBeenCalledWith(
+      {
+        text: '王先生今天在晴空案換了兩顆燈泡',
+        referenceOccurredAt: now.toISOString(),
+      },
+      config,
+    );
     expect(subscriptions.reserveAi).toHaveBeenCalledWith(expect.objectContaining({
       chargedUserId: 99,
       actorUserId: 7,
@@ -120,6 +131,10 @@ describe('WorklogTextNormalizationService', () => {
       recordId: 11,
       claimToken: 'claim-1',
       reservationToken: 'reserve-1',
+      output: {
+        title: '晴空案',
+        titleRequiresConfirmation: false,
+      },
       usage: {
         actualUnits: 15,
         workspaceId: 2,
@@ -144,7 +159,7 @@ describe('WorklogTextNormalizationService', () => {
     expect(repository.markUsageCommitted).toHaveBeenCalledWith(11, 'claim-1');
     expect(repository.applyResult).toHaveBeenCalledWith(expect.objectContaining({
       recordId: 11,
-      output: expect.objectContaining({ category: 'WORK' }),
+      output: expect.objectContaining({ title: '晴空案' }),
     }));
     expect(subscriptions.releaseAi).not.toHaveBeenCalled();
   });
@@ -155,10 +170,9 @@ describe('WorklogTextNormalizationService', () => {
     const provider = baseProvider();
     vi.mocked(provider.normalize).mockResolvedValue({
       output: {
-        summary: '超出預估仍應記帳。',
-        category: 'NOTE',
-        customerHint: null,
-        projectHint: null,
+        title: '晴空案',
+        titleRequiresConfirmation: false,
+        occurredAt: null,
       },
       inputTokens: 450,
       outputTokens: 100,
@@ -167,7 +181,9 @@ describe('WorklogTextNormalizationService', () => {
     });
     const service = new WorklogTextNormalizationService(repository, subscriptions, provider, () => 'claim-1');
 
-    await expect(service.normalizeText(11)).resolves.toEqual({ status: 'NORMALIZED' });
+    await expect(service.normalizeText(11)).resolves.toEqual({
+      status: 'NORMALIZED', entityId: 71, createdEntity: true,
+    });
     expect(repository.saveProviderResult).toHaveBeenCalledWith(expect.objectContaining({
       usage: expect.objectContaining({ actualUnits: 550 }),
     }));
@@ -214,6 +230,47 @@ describe('WorklogTextNormalizationService', () => {
     );
   });
 
+  it('maps a durable ambiguous-title apply result to pending confirmation without another provider call', async () => {
+    const repository = baseRepository();
+    const subscriptions = baseSubscriptions();
+    const provider = baseProvider();
+    vi.mocked(repository.applyResult).mockResolvedValue({
+      status: 'PENDING_CONFIRMATION',
+      confirmationId: 88,
+    });
+    const payload: WorklogPersistedNormalizationPayload = {
+      recordId: 11,
+      claimToken: 'old-claim',
+      reservationToken: 'reserve-1',
+      output: {
+        title: '三重晴空',
+        titleRequiresConfirmation: true,
+        occurredAt: null,
+      },
+      usage: {
+        actualUnits: 15,
+        workspaceId: 2,
+        recordId: 11,
+        provider: 'GOOGLE',
+        model: 'gemini-test',
+        inputTokens: 10,
+        outputTokens: 5,
+        inputUsdPerMillion: 0.1,
+        outputUsdPerMillion: 0.4,
+        providerCostUsd: 0.000003,
+      },
+    };
+    vi.mocked(repository.begin).mockResolvedValue({ status: 'USAGE_COMMITTED', payload });
+    const service = new WorklogTextNormalizationService(repository, subscriptions, provider, () => 'new-claim');
+
+    await expect(service.normalizeText(11)).resolves.toEqual({
+      status: 'PENDING_CONFIRMATION', confirmationId: 88,
+    });
+    expect(provider.normalize).not.toHaveBeenCalled();
+    expect(subscriptions.reserveAi).not.toHaveBeenCalled();
+    expect(repository.applyResult).toHaveBeenCalledTimes(1);
+  });
+
   it('recovers after quota was already committed without calling provider or charging twice', async () => {
     const repository = baseRepository();
     const subscriptions = baseSubscriptions();
@@ -223,10 +280,9 @@ describe('WorklogTextNormalizationService', () => {
       claimToken: 'old-claim',
       reservationToken: 'reserve-1',
       output: {
-        summary: '已整理',
-        category: 'NOTE',
-        customerHint: null,
-        projectHint: null,
+        title: '晴空案',
+        titleRequiresConfirmation: false,
+        occurredAt: null,
       },
       usage: {
         actualUnits: 15,
@@ -246,7 +302,9 @@ describe('WorklogTextNormalizationService', () => {
     vi.mocked(repository.getReservationStatus).mockResolvedValue('COMMITTED');
     const service = new WorklogTextNormalizationService(repository, subscriptions, provider, () => 'new-claim');
 
-    await expect(service.normalizeText(11)).resolves.toEqual({ status: 'NORMALIZED' });
+    await expect(service.normalizeText(11)).resolves.toEqual({
+      status: 'NORMALIZED', entityId: 71, createdEntity: true,
+    });
     expect(provider.normalize).not.toHaveBeenCalled();
     expect(subscriptions.reserveAi).not.toHaveBeenCalled();
     expect(subscriptions.commitAiUsage).toHaveBeenCalledTimes(1);
@@ -254,7 +312,7 @@ describe('WorklogTextNormalizationService', () => {
     expect(repository.applyResult).toHaveBeenCalledTimes(1);
   });
 
-  it('does nothing after a completed normalization', async () => {
+  it('does nothing after a completed interpretation', async () => {
     const repository = baseRepository();
     const subscriptions = baseSubscriptions();
     const provider = baseProvider();
