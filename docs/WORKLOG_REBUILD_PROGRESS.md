@@ -12,182 +12,185 @@ Read first every run:
 - `docs/WORKLOG_LINE_CONTENT_POLICY.md`
 - `docs/WORKLOG_DEPLOYMENT.md`
 
-## Current execution checkpoint — 2026-09-03 late batch
+## Current execution checkpoint — 2026-09-04 00:xx batch
 
-This run continued directly from the entitlement cleanup checkpoint and completed the **backend manual GROUP access separation** rather than redoing the previous work.
+This run continued from the previous manual-GROUP authorization checkpoint. It did **not** redo the backend entitlement split. The main goals were to remove the customer Web dependency on legacy Owner/CRM/finance APIs and to start the accepted single-title Record schema foundation.
 
 ### Scanned this run
 
-- all required product/development/AI-point/LINE-content/deployment/progress documents;
-- `apps/api/src/worklog/collaboration.ts`;
-- `apps/api/src/worklog/drizzle-collaboration.ts`;
-- `apps/api/src/worklog/drizzle-records.ts`;
-- `apps/api/src/worklog/collaboration.test.ts`;
-- relevant `apps/api/src/worklog/routes.ts` group/surface/filter helpers;
-- current `apps/api/src/db/schema-worklog.ts` and bootstrap schema to plan the next destructive domain batch;
-- customer Web flow enough to identify the remaining group Owner-panel blocker.
+- all required product/entity/edit/AI-point/development/LINE-content/deployment/progress documents;
+- `apps/web/src/WorklogRoot.tsx`;
+- `apps/web/src/worklog-api.ts`;
+- `apps/web/src/SubscriptionRoot.tsx`;
+- `apps/api/src/worklog/routes.ts`;
+- current collaboration repository/service boundaries;
+- current `schema-worklog.ts` legacy Customer/Project/Transaction/Record structure;
+- `schema-all.ts` migration/schema export path.
 
 ### Completed this run
 
-1. **Manual GROUP access is no longer Owner/subscription/plan gated in the collaboration service.**
-   - Added a dedicated lightweight `GroupManualAccessContext`.
-   - `authorizeGroupAccess()` now checks only GROUP Source existence/status plus active membership.
-   - It no longer checks Owner binding, Owner presence, subscription period, plan enabled state or AI allowance.
-   - Legacy Owner/subscription data stays isolated inside `authorizeGroupRecord()` only as a temporary AI path pending the grant refactor.
+1. **Customer Web no longer fetches or depends on GROUP Owner view.**
+   - Removed `GroupOwnerView` state/fetch.
+   - Removed Owner panel and member `recordingEnabled` controls.
+   - Loading a GROUP scope now performs only the already-authorized records request.
+   - This closes the previous Web blocker where a valid active group member could still fail because the UI requested an Owner-only endpoint.
 
-2. **Manual GROUP surface discovery/read membership no longer joins subscriptions/plans.**
-   - `DrizzleWorklogRecordReadRepository.listActiveGroupSurfaces()` now returns every active GROUP Source where the user is an active member.
-   - `isActiveGroupMember()` now checks only membership + active GROUP Source state.
-   - FREE/manual group visibility therefore no longer depends on paid plan capability JSON.
+2. **Legacy Customer / Project / Finance customer UI was removed from the normal PWA.**
+   - Removed `客戶 / 專案` and `收支` tabs from `WorklogRoot`.
+   - Removed Customer/Project/Transaction CRUD UI and old Record `category/customer/project/normalizedSummary` editing UI.
+   - Record list now renders durable raw Record text and trace time only until the new title/Record editor is wired.
+   - Filter UI is intentionally narrowed to fuzzy text + date range. Title filter will be added against the new Entity schema.
 
-3. **Legacy stable group ordinal query was physically removed from collaboration repository.**
-   - `owner_group_position` calculation is gone.
-   - This finishes the repository-side removal of the old `maxGroupCount` ordinal mechanism.
+3. **Customer Web API client was narrowed to surviving product surfaces.**
+   - Removed Owner-view/member-recording methods.
+   - Removed Customer/Project/Transaction types and CRUD methods.
+   - Removed category/customer/project/input-type filter parameters from the customer records query.
+   - Subscription/checkout and feedback surfaces remain.
 
-4. **Collaboration tests were rewritten to match the new boundary.**
-   - Manual access tests now assert that Owner absence and invalid legacy billing state do not block an active member.
-   - Legacy AI-path tests remain explicitly labeled temporary until the grant + AI 額度負責人 model replaces them.
-   - Tests were edited only; they were **not executed** in this run.
+4. **Customer Worklog API routes no longer expose legacy Owner/CRM/finance operations.**
+   - Removed customer-facing Owner-view/member-recording endpoints.
+   - Removed Customer/Project/Transaction CRUD endpoints and obsolete old Record metadata-edit endpoint.
+   - Route context no longer constructs `DrizzleWorklogWorkspaceManagementRepository`.
+   - GROUP read error handling is now only Source/membership authorization, not Owner/plan metadata.
+   - Transitional record search SQL no longer joins Customer/Project or normalized summaries/categories; it searches durable raw text and time only until Entity/occurred-at migration lands.
 
-5. **Durable docs were corrected where older wording still contradicted the accepted product.**
-   - `WORKLOG_RECORD_EDIT_POLICY.md`: removed PRIMARY/RELATED assumptions, made single-title edit/move semantics authoritative, added explicit manual GROUP authorization boundary.
-   - `WORKLOG_LINE_CONTENT_POLICY.md`: removed persistent normalized-summary assumptions; attachment outputs now persist durable textual Record content + normal title/time interpretation only.
-   - `WORKLOG_DEPLOYMENT.md`: removed Customer/Project/Finance and max-group validation assumptions; documented workers.dev launch direction, FREE 400,000 points, manual GROUP vs AI-funding separation and new validation targets.
+5. **Subscription UI no longer advertises legacy group entitlement/limits.**
+   - Removed `groupCollaboration` / `maxGroupCount` presentation.
+   - Explicitly states group count is unlimited and manual PWA is not unlocked by subscription.
+   - Customer label changed from generic AI allowance wording to **AI 點數** while the API field remains transitional.
+
+6. **Single-title Record schema foundation was added.**
+   - Added `apps/api/src/db/schema-worklog-record-core.ts`.
+   - Added Source-scoped `worklog_entities`.
+   - Added Source-scoped confirmed `worklog_entity_aliases`.
+   - Added immutable `worklog_record_revisions` snapshot structure.
+   - Added durable `worklog_ai_confirmations` with `ALIAS_MATCH`, `RECORD_TITLE`, `ENTITY_MATCH` and pending/resolved statuses.
+   - Added Record/Entity/revision/confirmation enums.
+   - Did **not** add a generic `worklog_record_entities` many-to-many table.
+   - Exported the new schema from `schema-all.ts`.
+
+7. **FREE AI-point policy inconsistency was corrected.**
+   - `WORKLOG_AI_POINT_POLICY.md` now freezes MVP FREE at **400,000 AI points once**.
+   - It no longer tells future runs to recalculate the exact FREE balance from live pricing/FX.
+   - Historical grants remain immutable; future promotional changes require an explicit new configuration/product decision.
 
 ### Files changed this run
 
-- `apps/api/src/worklog/collaboration.ts`
-- `apps/api/src/worklog/drizzle-collaboration.ts`
-- `apps/api/src/worklog/drizzle-records.ts`
-- `apps/api/src/worklog/collaboration.test.ts`
-- `docs/WORKLOG_RECORD_EDIT_POLICY.md`
-- `docs/WORKLOG_LINE_CONTENT_POLICY.md`
-- `docs/WORKLOG_DEPLOYMENT.md`
+- `apps/web/src/WorklogRoot.tsx`
+- `apps/web/src/worklog-api.ts`
+- `apps/web/src/SubscriptionRoot.tsx`
+- `apps/api/src/worklog/routes.ts`
+- `apps/api/src/db/schema-worklog-record-core.ts` (new)
+- `apps/api/src/db/schema-all.ts`
+- `docs/WORKLOG_AI_POINT_POLICY.md`
 - `docs/WORKLOG_REBUILD_PROGRESS.md`
 
-### Remaining blocker before manual GROUP PWA is fully usable
+## Important transitional state after this run
 
-Backend surface/read authorization is now decoupled, but the current customer Web implementation still carries an old Owner-centric UI dependency:
+The new Record-core tables are a **schema foundation, not yet the final migrated Record runtime**.
 
-- `WorklogRoot.loadScope()` fetches `/groups/:sourceId/owner-view` whenever a GROUP scope loads;
-- non-owner active members can therefore still hit an Owner-only response in the Web flow even though the records API is now correctly authorized;
-- `canEditCurrentRecords` also still derives GROUP editability from the existence of `ownerView`;
-- the Owner usage/member recording panel and per-member `recordingEnabled` controls are legacy UI under the latest product contract.
+Current legacy `worklog_records` still lacks the final accepted fields:
 
-**Next run must remove that Web dependency before claiming free manual GROUP PWA access is complete.**
+- `entity_id`;
+- `occurred_at` as the authoritative event-time field;
+- `status` (`ACTIVE` / `DELETED`);
+- integer `version`;
+- delete actor/time metadata.
 
-### Next implementation batch
+It still physically contains old Customer/Project/category/normalized-summary columns in `schema-worklog.ts` and the consolidated prelaunch SQL baseline. Those columns are no longer exposed in customer Web/API but must be removed in the destructive schema batch.
 
-Continue in this order:
+`schema-worklog-record-core.ts` currently references the legacy `worklog_records` id for revision/confirmation foreign keys so the accepted audit structures can be established before the destructive Record-row rewrite. Do not treat the migration baseline as ready until the next schema batch updates `worklog_records` and `drizzle/0000_worklog_baseline.sql` consistently.
 
-1. remove customer Web GROUP `ownerView` as an access/edit prerequisite and remove obsolete Owner/member-recording controls from the normal PWA flow;
-2. clean dead Owner-specific manual-access branches in `worklog/routes.ts` once Web no longer depends on them;
-3. then perform the core schema/domain replacement:
-   - remove universal Customer/Project/Transaction/category/normalized-summary assumptions;
-   - add Source-scoped `worklog_entities` and `worklog_entity_aliases`;
-   - change Record to one `entity_id`, `occurred_at`, `status`, integer `version`, delete metadata;
-   - add immutable `worklog_record_revisions`;
-   - add durable `worklog_ai_confirmations`;
-   - do not add a generic `worklog_record_entities` many-to-many table;
-4. rewire API/PWA manual CRUD/search/title move/batch move/recycle bin to the new schema;
-5. only after manual core stabilizes, replace legacy Owner/subscription AI authorization with user-owned grants + AI 額度負責人.
+The Web Record surface is intentionally browse-only for this short transition. The obsolete metadata editor was removed rather than pretending it satisfied the accepted free manual editing contract. Manual create/edit/delete/restore/title-move will be reintroduced only against the correct Entity/version/revision schema.
 
-### Validation status
+The displayed `UserUsage` / plan `ai_allowance_units` shape is also still the legacy aggregate quota representation. It remains temporarily for continuity and must be replaced by grants/points later.
 
-Static code/doc changes only in this run. No local build, typecheck, unit test, migration, browser, Worker, LINE or Gemini runtime validation was executed, so none is claimed successful.
+## Next implementation batch — highest priority
+
+Continue directly with the destructive core Record schema replacement:
+
+1. rewrite `worklog_records` around the accepted universal fields:
+   - `source_id`;
+   - single `entity_id`;
+   - `author_user_id`;
+   - durable `raw_text`;
+   - `input_type` and LINE trace ids;
+   - `occurred_at`;
+   - `status`;
+   - integer `version`;
+   - `deleted_at` / `deleted_by_user_id`;
+   - normal timestamps;
+2. remove universal Customer/Project/Transaction/category/normalized-summary schema from `schema-worklog.ts` and then delete dead workspace-management runtime/tests when references are gone;
+3. update the prelaunch consolidated migration baseline and schema snapshot/journal consistently; do not leave the new schema only in TypeScript;
+4. implement a Drizzle Record/Entity repository with Source-scoped title lookup/autocomplete, alias lookup, fuzzy title/alias/raw-text search and `occurred_at` date range;
+5. implement free manual API operations with authorization + optimistic concurrency + immutable revisions:
+   - create;
+   - edit content/time;
+   - move title;
+   - batch move;
+   - soft delete;
+   - recycle-bin list;
+   - restore;
+   - revision history;
+6. wire the PWA manual create/editor/title autocomplete and these operations for PRIVATE owner / active GROUP member;
+7. only after manual core is stable, replace LINE Gemini normalization output with CREATE/EDIT/HISTORY title/time intent and then move AI funding to grants + AI 額度負責人.
+
+## Stable product contract
+
+- General-purpose work recording; no universal construction/finance/Customer/Project domain.
+- Core model: Source + single Entity/title + Alias + Record + Revision + pending AI confirmation.
+- PRIVATE/GROUP Sources are isolated data spaces.
+- Active GROUP members can manually browse/create/edit/delete/restore/move records without subscription, legacy Owner or AI points.
+- PWA manual CRUD/search is free; only actual AI compute consumes AI points.
+- No group-count limit.
+- Customer-facing role is **AI 額度負責人**.
+- AI allowance is user-owned through independent FREE/subscription/top-up grants with scope allocation/caps.
+- FREE launch grant = **400,000 AI points once**, no calendar refresh/expiry.
+- 1 AI point = 1 output-price-equivalent token; real provider cost is separately auditable.
+- Zero eligible points before AI start means no provider call. Positive-start overage floors customer balance at zero and records platform subsidy.
+- PWA search contract: title + fuzzy title/alias/content + `occurred_at` date range.
+- LINE history AI converts natural language to deterministic PWA filters; it is not a broad historical answering agent.
+- Persistent per-record AI summaries are not MVP.
+- PWA edits use immutable revisions and integer-version optimistic concurrency.
+- Delete is soft delete with recycle bin/restore.
+- Record title move and batch move are MVP; duplicate-title Merge/Undo is not.
+- PWA manual input is text-only. LINE binary attachments are converted to durable text then discarded.
+- Brand/product/LINE OA name is frozen as **AFTERTRACE**; current slogan direction is **隨筆落墨，AI 循跡。**
+- First deployment may use Cloudflare `workers.dev`; no purchased domain is required.
+- Payment provider remains not frozen; NewebPay is the current early-MVP preferred candidate, ECPay fallback, Oen only if a materially better negotiated quote appears.
+
+## Remaining major debt
+
+1. **COMPLETE for customer manual read path:** remove legacy max-group/groupCollaboration/Owner gating from GROUP browse.
+2. **COMPLETE for customer UI/API surface:** remove Owner member-recording UI/API plus Customer/Project/Finance customer features.
+3. **FOUNDATION ADDED / MIGRATION PENDING:** Entity/Alias/Revision/AI-confirmation schema.
+4. **NEXT:** final Record row + destructive migration baseline.
+5. manual PWA CRUD/title/search/revision/delete/restore/batch move.
+6. replace pending-group/legacy data Owner bootstrap so GROUP Source exists independently of an Owner claim.
+7. bounded LINE CREATE/EDIT/HISTORY intent + filtered deep links + Reply edit.
+8. replace Gemini summary/category/customer/project output with title/time/history-filter interpretation.
+9. user-owned AI grant/scope/cap ledger and AI 額度負責人 transfer/recovery.
+10. AI settlement conversion from provider cost to output-equivalent points, plus platform subsidy rather than customer overdraw.
+11. FREE/PRO/TEAM billing types, FREE one-time grant and monthly/top-up independent grants.
+12. Admin pricing calculator, utilization/profitability/subsidy analytics.
+13. paid export after manual core.
+14. provider-native DOCX/XLSX ingestion validation/hardening.
+15. payment-provider lifecycle after merchant eligibility/fees are confirmed.
+16. Workers deployment/runtime validation.
+
+## Validation status
+
+Static code/schema/doc changes only in this run. No local build, typecheck, unit test, migration, browser, Worker, LINE or Gemini runtime validation was executed, so none is claimed successful.
 
 **GitHub Actions were not run, dispatched, rerun, enabled or modified.**
 
-## Current stable product contract
-
-- Product/domain is general-purpose work recording, not construction/finance-specific.
-- Core universal data model is Source + single Entity/title + Alias + Record + Revision + pending AI confirmation.
-- Each Record belongs to exactly one user-facing `紀錄標題` / internal Entity. Do not create automatic RELATED Entities for every person/object mentioned in Record content.
-- PRIVATE/GROUP Sources are isolated data spaces.
-- PWA manual CRUD/search is free baseline; AI compute is what consumes allowance.
-- Active GROUP members may manually collaborate without subscription, legacy Owner or positive AI allowance.
-- FREE/PRO/TEAM have unlimited group count.
-- AI allowance is user-owned through separate FREE/subscription/top-up grants; each grant independently permits PRIVATE/selected GROUP scopes and optional caps.
-- Customer-facing role name is **AI 額度負責人**.
-- Any AI operation requires positive eligible balance at request start. Balance=0 means no AI call. If >0 at start and actual usage exceeds remaining points, user floors at 0 and platform subsidy is recorded with user/source/group/provider cost.
-- Customer-facing allowance is **AI 點數** with frozen unit: `1 AI point = 1 output-price-equivalent token`. Real provider input/output/thinking/modality cost is converted into this point basis; provider cost remains separately auditable.
-- Subscription included allowance currently targets about 40% gross margin; one-time top-up products target about 50% gross margin. Admin calculates a recommendation but final included points are manually confirmed/persisted.
-- FREE launch allowance is **400,000 AI points once**, no calendar refresh and no calendar expiry.
-- Admin must expose average AI usage, average provider cost, utilization/exhaustion, FREE subsidy/conversion, platform subsidy and realized gross margin for pricing tuning.
-- AI-assisted new Record parsing stays narrow: classify create/edit/history navigation, determine one title, resolve title/Alias, create pending confirmation for ambiguity, resolve `occurred_at`, preserve durable content.
-- PWA manual create fields are `紀錄標題`, `紀錄內容`, `發生時間` via date/time picker. Selecting existing title reuses Entity; new title creates Entity. No AI relationship inference.
-- PWA search is bounded to title, fuzzy title/alias/content search, and `occurred_at` date range.
-- LINE lookup/history requests convert natural language into deterministic PWA filters (`entity_id?`, `keyword?`, `from?`, `to?`) and return a PWA link. LINE AI does not become a broad historical retrieval/answering agent.
-- Persistent per-record AI summaries are not maintained.
-- PWA manual edits are free, write immutable revisions, use integer-version optimistic concurrency, and do not re-run AI/reassign title automatically.
-- LINE natural-language edit requires Reply-targeted deterministic Record id plus positive AI allowance; AI may change content/title when the edit intent requires it.
-- Record delete is soft delete with recycle bin/restore.
-- Record may be moved to another title manually; PWA supports single-record and batch title transfer. Title transfer preserves Record content/time and does not require previous-title history.
-- Duplicate-title Merge/Undo is not MVP. Use manual/batch title transfer; reconsider Merge only if real users request it.
-- Generic RecordRelation is not required for MVP.
-- PWA manual record input is text-only; no permanent attachment library. LINE image/audio/file can be converted to durable text then binary discarded.
-- Payment provider is not yet frozen. NewebPay is the current early-MVP preferred candidate for a low-fixed-cost individual-studio SaaS; ECPay remains a mature fallback. Oen is not currently preferred under the publicly shown high monthly/platform fee structure unless a materially better negotiated quote is available.
-- Brand/product/LINE OA name is frozen for MVP as **AFTERTRACE**. Current slogan direction: **隨筆落墨，AI 循跡。**
-- First deployment may use Cloudflare-provided `workers.dev` hosts; no purchased domain is required.
-- GitHub Actions must not be run/triggered unless explicitly requested.
-
-## Major legacy code/schema debt to remove/refactor
-
-1. **MOSTLY COMPLETE:** remove `maxGroupCount`, stable group ordinal and `GROUP_LIMIT_REACHED` end-to-end. Admin/service/repository ordinal logic is removed; continue auditing old UI/docs/fixtures as touched.
-2. **BACKEND COMPLETE / WEB PENDING:** remove paid `groupCollaboration` gates from manual GROUP access. Backend surface/read authorization is separated; Web still loads Owner-only panel and must be cleaned next.
-3. **IN PROGRESS:** separate group/source data existence from AI allowance responsible-user binding. Manual backend access is separated; schema/bootstrap and AI path still carry legacy owner fields.
-4. **IN PROGRESS:** split manual PWA authorization from LINE AI allowance entitlement. Backend group read is split; edit/create and Web UI still need migration.
-5. replace universal Customer/Project/finance-centric core assumptions with Source + Entity/title + Record foundation;
-6. add/rework `worklog_entities`, `worklog_entity_aliases`, `worklog_ai_confirmations`, revision/version/delete-state support; do not add a generic multi-Entity Record relation table for MVP;
-7. implement PWA manual create with title/content/date-time picker and free title reuse/create;
-8. implement PWA title + fuzzy content + date range search;
-9. implement direct Record title move plus batch title transfer; no Merge/Undo subsystem;
-10. implement bounded LINE history-link navigation using deterministic PWA filters instead of arbitrary AI query function calls;
-11. implement user-owned grant/allocation/cap ledger and migrate AI reservation/settlement to eligible grants;
-12. replace legacy allowance values with explicit AI-point values under the frozen point unit; FREE is fixed at 400,000 launch points;
-13. add billing type + durable FREE/PRO/TEAM period grants + separate one-time top-up purchases;
-14. implement AI 額度負責人 transfer/recovery using the new terminology/domain separation;
-15. expose current/historical group AI usage plus platform-subsidized usage in Admin/PWA without leaking unrelated private balances;
-16. implement Admin pricing calculator and profitability/usage analytics required by `WORKLOG_AI_POINT_POLICY.md`;
-17. implement LINE success reply/deep link and Reply-based natural-language edit using revision/version safety;
-18. implement paid export after core Record/title model is stable;
-19. verify provider-native DOCX/XLSX ingestion and finish attachment hardening;
-20. select and integrate payment provider after recurring-payment eligibility/fees are confirmed;
-21. remove old PWA Customer/Project/Finance tabs, filters and APIs after the new title/Record manual surface is in place;
-22. replace Gemini text-normalization output (`summary/category/customer_hint/project_hint`) with bounded intent/title/occurred-at/history-filter output while preserving provider-call/idempotent settlement infrastructure;
-23. change AI point settlement from `inputTokens + outputTokens` to full provider-cost / output-reference-price conversion and record platform-subsidized overage instead of allowing customer usage to exceed allowance;
-24. replace pending-group/legacy data Owner bootstrap semantics so GROUP Source creation does not wait for an Owner/workspace claim.
-
-## Cost measurement requirement before final paid plan/top-up point packs
-
-Need representative measurement fixtures for:
-
-- short/long text title parsing;
-- image/audio/file ingestion;
-- LINE natural-language edit;
-- Gemini thinking/modality usage;
-- provider actual cost vs customer point charge and platform subsidy.
-
-FREE is fixed at 400,000 launch points. PRO/TEAM/top-up point amounts should still be checked against representative usage and Admin pricing assumptions before launch.
-
-## Future discussion backlog — do not implement implicitly
-
-- invoice integration;
-- automatic reminders/follow-up;
-- project/engineering scheduling;
-- broad AI historical analysis/reporting beyond bounded PWA navigation;
-- duplicate-title Merge/Undo unless requested by users;
-- future rebrand only if explicitly approved.
-
 ## Planning estimate
 
-Planning-only estimate from current branch state:
+Planning-only estimate after this batch:
 
-- static product/domain contract: ~99% defined for the core MVP;
-- manual GROUP backend entitlement separation: largely complete;
-- core schema/API/PWA domain replacement: still the largest remaining batch;
-- expect roughly 4–6 substantial implementation batches before concentrated validation;
-- rough internal coding range before validation: ~15–27 focused hours, payment-provider integration still separate;
-- reserve additional time after concentrated validation begins for compile/schema/browser/runtime fixes.
-
-Do not use GitHub Actions as validation.
+- static product/domain contract: ~99% defined for core MVP;
+- customer browse surface legacy cleanup: largely complete;
+- core Record schema migration + manual CRUD remains the largest near-term block;
+- expect roughly 4–5 substantial implementation batches before concentrated validation;
+- rough internal coding range before validation: ~12–24 focused hours, payment-provider integration separate;
+- reserve additional time for compile/schema/browser/runtime fixes once validation begins.
