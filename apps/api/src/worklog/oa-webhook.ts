@@ -6,6 +6,7 @@ import {
   type WorklogAnomalyPort,
 } from './anomalies';
 import { parseWorklogCommand } from './command';
+import type { WorklogHistoryFilters } from './history-navigation';
 import type { WorklogOaRuntime, WorklogOaRuntimeResult } from './oa-runtime';
 
 export interface WorklogOaReplyPort {
@@ -28,6 +29,7 @@ export interface WorklogPrivateQueryTarget {
   sourceId: number;
   userId: number;
   at: Date;
+  filters: WorklogHistoryFilters;
 }
 
 function emptyCounters(): WorklogOaWebhookCounters {
@@ -84,11 +86,6 @@ async function replySafely(input: {
   }
 }
 
-/**
- * Processes only LINE OA one-to-one events. This boundary intentionally does not
- * know about the legacy group conversation/Energy/Memory runtime, so ordinary OA
- * support messages can never accidentally fall through into legacy group logic.
- */
 export async function processWorklogOaWebhook(input: {
   parsed: ParsedOaWebhook;
   runtime: Pick<WorklogOaRuntime, 'handleLifecycle' | 'handleMessage'>;
@@ -162,8 +159,6 @@ export async function processWorklogOaWebhook(input: {
           });
         }
       } else {
-        // Ordinary private OA text is human support traffic. A persistence/touch
-        // failure must not produce an automated product-error reply to the customer.
         counters.oaHumanSupportMessages += 1;
       }
       continue;
@@ -194,6 +189,7 @@ export async function processWorklogOaWebhook(input: {
             sourceId: result.sourceId,
             userId: result.userId,
             at: message.lineTimestamp,
+            filters: result.filters,
           });
         } catch (error) {
           counters.oaErrors += 1;
@@ -206,7 +202,7 @@ export async function processWorklogOaWebhook(input: {
             sourceId: result.sourceId,
             lineMessageId: message.lineMessageId,
             requestRef: message.webhookEventId,
-            metadata: { lineUserId: message.lineUserId },
+            metadata: { lineUserId: message.lineUserId, filters: result.filters },
           });
         }
       }
