@@ -187,17 +187,11 @@ export class WorklogTextNormalizationService {
     try {
       const response = await this.provider.normalize(context.rawText, config);
       providerCompleted = true;
+      // A reservation is only a preflight hold. Once Gemini has returned a usable
+      // result, record the full real usage even if it exceeded the estimate. The
+      // settlement layer may therefore make used_units exceed the plan allowance;
+      // subsequent reservations will naturally fail their normal quota preflight.
       const actualUnits = safeActualUnits(response.inputTokens, response.outputTokens);
-      if (actualUnits > reservation.reservation.unitsReserved) {
-        await this.safeRelease(reservationToken);
-        await this.repository.fail(
-          context.recordId,
-          claimToken,
-          'AI_USAGE_EXCEEDED_RESERVATION',
-          `${actualUnits} > ${reservation.reservation.unitsReserved}`,
-        );
-        return { status: 'FAILED', reason: 'AI_USAGE_EXCEEDED_RESERVATION' };
-      }
 
       const providerCostUsd =
         (response.inputTokens / 1_000_000) * config.inputUsdPerMillion +
@@ -269,11 +263,6 @@ export class WorklogTextNormalizationService {
   ): Promise<WorklogTextNormalizationResult> {
     const committed = await this.subscriptions.commitAiUsage(payload.reservationToken, payload.usage);
     if (committed.status !== 'COMMITTED') {
-      if (committed.status !== 'RESERVATION_NOT_ACTIVE') {
-        await this.repository.fail(payload.recordId, payload.claimToken, committed.status);
-        return { status: 'FAILED', reason: committed.status };
-      }
-
       // A worker can disappear after the quota transaction committed but before the
       // normalization state was advanced. Read the durable reservation status so a
       // LINE redelivery can finish the record without charging or calling AI again.
@@ -283,7 +272,7 @@ export class WorklogTextNormalizationService {
           payload.recordId,
           payload.claimToken,
           'AI_RESERVATION_NOT_COMMITTED',
-          reservationStatus ?? 'NOT_FOUND',
+          reservationStatus ?? committed.status,
         );
         return { status: 'FAILED', reason: 'AI_RESERVATION_NOT_COMMITTED' };
       }
