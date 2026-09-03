@@ -213,14 +213,9 @@ export class WorklogBootstrapService {
     });
 
     const existing = await this.repository.findBoundGroupByLineId(lineGroupId);
-    if (existing?.ownerUserId !== null && existing?.ownerUserId !== undefined) {
-      return existing.ownerUserId === owner.userId
-        ? { status: 'ALREADY_BOUND', sourceId: existing.sourceId, ownerUserId: owner.userId }
-        : {
-            status: 'OWNER_CONFLICT',
-            sourceId: existing.sourceId,
-            ownerUserId: existing.ownerUserId,
-          };
+    if (existing?.ownerUserId === owner.userId) {
+      await this.repository.upsertBoundGroupMember(existing.sourceId, owner.userId, true, at);
+      return { status: 'ALREADY_BOUND', sourceId: existing.sourceId, ownerUserId: owner.userId };
     }
 
     const workspaceId = await this.repository.ensureWorkspace(owner.userId, at);
