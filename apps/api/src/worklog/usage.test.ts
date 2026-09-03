@@ -8,9 +8,14 @@ import {
 } from './usage';
 
 class FakeRepository implements WorklogUsageRepository {
+  privateSources = new Map<number, number>();
   funding = new Map<number, SourceAiFundingSnapshot>();
   balances = new Map<string, SourceAiPointBalance>();
   usage = new Map<number, SourceAiUsageAggregate>();
+
+  async getPrivateSourceId(userId: number) {
+    return this.privateSources.get(userId) ?? null;
+  }
 
   async getGroupAiFunding(sourceId: number) {
     return this.funding.get(sourceId) ?? {
@@ -37,6 +42,7 @@ class FakeRepository implements WorklogUsageRepository {
 describe('WorklogUsageService', () => {
   it('uses the current user and only PRIVATE-scoped grant balance for personal usage', async () => {
     const repository = new FakeRepository();
+    repository.privateSources.set(100, 12);
     repository.balances.set('100:12', { availablePoints: 350_000, reservedPoints: 10_000 });
     repository.usage.set(12, { customerPointsCharged: 40_000, platformSubsidizedPoints: 500 });
 
@@ -56,6 +62,23 @@ describe('WorklogUsageService', () => {
       aiUsedPoints: 40_000,
       platformSubsidizedPoints: 500,
       canManageFunding: true,
+    });
+  });
+
+  it('keeps the compatibility /usage/me shape backed by PRIVATE grants instead of aggregate quota', async () => {
+    const repository = new FakeRepository();
+    repository.privateSources.set(100, 12);
+    repository.balances.set('100:12', { availablePoints: 350_000, reservedPoints: 10_000 });
+    repository.usage.set(12, { customerPointsCharged: 40_000, platformSubsidizedPoints: 500 });
+
+    const service = new WorklogUsageService(repository);
+    await expect(service.userUsage(100)).resolves.toMatchObject({
+      userId: 100,
+      planCode: 'AI_POINTS',
+      aiAllowanceUnits: 400_000,
+      aiUsedUnits: 40_000,
+      aiReservedUnits: 10_000,
+      aiRemainingUnits: 350_000,
     });
   });
 
