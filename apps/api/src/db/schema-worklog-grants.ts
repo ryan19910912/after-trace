@@ -39,8 +39,8 @@ export const worklogAiPointReservationStatusEnum = pgEnum('worklog_ai_point_rese
  *
  * FREE, each successful subscription period, and each top-up are separate rows. A
  * later plan/pricing change never resizes historical grants. remaining_points is the
- * customer balance only; provider overage subsidy is accounted on usage events and
- * never drives this value negative.
+ * currently available customer balance after active reservation holds; provider
+ * overage subsidy is accounted on usage events and never drives this value negative.
  */
 export const worklogAiGrants = pgTable(
   'worklog_ai_grants',
@@ -77,7 +77,9 @@ export const worklogAiGrants = pgTable(
  *
  * A grant is never an implicit fallback for every Source. PRIVATE and selected GROUP
  * Sources must be represented explicitly. cap_points NULL means the grant may use its
- * full remaining balance in that Source; otherwise scope usage cannot exceed the cap.
+ * full remaining balance in that Source. used_points is committed customer usage;
+ * reserved_points is a temporary provider preflight hold so concurrent requests cannot
+ * oversubscribe a Source cap.
  */
 export const worklogAiGrantScopes = pgTable(
   'worklog_ai_grant_scopes',
@@ -91,6 +93,7 @@ export const worklogAiGrantScopes = pgTable(
       .references(() => worklogSources.id, { onDelete: 'restrict' }),
     capPoints: integer('cap_points'),
     usedPoints: integer('used_points').default(0).notNull(),
+    reservedPoints: integer('reserved_points').default(0).notNull(),
     enabled: boolean('enabled').default(true).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
