@@ -43,13 +43,14 @@ Do **not** permanently store original LINE attachment binaries:
 - IMAGE: do not retain the original image file.
 - FILE: do not retain the original uploaded file.
 
-After successful LINE content fetch, process the content and persist the durable textual/structured result, then discard the binary.
+After successful LINE content fetch, process the content and persist the durable textual Record content plus normal Record trace fields, then discard the binary.
 
 ## Audio
 
 - Fetch audio directly from LINE using `quotedMessageId`.
 - Feed supported audio directly to the configured multimodal/audio-capable AI path when practical; a separate STT product layer is not required for MVP.
-- Persist the resulting transcript/text representation and normalized summary/metadata.
+- Persist the resulting transcript/text representation as durable Record content.
+- AI-assisted ingestion may also determine the single Record title and `occurred_at` under the normal title-parsing contract.
 - Do not keep or cache the original audio binary after processing.
 - Record input type is `AUDIO`.
 
@@ -57,16 +58,18 @@ After successful LINE content fetch, process the content and persist the durable
 
 - Fetch the image directly from LINE using `quotedMessageId`.
 - Feed the fetched image to the configured multimodal model.
-- Persist useful extracted text/description/summary and normalized metadata.
+- Persist useful extracted text/description as durable Record content.
+- AI-assisted ingestion may also determine the single Record title and `occurred_at` under the normal title-parsing contract.
 - Do not keep or cache the original image binary after processing.
 - Record input type is `IMAGE`.
 
 ## General files
 
 - Fetch the file directly from LINE using `quotedMessageId`.
-- Extract readable text for supported formats when practical (for example plain text/CSV/Markdown/PDF/DOCX/XLSX-style content through appropriate parsers).
+- Extract readable text for supported formats when practical (for example plain text/CSV/Markdown/PDF/DOCX/XLSX-style content through appropriate parsers or provider-native document understanding where validated).
 - For scanned/image-based documents, multimodal extraction may be used.
-- Store extracted text and/or a concise AI summary as the durable work record content.
+- Store the useful extracted textual representation as durable Record content. Do not maintain a separate persistent per-record AI summary.
+- AI-assisted ingestion may also determine the single Record title and `occurred_at` under the normal title-parsing contract.
 - Do not retain or cache the original file binary.
 - Unsupported or unreadable files should fail clearly or preserve only safe metadata (file name/type/size) if the product intentionally supports a metadata-only fallback.
 - Avoid blindly storing unlimited document text; apply a sensible text-size limit or separate content storage strategy before supporting very large documents.
@@ -88,15 +91,16 @@ Use these identifiers to:
 - make retry/redelivery behavior deterministic;
 - prevent accidental duplicate recording of the same quoted attachment/content when appropriate.
 
-Do not overwrite a different record merely because a quoted message id collides with an existing record; define idempotency deliberately around source/group, quoted message id, command message id, author, and record state.
+Do not overwrite a different record merely because a quoted message id collides with an existing record; define idempotency deliberately around Source/group, quoted message id, command message id, author and Record state.
 
 ## Processing order / source-of-truth rule
 
-- For direct TEXT commands, persist raw text first; AI normalization happens after durable raw persistence.
-- For GROUP Reply-to-TEXT, resolve cached quoted text first, then persist the raw resolved text with both LINE ids before optional AI normalization.
+- For direct TEXT commands, persist raw/durable Record text first; AI title/time interpretation happens after durable raw persistence where practical.
+- For GROUP Reply-to-TEXT, resolve cached quoted text first, then persist the resolved text with both LINE ids before optional AI title/time interpretation.
 - For PRIVATE Reply-to-TEXT, do not create a private ordinary-text cache; when the original text is no longer present in the current webhook, ask the user to send `@AFTERTRACE 原文`.
-- For AUDIO/IMAGE/FILE, call LINE content API directly, then extract/transcribe/understand enough durable textual content before declaring the record saved, because neither a local cache nor the original binary is retained.
+- For AUDIO/IMAGE/FILE, call LINE content API directly, then extract/transcribe/understand enough durable textual content before declaring the Record saved, because neither a local cache nor the original binary is retained.
 - AI/provider failure must not corrupt or overwrite existing durable raw/textual content.
+- The durable Record text is the source of truth; no separate persistent AI summary is required.
 
 ## Cleanup / operational checks
 
