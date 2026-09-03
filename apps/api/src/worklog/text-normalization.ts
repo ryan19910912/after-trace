@@ -5,20 +5,18 @@ import type {
   WorklogAiUsageCommit,
 } from './subscription';
 
-export type WorklogTextCategory =
-  | 'NOTE'
-  | 'WORK'
-  | 'ISSUE'
-  | 'PAYMENT'
-  | 'EXPENSE'
-  | 'MATERIAL'
-  | 'OTHER';
-
+/**
+ * Persisted interpretation for a newly-created LINE text Record.
+ *
+ * The raw Record text remains the durable source of truth. AI only proposes the
+ * single filing title and, when explicitly present in the text, a corrected event
+ * time. Ambiguous title decisions are resolved by the repository into a durable
+ * worklog_ai_confirmations row instead of being guessed here.
+ */
 export type WorklogTextNormalizationOutput = {
-  summary: string;
-  category: WorklogTextCategory;
-  customerHint: string | null;
-  projectHint: string | null;
+  title: string | null;
+  titleRequiresConfirmation: boolean;
+  occurredAt: string | null;
 };
 
 export type WorklogAiRuntimeConfigSnapshot = {
@@ -38,6 +36,13 @@ export type WorklogTextNormalizationContext = {
   actorUserId: number;
   chargedUserId: number;
   rawText: string;
+  occurredAt: Date;
+};
+
+export type WorklogTextProviderInput = {
+  text: string;
+  /** Initial LINE/create timestamp. Relative time expressions are resolved against this. */
+  referenceOccurredAt: string;
 };
 
 export type WorklogPersistedNormalizationPayload = {
@@ -58,6 +63,11 @@ export type WorklogTextNormalizationBeginResult =
   | { status: 'FAILED' }
   | { status: 'NOT_ELIGIBLE' };
 
+export type WorklogTextApplyResult =
+  | { status: 'APPLIED'; entityId: number; createdEntity: boolean }
+  | { status: 'PENDING_CONFIRMATION'; confirmationId: number }
+  | { status: 'SKIPPED_RECORD_CHANGED' };
+
 export interface WorklogTextNormalizationRepository {
   begin(recordId: number, claimToken: string): Promise<WorklogTextNormalizationBeginResult>;
   getRuntimeConfig(): Promise<WorklogAiRuntimeConfigSnapshot | null>;
@@ -77,23 +87,28 @@ export interface WorklogTextNormalizationRepository {
     recordId: number;
     claimToken: string;
     output: WorklogTextNormalizationOutput;
-  }): Promise<void>;
+  }): Promise<WorklogTextApplyResult>;
   fail(recordId: number, claimToken: string, errorCode: string, detail?: string | null): Promise<void>;
 }
 
 export type WorklogTextProviderResponse = {
   output: WorklogTextNormalizationOutput;
   inputTokens: number;
+  /** Billed output, including thinking/reasoning when the provider bills it as output. */
   outputTokens: number;
   providerResponseId: string | null;
   latencyMs: number;
 };
 
 export interface WorklogTextNormalizationProvider {
-  reservationUnits(text: string, config: WorklogAiRuntimeConfigSnapshot): number;
-  normalize(text: string, config: WorklogAiRuntimeConfigSnapshot): Promise<WorklogTextProviderResponse>;
+  reservationUnits(input: WorklogTextProviderInput, config: WorklogAiRuntimeConfigSnapshot): number;
+  normalize(input: WorklogTextProviderInput, config: WorklogAiRuntimeConfigSnapshot): Promise<WorklogTextProviderResponse>;
 }
 
+/**
+ * Transitional accounting port. The next grant-ledger batch replaces this legacy
+ * subscription/aggregate-quota implementation without changing provider idempotency.
+ */
 export interface WorklogTextNormalizationSubscriptionPort {
   reserveAi(input: {
     chargedUserId: number;
@@ -108,7 +123,9 @@ export interface WorklogTextNormalizationSubscriptionPort {
 }
 
 export type WorklogTextNormalizationResult =
-  | { status: 'NORMALIZED' }
+  | { status: 'NORMALIZED'; entityId: number; createdEntity: boolean }
+  | { status: 'PENDING_CONFIRMATION'; confirmationId: number }
+  | { status: 'SKIPPED_RECORD_CHANGED' }
   | { status: 'ALREADY_NORMALIZED' }
   | { status: 'IN_PROGRESS' }
   | { status: 'DEFERRED'; reason: string }
@@ -116,12 +133,12 @@ export type WorklogTextNormalizationResult =
   | { status: 'NOT_ELIGIBLE' };
 
 /**
- * AI normalization deliberately happens after the raw LINE record is durable.
+ * AI interpretation deliberately happens after the raw LINE Record is durable.
  *
- * The state row is a one-record claim. LINE redelivery is allowed to resume a
- * provider-success / quota-success boundary, but it never starts a second provider
- * call after an uncertain provider attempt. That protects internal quota from
- * duplicate charging and prefers an un-normalized raw record over invented recovery.
+ * The state row is a one-record claim. LINE redelivery may resume after durable
+ * provider success / quota settlement, but it never starts a second provider call
+ * after an uncertain provider attempt. The provider output is limited to title/time;
+ * raw Record content is never replaced by this pipeline.
  */
 export class WorklogTextNormalizationService {
   constructor(
@@ -157,10 +174,15 @@ export class WorklogTextNormalizationService {
       return { status: 'DEFERRED', reason: 'AI_RUNTIME_CONFIG_MISSING' };
     }
 
+    const providerInput: WorklogTextProviderInput = {
+      text: context.rawText,
+      referenceOccurredAt: context.occurredAt.toISOString(),
+    };
+
     let requestedUnits: number;
     try {
       requestedUnits = positiveInteger(
-        this.provider.reservationUnits(context.rawText, config),
+        this.provider.reservationUnits(providerInput, config),
         'requested AI units',
       );
     } catch (error) {
@@ -185,14 +207,13 @@ export class WorklogTextNormalizationService {
     let payload: WorklogPersistedNormalizationPayload;
     let providerCompleted = false;
     try {
-      const response = await this.provider.normalize(context.rawText, config);
+      const response = await this.provider.normalize(providerInput, config);
       providerCompleted = true;
-      // A reservation is only a preflight hold. Once Gemini has returned a usable
-      // result, record the full real usage even if it exceeded the estimate. The
-      // settlement layer may therefore make used_units exceed the plan allowance;
-      // subsequent reservations will naturally fail their normal quota preflight.
-      const actualUnits = safeActualUnits(response.inputTokens, response.outputTokens);
 
+      // Transitional aggregate quota still settles legacy units. The grant-ledger batch
+      // will replace this with output-price-equivalent AI points while preserving this
+      // provider-success durability boundary.
+      const actualUnits = safeActualUnits(response.inputTokens, response.outputTokens);
       const providerCostUsd =
         (response.inputTokens / 1_000_000) * config.inputUsdPerMillion +
         (response.outputTokens / 1_000_000) * config.outputUsdPerMillion;
@@ -236,15 +257,11 @@ export class WorklogTextNormalizationService {
       };
     } catch (error) {
       if (providerCompleted) {
-        // The provider definitely returned, but durable persistence of that result is
-        // uncertain. Do not release quota and do not mark this retryable: doing either
-        // could under-account provider cost or permit an automatic second provider call.
-        // The repository will terminalize stale PROCESSING state for operator review.
+        // Provider returned, but durable persistence is uncertain. Never release the
+        // reservation or automatically issue a second provider request.
         return { status: 'IN_PROGRESS' };
       }
 
-      // Provider execution itself failed before a usable response existed. This path
-      // is terminal and cannot be automatically replayed by LINE redelivery.
       await this.safeRelease(reservationToken);
       const detail = errorDetail(error);
       const reason = errorCode(error);
@@ -252,9 +269,6 @@ export class WorklogTextNormalizationService {
       return { status: 'FAILED', reason };
     }
 
-    // From this point onward provider output is durable. Do not catch settlement DB
-    // failures here: PROVIDER_SUCCEEDED / USAGE_COMMITTED are resumable states, and a
-    // redelivery can finish them without another provider call or quota charge.
     return this.settleProviderResult(payload);
   }
 
@@ -263,9 +277,6 @@ export class WorklogTextNormalizationService {
   ): Promise<WorklogTextNormalizationResult> {
     const committed = await this.subscriptions.commitAiUsage(payload.reservationToken, payload.usage);
     if (committed.status !== 'COMMITTED') {
-      // A worker can disappear after the quota transaction committed but before the
-      // normalization state was advanced. Read the durable reservation status so a
-      // LINE redelivery can finish the record without charging or calling AI again.
       const reservationStatus = await this.repository.getReservationStatus(payload.reservationToken);
       if (reservationStatus !== 'COMMITTED') {
         await this.repository.fail(
@@ -285,12 +296,22 @@ export class WorklogTextNormalizationService {
   private async applyCommittedResult(
     payload: WorklogPersistedNormalizationPayload,
   ): Promise<WorklogTextNormalizationResult> {
-    await this.repository.applyResult({
+    const result = await this.repository.applyResult({
       recordId: payload.recordId,
       claimToken: payload.claimToken,
       output: payload.output,
     });
-    return { status: 'NORMALIZED' };
+    if (result.status === 'APPLIED') {
+      return {
+        status: 'NORMALIZED',
+        entityId: result.entityId,
+        createdEntity: result.createdEntity,
+      };
+    }
+    if (result.status === 'PENDING_CONFIRMATION') {
+      return { status: 'PENDING_CONFIRMATION', confirmationId: result.confirmationId };
+    }
+    return { status: 'SKIPPED_RECORD_CHANGED' };
   }
 
   private async safeRelease(token: string): Promise<void> {
@@ -308,14 +329,13 @@ export function normalizeWorklogTextOutput(value: unknown): WorklogTextNormaliza
     throw new Error('normalization output must be an object');
   }
   const row = value as Record<string, unknown>;
-  const summary = requiredText(row.summary, 'summary', 2000);
-  const category = requiredCategory(row.category);
-  return {
-    summary,
-    category,
-    customerHint: optionalText(row.customerHint ?? row.customer_hint, 'customerHint', 255),
-    projectHint: optionalText(row.projectHint ?? row.project_hint, 'projectHint', 255),
-  };
+  const title = optionalText(row.title, 'title', 255);
+  const titleRequiresConfirmation = requiredBoolean(
+    row.titleRequiresConfirmation ?? row.title_requires_confirmation,
+    'titleRequiresConfirmation',
+  );
+  const occurredAt = optionalDateTime(row.occurredAt ?? row.occurred_at, 'occurredAt');
+  return { title, titleRequiresConfirmation, occurredAt };
 }
 
 function safeActualUnits(inputTokens: number, outputTokens: number): number {
@@ -326,20 +346,19 @@ function safeActualUnits(inputTokens: number, outputTokens: number): number {
   return total;
 }
 
-function requiredCategory(value: unknown): WorklogTextCategory {
-  const allowed: WorklogTextCategory[] = [
-    'NOTE',
-    'WORK',
-    'ISSUE',
-    'PAYMENT',
-    'EXPENSE',
-    'MATERIAL',
-    'OTHER',
-  ];
-  if (typeof value !== 'string' || !allowed.includes(value as WorklogTextCategory)) {
-    throw new Error('invalid worklog category');
-  }
-  return value as WorklogTextCategory;
+function requiredBoolean(value: unknown, label: string): boolean {
+  if (typeof value !== 'boolean') throw new Error(`${label} must be boolean`);
+  return value;
+}
+
+function optionalDateTime(value: unknown, label: string): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string') throw new Error(`${label} must be text or null`);
+  const normalized = value.trim();
+  if (!normalized) return null;
+  const parsed = new Date(normalized);
+  if (!Number.isFinite(parsed.getTime())) throw new Error(`invalid ${label}`);
+  return parsed.toISOString();
 }
 
 function requiredText(value: unknown, label: string, max: number): string {
