@@ -5,6 +5,19 @@ import {
 } from './entitlements';
 import type { WorklogSubscriptionStatus } from './subscription';
 
+export type GroupManualAccessContext = {
+  sourceId: number;
+  sourceStatus: 'ACTIVE' | 'INACTIVE';
+  actorIsActiveMember: boolean;
+};
+
+/**
+ * Legacy AI-funding context.
+ *
+ * Manual PWA authorization MUST NOT depend on any field in this structure. This
+ * remains temporarily while the old owner/subscription quota path is replaced by
+ * the user-owned grant + AI 額度負責人 model.
+ */
 export type GroupAuthorizationContext = {
   sourceId: number;
   sourceStatus: 'ACTIVE' | 'INACTIVE';
@@ -25,6 +38,10 @@ export type GroupAuthorizationContext = {
 };
 
 export interface WorklogCollaborationRepository {
+  getGroupManualAccessContext(
+    sourceId: number,
+    actorUserId: number,
+  ): Promise<GroupManualAccessContext | null>;
   getGroupAuthorizationContext(
     sourceId: number,
     actorUserId: number,
@@ -44,12 +61,15 @@ export interface WorklogCollaborationRepository {
   ): Promise<boolean>;
 }
 
-type GroupAuthorizationFailureStatus =
+type GroupManualAccessFailureStatus =
   | 'GROUP_NOT_FOUND'
   | 'GROUP_INACTIVE'
+  | 'NOT_ACTIVE_MEMBER';
+
+type GroupAuthorizationFailureStatus =
+  | GroupManualAccessFailureStatus
   | 'OWNER_UNBOUND'
   | 'OWNER_ABSENT'
-  | 'NOT_ACTIVE_MEMBER'
   | 'GROUP_NOT_ENTITLED';
 
 type GroupAuthorizationFailure = {
@@ -57,13 +77,17 @@ type GroupAuthorizationFailure = {
   ownerPlanDisplayName?: string;
 };
 
+/**
+ * Baseline/manual group access result.
+ *
+ * The legacy Owner/subscription statuses remain in the public union only while old
+ * route response branches are being removed. authorizeGroupAccess itself never
+ * returns those statuses anymore.
+ */
 export type GroupAccessAuthorizationResult =
   | {
       status: 'OK';
       actorUserId: number;
-      ownerUserId: number;
-      ownerPlanCode: string;
-      ownerCapabilities: PlanCapabilities;
     }
   | GroupAuthorizationFailure;
 
@@ -92,33 +116,34 @@ export type OwnerBindingResult =
 export class WorklogCollaborationService {
   constructor(private readonly repository: WorklogCollaborationRepository) {}
 
+  /**
+   * Free/manual PWA authorization.
+   *
+   * Group data existence and manual access are intentionally independent from a
+   * billing owner, AI allowance responsible user, subscription, plan or AI points.
+   * An active member of an active GROUP Source can access that Source manually.
+   */
   async authorizeGroupAccess(input: {
     sourceId: number;
     actorUserId: number;
     at?: Date;
   }): Promise<GroupAccessAuthorizationResult> {
-    const context = await this.repository.getGroupAuthorizationContext(
+    const context = await this.repository.getGroupManualAccessContext(
       input.sourceId,
       input.actorUserId,
     );
     if (!context) return { status: 'GROUP_NOT_FOUND' };
     if (context.sourceStatus !== 'ACTIVE') return { status: 'GROUP_INACTIVE' };
-    if (context.ownerUserId === null) return { status: 'OWNER_UNBOUND' };
-    if (!context.ownerIsActiveMember) return { status: 'OWNER_ABSENT' };
     if (!context.actorIsActiveMember) return { status: 'NOT_ACTIVE_MEMBER' };
-
-    const entitlement = groupEntitlement(context, input.at ?? new Date());
-    if (entitlement.status !== 'OK') return entitlement;
-
-    return {
-      status: 'OK',
-      actorUserId: input.actorUserId,
-      ownerUserId: context.ownerUserId,
-      ownerPlanCode: entitlement.planCode,
-      ownerCapabilities: entitlement.capabilities,
-    };
+    return { status: 'OK', actorUserId: input.actorUserId };
   }
 
+  /**
+   * Temporary legacy AI authorization.
+   *
+   * Do not reuse this method for manual PWA CRUD. It will be replaced by eligible
+   * grant lookup + AI 額度負責人 authorization in the AI-points refactor.
+   */
   async authorizeGroupRecord(input: {
     sourceId: number;
     actorUserId: number;
