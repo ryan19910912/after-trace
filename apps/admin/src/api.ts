@@ -6,7 +6,10 @@ export type AdminOverview = {
   records: number;
   recordsToday: number;
   aiCallsToday: number;
+  aiPointsToday: number;
+  platformSubsidizedPointsToday: number;
   aiCostTwdToday: string;
+  platformSubsidizedCostTwdToday: string;
   openAnomalies: number;
   failedAttachments: number;
   failedNormalizations: number;
@@ -130,29 +133,8 @@ export class AdminApi {
   }
 
   async groupDetail(id: string | number): Promise<Record<string, unknown>> {
-    const [detailResponse, plansResponse] = await Promise.all([
-      this.request<{ detail: Record<string, unknown> }>(`/groups/${id}`),
-      this.request<{ plans: AdminPlan[] }>('/plans'),
-    ]);
-    const detail = detailResponse.detail;
-    const group = asRow(detail.group);
-    const planCode = String(group.owner_plan_code ?? '');
-    const plan = plansResponse.plans.find((item) => item.code === planCode);
-    const effectiveRow = {
-      subscription_status: planCode ? (group.owner_subscription_status ?? group.subscription_status ?? 'ACTIVE') : '',
-      plan_enabled: plan?.enabled ?? false,
-      effective_at: group.owner_effective_at ?? group.effective_at,
-      current_period_start: group.current_period_start,
-      current_period_end: group.current_period_end,
-    };
-    return applyServerLabels({
-      ...detail,
-      group: {
-        ...group,
-        owner_plan_enabled: plan?.enabled ?? false,
-        owner_subscription_effective_state: effectiveSubscriptionState(effectiveRow),
-      },
-    });
+    const detail = (await this.request<{ detail: Record<string, unknown> }>(`/groups/${id}`)).detail;
+    return applyServerLabels(detail);
   }
 
   async capabilityDefinitions(): Promise<AdminCapabilityDefinition[]> {
@@ -207,7 +189,7 @@ export class AdminApi {
   }
 
   async audit(): Promise<Row[]> {
-    return applyServerLabels((await this.request<{ audit: Row[] }>('/audit')).audit);
+    return applyServerLabels((await this.request<{ audit: Row[] }>('/audit')).audit;
   }
 
   private async request<T>(path: string, init?: RequestInit, authenticated = true): Promise<T> {
