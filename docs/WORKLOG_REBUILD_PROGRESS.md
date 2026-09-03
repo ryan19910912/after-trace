@@ -11,230 +11,133 @@ Read first every run:
 
 ## Stable product contract
 
-- LINE is the fast AI-assisted capture surface; Web/PWA is the durable work-record surface.
-- FREE = NT$0, `ONE_TIME`, 500 AI units once, no calendar expiry/no refresh, personal-only for LINE AI group collaboration.
-- PRO = NT$99/month, `MONTHLY`, 500 included AI units per confirmed successful renewal.
-- TEAM = NT$299/month, `MONTHLY`, 2500 included AI units per confirmed successful renewal.
-- **Paid plans no longer limit maximum group count.** AI allowance already bounds variable provider cost; users may distribute that allowance across any number of groups.
-- `maxGroupCount` is obsolete product logic and must be removed from capability schema/Admin/runtime/tests/docs.
-- Monthly included AI allowance does not roll over; next included allowance exists only after successful recurring payment.
-- Users may additionally buy **one-time AI top-up packs**. Top-up units are not subscriptions, do not auto-refresh, and do not disappear at monthly renewal.
-- Recommended AI spend order: current included plan allowance first, then purchased top-up balance.
-- PWA manual read/create/edit is a baseline free function and consumes no AI allowance unless an explicit AI action is invoked.
-- Private PWA scope: only the owning user may read/create/edit.
-- Group PWA scope: active group members may read/create/edit collaboratively even when Owner is absent or paid subscription is expired, because manual actions do not create AI/provider cost.
-- Owner presence + current paid group entitlement + AI allowance are required for new LINE AI-assisted group recording/provider spend, not for historical/manual PWA work.
-- Successful LINE AI recording must return the actual saved/normalized result plus a durable PWA deep link containing the record id.
-- Record deep links are normal authenticated routes, not short-lived capability URLs; LINE Login/session + API authorization protect access.
-- Owner absence suspends LINE AI-assisted group recording. An active member may run `@AFTERTRACE 啟用` to rebind only while old Owner is absent.
-- Export is MVP; CSV first is acceptable and server-authorized.
-- XLSX/DOCX are MVP input targets; prefer verified Google provider-native Files/File Search ingestion before building custom Office parsing.
+- LINE is the fast AI-assisted capture surface; Web/PWA is the durable manual record surface.
+- FREE = NT$0, ONE_TIME, 500 AI units once, no calendar expiry/no refresh.
+- PRO = NT$99/month, MONTHLY, 500 included AI units per successful renewal.
+- TEAM = NT$299/month, MONTHLY, 2500 included AI units per successful renewal.
+- Users on any plan may purchase one-time AI top-up packs; top-up balance does not disappear at monthly renewal.
+- Paid plans and FREE do **not** limit group count.
+- FREE may add AFTERTRACE Bot to LINE groups and use group PWA manually.
+- Group existence/manual collaboration is free; AI billing ownership is a separate concept required only when LINE AI/provider work spends quota.
+- PWA manual read/create/edit is baseline free functionality and consumes zero AI units unless an explicit AI action is invoked.
+- Private manual scope: owner only.
+- Group manual scope: active group members may read/create/edit collaboratively even without a paid plan, even if a previous billing Owner is absent, and even after included AI is exhausted.
+- Record deep links are durable authenticated `/records/<id>` routes, not short-lived capability links.
+- Successful LINE AI recording must return what was actually saved/normalized plus that record deep link.
+- AI use requires spendable included/top-up balance and, for group AI, an eligible bound billing Owner.
+- If group billing Owner leaves, LINE AI-assisted recording pauses; manual PWA group work continues.
+- Another active member may run `@AFTERTRACE 啟用` to take over AI billing responsibility only while old billing Owner is absent.
+- Export is MVP; CSV first is acceptable and currently remains paid.
+- XLSX/DOCX are MVP input targets; prefer verified Google provider-native file ingestion before custom parsing.
 - Dev/prod DBs are prelaunch/disposable and may be rebuilt.
-- GitHub Actions must not run unless user explicitly asks.
+- GitHub Actions must not run unless explicitly requested by user.
 
 ## Implemented / fixed
 
-- Worklog-only OA/group runtime, Web session/auth, Web/Admin Workers, PostgreSQL/Drizzle foundations.
-- Explicit Owner binding because LINE Bot join cannot reliably identify inviter.
-- Owner-presence authorization and absent-Owner rebind flow implemented in current LINE collaboration path.
-- Current code still contains `maxGroupCount` capability/runtime enforcement from the older contract; this is now obsolete and must be removed rather than extended.
-- Group `aiTextRecording=false` saves raw text but skips Gemini.
-- Group `aiMediaIngestion=false` blocks provider/quota work for real media without breaking Reply-TEXT guidance.
-- Structured anomalies for main LINE OA/group and Web/Admin 5xx boundaries.
-- Gemini modality double-count fixed.
-- Provider-success over-reservation and EXPIRED settlement preserve real cost.
-- Attachment source-loss after provider success preserves/settles usage without replaying Gemini.
-- Gemini 3.x thinking accounting exists in current approved provider path; executable validation pending.
-- `pwaEditing` was removed from Admin plan capability definitions.
+- Worklog-only OA/group runtime, Web/Admin Workers, PostgreSQL/Drizzle foundations.
+- Explicit billing Owner binding because LINE Bot join does not reliably identify inviter.
+- Owner-presence / absent-owner rebind flow exists in current AI collaboration path.
+- Group AI text/media capability gates exist.
+- Gemini modality double-count and provider-success reservation settlement defects were corrected.
+- Gemini 3.x thinking usage accounting exists in current provider path; executable validation pending.
+- `pwaEditing` removed from Admin plan capability definitions.
 - Product/development/deployment docs reflect rebuildable prelaunch DBs.
 
-## Newly superseded code/contracts
+## Superseded code/contracts requiring cleanup
 
-### A. `maxGroupCount` must be removed
+### 1. `maxGroupCount` is obsolete
 
-Current code still:
+Remove end-to-end:
+- Admin capability definition/control/defaults;
+- plan JSON/defaults;
+- collaboration ordinal SQL;
+- GROUP_LIMIT_REACHED result/copy/tests;
+- any Web filtering based on group ordinal.
 
-- defines `maxGroupCount` in Admin capabilities;
-- parses/enforces it in collaboration entitlement;
-- computes stable owner-group ordinal;
-- exposes group-limit error copy/tests;
-- may use it in Web entitlement filtering.
+No plan limits number of groups.
 
-New rule:
+### 2. Generic paid `groupCollaboration` is too broad
 
-- paid group collaboration is an on/off entitlement only;
-- no numeric group limit for PRO/TEAM;
-- any number of groups may consume the same Owner AI balance;
-- remove `GROUP_LIMIT_REACHED` and related plan UI/capability fields unless another non-AI resource limit is introduced later.
+FREE group/manual collaboration is now allowed. If a group capability remains, rename/redefine it specifically for AI-assisted group spending rather than generic group existence/read/manual CRUD.
 
-### B. Historical/manual group access must remain separate from LINE AI entitlement
+### 3. Group source existence must not depend on paid billing Owner
 
-Current `GET /records/group/:sourceId` and `/surfaces` still use stronger collaboration entitlement in places.
+Current bootstrap/source model was designed around promotion into an Owner workspace. Re-audit and refactor so:
+- Bot can join/create a usable group surface without paid entitlement;
+- active members can reach the group PWA and manually create/edit records without a billing Owner;
+- billing Owner may remain null until AI-assisted group capture is requested/enabled;
+- binding/rebinding only determines whose AI balance is charged, not whether the group can exist.
 
-Required:
+This may require separating source/workspace ownership from AI billing ownership in the data model instead of overloading one Owner field for both concerns.
 
-- historical/manual PWA read: authenticated active group membership + active source;
-- manual PWA create/edit: authenticated active group membership + active source;
-- no Owner presence, paid subscription, group-count or AI-quota checks for manual PWA operations;
-- LINE AI-assisted create/provider path keeps stronger Owner/paid/quota gates.
+### 4. Historical/manual group access is still over-restricted
 
-### C. Generic record edit/create routes need collaborative source authorization
-
-Current `PATCH /records/:id` is still owner/workspace-centric.
+Current Web group read/surface routes still use stronger collaboration entitlement in places.
 
 Required:
+- manual/history read: authenticated active group membership + active source;
+- manual PWA create/edit: same membership/source boundary;
+- no paid plan, Owner presence or AI balance requirement;
+- LINE AI/provider path uses stronger billing-owner/AI balance gates.
 
-- resolve record/source first;
-- PRIVATE -> owner only;
-- GROUP -> active member may edit;
-- add manual create API targeting private/group source with same authorization;
-- manual create/edit consumes zero AI units;
-- preserve actor/editor identity, timestamps and original input history.
+### 5. Generic record edit is still workspace-owner-centric
 
-## High-priority implementation gaps
+Required:
+- PRIVATE -> private owner only;
+- GROUP -> active group member may edit;
+- add manual PWA create API for both scopes;
+- manual create/edit costs zero AI units;
+- preserve actor/editor identity and timestamps.
 
-### 1. Remove max-group entitlement everywhere
+## High-priority implementation queue
 
-Remove:
+1. Remove `maxGroupCount` / GROUP_LIMIT_REACHED end-to-end.
+2. Separate free group/source existence from AI billing-owner binding.
+3. Split manual group authorization from LINE AI entitlement.
+4. Implement PWA manual create + collaborative group edit/private-owner edit.
+5. Implement LINE success summary + durable record deep link.
+6. Add billing_type and durable FREE/PRO/TEAM defaults now that DBs are rebuildable.
+7. Add first-class AI top-up products/grants/balances and deterministic spend order: included allowance first, top-up second.
+8. Implement private OA AI entitlement gates while preserving manual PWA access.
+9. Fix Admin effective included/top-up balance and AI media pricing.
+10. Implement CSV export.
+11. Verify Gemini provider-native XLSX/DOCX path.
+12. Finish AI hardening and enter concentrated local validation.
 
-- `maxGroupCount` capability definition/defaults;
-- Admin controls and customer copy;
-- group ordinal SQL/calculation;
-- `GROUP_LIMIT_REACHED` authorization status/copy/tests;
-- plan defaults that contain max group counts.
+## AI top-up domain requirement
 
-Keep `groupCollaboration` as the paid LINE group AI-assisted feature gate.
+Top-up is separate from subscription plan identity.
 
-### 2. PWA manual record create + collaborative edit
+Need:
+- top-up product: code/name/price/units/enabled/rank;
+- idempotent purchase/payment reference;
+- durable grant/remaining-balance ledger;
+- top-up balance survives monthly plan rollover;
+- Admin shows included, top-up and aggregate spendable balance separately;
+- pack sizes/prices remain undecided until real Gemini cost measurements.
 
-Implement baseline free manual workflow:
+## LINE non-AI manual mode
 
-- create record button in PWA;
-- private source manual create by owner;
-- group source manual create by active member;
-- manual create/edit remains usable after AI quota exhaustion or subscription expiry;
-- no Gemini call/no quota reservation unless user explicitly selects an AI-assisted action.
+Still not required for MVP. Current recommendation remains:
+- LINE: fast AI-assisted capture + query/deep-link entry;
+- PWA: free structured manual create/edit.
 
-### 3. LINE result reply + durable exact-record deep link
-
-Current success replies still need:
-
-- actual normalized/saved content;
-- durable `/records/<recordId>` PWA link;
-- login redirect back to requested record;
-- truthful raw-saved message if AI disabled/deferred/failed.
-
-### 4. AI top-up domain
-
-Need a first-class add-on/grant model separate from subscription plan periods.
-
-Recommended domain:
-
-- top-up product definition: code/display name/price/AI units/enabled/rank;
-- top-up purchase/payment event with idempotent provider reference;
-- durable top-up grant/balance ledger;
-- aggregate available AI = eligible current plan-period balance + unspent top-up balance;
-- deterministic consumption order: plan period first, then oldest eligible top-up grant;
-- monthly renewal replaces only the plan-period bucket and must not erase top-up balance;
-- Admin can inspect purchased/granted/used/remaining top-up units.
-
-Top-up pack sizes/prices are still a product/pricing decision and should wait for real Gemini cost measurement.
-
-### 5. Billing type + durable FREE/default plans
-
-Now safe to implement because DBs may be rebuilt:
-
-- `billing_type: ONE_TIME | MONTHLY`;
-- seed/default FREE/PRO/TEAM without max-group count;
-- durable FREE entitlement/quota idempotently on onboarding;
-- FREE period has no calendar expiry;
-- Admin/Web billing cadence display;
-- `assignPlan()` billing-type aware.
-
-### 6. Private OA entitlement
-
-For new LINE AI-assisted private work:
-
-- `privateOaRecording`;
-- `aiTextRecording=false`: save raw text, skip Gemini;
-- `aiMediaIngestion=false`: reject media before quota/provider;
-- historical/manual private PWA access remains available.
-
-### 7. Monthly renewal/provider lifecycle
-
-Need idempotent renewal success/failure/cancellation and provider recurring authorization/webhooks. Monthly renewal refreshes only included plan-period allowance; top-up balance remains untouched.
-
-### 8. Admin effective quota + top-up facts
-
-Admin should show:
-
-- current included plan allowance/used/remaining;
-- purchased top-up granted/used/remaining;
-- aggregate spendable AI balance;
-- subscription effective state;
-- Owner presence in group detail;
-- related group/source IDs;
-- no max-group count fields.
-
-### 9. Admin AI pricing editor
-
-Fix nullable independent audio/image prices and approved Gemini model copy.
-
-### 10. Export MVP
-
-Server-authorized CSV export:
-
-- private owner scope;
-- active group-member historical/manual scope;
-- `export=true` remains paid capability unless later changed;
-- no cross-source leakage.
-
-### 11. XLSX / DOCX provider-native path verification
-
-Current direct inline provider rejects Office MIME types. Prototype supported Files/File Search upload/import with representative XLSX/DOCX first. Enforce file-size and MIME allowlist. Build custom extraction only if provider-native flow fails the LINE use case.
-
-### 12. AI/provider hardening
-
-Still validate/harden provider-success DB-outage edge, committed-payload mismatch, real thinking/modality usage, concurrency/expiry/overage.
-
-## LINE manual-entry product decision still open
-
-PWA manual create/edit is decided and required.
-
-Whether LINE itself should also support a separate **non-AI manual mode** is intentionally not fixed yet. Current recommendation is to avoid a second complex LINE CRUD grammar in MVP and keep LINE optimized for fast AI capture while PWA handles structured manual CRUD. Revisit only if user testing shows strong demand for LINE-only manual operation.
-
-## Migration/deployment status
-
-Both dev/prod databases are prelaunch and may be rebuilt. Rebuild from current repo migrations as schema changes land; once real production data exists, switch immediately to forward-only migrations.
+Do not build a second complex LINE manual CRUD grammar unless user testing shows real demand.
 
 ## Validation status
 
-Recent tests are authored but not executed. Concentrated typecheck/test/build/schema/browser/Worker/LINE/Gemini validation remains pending.
+Recent tests are authored but not executed. Typecheck/test/build/schema/browser/Worker/LINE/Gemini concentrated validation remains pending.
 
 **GitHub Actions were not run, dispatched, rerun, enabled or modified.**
 
 ## Planning estimate
 
 Planning estimates only:
-
-- MVP non-payment-provider implementation: about **94–96%** after adding manual-create/top-up scope and removing obsolete group-limit work.
-- Static architecture/logic audit: about **98–99%**.
-- Production readiness including unrun validation/provider integration: about **83–86%**.
-- Remaining internal development before concentrated validation: roughly **3 large batches / about 7–14 focused hours** because top-up ledger, PWA manual create, entitlement cleanup and billing/FREE work are substantive.
-- After concentrated validation begins, reserve **2–8 focused hours** for ordinary fixes.
-- External recurring/top-up payment-provider integration remains separate and likely **1–3 working days after provider selection**, depending on provider sandbox/webhook complexity.
-
-## Next batch
-
-1. remove `maxGroupCount` / `GROUP_LIMIT_REACHED` end-to-end;
-2. split historical/manual group authorization from LINE AI entitlement;
-3. implement PWA manual create + collaborative group edit/private owner edit;
-4. implement billing type + durable FREE + FREE/PRO/TEAM defaults;
-5. design/implement AI top-up grant/balance ledger;
-6. implement LINE success summary + durable record deep link;
-7. fix Admin quota/media pricing and add top-up visibility;
-8. implement CSV export;
-9. verify provider-native XLSX/DOCX;
-10. finish AI hardening and enter concentrated local validation.
+- MVP non-payment-provider implementation: about 93–95% after the group/source ownership model change and top-up scope.
+- Static architecture/logic audit: about 98–99%.
+- Production readiness including unrun validation/provider integration: about 82–85%.
+- Remaining internal development before concentrated validation: about 3–4 large batches / roughly 8–16 focused hours.
+- After concentrated validation begins, reserve 2–8 focused hours for ordinary compile/schema/browser/runtime fixes.
+- Payment-provider recurring + top-up purchase integration remains separate and likely 1–3 working days after provider selection.
 
 Do not use GitHub Actions as validation.
