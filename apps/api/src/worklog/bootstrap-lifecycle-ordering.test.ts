@@ -4,7 +4,6 @@ import {
   type WorklogBootstrapRepository,
   type WorklogBootstrapUser,
   type WorklogBoundGroup,
-  type WorklogPendingGroup,
 } from './bootstrap';
 
 class OrderingRepository implements WorklogBootstrapRepository {
@@ -13,7 +12,7 @@ class OrderingRepository implements WorklogBootstrapRepository {
     sourceId: 10,
     lineGroupId: 'C1',
     workspaceId: 20,
-    ownerUserId: 1,
+    ownerUserId: null,
     status: 'ACTIVE',
   };
   groupEventAt = new Date('2026-09-02T10:00:00.000Z');
@@ -27,16 +26,13 @@ class OrderingRepository implements WorklogBootstrapRepository {
   async findBoundGroupByLineId(lineGroupId: string): Promise<WorklogBoundGroup | null> {
     return lineGroupId === this.group.lineGroupId ? this.group : null;
   }
+  async ensureGroupSource(): Promise<WorklogBoundGroup> { return this.group; }
   async reactivateBoundGroup(sourceId: number, at: Date): Promise<boolean> {
     if (sourceId !== this.group.sourceId || at < this.groupEventAt) return false;
     this.groupEventAt = at;
     this.group = { ...this.group, status: 'ACTIVE' };
     return true;
   }
-  async upsertPendingGroup(): Promise<WorklogPendingGroup> {
-    return { pendingGroupId: 99, lineGroupId: 'C1', isActive: true, promotedSourceId: null };
-  }
-  async upsertPendingGroupMember(): Promise<void> {}
   async upsertBoundGroupMember(_sourceId: number, _userId: number, isActive: boolean, at: Date): Promise<void> {
     if (at < this.memberEventAt) return;
     this.memberEventAt = at;
