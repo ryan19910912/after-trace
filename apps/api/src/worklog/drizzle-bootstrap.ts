@@ -339,19 +339,29 @@ export class DrizzleWorklogBootstrapRepository implements WorklogBootstrapReposi
           workspace_id = ${input.workspaceId},
           status = CASE WHEN source.updated_at <= ${input.at} THEN 'ACTIVE'::worklog_source_status ELSE source.status END,
           inactive_at = CASE WHEN source.updated_at <= ${input.at} THEN NULL ELSE source.inactive_at END,
-          owner_user_id = COALESCE(source.owner_user_id, ${input.ownerUserId}),
-          subscription_owner_user_id = COALESCE(source.subscription_owner_user_id, ${input.ownerUserId}),
+          owner_user_id = ${input.ownerUserId},
+          subscription_owner_user_id = ${input.ownerUserId},
           owner_binding_method = CASE
-            WHEN source.owner_user_id IS NULL THEN ${input.bindingMethod}
-            ELSE source.owner_binding_method
+            WHEN source.owner_user_id IS DISTINCT FROM ${input.ownerUserId} THEN ${input.bindingMethod}
+            ELSE COALESCE(source.owner_binding_method, ${input.bindingMethod})
           END,
           owner_bound_at = CASE
-            WHEN source.owner_user_id IS NULL THEN ${input.at}
-            ELSE source.owner_bound_at
+            WHEN source.owner_user_id IS DISTINCT FROM ${input.ownerUserId} THEN ${input.at}
+            ELSE COALESCE(source.owner_bound_at, ${input.at})
           END,
           updated_at = GREATEST(source.updated_at, ${input.at})
         WHERE source.id = (SELECT id FROM chosen)
-          AND (source.owner_user_id IS NULL OR source.owner_user_id = ${input.ownerUserId})
+          AND (
+            source.owner_user_id IS NULL
+            OR source.owner_user_id = ${input.ownerUserId}
+            OR NOT EXISTS (
+              SELECT 1
+              FROM worklog_source_members AS current_owner_member
+              WHERE current_owner_member.source_id = source.id
+                AND current_owner_member.user_id = source.owner_user_id
+                AND current_owner_member.is_active = TRUE
+            )
+          )
         RETURNING source.id, source.line_group_id, source.workspace_id, source.owner_user_id, source.status
       ),
       migrated_members AS (
