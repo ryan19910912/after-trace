@@ -8,7 +8,7 @@ The MVP deliberately separates responsibilities:
 
 - LINE OA private chat: owner entry point for private records, subscription, feedback, and later workspace-level management.
 - LINE group bot: lightweight shared recording surface. A group may record anything useful: money, work performed, issues, materials, photos, voice notes, or general notes.
-- Web/PWA: browsing, filtering, customer/project detail, editing, workspace settings, personal/group record views, subscription UI, usage/permission management, and feedback.
+- Web/PWA: browsing, filtering, customer/project detail, editing, workspace settings, personal/group record views, subscription UI, usage/permission management, export, and feedback.
 - Internal admin: lightweight operator console for system health, user feedback, subscription plans/permissions/AI quotas, AI model pricing, user lookup, usage analytics, and manual subscription changes.
 - AI: used at ingestion time to turn messy human input into a concise record and optional structured metadata. AI is not required for normal PWA search/filter in V1.
 
@@ -51,7 +51,7 @@ The LINE OA private chat should expose a simple button menu with these primary a
 
 Behavior:
 
-- 使用教學: explain how to record in private OA and group, how Reply + `@AFTERTRACE` works for audio/image, and how `@AFTERTRACE 查詢` opens the PWA.
+- 使用教學: explain how to record in private OA and group, how Reply + `@AFTERTRACE` works for audio/image/file, and how `@AFTERTRACE 查詢` opens the PWA.
 - 查看紀錄: open the Web/PWA for the current user.
 - 付款訂閱: open subscription UI. Implement UI and backend plan/checkout intent first; payment provider is intentionally undecided.
 - 意見回饋: open feedback UI or accept a structured feedback flow.
@@ -85,11 +85,15 @@ This state is important because OA-friend users get a personal record surface in
 - The intended business concept is that the person responsible for bringing AFTERTRACE into a group should become the subscription Owner when that identity can be established reliably.
 - Current LINE Messaging API group `join` webhooks do **not** identify the Bot inviter: `source.userId` for a group source is documented as message-event-only. Do not infer an inviter from a Bot `join` event or from whichever member speaks first.
 - Therefore the current MVP uses an explicit owner-claim/binding flow: after the Bot is added, the person who will own/pay for the group uses `@AFTERTRACE 啟用` to bind the group to their AFTERTRACE account.
-- If a future controlled invitation/onboarding flow can reliably associate the inviting user before the Bot is added, that evidence may be used to bind the Owner automatically; do not implement such automation by guessing from LINE webhook fields.
 - Persist a stable `owner_user_id` relationship on the group/source context; do not recompute ownership from whichever member happens to interact most recently.
-- An Owner leaving the LINE group does not silently transfer ownership to another member. Existing ownership remains stable until an explicit future owner-transfer flow is implemented.
-- A manual owner claim must never overwrite a different already-bound Owner accidentally; conflicting claims must be rejected.
-- Owner transfer can be added later if real users need it; the data model should not make transfer impossible.
+- The bound Owner must remain an active member of the LINE group for group query, recording, and AI/provider work to continue. Owner presence is an authorization precondition so members cannot continue spending an absent Owner's quota.
+- When LINE sends `memberLeft` for the bound Owner, mark that Owner member inactive and suspend new group functionality before quota/provider work. Historical records and the Owner binding remain intact.
+- While the bound Owner is absent, an active member may explicitly run `@AFTERTRACE 啟用` to accept Owner/subscription responsibility. This explicit claim may replace the absent Owner, but it must never replace an Owner who is still an active group member.
+- Preferred suspended-group message: `目前群組 Owner 已不在此 LINE 群組，AFTERTRACE 已暫停群組功能。請要負責此群組訂閱的人輸入「@AFTERTRACE 啟用」完成帳號綁定。`
+- After a successful rebind, the previous Owner returning later does not regain ownership automatically. The newly bound Owner remains authoritative.
+- If nobody rebinds while the Owner is absent and that same original Owner later rejoins, the existing stable binding remains theirs and group functionality resumes after their membership becomes active again.
+- A manual claim from another member while the existing Owner is still active must return an Owner conflict and must not overwrite billing ownership.
+- Future richer owner-transfer UX may be added later, but the above explicit absent-owner rebind is the MVP recovery path.
 
 ### AI quota charging for groups
 
@@ -98,6 +102,7 @@ This state is important because OA-friend users get a personal record surface in
   - actor user id: the member who triggered the AI work
   - charged user id / billing owner id: the group owner whose AI allowance is consumed
 - Quota preflight must check the charged owner before calling the provider.
+- Owner membership presence must also be checked before quota/provider usage.
 - If the owner's AI allowance is exhausted, group AI recording should fail cleanly without silently charging another member.
 - Admin and owner usage views must be able to distinguish personal AI usage from group AI usage and attribute group usage to individual actors.
 
@@ -107,7 +112,7 @@ This state is important because OA-friend users get a personal record surface in
 - Default policy for active group members may be allowed, but owner must be able to block unrelated/noisy participants explicitly.
 - Persist per-group-member recording permission, e.g. `can_record`/`recording_enabled`.
 - A blocked member may still be shown in member usage/history if they have historical activity, but new `@AFTERTRACE` record commands must be rejected before AI/provider usage.
-- Group owner always retains recording/configuration permission unless the group subscription itself is inactive/blocked.
+- Group owner always retains recording/configuration permission unless the group subscription itself is inactive/blocked or the Owner is no longer an active member.
 
 ## PWA record surfaces
 
@@ -146,6 +151,16 @@ For each owned/subscribed group, the owner PWA must show:
 - control to enable/disable each member's ability to create records
 
 The group owner view is operational/usage management, not a complex HR/role system.
+
+### Export
+
+Export is part of the MVP.
+
+- Export must be permission-gated by the `export` capability and enforced server-side; hiding a button is not sufficient.
+- MVP export may start with CSV because it is simple, portable, and usable by Excel/Google Sheets.
+- Export must respect the same personal/group/workspace authorization boundary as normal record browsing and must never export inaccessible groups.
+- Historical/raw user input should remain represented faithfully; derived AI fields may be included as additional columns.
+- More elaborate XLSX export formatting can be added later if real usage justifies it; accepting XLSX as an input attachment is a separate requirement from producing XLSX exports.
 
 ## Data principles
 
@@ -213,38 +228,56 @@ Invoice integration is explicitly out of MVP. Existing businesses already have i
 
 Subscription must be data-driven, not hard-coded into frontend conditionals.
 
-### Plan levels
+### Initial plan matrix
 
-Support operator-defined plan codes such as:
+The initial launch recommendation is now fixed as the starting default plan data. Operators may still edit plan values in Admin later.
 
-- FREE
-- SUB1
-- SUB2
-- future additional levels
+#### FREE
 
-Admin can configure for each level:
+- display name: `FREE`
+- price: NT$0
+- billing type: `ONE_TIME`
+- AI allowance: **500 units one time**, matching the initial PRO monthly allowance
+- the FREE allowance has no one-month calendar expiry and does not refresh; the user keeps using the remaining one-time allowance until it is exhausted
+- `privateOaRecording = true`
+- `groupCollaboration = false`
+- `maxGroupCount = 0`
+- `aiTextRecording = true`
+- `aiMediaIngestion = true`
+- `pwaEditing = true` as a target capability; exact record-edit scope is still to be finalized below
+- `export = false`
 
-- display name
-- subscription price
-- billing type
-- enabled/disabled status
-- ordered rank/level
-- AI quota / allowance
-- feature permissions/capabilities
+#### PRO
 
-Examples of permissions/capabilities that may be toggled per plan:
+- display name: `PRO`
+- price: **NT$99 / month**
+- billing type: `MONTHLY`
+- AI allowance: **500 units per successful monthly period**
+- `privateOaRecording = true`
+- `groupCollaboration = true`
+- `maxGroupCount = 3`
+- `aiTextRecording = true`
+- `aiMediaIngestion = true`
+- `pwaEditing = true`
+- `export = true`
 
-- private OA recording
-- group collaboration
-- max group count
-- AI text recording
-- audio/image AI ingestion
-- record history retention level
-- PWA editing
-- export
-- other future paid features
+#### TEAM
 
-Do not assume the final permission matrix yet; model it flexibly enough to add capability flags without a schema rewrite for every new plan feature.
+- display name: `TEAM`
+- price: **NT$299 / month**
+- billing type: `MONTHLY`
+- AI allowance: **2500 units per successful monthly period**
+- `privateOaRecording = true`
+- `groupCollaboration = true`
+- `maxGroupCount = 20`
+- `aiTextRecording = true`
+- `aiMediaIngestion = true`
+- `pwaEditing = true`
+- `export = true`
+
+Suggested rank values are FREE `0`, PRO `10`, TEAM `20`.
+
+These allowance numbers are launch defaults, not a promise that provider-cost accounting is finished. Re-evaluate them with real Gemini 3.5 text/image/audio/PDF/DOCX/XLSX measurements before production pricing is considered final.
 
 ### Billing type and renewal semantics
 
@@ -252,7 +285,7 @@ Plan billing cadence is a first-class plan property, not a capability flag.
 
 Initial supported billing types:
 
-- `ONE_TIME`: one-time purchase/assignment. The configured AI allowance is granted for that entitlement period and is not automatically replenished by a calendar schedule.
+- `ONE_TIME`: one-time grant/purchase. The configured AI allowance is granted once and is not automatically replenished by a calendar schedule.
 - `MONTHLY`: recurring monthly subscription. Each successful monthly renewal creates a new billing/quota period and grants a fresh allowance snapshot from the plan template.
 
 Rules:
@@ -260,12 +293,12 @@ Rules:
 - Do not model billing cadence inside the generic capabilities JSON.
 - Admin plan management must expose billing type as a dedicated field/select.
 - Future types such as `QUARTERLY` or `YEARLY` may be added later when the product actually offers them; do not implement unused cadence types now.
-- For `MONTHLY`, renewal/payment success is the event that starts the next period and establishes that period's quota snapshot. Merely reaching a date boundary must not silently grant paid quota when payment has failed or no valid recurring authorization exists.
-- Unused AI allowance does **not** roll over into a new period. A new monthly period starts from the new plan allowance snapshot; remaining units from the previous period are not added to it.
+- FREE is explicitly `ONE_TIME`: its one-time allowance does not expire merely because one month has elapsed, does not auto-reset, and remains available until consumed.
+- For paid `MONTHLY`, renewal/payment success is the event that starts the next period and establishes that period's quota snapshot. Merely reaching a date boundary must not silently grant paid quota when payment has failed or no valid recurring authorization exists.
+- Unused paid monthly AI allowance does **not** roll over into a new period. A new monthly period starts from the new plan allowance snapshot; remaining units from the previous period are not added to it.
 - Used/reserved units and historical provider-cost events remain attached to their original period and are never rewritten when a new period begins.
 - Changing a plan template does not retroactively mutate an already-created quota snapshot for the current period.
 - `ONE_TIME` and `MONTHLY` must be distinguishable in API/admin/PWA presentation so price copy is not misleading.
-- Whether FREE ultimately uses `ONE_TIME` or `MONTHLY` remains a product/pricing decision until explicitly finalized; do not assume it from price `0` alone.
 
 ### Recurring payment requirement
 
@@ -297,18 +330,18 @@ Payment provider remains undecided; provider-specific token fields/webhook seman
 
 ### AI quota semantics
 
-Each plan must have an operator-editable AI allowance. Do not hard-code a specific unit definition into the product spec yet; the implementation may use AI units/credits derived from provider cost and input type.
+Each plan must have an operator-editable AI allowance. Current launch values are 500 one-time FREE, 500/month PRO, and 2500/month TEAM, but the internal unit definition remains subject to final Gemini 3.5 measurement before production pricing is frozen.
 
 At minimum the system must support:
 
-- configured AI allowance per plan/billing cycle
-- current user AI usage for the active cycle
+- configured AI allowance per entitlement/billing cycle
+- current user AI usage for the active entitlement/cycle
 - remaining AI allowance
 - group usage charged to owner/subscriber while retaining the triggering actor
 - usage events that retain enough provider/model/token information to recalculate or audit cost later
 - admin override/adjustment when needed later
 
-Do not offer unlimited AI usage by default. Unused allowance does not roll over when a new recurring billing period is created.
+Do not offer unlimited AI usage by default. FREE does not refresh. Paid monthly unused allowance does not roll over when a new successful billing period is created.
 
 ### User subscription state
 
@@ -331,29 +364,44 @@ Payment provider is intentionally undecided. Build the subscription domain, plan
 
 Current product rule:
 
-- FREE users are personal-only.
+- FREE is a durable one-time personal entitlement with 500 initial AI units, no calendar expiry, no automatic refresh, and no group collaboration.
 - Group/collaboration use requires a paid plan that enables group capability.
+
+### PWA editing capability
+
+`pwaEditing` is intended to control whether an entitled user can modify an already-created work record through the Web/PWA rather than only viewing it. Examples include changing record organization fields such as category and customer/project association or other explicitly editable work-record metadata.
+
+Customer/project/finance CRUD are separate product operations and should not be silently tied to this flag unless the product explicitly decides to broaden the capability later. Exact mutation fields and UI behavior still require final implementation review before server-side enforcement.
 
 ## AI runtime configuration
 
-AI provider/model economics must be operator-configurable so model migrations and pricing changes do not require a code deploy.
+Current MVP production model target is stable **Gemini 3.5 Flash**, model id `gemini-3.5-flash`. Gemini 2.5 compatibility is not an MVP requirement. If the model is changed later, treat that as an explicit compatibility, pricing, and validation change rather than carrying legacy branches indefinitely.
+
+AI provider/model economics must be operator-configurable so pricing changes do not require a code deploy, but the current runtime may validate/optimize for the approved Gemini 3.5 target.
 
 Admin settings must allow editing at least:
 
 - active model/provider identifier
 - input token price per 1M tokens
-- output token price per 1M tokens
+- output token price per 1M tokens, including thinking-token cost where provider pricing treats thinking as output
 - audio/image pricing fields if the selected provider bills them separately
 - optional exchange rate / cost conversion inputs if user-facing quota logic depends on TWD
 - effective/update timestamp
 
-The runtime should read current AI configuration from DB-backed settings (with safe deployment defaults/fallbacks if needed), not scatter model names/prices across code.
+Gemini 3.5 runtime rules:
 
-Each AI usage event should record enough immutable snapshot data to understand historical cost even after admin changes the current price/model, such as:
+- use Gemini 3 thinking controls (`thinkingLevel` / `thinkingConfig`) rather than maintaining Gemini 2.5 `thinkingBudget` compatibility for MVP;
+- use a cost-conscious thinking level suitable for structured work-record extraction and validate quality/latency with real samples;
+- include `usageMetadata.thoughtsTokenCount` in provider-cost and quota accounting according to provider pricing;
+- remove legacy sampling overrides such as hard-coded low temperature when current Gemini 3.x guidance recommends model defaults;
+- reservation estimates must account for the chosen thinking policy sufficiently to reduce avoidable overrun while exact provider-success settlement remains authoritative.
+
+Each AI usage event should record enough immutable snapshot data to understand historical cost even after admin changes current pricing, such as:
 
 - model/provider used
 - input tokens/units
 - output tokens/units
+- thinking/reasoning tokens when reported
 - media/audio input units when applicable
 - pricing snapshot or computed provider cost at execution time
 - actor user id
@@ -361,7 +409,28 @@ Each AI usage event should record enough immutable snapshot data to understand h
 - group/workspace/source where relevant
 - created time
 
-Changing the configured model or token pricing should affect future calls/estimates, not rewrite historical usage costs.
+Changing configured pricing should affect future calls/estimates, not rewrite historical usage costs.
+
+## Attachment/file scope
+
+MVP input targets include:
+
+- text
+- image
+- audio
+- PDF
+- DOCX / Word
+- XLSX / Excel
+- common text-like files such as TXT/CSV/JSON/XML/Markdown where practical
+
+Rules for Office files:
+
+- DOCX/XLSX are intentionally part of MVP because field users commonly exchange Word/Excel files.
+- Current Gemini raw generate-content input support should not be assumed to accept Office formats directly. Add an explicit Office extraction/conversion layer in the Worker pipeline.
+- DOCX should extract readable paragraph/table text; XLSX should extract sheet names and cell values/tables in a bounded textual representation suitable for Gemini normalization.
+- Do not persist raw Office binaries after processing unless a later storage requirement is explicitly approved.
+- Enforce file-size, extracted-text-size, sheet/row/cell and zip-bomb/resource limits before AI work.
+- PDF continues to use Gemini's native document path where appropriate because visual layout/charts can matter.
 
 ## Internal admin console
 
@@ -405,7 +474,7 @@ Feedback list must show:
 
 - user id
 - LINE display name
-- channel: `LINE_OA` or `PWA` (the user called it RWA; use PWA internally unless the product intentionally renames it)
+- channel: `LINE_OA` or `PWA`
 - feedback text
 - timestamp
 - optional page/device/context metadata
@@ -480,6 +549,7 @@ Admin must be able to see:
 
 - group id
 - group owner user id / display name
+- whether the Owner is currently an active group member
 - how ownership was established/bound
 - owner current AI quota/usage/remaining
 - group-level AI usage charged to that owner
@@ -492,7 +562,7 @@ This is important for diagnosing unexpected quota burn or unauthorized/noisy rec
 
 Admin must support:
 
-- create/edit plan levels/codes such as FREE, SUB1, SUB2
+- create/edit plan levels/codes such as FREE, PRO, TEAM
 - edit displayed subscription price
 - edit billing type (`ONE_TIME` or `MONTHLY` initially)
 - edit AI quota/allowance per plan
@@ -504,15 +574,15 @@ Changes should be auditable with a lightweight admin audit log if practical.
 
 ### AI model/pricing management
 
-Admin must support editing the active AI runtime economics without deploying code:
+Admin must support editing active Gemini 3.5 runtime economics without deploying code:
 
-- active model/provider name/id
+- active model/provider name/id, with current production target `gemini-3.5-flash`
 - input price
-- output price
+- output/thinking price
 - separate audio/image/media price fields if needed by provider
 - optional FX/cost-conversion settings used for plan/quota design
 
-The admin should also surface enough recent/global AI usage and cost data to help decide whether FREE/SUB1/SUB2 AI quotas are sustainable.
+The admin should also surface enough recent/global AI usage and cost data to help decide whether FREE/PRO/TEAM AI quotas are sustainable.
 
 ## AI scope
 
@@ -521,7 +591,8 @@ Use AI only where it removes input friction:
 - normalize short natural-language work records
 - extract broad category, customer/project hint, amount/date when relevant
 - summarize long field reports
-- understand audio/image input directly with a multimodal model
+- understand audio/image/PDF input directly with a multimodal model
+- normalize extracted DOCX/XLSX content after a bounded Office extraction step
 
 Do not make AI the source of accounting truth. Database queries and calculations remain deterministic.
 
@@ -557,17 +628,17 @@ Rules:
 
 ## Subscription hypothesis
 
-Do not lock final pricing before usage data. Current product shape is:
+Current launch hypothesis is:
 
-- FREE: personal-only baseline
-- SUB1 / SUB2 / future levels: configured by admin
+- FREE: personal-only, ONE_TIME, 500 AI units once, no calendar expiry/no refresh
+- PRO: NT$99/month, MONTHLY, 500 AI units on each successful renewal, max 3 groups
+- TEAM: NT$299/month, MONTHLY, 2500 AI units on each successful renewal, max 20 groups
 - collaboration/group access is a paid capability
 - every plan has a bounded, operator-editable AI allowance rather than unlimited usage
-- group usage burns the owning subscriber's allowance
-- plan billing type is explicitly `ONE_TIME` or `MONTHLY` initially; future cadences are added only when actually offered
+- group usage burns the active owning subscriber's allowance only while that Owner remains in the group
 - monthly paid quota renews only after successful recurring payment and does not carry unused allowance forward
 
-Early validation should optimize for retention and willingness to pay, not infrastructure optimization.
+These are launch defaults and should be revalidated against real Gemini 3.5 usage/cost before final production pricing is frozen.
 
 ## Feedback
 
