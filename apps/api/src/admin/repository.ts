@@ -9,7 +9,10 @@ export type WorklogAdminOverview = {
   records: number;
   recordsToday: number;
   aiCallsToday: number;
+  aiPointsToday: number;
+  platformSubsidizedPointsToday: number;
   aiCostTwdToday: string;
+  platformSubsidizedCostTwdToday: string;
   openAnomalies: number;
   failedAttachments: number;
   failedNormalizations: number;
@@ -19,7 +22,7 @@ export type WorklogAdminOverview = {
 export type AdminUserQuery = {
   query: string | null;
   planCode: string | null;
-  userType: 'INDIVIDUAL' | 'GROUP_ENABLED' | null;
+  userType: 'INDIVIDUAL' | 'AI_RESPONSIBLE' | null;
   sortUpdated: 'ASC' | 'DESC';
   limit: number;
 };
@@ -44,6 +47,12 @@ export type AdminAiRuntimeInput = {
   usdTwdRate: string | null;
 };
 
+/**
+ * Stable Admin persistence that is unrelated to user/group live allowance reporting.
+ *
+ * User/group reporting lives in DrizzleGrantAdminRepository so this file cannot
+ * accidentally reintroduce the retired aggregate quota / Source Owner model.
+ */
 export class DrizzleAdminRepository {
   constructor(private readonly db: Database) {}
 
@@ -59,7 +68,10 @@ export class DrizzleAdminRepository {
         (SELECT COUNT(*) FROM worklog_records)::text AS records,
         (SELECT COUNT(*) FROM worklog_records WHERE created_at >= ${dayStart})::text AS records_today,
         (SELECT COUNT(*) FROM worklog_ai_usage_events WHERE created_at >= ${dayStart})::text AS ai_calls_today,
+        COALESCE((SELECT SUM(customer_points_charged) FROM worklog_ai_usage_events WHERE created_at >= ${dayStart}), 0)::bigint::text AS ai_points_today,
+        COALESCE((SELECT SUM(platform_subsidized_points) FROM worklog_ai_usage_events WHERE created_at >= ${dayStart}), 0)::bigint::text AS platform_subsidized_points_today,
         COALESCE((SELECT SUM(provider_cost_twd) FROM worklog_ai_usage_events WHERE created_at >= ${dayStart}), 0)::text AS ai_cost_twd_today,
+        COALESCE((SELECT SUM(platform_subsidized_cost_twd) FROM worklog_ai_usage_events WHERE created_at >= ${dayStart}), 0)::text AS platform_subsidized_cost_twd_today,
         (SELECT COUNT(*) FROM worklog_anomaly_events WHERE status = 'OPEN')::text AS open_anomalies,
         (SELECT COUNT(*) FROM worklog_attachment_ingestions WHERE status = 'FAILED')::text AS failed_attachments,
         (SELECT COUNT(*) FROM worklog_record_ai_normalizations WHERE status = 'FAILED')::text AS failed_normalizations,
@@ -74,273 +86,15 @@ export class DrizzleAdminRepository {
       records: numeric(row.records),
       recordsToday: numeric(row.records_today),
       aiCallsToday: numeric(row.ai_calls_today),
+      aiPointsToday: numeric(row.ai_points_today),
+      platformSubsidizedPointsToday: numeric(row.platform_subsidized_points_today),
       aiCostTwdToday: row.ai_cost_twd_today ?? '0',
+      platformSubsidizedCostTwdToday: row.platform_subsidized_cost_twd_today ?? '0',
       openAnomalies: numeric(row.open_anomalies),
       failedAttachments: numeric(row.failed_attachments),
       failedNormalizations: numeric(row.failed_normalizations),
       feedback30d: numeric(row.feedback_30d),
     };
-  }
-
-  async users(input: AdminUserQuery) {
-    const result = await this.db.execute(sql`
-      SELECT
-        u.id::text AS id,
-        u.line_user_id,
-        u.display_name,
-        u.is_oa_friend,
-        COALESCE(subscription.plan_code, 'FREE') AS plan_code,
-        subscription.status AS subscription_status,
-        COALESCE(balance.allowance_units, plan.ai_allowance_units, 0)::text AS ai_allowance_units,
-        COALESCE(balance.used_units, 0)::text AS ai_used_units,
-        COALESCE(balance.reserved_units, 0)::text AS ai_reserved_units,
-        GREATEST(
-          COALESCE(balance.allowance_units, plan.ai_allowance_units, 0)
-            - COALESCE(balance.used_units, 0)
-            - COALESCE(balance.reserved_units, 0),
-          0
-        )::text AS ai_remaining_units,
-        (SELECT COUNT(*) FROM worklog_records r WHERE r.author_user_id = u.id AND r.input_type = 'TEXT')::text AS text_count,
-        (SELECT COUNT(*) FROM worklog_records r WHERE r.author_user_id = u.id AND r.input_type = 'AUDIO')::text AS audio_count,
-        (SELECT COUNT(*) FROM worklog_records r WHERE r.author_user_id = u.id AND r.input_type = 'IMAGE')::text AS image_count,
-        (SELECT COUNT(*) FROM worklog_records r WHERE r.author_user_id = u.id AND r.input_type = 'FILE')::text AS file_count,
-        (SELECT COUNT(*) FROM worklog_sources s WHERE s.type = 'GROUP' AND s.status = 'ACTIVE' AND s.owner_user_id = u.id)::text AS owned_group_count,
-        (SELECT COUNT(*) FROM worklog_source_members m INNER JOIN worklog_sources s ON s.id = m.source_id WHERE m.user_id = u.id AND m.is_active = TRUE AND s.type = 'GROUP' AND s.status = 'ACTIVE')::text AS member_group_count,
-        CASE WHEN EXISTS (
-          SELECT 1 FROM worklog_sources s WHERE s.type = 'GROUP' AND s.status = 'ACTIVE' AND s.owner_user_id = u.id
-        ) THEN 'GROUP_ENABLED' ELSE 'INDIVIDUAL' END AS user_type,
-        u.last_interaction_at,
-        u.updated_at
-      FROM worklog_users u
-      LEFT JOIN worklog_user_subscriptions subscription ON subscription.user_id = u.id
-      LEFT JOIN worklog_subscription_plans plan ON plan.code = subscription.plan_code
-      LEFT JOIN worklog_ai_quota_balances balance
-        ON balance.user_id = u.id
-       AND balance.period_start = subscription.current_period_start
-      WHERE u.is_oa_friend = TRUE
-        AND (
-          ${input.query}::text IS NULL
-          OR u.id::text = ${input.query}
-          OR u.line_user_id ILIKE '%' || ${input.query} || '%'
-          OR COALESCE(u.display_name, '') ILIKE '%' || ${input.query} || '%'
-        )
-        AND (${input.planCode}::text IS NULL OR COALESCE(subscription.plan_code, 'FREE') = ${input.planCode})
-        AND (
-          ${input.userType}::text IS NULL
-          OR (${input.userType} = 'GROUP_ENABLED' AND EXISTS (
-            SELECT 1 FROM worklog_sources owned WHERE owned.type = 'GROUP' AND owned.status = 'ACTIVE' AND owned.owner_user_id = u.id
-          ))
-          OR (${input.userType} = 'INDIVIDUAL' AND NOT EXISTS (
-            SELECT 1 FROM worklog_sources owned WHERE owned.type = 'GROUP' AND owned.status = 'ACTIVE' AND owned.owner_user_id = u.id
-          ))
-        )
-      ORDER BY
-        CASE WHEN ${input.sortUpdated} = 'ASC' THEN u.updated_at END ASC,
-        CASE WHEN ${input.sortUpdated} = 'DESC' THEN u.updated_at END DESC,
-        u.id DESC
-      LIMIT ${input.limit}
-    `);
-    return result.rows;
-  }
-
-  async userDetail(userId: number) {
-    const [summary, ownedGroups, memberGroups, aiUsage, subscriptionHistory] = await Promise.all([
-      this.db.execute(sql`
-        SELECT
-          u.id::text AS id,
-          u.line_user_id,
-          u.display_name,
-          u.is_oa_friend,
-          u.first_oa_added_at,
-          u.last_interaction_at,
-          u.created_at,
-          u.updated_at,
-          subscription.plan_code,
-          subscription.status AS subscription_status,
-          subscription.source AS subscription_source,
-          subscription.effective_at,
-          subscription.current_period_start,
-          subscription.current_period_end,
-          COALESCE(balance.allowance_units, plan.ai_allowance_units, 0)::text AS ai_allowance_units,
-          COALESCE(balance.used_units, 0)::text AS ai_used_units,
-          COALESCE(balance.reserved_units, 0)::text AS ai_reserved_units,
-          GREATEST(COALESCE(balance.allowance_units, plan.ai_allowance_units, 0) - COALESCE(balance.used_units, 0) - COALESCE(balance.reserved_units, 0), 0)::text AS ai_remaining_units,
-          (SELECT COUNT(*) FROM worklog_records r WHERE r.author_user_id = u.id AND r.input_type = 'TEXT')::text AS text_count,
-          (SELECT COUNT(*) FROM worklog_records r WHERE r.author_user_id = u.id AND r.input_type = 'AUDIO')::text AS audio_count,
-          (SELECT COUNT(*) FROM worklog_records r WHERE r.author_user_id = u.id AND r.input_type = 'IMAGE')::text AS image_count,
-          (SELECT COUNT(*) FROM worklog_records r WHERE r.author_user_id = u.id AND r.input_type = 'FILE')::text AS file_count
-        FROM worklog_users u
-        LEFT JOIN worklog_user_subscriptions subscription ON subscription.user_id = u.id
-        LEFT JOIN worklog_subscription_plans plan ON plan.code = subscription.plan_code
-        LEFT JOIN worklog_ai_quota_balances balance ON balance.user_id = u.id AND balance.period_start = subscription.current_period_start
-        WHERE u.id = ${userId}
-        LIMIT 1
-      `),
-      this.db.execute(sql`
-        SELECT
-          source.id::text AS source_id,
-          source.line_group_id,
-          source.status,
-          source.owner_binding_method,
-          source.owner_bound_at,
-          source.updated_at,
-          (SELECT COUNT(*) FROM worklog_source_members member WHERE member.source_id = source.id AND member.is_active = TRUE)::text AS active_members,
-          (SELECT COUNT(*) FROM worklog_records record WHERE record.source_id = source.id)::text AS record_count,
-          COALESCE((SELECT SUM(usage.ai_units_consumed) FROM worklog_ai_usage_events usage WHERE usage.source_id = source.id), 0)::text AS ai_used_units
-        FROM worklog_sources source
-        WHERE source.type = 'GROUP' AND source.owner_user_id = ${userId}
-        ORDER BY source.updated_at DESC
-      `),
-      this.db.execute(sql`
-        SELECT source.id::text AS source_id, source.line_group_id, source.status, member.recording_enabled,
-               member.first_seen_at, member.last_seen_at, member.updated_at
-        FROM worklog_source_members member
-        INNER JOIN worklog_sources source ON source.id = member.source_id
-        WHERE member.user_id = ${userId} AND source.type = 'GROUP'
-        ORDER BY member.updated_at DESC
-      `),
-      this.db.execute(sql`
-        SELECT id::text AS id, source_id::text AS source_id, record_id::text AS record_id,
-               provider, model, input_tokens, output_tokens, audio_input_units, image_input_units,
-               ai_units_consumed, provider_cost_usd::text, provider_cost_twd::text, created_at,
-               CASE WHEN charged_user_id = actor_user_id THEN 'PERSONAL_OR_OWNER' ELSE 'GROUP_MEMBER_ACTOR' END AS billing_relation
-        FROM worklog_ai_usage_events
-        WHERE actor_user_id = ${userId} OR charged_user_id = ${userId}
-        ORDER BY created_at DESC, id DESC LIMIT 100
-      `),
-      this.db.execute(sql`
-        SELECT id::text AS id, previous_plan_code, next_plan_code, source, actor, metadata, created_at
-        FROM worklog_subscription_history WHERE user_id = ${userId}
-        ORDER BY created_at DESC, id DESC LIMIT 100
-      `),
-    ]);
-    const user = summary.rows[0];
-    return user ? {
-      user,
-      ownedGroups: ownedGroups.rows,
-      memberGroups: memberGroups.rows,
-      aiUsage: aiUsage.rows,
-      subscriptionHistory: subscriptionHistory.rows,
-    } : null;
-  }
-
-  async groups(query: string | null, limit: number) {
-    const result = await this.db.execute(sql`
-      SELECT
-        source.id::text AS id,
-        source.line_group_id,
-        source.status,
-        source.owner_user_id::text AS owner_user_id,
-        owner.display_name AS owner_display_name,
-        source.owner_binding_method,
-        COALESCE(subscription.plan_code, 'FREE') AS owner_plan_code,
-        COALESCE(balance.allowance_units, plan.ai_allowance_units, 0)::text AS owner_ai_allowance_units,
-        COALESCE(balance.used_units, 0)::text AS owner_ai_used_units,
-        GREATEST(COALESCE(balance.allowance_units, plan.ai_allowance_units, 0) - COALESCE(balance.used_units, 0) - COALESCE(balance.reserved_units, 0), 0)::text AS owner_ai_remaining_units,
-        (SELECT COUNT(*) FROM worklog_source_members member WHERE member.source_id = source.id AND member.is_active = TRUE)::text AS active_members,
-        (SELECT COUNT(*) FROM worklog_records record WHERE record.source_id = source.id)::text AS record_count,
-        COALESCE((SELECT SUM(usage.ai_units_consumed) FROM worklog_ai_usage_events usage WHERE usage.source_id = source.id), 0)::text AS group_ai_used_units,
-        COALESCE((SELECT SUM(usage.provider_cost_twd) FROM worklog_ai_usage_events usage WHERE usage.source_id = source.id), 0)::text AS group_ai_cost_twd,
-        source.updated_at
-      FROM worklog_sources source
-      LEFT JOIN worklog_users owner ON owner.id = source.owner_user_id
-      LEFT JOIN worklog_user_subscriptions subscription ON subscription.user_id = source.owner_user_id
-      LEFT JOIN worklog_subscription_plans plan ON plan.code = subscription.plan_code
-      LEFT JOIN worklog_ai_quota_balances balance ON balance.user_id = source.owner_user_id AND balance.period_start = subscription.current_period_start
-      WHERE source.type = 'GROUP'
-        AND (
-          ${query}::text IS NULL
-          OR source.id::text = ${query}
-          OR COALESCE(source.line_group_id, '') ILIKE '%' || ${query} || '%'
-          OR COALESCE(owner.display_name, '') ILIKE '%' || ${query} || '%'
-          OR COALESCE(source.owner_user_id::text, '') = ${query}
-        )
-      ORDER BY source.updated_at DESC, source.id DESC
-      LIMIT ${limit}
-    `);
-    return result.rows;
-  }
-
-  async groupDetail(sourceId: number) {
-    const group = await this.db.execute(sql`
-      SELECT
-        source.id::text AS id,
-        source.workspace_id::text AS workspace_id,
-        source.line_group_id,
-        source.status,
-        source.owner_user_id::text AS owner_user_id,
-        owner.display_name AS owner_display_name,
-        source.owner_binding_method,
-        source.owner_bound_at,
-        source.subscription_owner_user_id::text AS subscription_owner_user_id,
-        subscription.plan_code AS owner_plan_code,
-        subscription.current_period_start,
-        subscription.current_period_end,
-        COALESCE(balance.allowance_units, plan.ai_allowance_units, 0)::text AS owner_ai_allowance_units,
-        COALESCE(balance.used_units, 0)::text AS owner_ai_used_units,
-        COALESCE(balance.reserved_units, 0)::text AS owner_ai_reserved_units,
-        GREATEST(COALESCE(balance.allowance_units, plan.ai_allowance_units, 0) - COALESCE(balance.used_units, 0) - COALESCE(balance.reserved_units, 0), 0)::text AS owner_ai_remaining_units,
-        source.created_at,
-        source.updated_at
-      FROM worklog_sources source
-      LEFT JOIN worklog_users owner ON owner.id = source.owner_user_id
-      LEFT JOIN worklog_user_subscriptions subscription ON subscription.user_id = source.owner_user_id
-      LEFT JOIN worklog_subscription_plans plan ON plan.code = subscription.plan_code
-      LEFT JOIN worklog_ai_quota_balances balance ON balance.user_id = source.owner_user_id AND balance.period_start = subscription.current_period_start
-      WHERE source.id = ${sourceId} AND source.type = 'GROUP'
-      LIMIT 1
-    `);
-    const row = group.rows[0] as Record<string, unknown> | undefined;
-    if (!row) return null;
-    const periodStart = nullableDate(row.current_period_start) ?? new Date('1970-01-01T00:00:00Z');
-    const periodEnd = nullableDate(row.current_period_end) ?? new Date('9999-12-31T23:59:59Z');
-    const [members, recentRecords, recentUsage] = await Promise.all([
-      this.db.execute(sql`
-        WITH records AS (
-          SELECT author_user_id,
-            COUNT(*) FILTER (WHERE input_type = 'TEXT')::bigint AS text_count,
-            COUNT(*) FILTER (WHERE input_type = 'AUDIO')::bigint AS audio_count,
-            COUNT(*) FILTER (WHERE input_type = 'IMAGE')::bigint AS image_count,
-            COUNT(*) FILTER (WHERE input_type = 'FILE')::bigint AS file_count
-          FROM worklog_records WHERE source_id = ${sourceId} AND author_user_id IS NOT NULL GROUP BY author_user_id
-        ), usage AS (
-          SELECT actor_user_id, SUM(ai_units_consumed)::bigint AS ai_used_units,
-                 COALESCE(SUM(provider_cost_twd), 0) AS ai_cost_twd
-          FROM worklog_ai_usage_events
-          WHERE source_id = ${sourceId} AND created_at >= ${periodStart} AND created_at < ${periodEnd}
-          GROUP BY actor_user_id
-        )
-        SELECT member.user_id::text AS user_id, profile.line_user_id, profile.display_name,
-               member.is_active, member.recording_enabled, member.first_seen_at, member.last_seen_at,
-               COALESCE(records.text_count, 0)::text AS text_count,
-               COALESCE(records.audio_count, 0)::text AS audio_count,
-               COALESCE(records.image_count, 0)::text AS image_count,
-               COALESCE(records.file_count, 0)::text AS file_count,
-               COALESCE(usage.ai_used_units, 0)::text AS ai_used_units,
-               COALESCE(usage.ai_cost_twd, 0)::text AS ai_cost_twd,
-               member.updated_at
-        FROM worklog_source_members member
-        INNER JOIN worklog_users profile ON profile.id = member.user_id
-        LEFT JOIN records ON records.author_user_id = member.user_id
-        LEFT JOIN usage ON usage.actor_user_id = member.user_id
-        WHERE member.source_id = ${sourceId}
-        ORDER BY member.is_active DESC, profile.display_name ASC NULLS LAST, member.user_id ASC
-      `),
-      this.db.execute(sql`
-        SELECT id::text AS id, author_user_id::text AS author_user_id, input_type, category,
-               normalized_summary, raw_text, source_timestamp, created_at
-        FROM worklog_records WHERE source_id = ${sourceId}
-        ORDER BY COALESCE(source_timestamp, created_at) DESC, id DESC LIMIT 50
-      `),
-      this.db.execute(sql`
-        SELECT id::text AS id, actor_user_id::text AS actor_user_id, charged_user_id::text AS charged_user_id,
-               record_id::text AS record_id, provider, model, ai_units_consumed,
-               provider_cost_usd::text, provider_cost_twd::text, created_at
-        FROM worklog_ai_usage_events WHERE source_id = ${sourceId}
-        ORDER BY created_at DESC, id DESC LIMIT 50
-      `),
-    ]);
-    return { group: row, members: members.rows, recentRecords: recentRecords.rows, recentUsage: recentUsage.rows };
   }
 
   async plans() {
@@ -505,10 +259,4 @@ function taipeiDayStart(at: Date): Date {
 function numeric(value: unknown): number {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function nullableDate(value: unknown): Date | null {
-  if (value === null || value === undefined) return null;
-  const date = new Date(String(value));
-  return Number.isNaN(date.getTime()) ? null : date;
 }
