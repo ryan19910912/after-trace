@@ -10,6 +10,18 @@ import type {
 export class DrizzleWorklogUsageRepository implements WorklogUsageRepository {
   constructor(private readonly db: Database) {}
 
+  async getPrivateSourceId(userId: number): Promise<number | null> {
+    const result = await this.db.execute(sql`
+      SELECT id::text AS id
+      FROM worklog_sources
+      WHERE type = 'PRIVATE'
+        AND status = 'ACTIVE'
+        AND private_user_id = ${userId}
+      LIMIT 1
+    `);
+    return positiveIntegerOrNull((result.rows[0] as { id?: string } | undefined)?.id ?? null);
+  }
+
   async getGroupAiFunding(sourceId: number): Promise<SourceAiFundingSnapshot> {
     const result = await this.db.execute(sql`
       SELECT
