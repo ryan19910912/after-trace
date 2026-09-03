@@ -16,7 +16,7 @@ Admin UI provides a pricing calculator using:
 - target gross-margin percentage entered by Admin;
 - implied maximum AI cost budget = price × (1 - target gross-margin percentage);
 - selected model/pricing snapshot;
-- candidate AI-point conversion rule.
+- current AI-point conversion rule.
 
 Current commercial starting targets:
 
@@ -36,7 +36,7 @@ If the product later wants fully automatic pricing, it requires a separate expli
 
 ## Conservative allowance sizing and actual charging
 
-Allowance sizing may intentionally use the provider's higher output-token price as the conservative reference price when converting an AI budget into a suggested customer point balance.
+Allowance sizing intentionally uses the selected provider/model's output-token price as the conservative reference price when converting an AI budget into a suggested customer point balance.
 
 This does **not** mean actual provider accounting ignores input or other usage. Every AI call still records and charges from actual provider usage/cost, including input, output, thinking/reasoning and modality-specific usage where applicable.
 
@@ -48,23 +48,42 @@ Provider-dollar cost and customer AI points are separate concepts.
 
 For every provider call retain sufficient usage/pricing facts to calculate actual cost, including input tokens, output tokens, thinking/reasoning tokens where applicable, model, pricing snapshot, and modality-specific usage where applicable.
 
-Customer points may use a simplified conversion rule, but Admin profitability reports must use actual provider cost rather than assuming points equal provider cost.
+Admin profitability reports must use actual provider cost rather than assuming points equal provider cost.
 
-## Point conversion — not yet frozen
+## AI point conversion — frozen
 
-Candidate approaches under discussion:
+**1 AI point = 1 output-price-equivalent token.**
 
-1. `1 AI point = 1 output-equivalent token` — transparent and produces large balances, potentially hundreds of thousands or millions of points.
-2. `1 AI point = 10 output-equivalent tokens` — keeps balances in tens/hundreds of thousands while retaining fine-grained usage.
-3. `1 AI point = 100 output-equivalent tokens` — cleaner/smaller numbers but individual short requests may require rounding rules.
+The point is a customer-facing accounting unit, not a claim that the provider request contained one actual output token.
 
-Current preference should be chosen only after checking plan balances and typical request usage. Do not hard-code 1:1 until approved.
+For an AI call:
 
-When converting an actual provider call into customer points, all billable usage/cost must be represented. A future approved formula may convert total actual provider cost into output-price-equivalent points rather than counting output tokens alone.
+1. calculate the call's full actual provider cost using the immutable pricing snapshot that applied to that request, including all billable input/output/thinking/modality usage;
+2. take the same model/pricing snapshot's output price per token as the point reference price;
+3. convert total provider cost into output-price-equivalent tokens;
+4. charge that number as AI points, using a deterministic whole-point rounding rule.
+
+Conceptual formula:
+
+`AI points used = total actual provider cost / output reference price per token`
+
+Therefore all billable input/output/thinking/media costs are represented in point consumption even though the reference unit is the output price.
+
+Large balances such as hundreds of thousands or millions of AI points are acceptable and intentional. Customer UI should use readable thousands separators and percentages rather than hiding the scale.
+
+Do not silently change the definition of one AI point later. If a future product revision needs a different point unit, it requires an explicit migration/versioning decision so historical grants and usage remain auditable.
 
 ## Model pricing snapshot
 
 As of 2026-09-03, official Gemini Developer API standard paid pricing for `gemini-3.5-flash-lite` is USD $0.30 / 1M input tokens and USD $2.50 / 1M output tokens including thinking tokens. Pricing changes over time, therefore historical usage must retain the pricing snapshot that applied when the request ran.
+
+## Existing plan point counts must be recalibrated
+
+Legacy values such as FREE `500`, PRO `500`, and TEAM `2500` were defined before the AI-point unit was frozen and must **not** be treated as final customer allowances under the new 1:1 output-price-equivalent model.
+
+Before implementation is considered complete, Admin/product configuration must set new explicit point balances for FREE / PRO / TEAM and each top-up product using the pricing calculator plus manual Admin confirmation.
+
+Historical/prelaunch data is disposable, so these launch defaults may be replaced directly while there is no real production customer data.
 
 ## Admin usage and profitability analytics
 
