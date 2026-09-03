@@ -104,10 +104,10 @@ A LINE group existing in AFTERTRACE and a user agreeing to pay/consume AI allowa
 
 ### AI billing owner
 
-`owner_user_id` / billing ownership is specifically the user whose AI entitlement/balance is used for LINE AI-assisted group recording.
+`owner_user_id` / billing ownership is specifically the user whose authorized AI allowance grants may be consumed for LINE AI-assisted group recording.
 
 - If no AI billing Owner is bound, manual group PWA functionality still works.
-- Before a LINE AI-assisted group action spends quota, the system must have a current eligible billing Owner and available AI balance.
+- Before a LINE AI-assisted group action spends quota, the system must have a current eligible billing Owner and at least one allowance grant that permits that group.
 - `@AFTERTRACE 啟用` is the MVP action for a member to accept AI billing responsibility for that group when needed.
 - A claim must not overwrite a different active billing Owner accidentally.
 - If billing Owner leaves, new LINE AI activity pauses, but manual PWA group activity continues.
@@ -133,19 +133,31 @@ The transfer is a two-party approval flow:
 5. AFTERTRACE replies that the transfer has been submitted and gives the target a PWA confirmation link;
 6. the target must authenticate in PWA and explicitly accept before the billing Owner changes;
 7. the request must be single-use and expire after a bounded window such as 24–72 hours; acceptance/rejection/cancellation/role change invalidates it;
-8. until acceptance, the existing billing Owner remains authoritative and their balance continues to fund eligible AI usage;
-9. after acceptance, future group AI usage charges the new billing Owner; the previous Owner returning/rejoining later does not reclaim the role automatically.
+8. until acceptance, the existing billing Owner remains authoritative and their permitted allowance grants continue to fund eligible AI usage;
+9. after acceptance, future group AI usage may consume only the new billing Owner's own allowance grants that they have permitted for that group; the previous Owner returning/rejoining later does not reclaim the role automatically.
 
-AI balances are personal and do not transfer with the role. The previous Owner keeps their own remaining included/top-up balance, and the new Owner starts paying from their own eligible AI balance.
+AI balances are personal and do not transfer with the role. The previous Owner keeps their own remaining included/top-up grants and allocation settings. The new Owner chooses which of their own grants, if any, may fund the group.
 
 Transfer history must be auditable with initiator, target, group/source, status, timestamps and final accepter identity.
 
 ### Group AI billing
 
-- Group AI usage is charged to the current bound billing Owner/subscriber, never silently to the actor.
+- Group AI usage is charged to the current bound billing Owner, never silently to the actor.
 - Retain actor user id and charged/billing user id.
-- AI capability/balance is checked before provider calls.
+- A group AI request may consume only allowance grants owned by that billing Owner whose allocation policy permits the group and whose configured group cap is not exhausted.
 - Group count itself is never an AI entitlement restriction.
+- If no eligible permitted grant remains for the group, LINE AI recording stops while manual PWA work continues.
+
+### Group AI visibility
+
+Active group members may see group-level AI transparency needed to understand whether fast recording is available:
+
+- current AI billing Owner identity/display name;
+- AI units currently made available to this group under that Owner's allocation policies;
+- AI units already consumed by this group from the current eligible allocations;
+- remaining amount available to this group.
+
+Do **not** expose the Owner's unrelated private allowance, total personal wallet, or allocations/usage for other groups merely because someone is a member of this group.
 
 ### Member recording permission
 
@@ -171,7 +183,7 @@ Subscription configuration is data-driven.
 - allowance has no calendar expiry and never refreshes
 - may add Bot to unlimited LINE groups
 - manual PWA personal/group read/create/edit: free
-- AI use is available while the user's one-time or purchased top-up AI balance remains
+- AI use is available while the user's one-time or purchased top-up grants permit the requested private/group scope and have remaining allowance
 - `export = false` initially
 
 ### PRO
@@ -198,25 +210,115 @@ Do not use `groupCollaboration` or `maxGroupCount` to prohibit FREE/manual group
 
 ## AI allowance sources
 
-A user's spendable AI balance may come from multiple sources.
+AI allowance is **user-owned**, not group-owned. A group never becomes the legal/accounting owner of purchased AI units.
 
-### Included allowance
+A user's AI balance is represented as separate allowance grants. Do not merge grants in a way that loses purchase/period identity or per-grant allocation settings.
 
-- FREE one-time initial grant or paid MONTHLY period allowance.
+### Included allowance grant
+
+- FREE one-time initial grant or current paid MONTHLY period grant.
 - Paid monthly included allowance refreshes only after confirmed successful renewal.
 - Unused paid monthly included allowance does not roll over.
+- The current included grant has its own allocation policy controlling where it may be spent.
 
-### One-time AI top-up
+### One-time AI top-up grants
 
 Users on any plan, including FREE, may purchase one-time AI top-up packs.
 
+- each purchase creates a **separate durable grant**;
 - top-up is not a subscription plan;
 - purchased units do not auto-refresh or expire at monthly renewal merely because the calendar changes;
-- top-up purchases are separately auditable;
-- recommended spending order: current included allowance first, then oldest purchased top-up units;
+- each top-up grant keeps its own purchase/payment identity and its own allocation policy;
+- do not merge multiple top-up purchases into one anonymous balance if that would prevent the user from configuring them independently;
 - pack sizes/prices remain configurable until Gemini cost measurements are finalized.
 
-When AI balance is exhausted, UX should offer both free PWA manual recording and AI top-up/paid-plan options.
+When AI balance is exhausted or no grant permits the requested scope, UX should offer free PWA manual recording plus AI top-up/paid-plan options.
+
+## AI allowance allocation policy
+
+Every allowance grant is owned by one user and may be independently configured for where it can be consumed.
+
+This applies separately to:
+
+- the current FREE/PRO/TEAM included allowance grant;
+- each individual one-time top-up purchase grant.
+
+A grant allocation policy may allow any combination of:
+
+- PRIVATE: the owner's private OA/PWA AI-assisted use;
+- selected GROUP source ids: one or more groups for which the user is the current AI billing Owner.
+
+The user can therefore choose patterns such as:
+
+- subscription allowance only for Group A and Group B, not private;
+- subscription allowance for private + Group A;
+- top-up purchase #1 only for Group C;
+- top-up purchase #2 only for private;
+- top-up purchase #3 for private + selected groups.
+
+### Per-scope caps
+
+For each grant, the owner may optionally set a maximum amount consumable by:
+
+- PRIVATE scope;
+- each permitted GROUP scope.
+
+If no cap is configured for an allowed scope, that scope may consume from the grant until the grant itself is exhausted, subject to other concurrently allowed scopes also consuming it.
+
+Caps are spending permissions/limits, not separate transferred wallets. Unused units still belong to the original grant owner.
+
+Examples:
+
+```text
+PRO included grant = 500
+PRIVATE allowed, cap 100
+Group A allowed, cap 300
+Group B allowed, no explicit cap
+```
+
+The same underlying 500 units remain user-owned. PRIVATE can consume at most 100 from that grant; Group A at most 300; Group B may consume while grant balance remains. Aggregate consumption across all scopes can never exceed the grant's real remaining units.
+
+### Allocation defaults
+
+Keep defaults simple rather than forcing configuration before first use.
+
+Recommended default when a grant is created:
+
+- PRIVATE allowed;
+- no groups automatically allowed until the user explicitly binds/permits their AI billing responsibility for that group, or the onboarding flow explicitly asks and records consent;
+- no per-scope cap unless the user sets one.
+
+The UI should make it easy to change these settings later.
+
+### Consumption selection
+
+Before an AI provider call, resolve eligible grants owned by the charged user that:
+
+1. are currently valid/unexpired according to their grant type;
+2. allow the requested PRIVATE/GROUP scope;
+3. have not exhausted the configured cap for that scope;
+4. have real remaining units.
+
+If more than one grant is eligible, consumption order must be deterministic and visible in the product/accounting rules. Recommended initial order:
+
+1. current included plan-period/FREE grant;
+2. one-time top-up grants oldest purchase first.
+
+Reservation and settlement may span multiple grants if necessary, but must remain atomic/idempotent so one provider call cannot double-spend or exceed aggregate eligible allowance.
+
+### Group dissolution / Owner change
+
+Because allowance remains user-owned:
+
+- a group becoming inactive or being permanently closed does not require refunding AI units to anyone; the units never left their owner's grant;
+- the allocation entry for that group simply becomes unusable/disabled, leaving unused grant balance available to any other scopes the owner has permitted or later permits;
+- when AI billing Owner changes, the old Owner's grants remain theirs and stop funding the group after transfer; the new Owner must use/configure their own grants.
+
+### Platform responsibility boundary
+
+AFTERTRACE enforces the grant owner's configured allocation/caps and transparently reports group-specific availability/usage. It does **not** attempt to police private agreements among group members about how the Owner should spend their own remaining allowance outside the group.
+
+If an Owner permits PRIVATE use and privately consumes their own grant, that is not treated as platform misuse. Group members can see only the amount actually allocated/available to their group and the group's consumption, not the Owner's unrelated personal spending.
 
 ## Billing type and renewal
 
@@ -225,7 +327,7 @@ Initial billing types are `ONE_TIME` and `MONTHLY`.
 - FREE initial grant is ONE_TIME and never resets automatically.
 - Paid MONTHLY receives a fresh included allowance only after confirmed renewal success.
 - Calendar passage alone creates no new paid quota.
-- Purchased top-up balance is unaffected by monthly period rollover.
+- Purchased top-up grants are unaffected by monthly period rollover.
 - Recurring provider webhooks/renewals must be idempotent and raw card data is never stored.
 
 Payment provider remains undecided.
@@ -236,7 +338,8 @@ Payment provider remains undecided.
 - Provider-success results must not be erased due to settlement delay/expiry/overage.
 - Provider-dollar cost and customer-facing allowance units are distinct concepts.
 - Thinking/modality usage is accounted exactly once.
-- Balance accounting distinguishes included grants from one-time purchased top-up grants.
+- Balance accounting distinguishes included grants from individual one-time purchased top-up grants.
+- Usage/reservation settlement must retain which grant(s) funded the call and the PRIVATE/GROUP scope used, so per-grant/per-scope caps and audit totals remain correct.
 
 ## AI runtime
 
@@ -256,7 +359,9 @@ Export is MVP and initially remains a paid capability. CSV first is acceptable. 
 
 ## Internal Admin
 
-Admin supports users/groups, AI billing-owner visibility/transfer history, plans/billing cadence, included AI balance, top-up products/balances, AI pricing, anomalies, feedback, manual subscription changes and audit.
+Admin supports users/groups, AI billing-owner visibility/transfer history, plans/billing cadence, individual AI grants/allocation policies/caps, top-up products/purchases, AI pricing, anomalies, feedback, manual subscription changes and audit.
+
+Group detail should show the group's current AI billing Owner and group-specific allocated/used/remaining AI amount without exposing unrelated private or other-group balances.
 
 Do not expose `maxGroupCount`, generic paid `groupCollaboration`, or record editing as plan capabilities. Any future group-related paid capability must correspond to a real paid cost/feature.
 
