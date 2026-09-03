@@ -10,19 +10,37 @@ Customer-facing AI allowance is shown as **AI 點數**, not raw provider tokens 
 
 Plan/top-up configuration is intentionally human-controlled.
 
-Admin UI may provide a calculator using:
+Admin UI provides a pricing calculator using:
 
 - customer price in TWD;
-- target gross-margin percentage entered by Admin, e.g. `60%`;
+- target gross-margin percentage entered by Admin;
 - implied maximum AI cost budget = price × (1 - target gross-margin percentage);
 - selected model/pricing snapshot;
 - candidate AI-point conversion rule.
 
-Example: NT$99 plan with target gross margin 60% implies a suggested AI cost budget of NT$39.6 before considering payment fees, infrastructure, support, taxes, subsidies, and other COGS.
+Current commercial starting targets:
 
-The Admin calculator may show a **recommended included AI points** value, but the final included points are still explicitly entered/confirmed by Admin and persisted. Backend must not silently recalculate or change an existing plan's included AI points when price, FX, model pricing, or margin assumptions change.
+- **one-time AI top-up / one-time allowance products: target gross margin 50%**;
+- **monthly subscription included AI allowance: target gross margin 40%**, intentionally giving recurring subscribers more AI value to encourage ongoing product use and retention.
+
+These are editable planning defaults, not immutable business constants.
+
+Examples:
+
+- NT$100 one-time product at 50% target gross margin -> suggested AI cost budget NT$50;
+- NT$99 subscription at 40% target gross margin -> suggested AI cost budget NT$59.4.
+
+The Admin calculator shows a **recommended included AI points** value, but the final included points are still explicitly entered/confirmed by Admin and persisted. Backend must not silently recalculate or change an existing plan's included AI points when price, FX, model pricing, or margin assumptions change.
 
 If the product later wants fully automatic pricing, it requires a separate explicit decision and durable configuration for the target margin.
+
+## Conservative allowance sizing and actual charging
+
+Allowance sizing may intentionally use the provider's higher output-token price as the conservative reference price when converting an AI budget into a suggested customer point balance.
+
+This does **not** mean actual provider accounting ignores input or other usage. Every AI call still records and charges from actual provider usage/cost, including input, output, thinking/reasoning and modality-specific usage where applicable.
+
+The purpose of using the higher output reference price for suggested allowance sizing is to give the customer a conservatively sized balance: when real requests contain cheaper input usage, realized margin may be higher than the planning target.
 
 ## Provider cost vs customer points
 
@@ -42,15 +60,60 @@ Candidate approaches under discussion:
 
 Current preference should be chosen only after checking plan balances and typical request usage. Do not hard-code 1:1 until approved.
 
+When converting an actual provider call into customer points, all billable usage/cost must be represented. A future approved formula may convert total actual provider cost into output-price-equivalent points rather than counting output tokens alone.
+
 ## Model pricing snapshot
 
 As of 2026-09-03, official Gemini Developer API standard paid pricing for `gemini-3.5-flash-lite` is USD $0.30 / 1M input tokens and USD $2.50 / 1M output tokens including thinking tokens. Pricing changes over time, therefore historical usage must retain the pricing snapshot that applied when the request ran.
 
+## Admin usage and profitability analytics
+
+Admin must make pricing decisions possible from real usage rather than intuition. At minimum provide selectable periods such as today / 7 days / 30 days / current billing month and show:
+
+- total AI requests;
+- total AI points consumed;
+- total provider cost in USD and converted TWD;
+- average AI points consumed per AI request;
+- average provider cost per AI request;
+- average AI points consumed per active user;
+- average provider cost per active user;
+- average and median monthly AI usage per subscriber where enough data exists;
+- total customer revenue for the selected plan/product cohort where available;
+- realized AI cost ratio = actual AI provider cost / relevant revenue;
+- realized gross margin based on captured direct costs;
+- platform-subsidized AI points and provider cost;
+- percentage of users exhausting their allowance;
+- average allowance utilization percentage and distribution where practical.
+
+Breakdowns should be available by at least:
+
+- plan: FREE / PRO / TEAM;
+- allowance source: FREE initial / subscription period / top-up;
+- model;
+- AI operation/input type such as text Record, image, audio, file and LINE edit where shipped;
+- PRIVATE vs GROUP scope.
+
+Useful decision views include:
+
+- `PRO: average subscriber used 31% of monthly points, median 18%, AI provider cost NT$X/user`;
+- `TEAM: average subscriber used 62%, AI provider cost NT$Y/user`;
+- `top-up: average realized gross margin 54%`;
+- `subscription: average realized gross margin 46%`.
+
+These reports are for Admin only. Customer PWA shows points and usage percentages, not internal revenue/margin/provider-cost calculations.
+
 ## Gross-margin interpretation
 
-The Admin `target gross margin %` is a planning aid, not guaranteed net profit. Gross-margin planning must distinguish direct cost of delivering the service (AI inference, infrastructure, payment processing and other applicable COGS) from later operating expenses such as development, marketing and general administration.
+The Admin `target gross margin %` is a planning aid, not guaranteed net profit.
 
-If the point recommendation is calculated using only output-token price, input-token cost and other delivery costs remain outside that simplified recommendation and reduce the realized gross margin. Admin reporting must surface the actual realized margin/cost.
+Current intended commercial distinction is deliberate:
+
+- one-time purchases target about 50% gross margin;
+- subscriptions target about 40% gross margin so recurring customers receive more usable AI allowance and have more reason to keep using the product.
+
+Actual realized margin must be measured from production usage. Admin may later adjust target margin or manually entered included points without retroactively changing historical grants.
+
+Gross-margin planning must distinguish direct cost of delivering the service (AI inference, infrastructure, payment processing and other applicable COGS) from later operating expenses such as development, marketing and general administration.
 
 ## User-facing usage display
 
