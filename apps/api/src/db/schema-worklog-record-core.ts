@@ -11,14 +11,19 @@ import {
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/pg-core';
-import { worklogRecords, worklogSources, worklogUsers } from './schema-worklog';
+import {
+  worklogRecordInputTypeEnum,
+  worklogSources,
+  worklogUsers,
+} from './schema-worklog';
 
 export const worklogEntityStatusEnum = pgEnum('worklog_entity_status', ['ACTIVE', 'ARCHIVED']);
 export const worklogRecordStatusEnum = pgEnum('worklog_record_status', ['ACTIVE', 'DELETED']);
 export const worklogRecordRevisionChannelEnum = pgEnum('worklog_record_revision_channel', [
   'PWA_MANUAL',
+  'PWA_DELETE',
+  'PWA_RESTORE',
   'LINE_AI_EDIT',
-  'RESTORE',
   'SYSTEM',
 ]);
 export const worklogAiConfirmationTypeEnum = pgEnum('worklog_ai_confirmation_type', [
@@ -33,12 +38,7 @@ export const worklogAiConfirmationStatusEnum = pgEnum('worklog_ai_confirmation_s
   'EXPIRED',
 ]);
 
-/**
- * Source-scoped user-facing 紀錄標題.
- *
- * This is the accepted single-title MVP model. Do not add PRIMARY/RELATED
- * multi-Entity associations around this table.
- */
+/** Source-scoped user-facing 紀錄標題. */
 export const worklogEntities = pgTable(
   'worklog_entities',
   {
@@ -58,7 +58,7 @@ export const worklogEntities = pgTable(
   ],
 );
 
-/** Confirmed alternate names for one title. */
+/** Confirmed alternate names for one Source-scoped title. */
 export const worklogEntityAliases = pgTable(
   'worklog_entity_aliases',
   {
@@ -85,13 +85,53 @@ export const worklogEntityAliases = pgTable(
 );
 
 /**
- * Immutable snapshots for every content/time/title changing Record edit.
+ * Universal durable Record row for the accepted single-title MVP.
  *
- * The legacy worklog_records row does not yet expose the final entity/status/version
- * columns; those columns are added in the next destructive core-record batch. This
- * revision table is intentionally created first so downstream services can target the
- * final audit contract without reintroducing Customer/Project/finance semantics.
+ * Manual PWA creation always sets entity_id. AI-assisted LINE capture may temporarily
+ * persist a raw Record with entity_id NULL while deterministic title resolution or a
+ * durable confirmation is pending; a user-visible resolved Record must have one title.
  */
+export const worklogRecords = pgTable(
+  'worklog_records',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sourceId: bigint('source_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogSources.id, { onDelete: 'restrict' }),
+    entityId: bigint('entity_id', { mode: 'number' }).references(() => worklogEntities.id, {
+      onDelete: 'restrict',
+    }),
+    authorUserId: bigint('author_user_id', { mode: 'number' }).references(() => worklogUsers.id, {
+      onDelete: 'restrict',
+    }),
+    lineMessageId: varchar('line_message_id', { length: 64 }).unique('worklog_record_line_message_uq'),
+    quotedLineMessageId: varchar('quoted_line_message_id', { length: 64 }),
+    inputType: worklogRecordInputTypeEnum('input_type').notNull(),
+    rawText: text('raw_text').notNull(),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).defaultNow().notNull(),
+    status: worklogRecordStatusEnum('status').default('ACTIVE').notNull(),
+    version: integer('version').default(1).notNull(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    deletedByUserId: bigint('deleted_by_user_id', { mode: 'number' }).references(
+      () => worklogUsers.id,
+      { onDelete: 'restrict' },
+    ),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('worklog_record_source_status_occurred_idx').on(
+      table.sourceId,
+      table.status,
+      table.occurredAt,
+    ),
+    index('worklog_record_source_entity_status_idx').on(table.sourceId, table.entityId, table.status),
+    index('worklog_record_author_type_idx').on(table.authorUserId, table.inputType),
+    index('worklog_record_quoted_line_idx').on(table.quotedLineMessageId),
+  ],
+);
+
+/** Immutable snapshots for every manual/AI mutation, delete and restore. */
 export const worklogRecordRevisions = pgTable(
   'worklog_record_revisions',
   {
@@ -105,10 +145,10 @@ export const worklogRecordRevisions = pgTable(
       { onDelete: 'restrict' },
     ),
     channel: worklogRecordRevisionChannelEnum('channel').notNull(),
-    previousRawText: text('previous_raw_text'),
-    newRawText: text('new_raw_text'),
-    previousOccurredAt: timestamp('previous_occurred_at', { withTimezone: true }),
-    newOccurredAt: timestamp('new_occurred_at', { withTimezone: true }),
+    previousRawText: text('previous_raw_text').notNull(),
+    newRawText: text('new_raw_text').notNull(),
+    previousOccurredAt: timestamp('previous_occurred_at', { withTimezone: true }).notNull(),
+    newOccurredAt: timestamp('new_occurred_at', { withTimezone: true }).notNull(),
     previousEntityId: bigint('previous_entity_id', { mode: 'number' }).references(
       () => worklogEntities.id,
       { onDelete: 'restrict' },
@@ -117,6 +157,8 @@ export const worklogRecordRevisions = pgTable(
       () => worklogEntities.id,
       { onDelete: 'restrict' },
     ),
+    previousStatus: worklogRecordStatusEnum('previous_status').notNull(),
+    newStatus: worklogRecordStatusEnum('new_status').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
