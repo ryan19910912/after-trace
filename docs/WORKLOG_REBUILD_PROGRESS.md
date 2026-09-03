@@ -27,6 +27,7 @@ Read first every run:
 - AI use requires spendable included/top-up balance and, for group AI, an eligible bound billing Owner.
 - If group billing Owner leaves, LINE AI-assisted recording pauses; manual PWA group work continues.
 - Another active member may run `@AFTERTRACE 啟用` to take over AI billing responsibility only while old billing Owner is absent.
+- Current AI billing Owner may explicitly transfer responsibility to another active group member through a two-party approval flow: Owner initiates in LINE/PWA, target confirms in authenticated PWA, transfer request is single-use/expiring, and balances do not move with the role.
 - Export is MVP; CSV first is acceptable and currently remains paid.
 - XLSX/DOCX are MVP input targets; prefer verified Google provider-native file ingestion before custom parsing.
 - Dev/prod DBs are prelaunch/disposable and may be rebuilt.
@@ -98,11 +99,12 @@ Required:
 5. Implement LINE success summary + durable record deep link.
 6. Add billing_type and durable FREE/PRO/TEAM defaults now that DBs are rebuildable.
 7. Add first-class AI top-up products/grants/balances and deterministic spend order: included allowance first, top-up second.
-8. Implement private OA AI entitlement gates while preserving manual PWA access.
-9. Fix Admin effective included/top-up balance and AI media pricing.
-10. Implement CSV export.
-11. Verify Gemini provider-native XLSX/DOCX path.
-12. Finish AI hardening and enter concentrated local validation.
+8. Implement AI billing-owner transfer requests/approval: initiator must be current billing Owner; target active member; reliable mention user id or PWA member selection; expiring single-use request; target PWA acceptance; no quota/balance transfer; auditable history.
+9. Implement private OA AI entitlement gates while preserving manual PWA access.
+10. Fix Admin effective included/top-up balance and AI media pricing; expose billing-owner transfer status/history.
+11. Implement CSV export.
+12. Verify Gemini provider-native XLSX/DOCX path.
+13. Finish AI hardening and enter concentrated local validation.
 
 ## AI top-up domain requirement
 
@@ -115,6 +117,22 @@ Need:
 - top-up balance survives monthly plan rollover;
 - Admin shows included, top-up and aggregate spendable balance separately;
 - pack sizes/prices remain undecided until real Gemini cost measurements.
+
+## AI billing-owner transfer requirement
+
+Accepted product flow:
+
+- command example: `@AFTERTRACE 擁有者轉移 @Ryan Hsu`;
+- only current AI billing Owner may initiate;
+- target must be active member of same group;
+- use LINE mention `userId` when reliably available; never resolve transfer target by display-name guessing;
+- if reliable mention id is unavailable, current Owner chooses target in PWA;
+- create pending transfer request with bounded expiry (24–72h target range), single-use state and cancellation/rejection handling;
+- target authenticates in PWA and explicitly accepts;
+- existing billing Owner remains in force until acceptance;
+- after acceptance future group AI charges target user's own eligible balance;
+- balances/top-ups remain personal and never transfer with the role;
+- transfer event/history must be auditable.
 
 ## LINE non-AI manual mode
 
@@ -133,10 +151,10 @@ Recent tests are authored but not executed. Typecheck/test/build/schema/browser/
 ## Planning estimate
 
 Planning estimates only:
-- MVP non-payment-provider implementation: about 93–95% after the group/source ownership model change and top-up scope.
+- MVP non-payment-provider implementation: about 92–94% after free-group/manual scope, top-up, and billing-owner-transfer additions.
 - Static architecture/logic audit: about 98–99%.
-- Production readiness including unrun validation/provider integration: about 82–85%.
-- Remaining internal development before concentrated validation: about 3–4 large batches / roughly 8–16 focused hours.
+- Production readiness including unrun validation/provider integration: about 81–84%.
+- Remaining internal development before concentrated validation: about 4 large batches / roughly 10–18 focused hours.
 - After concentrated validation begins, reserve 2–8 focused hours for ordinary compile/schema/browser/runtime fixes.
 - Payment-provider recurring + top-up purchase integration remains separate and likely 1–3 working days after provider selection.
 
