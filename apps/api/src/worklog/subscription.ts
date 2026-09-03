@@ -156,7 +156,7 @@ export type AiReservationResult =
 
 export type AiCommitResult =
   | { status: 'COMMITTED'; reservation: WorklogAiReservationSnapshot }
-  | { status: 'RESERVATION_NOT_FOUND' | 'RESERVATION_NOT_ACTIVE' | 'ACTUAL_EXCEEDS_RESERVED' };
+  | { status: 'RESERVATION_NOT_FOUND' | 'RESERVATION_NOT_ACTIVE' };
 
 export type AiReleaseResult =
   | { status: 'RELEASED'; reservation: WorklogAiReservationSnapshot }
@@ -281,9 +281,9 @@ export class WorklogSubscriptionService {
     const normalized = normalizeUsageCommit(usage);
     const current = await this.repository.getAiReservation(token);
     if (!current) return { status: 'RESERVATION_NOT_FOUND' };
-    if (current.status !== 'RESERVED') return { status: 'RESERVATION_NOT_ACTIVE' };
-    if (normalized.actualUnits > current.unitsReserved) {
-      return { status: 'ACTUAL_EXCEEDS_RESERVED' };
+    if (current.status === 'COMMITTED') return { status: 'COMMITTED', reservation: current };
+    if (current.status !== 'RESERVED' && current.status !== 'EXPIRED') {
+      return { status: 'RESERVATION_NOT_ACTIVE' };
     }
 
     const committed = await this.repository.commitAiReservationAtomic(token, normalized, cloneDate(at));
@@ -291,6 +291,7 @@ export class WorklogSubscriptionService {
 
     const refreshed = await this.repository.getAiReservation(token);
     if (!refreshed) return { status: 'RESERVATION_NOT_FOUND' };
+    if (refreshed.status === 'COMMITTED') return { status: 'COMMITTED', reservation: refreshed };
     return { status: 'RESERVATION_NOT_ACTIVE' };
   }
 
