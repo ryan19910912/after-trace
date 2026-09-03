@@ -1,0 +1,115 @@
+import { FREE_INITIAL_AI_POINTS, FREE_INITIAL_GRANT_ORIGIN_KEY } from './ai-points';
+
+export type WorklogAiGrantType = 'FREE_INITIAL' | 'SUBSCRIPTION_PERIOD' | 'TOP_UP' | 'ADMIN';
+export type WorklogAiGrantStatus = 'ACTIVE' | 'EXHAUSTED' | 'REVOKED';
+
+export type WorklogAiGrantSnapshot = {
+  id: number;
+  ownerUserId: number;
+  type: WorklogAiGrantType;
+  status: WorklogAiGrantStatus;
+  originalPoints: number;
+  remainingPoints: number;
+  effectiveAt: Date;
+  expiresAt: Date | null;
+  originKey: string;
+};
+
+export type WorklogAiEligibleBalance = {
+  ownerUserId: number;
+  sourceId: number;
+  totalRemainingPoints: number;
+  grants: Array<{
+    grantId: number;
+    grantScopeId: number;
+    remainingPoints: number;
+    scopeRemainingPoints: number;
+    usablePoints: number;
+    expiresAt: Date | null;
+  }>;
+};
+
+export interface WorklogAiGrantRepository {
+  ensureGrant(input: {
+    ownerUserId: number;
+    type: WorklogAiGrantType;
+    originalPoints: number;
+    effectiveAt: Date;
+    expiresAt: Date | null;
+    originKey: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<WorklogAiGrantSnapshot>;
+
+  ensureScope(input: {
+    grantId: number;
+    sourceId: number;
+    capPoints: number | null;
+    at: Date;
+  }): Promise<void>;
+
+  eligibleBalance(input: {
+    ownerUserId: number;
+    sourceId: number;
+    at: Date;
+  }): Promise<WorklogAiEligibleBalance>;
+}
+
+/** User-owned grant rules independent from subscription/group data authorization. */
+export class WorklogAiGrantService {
+  constructor(private readonly repository: WorklogAiGrantRepository) {}
+
+  /**
+   * Idempotently provisions the frozen one-time FREE launch grant and PRIVATE scope.
+   * GROUP allocation is deliberately not implicit here: group scopes are selected by
+   * explicit product/allocation behavior so a user-owned grant never leaks to unrelated
+   * Sources by default.
+   */
+  async ensureInitialFreeGrant(input: {
+    userId: number;
+    privateSourceId: number;
+    at?: Date;
+  }): Promise<WorklogAiGrantSnapshot> {
+    const userId = positiveInteger(input.userId, 'userId');
+    const privateSourceId = positiveInteger(input.privateSourceId, 'privateSourceId');
+    const at = validDate(input.at ?? new Date(), 'at');
+    const grant = await this.repository.ensureGrant({
+      ownerUserId: userId,
+      type: 'FREE_INITIAL',
+      originalPoints: FREE_INITIAL_AI_POINTS,
+      effectiveAt: at,
+      expiresAt: null,
+      originKey: FREE_INITIAL_GRANT_ORIGIN_KEY,
+      metadata: { launchPolicy: 'MVP_2026_09' },
+    });
+    await this.repository.ensureScope({
+      grantId: grant.id,
+      sourceId: privateSourceId,
+      capPoints: null,
+      at,
+    });
+    return grant;
+  }
+
+  async eligibleBalance(userId: number, sourceId: number, at = new Date()) {
+    return this.repository.eligibleBalance({
+      ownerUserId: positiveInteger(userId, 'userId'),
+      sourceId: positiveInteger(sourceId, 'sourceId'),
+      at: validDate(at, 'at'),
+    });
+  }
+
+  async canStartAi(userId: number, sourceId: number, at = new Date()): Promise<boolean> {
+    const balance = await this.eligibleBalance(userId, sourceId, at);
+    return balance.totalRemainingPoints > 0;
+  }
+}
+
+function positiveInteger(value: number, label: string): number {
+  if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${label} must be a positive safe integer`);
+  return value;
+}
+
+function validDate(value: Date, label: string): Date {
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) throw new Error(`${label} must be a valid date`);
+  return new Date(value.getTime());
+}
