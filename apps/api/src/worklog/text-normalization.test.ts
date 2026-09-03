@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import type {
   WorklogAiRuntimeConfigSnapshot,
   WorklogPersistedNormalizationPayload,
+  WorklogTextNormalizationAiPointPort,
   WorklogTextNormalizationProvider,
   WorklogTextNormalizationRepository,
-  WorklogTextNormalizationSubscriptionPort,
 } from './text-normalization';
 import { WorklogTextNormalizationService } from './text-normalization';
 
@@ -19,17 +19,17 @@ const config: WorklogAiRuntimeConfigSnapshot = {
   usdTwdRate: 30,
 };
 
-function reservation(status: 'RESERVED' | 'COMMITTED' = 'RESERVED') {
+function reservation(status: 'RESERVED' | 'COMMITTED' | 'RELEASED' = 'RESERVED') {
   return {
+    id: 1,
     token: 'reserve-1',
     chargedUserId: 99,
     actorUserId: 7,
     sourceId: 3,
-    unitsReserved: 500,
-    unitsCommitted: status === 'COMMITTED' ? 15 : 0,
+    pointsReserved: 500,
+    pointsCommitted: status === 'COMMITTED' ? 8 : 0,
+    platformSubsidizedPoints: 0,
     status,
-    periodStart: now,
-    periodEnd: null,
     expiresAt: new Date(now.getTime() + 600_000),
   } as const;
 }
@@ -59,20 +59,21 @@ function baseRepository(): WorklogTextNormalizationRepository {
   };
 }
 
-function baseSubscriptions(): WorklogTextNormalizationSubscriptionPort {
+function baseAiPoints(): WorklogTextNormalizationAiPointPort {
   return {
     reserveAi: vi.fn().mockResolvedValue({
       status: 'RESERVED',
       reservation: reservation(),
-      remainingAiUnits: 1000,
+      remainingAiPoints: 1000,
     }),
     commitAiUsage: vi.fn().mockResolvedValue({
       status: 'COMMITTED',
       reservation: reservation('COMMITTED'),
+      actualPoints: 8,
     }),
     releaseAi: vi.fn().mockResolvedValue({
       status: 'RELEASED',
-      reservation: { ...reservation(), status: 'RELEASED' as const },
+      reservation: reservation('RELEASED'),
     }),
   };
 }
@@ -95,13 +96,13 @@ function baseProvider(): WorklogTextNormalizationProvider {
 }
 
 describe('WorklogTextNormalizationService', () => {
-  it('reserves quota, persists provider output, commits usage, then applies one title/time interpretation', async () => {
+  it('holds points, persists provider output, commits actual point usage, then applies one title/time interpretation', async () => {
     const repository = baseRepository();
-    const subscriptions = baseSubscriptions();
+    const aiPoints = baseAiPoints();
     const provider = baseProvider();
     const service = new WorklogTextNormalizationService(
       repository,
-      subscriptions,
+      aiPoints,
       provider,
       () => 'claim-1',
     );
@@ -118,7 +119,7 @@ describe('WorklogTextNormalizationService', () => {
       },
       config,
     );
-    expect(subscriptions.reserveAi).toHaveBeenCalledWith(expect.objectContaining({
+    expect(aiPoints.reserveAi).toHaveBeenCalledWith(expect.objectContaining({
       chargedUserId: 99,
       actorUserId: 7,
       sourceId: 3,
@@ -136,9 +137,10 @@ describe('WorklogTextNormalizationService', () => {
         titleRequiresConfirmation: false,
       },
       usage: {
-        actualUnits: 15,
+        actualUnits: 8,
         workspaceId: 2,
         recordId: 11,
+        operation: 'TEXT_RECORD_CREATE',
         provider: 'GOOGLE',
         model: 'gemini-test',
         inputTokens: 10,
@@ -155,18 +157,18 @@ describe('WorklogTextNormalizationService', () => {
     expect(persisted?.usage.providerCostUsd).toBeCloseTo(0.000003, 12);
     expect(persisted?.usage.providerCostTwd).toBeCloseTo(0.00009, 12);
 
-    expect(subscriptions.commitAiUsage).toHaveBeenCalledTimes(1);
+    expect(aiPoints.commitAiUsage).toHaveBeenCalledTimes(1);
     expect(repository.markUsageCommitted).toHaveBeenCalledWith(11, 'claim-1');
     expect(repository.applyResult).toHaveBeenCalledWith(expect.objectContaining({
       recordId: 11,
       output: expect.objectContaining({ title: '晴空案' }),
     }));
-    expect(subscriptions.releaseAi).not.toHaveBeenCalled();
+    expect(aiPoints.releaseAi).not.toHaveBeenCalled();
   });
 
-  it('persists and commits full provider usage even when actual usage exceeds the preflight estimate', async () => {
+  it('persists full provider cost and point usage even when actual cost exceeds the preflight estimate', async () => {
     const repository = baseRepository();
-    const subscriptions = baseSubscriptions();
+    const aiPoints = baseAiPoints();
     const provider = baseProvider();
     vi.mocked(provider.normalize).mockResolvedValue({
       output: {
@@ -179,49 +181,49 @@ describe('WorklogTextNormalizationService', () => {
       providerResponseId: 'response-overage',
       latencyMs: 50,
     });
-    const service = new WorklogTextNormalizationService(repository, subscriptions, provider, () => 'claim-1');
+    const service = new WorklogTextNormalizationService(repository, aiPoints, provider, () => 'claim-1');
 
     await expect(service.normalizeText(11)).resolves.toEqual({
       status: 'NORMALIZED', entityId: 71, createdEntity: true,
     });
     expect(repository.saveProviderResult).toHaveBeenCalledWith(expect.objectContaining({
-      usage: expect.objectContaining({ actualUnits: 550 }),
+      usage: expect.objectContaining({ actualUnits: 213 }),
     }));
-    expect(subscriptions.commitAiUsage).toHaveBeenCalledWith(
+    expect(aiPoints.commitAiUsage).toHaveBeenCalledWith(
       'reserve-1',
-      expect.objectContaining({ actualUnits: 550 }),
+      expect.objectContaining({ actualUnits: 213 }),
     );
-    expect(subscriptions.releaseAi).not.toHaveBeenCalled();
+    expect(aiPoints.releaseAi).not.toHaveBeenCalled();
   });
 
-  it('defers without calling the provider when quota cannot be reserved', async () => {
+  it('defers without calling the provider when scoped AI points cannot be reserved', async () => {
     const repository = baseRepository();
-    const subscriptions = baseSubscriptions();
+    const aiPoints = baseAiPoints();
     const provider = baseProvider();
-    vi.mocked(subscriptions.reserveAi).mockResolvedValue({ status: 'AI_QUOTA_EXHAUSTED' });
-    const service = new WorklogTextNormalizationService(repository, subscriptions, provider, () => 'claim-1');
+    vi.mocked(aiPoints.reserveAi).mockResolvedValue({ status: 'AI_POINTS_EXHAUSTED' });
+    const service = new WorklogTextNormalizationService(repository, aiPoints, provider, () => 'claim-1');
 
     await expect(service.normalizeText(11)).resolves.toEqual({
       status: 'DEFERRED',
-      reason: 'AI_QUOTA_EXHAUSTED',
+      reason: 'AI_POINTS_EXHAUSTED',
     });
-    expect(repository.setPending).toHaveBeenCalledWith(11, 'claim-1', 'AI_QUOTA_EXHAUSTED');
+    expect(repository.setPending).toHaveBeenCalledWith(11, 'claim-1', 'AI_POINTS_EXHAUSTED');
     expect(provider.normalize).not.toHaveBeenCalled();
   });
 
   it('releases reservation and terminally fails when no usable provider response exists', async () => {
     const repository = baseRepository();
-    const subscriptions = baseSubscriptions();
+    const aiPoints = baseAiPoints();
     const provider = baseProvider();
     const providerError = Object.assign(new Error('network failed'), { code: 'GEMINI_NETWORK_ERROR' });
     vi.mocked(provider.normalize).mockRejectedValue(providerError);
-    const service = new WorklogTextNormalizationService(repository, subscriptions, provider, () => 'claim-1');
+    const service = new WorklogTextNormalizationService(repository, aiPoints, provider, () => 'claim-1');
 
     await expect(service.normalizeText(11)).resolves.toEqual({
       status: 'FAILED',
       reason: 'GEMINI_NETWORK_ERROR',
     });
-    expect(subscriptions.releaseAi).toHaveBeenCalledWith('reserve-1');
+    expect(aiPoints.releaseAi).toHaveBeenCalledWith('reserve-1');
     expect(repository.fail).toHaveBeenCalledWith(
       11,
       'claim-1',
@@ -232,7 +234,7 @@ describe('WorklogTextNormalizationService', () => {
 
   it('maps a durable ambiguous-title apply result to pending confirmation without another provider call', async () => {
     const repository = baseRepository();
-    const subscriptions = baseSubscriptions();
+    const aiPoints = baseAiPoints();
     const provider = baseProvider();
     vi.mocked(repository.applyResult).mockResolvedValue({
       status: 'PENDING_CONFIRMATION',
@@ -248,9 +250,10 @@ describe('WorklogTextNormalizationService', () => {
         occurredAt: null,
       },
       usage: {
-        actualUnits: 15,
+        actualUnits: 8,
         workspaceId: 2,
         recordId: 11,
+        operation: 'TEXT_RECORD_CREATE',
         provider: 'GOOGLE',
         model: 'gemini-test',
         inputTokens: 10,
@@ -261,19 +264,19 @@ describe('WorklogTextNormalizationService', () => {
       },
     };
     vi.mocked(repository.begin).mockResolvedValue({ status: 'USAGE_COMMITTED', payload });
-    const service = new WorklogTextNormalizationService(repository, subscriptions, provider, () => 'new-claim');
+    const service = new WorklogTextNormalizationService(repository, aiPoints, provider, () => 'new-claim');
 
     await expect(service.normalizeText(11)).resolves.toEqual({
       status: 'PENDING_CONFIRMATION', confirmationId: 88,
     });
     expect(provider.normalize).not.toHaveBeenCalled();
-    expect(subscriptions.reserveAi).not.toHaveBeenCalled();
+    expect(aiPoints.reserveAi).not.toHaveBeenCalled();
     expect(repository.applyResult).toHaveBeenCalledTimes(1);
   });
 
-  it('recovers after quota was already committed without calling provider or charging twice', async () => {
+  it('recovers after points were already committed without calling provider or charging twice', async () => {
     const repository = baseRepository();
-    const subscriptions = baseSubscriptions();
+    const aiPoints = baseAiPoints();
     const provider = baseProvider();
     const payload: WorklogPersistedNormalizationPayload = {
       recordId: 11,
@@ -285,9 +288,10 @@ describe('WorklogTextNormalizationService', () => {
         occurredAt: null,
       },
       usage: {
-        actualUnits: 15,
+        actualUnits: 8,
         workspaceId: 2,
         recordId: 11,
+        operation: 'TEXT_RECORD_CREATE',
         provider: 'GOOGLE',
         model: 'gemini-test',
         inputTokens: 10,
@@ -298,29 +302,29 @@ describe('WorklogTextNormalizationService', () => {
       },
     };
     vi.mocked(repository.begin).mockResolvedValue({ status: 'PROVIDER_SUCCEEDED', payload });
-    vi.mocked(subscriptions.commitAiUsage).mockResolvedValue({ status: 'RESERVATION_NOT_ACTIVE' });
+    vi.mocked(aiPoints.commitAiUsage).mockResolvedValue({ status: 'RESERVATION_NOT_ACTIVE' });
     vi.mocked(repository.getReservationStatus).mockResolvedValue('COMMITTED');
-    const service = new WorklogTextNormalizationService(repository, subscriptions, provider, () => 'new-claim');
+    const service = new WorklogTextNormalizationService(repository, aiPoints, provider, () => 'new-claim');
 
     await expect(service.normalizeText(11)).resolves.toEqual({
       status: 'NORMALIZED', entityId: 71, createdEntity: true,
     });
     expect(provider.normalize).not.toHaveBeenCalled();
-    expect(subscriptions.reserveAi).not.toHaveBeenCalled();
-    expect(subscriptions.commitAiUsage).toHaveBeenCalledTimes(1);
+    expect(aiPoints.reserveAi).not.toHaveBeenCalled();
+    expect(aiPoints.commitAiUsage).toHaveBeenCalledTimes(1);
     expect(repository.markUsageCommitted).toHaveBeenCalledWith(11, 'old-claim');
     expect(repository.applyResult).toHaveBeenCalledTimes(1);
   });
 
   it('does nothing after a completed interpretation', async () => {
     const repository = baseRepository();
-    const subscriptions = baseSubscriptions();
+    const aiPoints = baseAiPoints();
     const provider = baseProvider();
     vi.mocked(repository.begin).mockResolvedValue({ status: 'SUCCEEDED' });
-    const service = new WorklogTextNormalizationService(repository, subscriptions, provider, () => 'claim-2');
+    const service = new WorklogTextNormalizationService(repository, aiPoints, provider, () => 'claim-2');
 
     await expect(service.normalizeText(11)).resolves.toEqual({ status: 'ALREADY_NORMALIZED' });
-    expect(subscriptions.reserveAi).not.toHaveBeenCalled();
+    expect(aiPoints.reserveAi).not.toHaveBeenCalled();
     expect(provider.normalize).not.toHaveBeenCalled();
   });
 });
