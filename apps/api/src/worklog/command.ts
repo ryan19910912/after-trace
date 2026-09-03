@@ -82,6 +82,6 @@ export function looksLikeHistoryRequest(text: string): boolean {
 export function looksLikeEditRequest(text: string): boolean {
   const value = text.trim();
   if (!value) return false;
-  return /^(?:請|麻煩)?(?:幫我)?(?:把)?(?:這筆|這則|這個)?(?:紀錄|記錄)?\s*(?:改|修改|更正|修正|更新)(?:成|為|一下)?\b?/i.test(value)
+  return /^(?:請|麻煩)?(?:幫我)?(?:把)?(?:這筆|這則|這個)?(?:紀錄|記錄)?\s*(?:改|修改|更正|修正|更新)(?:成|為|一下)?/i.test(value)
     || /(?:幫我改成|幫我修改|請改成|更正成|修正成)/i.test(value);
 }
