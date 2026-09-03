@@ -7,7 +7,8 @@ import {
   type WorklogAttachmentProviderResponse,
   type WorklogAttachmentRepository,
 } from './attachment-ingestion';
-import type { WorklogAiReservationSnapshot, WorklogAiUsageCommit } from './subscription';
+import type { WorklogAiPointReservationSnapshot } from './ai-point-ledger';
+import type { WorklogAiUsageCommit } from './subscription';
 import type { WorklogAiRuntimeConfigSnapshot } from './text-normalization';
 
 const config: WorklogAiRuntimeConfigSnapshot = {
@@ -60,27 +61,46 @@ class Repo implements WorklogAttachmentRepository {
   async fail(_command: string, reason: string) { this.failed = reason; this.state = { status: 'FAILED', reason }; }
 }
 
-class Subscription {
+class AiPoints {
   reserveCalls = 0;
   commitCalls = 0;
   releaseCalls = 0;
   committedActualUnits: number[] = [];
   async reserveAi(input: { chargedUserId: number; actorUserId: number; sourceId?: number | null; requestedUnits: number }) {
     this.reserveCalls += 1;
-    const reservation: WorklogAiReservationSnapshot = {
-      token: 'reservation-1', chargedUserId: input.chargedUserId, actorUserId: input.actorUserId,
-      sourceId: input.sourceId ?? null, unitsReserved: input.requestedUnits, unitsCommitted: 0,
-      status: 'RESERVED', periodStart: new Date('2026-09-01T00:00:00Z'), periodEnd: null,
+    const reservation: WorklogAiPointReservationSnapshot = {
+      id: 1,
+      token: 'reservation-1',
+      chargedUserId: input.chargedUserId,
+      actorUserId: input.actorUserId,
+      sourceId: input.sourceId ?? 20,
+      pointsReserved: input.requestedUnits,
+      pointsCommitted: 0,
+      platformSubsidizedPoints: 0,
+      status: 'RESERVED',
       expiresAt: new Date('2026-09-02T01:00:00Z'),
     };
-    return { status: 'RESERVED' as const, reservation, remainingAiUnits: 1000 };
+    return { status: 'RESERVED' as const, reservation, remainingAiPoints: 1000 };
   }
   async commitAiUsage(_token?: string, usage?: WorklogAiUsageCommit) {
     this.commitCalls += 1;
     if (usage) this.committedActualUnits.push(usage.actualUnits);
-    return { status: 'COMMITTED' as const, reservation: {} as WorklogAiReservationSnapshot };
+    const reservation: WorklogAiPointReservationSnapshot = {
+      id: 1, token: 'reservation-1', chargedUserId: 9, actorUserId: 7, sourceId: 20,
+      pointsReserved: 500, pointsCommitted: usage?.actualUnits ?? 0, platformSubsidizedPoints: 0,
+      status: 'COMMITTED', expiresAt: new Date('2026-09-02T01:00:00Z'),
+    };
+    return { status: 'COMMITTED' as const, reservation, actualPoints: usage?.actualUnits ?? 0 };
   }
-  async releaseAi() { this.releaseCalls += 1; return { status: 'RELEASED' as const, reservation: {} as WorklogAiReservationSnapshot }; }
+  async releaseAi() {
+    this.releaseCalls += 1;
+    const reservation: WorklogAiPointReservationSnapshot = {
+      id: 1, token: 'reservation-1', chargedUserId: 9, actorUserId: 7, sourceId: 20,
+      pointsReserved: 500, pointsCommitted: 0, platformSubsidizedPoints: 0,
+      status: 'RELEASED', expiresAt: new Date('2026-09-02T01:00:00Z'),
+    };
+    return { status: 'RELEASED' as const, reservation };
+  }
 }
 
 class ContentResolver {
@@ -121,32 +141,33 @@ const input = {
 };
 
 describe('WorklogAttachmentIngestionService', () => {
-  it('fetches, reserves, analyzes, atomically stores state and commits a quoted attachment once', async () => {
-    const repo = new Repo(); const subscription = new Subscription(); const resolver = new ContentResolver(); const provider = new Provider();
-    const service = new WorklogAttachmentIngestionService(repo, subscription, resolver, provider);
+  it('fetches, holds points, analyzes, atomically stores state and commits a quoted attachment once', async () => {
+    const repo = new Repo(); const aiPoints = new AiPoints(); const resolver = new ContentResolver(); const provider = new Provider();
+    const service = new WorklogAttachmentIngestionService(repo, aiPoints, resolver, provider);
     await expect(service.ingest(input)).resolves.toEqual({ status: 'RECORDED', recordId: 33, duplicate: false });
-    expect(resolver.calls).toBe(1); expect(provider.calls).toBe(1); expect(subscription.reserveCalls).toBe(1); expect(subscription.commitCalls).toBe(1);
+    expect(resolver.calls).toBe(1); expect(provider.calls).toBe(1); expect(aiPoints.reserveCalls).toBe(1); expect(aiPoints.commitCalls).toBe(1);
     expect(repo.saved?.usage.recordId).toBe(33);
+    expect(aiPoints.committedActualUnits).toEqual([75]);
   });
 
-  it('commits full actual provider usage when attachment usage exceeds the conservative reservation', async () => {
-    const repo = new Repo(); const subscription = new Subscription(); const resolver = new ContentResolver(); const provider = new OverageProvider();
-    const service = new WorklogAttachmentIngestionService(repo, subscription, resolver, provider);
+  it('commits full actual provider point cost when attachment usage exceeds the conservative reservation', async () => {
+    const repo = new Repo(); const aiPoints = new AiPoints(); const resolver = new ContentResolver(); const provider = new OverageProvider();
+    const service = new WorklogAttachmentIngestionService(repo, aiPoints, resolver, provider);
 
     await expect(service.ingest(input)).resolves.toEqual({ status: 'RECORDED', recordId: 33, duplicate: false });
-    expect(subscription.releaseCalls).toBe(0);
-    expect(subscription.committedActualUnits).toEqual([550]);
+    expect(aiPoints.releaseCalls).toBe(0);
+    expect(aiPoints.committedActualUnits).toEqual([213]);
   });
 
-  it('settles provider cost and never releases quota if the source disappears after Gemini succeeds', async () => {
+  it('settles provider cost and never releases points if the source disappears after Gemini succeeds', async () => {
     const repo = new Repo(); repo.sourceMissing = true;
-    const subscription = new Subscription(); const resolver = new ContentResolver(); const provider = new Provider();
-    const service = new WorklogAttachmentIngestionService(repo, subscription, resolver, provider);
+    const aiPoints = new AiPoints(); const resolver = new ContentResolver(); const provider = new Provider();
+    const service = new WorklogAttachmentIngestionService(repo, aiPoints, resolver, provider);
 
     await expect(service.ingest(input)).resolves.toEqual({ status: 'FAILED', reason: 'SOURCE_NOT_FOUND' });
     expect(provider.calls).toBe(1);
-    expect(subscription.commitCalls).toBe(1);
-    expect(subscription.releaseCalls).toBe(0);
+    expect(aiPoints.commitCalls).toBe(1);
+    expect(aiPoints.releaseCalls).toBe(0);
     expect(repo.failed).toBe('SOURCE_NOT_FOUND');
   });
 
@@ -156,91 +177,91 @@ describe('WorklogAttachmentIngestionService', () => {
       status: 'PROVIDER_SUCCEEDED',
       reservationToken: 'reservation-1',
       usage: {
-        actualUnits: 150, provider: 'GOOGLE', model: 'gemini-test', inputTokens: 100, outputTokens: 50,
+        actualUnits: 75, provider: 'GOOGLE', model: 'gemini-test', inputTokens: 100, outputTokens: 50,
         inputUsdPerMillion: 0.1, outputUsdPerMillion: 0.4, providerCostUsd: 0.00003,
       },
       failureReason: 'SOURCE_NOT_FOUND',
     };
-    const subscription = new Subscription(); const resolver = new ContentResolver(); const provider = new Provider();
-    const service = new WorklogAttachmentIngestionService(repo, subscription, resolver, provider);
+    const aiPoints = new AiPoints(); const resolver = new ContentResolver(); const provider = new Provider();
+    const service = new WorklogAttachmentIngestionService(repo, aiPoints, resolver, provider);
 
     await expect(service.ingest(input)).resolves.toEqual({ status: 'FAILED', reason: 'SOURCE_NOT_FOUND' });
     expect(resolver.calls).toBe(0);
     expect(provider.calls).toBe(0);
-    expect(subscription.reserveCalls).toBe(0);
-    expect(subscription.commitCalls).toBe(1);
+    expect(aiPoints.reserveCalls).toBe(0);
+    expect(aiPoints.commitCalls).toBe(1);
   });
 
-  it('classifies LINE content but blocks media before quota/provider work when AI media capability is disabled', async () => {
-    const repo = new Repo(); const subscription = new Subscription(); const resolver = new ContentResolver(); const provider = new Provider();
-    const service = new WorklogAttachmentIngestionService(repo, subscription, resolver, provider);
+  it('classifies LINE content but blocks media before point/provider work when AI media capability is disabled', async () => {
+    const repo = new Repo(); const aiPoints = new AiPoints(); const resolver = new ContentResolver(); const provider = new Provider();
+    const service = new WorklogAttachmentIngestionService(repo, aiPoints, resolver, provider);
 
     await expect(service.ingest({ ...input, allowAiMedia: false })).resolves.toEqual({
       status: 'FAILED',
       reason: 'AI_MEDIA_DISABLED',
     });
     expect(resolver.calls).toBe(1);
-    expect(subscription.reserveCalls).toBe(0);
+    expect(aiPoints.reserveCalls).toBe(0);
     expect(provider.calls).toBe(0);
     expect(repo.failed).toBe('AI_MEDIA_DISABLED');
   });
 
   it('preserves quoted-TEXT re-entry classification when media AI is disabled', async () => {
-    const repo = new Repo(); const subscription = new Subscription(); const resolver = new NonRetrievableContentResolver(); const provider = new Provider();
-    const service = new WorklogAttachmentIngestionService(repo, subscription, resolver, provider);
+    const repo = new Repo(); const aiPoints = new AiPoints(); const resolver = new NonRetrievableContentResolver(); const provider = new Provider();
+    const service = new WorklogAttachmentIngestionService(repo, aiPoints, resolver, provider);
 
     await expect(service.ingest({ ...input, allowAiMedia: false })).resolves.toEqual({
       status: 'FAILED',
       reason: 'LINE_CONTENT_NOT_RETRIEVABLE',
     });
     expect(resolver.calls).toBe(1);
-    expect(subscription.reserveCalls).toBe(0);
+    expect(aiPoints.reserveCalls).toBe(0);
     expect(provider.calls).toBe(0);
     expect(repo.failed).toBe('LINE_CONTENT_NOT_RETRIEVABLE');
   });
 
   it('returns a completed duplicate without refetching LINE or calling AI', async () => {
     const repo = new Repo(); repo.state = { status: 'SUCCEEDED', recordId: 33 };
-    const subscription = new Subscription(); const resolver = new ContentResolver(); const provider = new Provider();
-    const service = new WorklogAttachmentIngestionService(repo, subscription, resolver, provider);
+    const aiPoints = new AiPoints(); const resolver = new ContentResolver(); const provider = new Provider();
+    const service = new WorklogAttachmentIngestionService(repo, aiPoints, resolver, provider);
     await expect(service.ingest(input)).resolves.toEqual({ status: 'RECORDED', recordId: 33, duplicate: true });
-    expect(resolver.calls).toBe(0); expect(provider.calls).toBe(0); expect(subscription.reserveCalls).toBe(0);
+    expect(resolver.calls).toBe(0); expect(provider.calls).toBe(0); expect(aiPoints.reserveCalls).toBe(0);
   });
 
-  it('resumes quota settlement from RECORD_CREATED without a second provider call', async () => {
+  it('resumes point settlement from RECORD_CREATED without a second provider call', async () => {
     const repo = new Repo();
     repo.state = { status: 'RECORD_CREATED', recordId: 33, reservationToken: 'reservation-1', usage: {
-      actualUnits: 150, recordId: 33, provider: 'GOOGLE', model: 'gemini-test', inputTokens: 100, outputTokens: 50,
+      actualUnits: 75, recordId: 33, provider: 'GOOGLE', model: 'gemini-test', inputTokens: 100, outputTokens: 50,
       inputUsdPerMillion: 0.1, outputUsdPerMillion: 0.4, providerCostUsd: 0.00003,
     } };
-    const subscription = new Subscription(); const resolver = new ContentResolver(); const provider = new Provider();
-    const service = new WorklogAttachmentIngestionService(repo, subscription, resolver, provider);
+    const aiPoints = new AiPoints(); const resolver = new ContentResolver(); const provider = new Provider();
+    const service = new WorklogAttachmentIngestionService(repo, aiPoints, resolver, provider);
     await expect(service.ingest(input)).resolves.toEqual({ status: 'RECORDED', recordId: 33, duplicate: false });
-    expect(resolver.calls).toBe(0); expect(provider.calls).toBe(0); expect(subscription.reserveCalls).toBe(0); expect(subscription.commitCalls).toBe(1);
+    expect(resolver.calls).toBe(0); expect(provider.calls).toBe(0); expect(aiPoints.reserveCalls).toBe(0); expect(aiPoints.commitCalls).toBe(1);
   });
 
   it('retries only atomic persistence after a transient DB uncertainty without calling Gemini twice', async () => {
     const repo = new Repo(); repo.persistFailures = 1;
-    const subscription = new Subscription(); const resolver = new ContentResolver(); const provider = new Provider();
-    const service = new WorklogAttachmentIngestionService(repo, subscription, resolver, provider);
+    const aiPoints = new AiPoints(); const resolver = new ContentResolver(); const provider = new Provider();
+    const service = new WorklogAttachmentIngestionService(repo, aiPoints, resolver, provider);
 
     await expect(service.ingest(input)).resolves.toEqual({ status: 'RECORDED', recordId: 33, duplicate: false });
     expect(repo.persistCalls).toBe(2);
     expect(provider.calls).toBe(1);
-    expect(subscription.reserveCalls).toBe(1);
-    expect(subscription.releaseCalls).toBe(0);
-    expect(subscription.commitCalls).toBe(1);
+    expect(aiPoints.reserveCalls).toBe(1);
+    expect(aiPoints.releaseCalls).toBe(0);
+    expect(aiPoints.commitCalls).toBe(1);
   });
 
-  it('leaves an unresolved post-provider persistence failure in progress instead of releasing quota or overwriting durable state', async () => {
+  it('leaves an unresolved post-provider persistence failure in progress instead of releasing points or overwriting durable state', async () => {
     const repo = new Repo(); repo.persistFailures = 2;
-    const subscription = new Subscription(); const resolver = new ContentResolver(); const provider = new Provider();
-    const service = new WorklogAttachmentIngestionService(repo, subscription, resolver, provider);
+    const aiPoints = new AiPoints(); const resolver = new ContentResolver(); const provider = new Provider();
+    const service = new WorklogAttachmentIngestionService(repo, aiPoints, resolver, provider);
 
     await expect(service.ingest(input)).resolves.toEqual({ status: 'IN_PROGRESS' });
     expect(repo.persistCalls).toBe(2);
     expect(provider.calls).toBe(1);
-    expect(subscription.releaseCalls).toBe(0);
+    expect(aiPoints.releaseCalls).toBe(0);
     expect(repo.failed).toBeNull();
   });
 });
