@@ -20,13 +20,6 @@ type BoundGroupRow = {
   status: 'ACTIVE' | 'INACTIVE';
 };
 
-type PendingGroupRow = {
-  id: string;
-  line_group_id: string;
-  is_active: boolean;
-  promoted_source_id: string | null;
-};
-
 export class DrizzleWorklogBootstrapRepository implements WorklogBootstrapRepository {
   constructor(private readonly db: Database) {}
 
@@ -343,68 +336,6 @@ export class DrizzleWorklogBootstrapRepository implements WorklogBootstrapReposi
 
     const row = result.rows[0] as BoundGroupRow | undefined;
     return row ? mapBoundGroup(row) : null;
-  }
-
-  /**
-   * Deprecated pre-source bootstrap helpers retained only until the destructive
-   * baseline migration removes worklog_pending_groups tables. Runtime code no longer
-   * calls them; keeping these methods temporarily avoids mixing a migration rewrite
-   * into this behavioral batch.
-   */
-  async upsertPendingGroup(lineGroupId: string, at: Date) {
-    const result = await this.db.execute(sql`
-      INSERT INTO worklog_pending_groups (
-        line_group_id,
-        is_active,
-        first_seen_at,
-        last_seen_at,
-        created_at,
-        updated_at
-      )
-      VALUES (${lineGroupId}, TRUE, ${at}, ${at}, ${at}, ${at})
-      ON CONFLICT (line_group_id) DO UPDATE
-      SET
-        is_active = TRUE,
-        last_seen_at = GREATEST(worklog_pending_groups.last_seen_at, EXCLUDED.last_seen_at),
-        updated_at = GREATEST(worklog_pending_groups.updated_at, EXCLUDED.updated_at)
-      RETURNING id::text, line_group_id, is_active, promoted_source_id::text
-    `);
-    const row = result.rows[0] as PendingGroupRow | undefined;
-    if (!row) throw new Error('failed to ensure deprecated pending LINE group');
-    return {
-      pendingGroupId: Number(row.id),
-      lineGroupId: row.line_group_id,
-      isActive: row.is_active,
-      promotedSourceId: nullableNumber(row.promoted_source_id),
-    };
-  }
-
-  async upsertPendingGroupMember(
-    pendingGroupId: number,
-    userId: number,
-    isActive: boolean,
-    at: Date,
-  ): Promise<void> {
-    await this.db.execute(sql`
-      INSERT INTO worklog_pending_group_members (
-        pending_group_id,
-        user_id,
-        is_active,
-        first_seen_at,
-        last_seen_at,
-        created_at,
-        updated_at
-      )
-      VALUES (${pendingGroupId}, ${userId}, ${isActive}, ${at}, ${at}, ${at}, ${at})
-      ON CONFLICT (pending_group_id, user_id) DO UPDATE
-      SET
-        is_active = CASE
-          WHEN EXCLUDED.last_seen_at >= worklog_pending_group_members.last_seen_at THEN EXCLUDED.is_active
-          ELSE worklog_pending_group_members.is_active
-        END,
-        last_seen_at = GREATEST(worklog_pending_group_members.last_seen_at, EXCLUDED.last_seen_at),
-        updated_at = GREATEST(worklog_pending_group_members.updated_at, EXCLUDED.updated_at)
-    `);
   }
 }
 
