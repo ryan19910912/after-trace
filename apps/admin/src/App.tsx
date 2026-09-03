@@ -146,7 +146,7 @@ export function App({ api }: Props) {
     try {
       await api.savePlan(input);
       setPlans(await api.plans());
-      setNotice(`${input.code} 已儲存。既有計費週期若已建立額度快照，不會因修改方案模板而倒扣本期已使用或已保留額度。`);
+      setNotice(`${input.code} 已儲存。方案模板只影響之後建立的訂閱週期 AI 點數 Grant，不會回頭修改既有 Grant。`);
     } catch (cause) { setError(message(cause, '方案儲存失敗')); }
     finally { setBusy(false); }
   }
@@ -201,26 +201,26 @@ export function App({ api }: Props) {
 
     {tab === 'overview' && <section>
       <div className="metric-grid">{metrics.map(([name,value]) => <article className="metric" key={String(name)}><span>{name}</span><strong>{String(value)}</strong></article>)}</div>
-      <article className="card"><h2>目前管理範圍</h2><p className="muted">此後台用來管理工作紀錄系統，包括使用者、群組擁有者與成員用量、方案與 AI 額度、AI 模型與計價、意見回饋、異常事件及操作紀錄。</p></article>
+      <article className="card"><h2>目前管理範圍</h2><p className="muted">此後台用來管理工作紀錄系統，包括使用者、群組 AI 額度負責人、Grant／AI 點數、方案、AI 模型與成本、平台補貼、意見回饋、異常事件及操作紀錄。</p></article>
     </section>}
 
     {tab === 'users' && <section className="stack">
       <article className="card filter-card"><div className="filter-grid">
         <label>搜尋<input value={userFilters.query ?? ''} onChange={(event) => setUserFilters((value) => ({ ...value, query: event.target.value }))} placeholder="使用者編號 / LINE ID / 暱稱" /></label>
         <label>方案<select value={userFilters.planCode ?? ''} onChange={(event) => setUserFilters((value) => ({ ...value, planCode: event.target.value }))}><option value="">全部</option>{plans.map((plan) => <option key={plan.code} value={plan.code}>{plan.code} · {plan.display_name}</option>)}</select></label>
-        <label>使用者類型<select value={userFilters.userType ?? ''} onChange={(event) => setUserFilters((value) => ({ ...value, userType: event.target.value as UserListFilters['userType'] }))}><option value="">全部</option><option value="INDIVIDUAL">個人使用者</option><option value="GROUP_ENABLED">群組擁有者</option></select></label>
+        <label>使用者類型<select value={userFilters.userType ?? ''} onChange={(event) => setUserFilters((value) => ({ ...value, userType: event.target.value as UserListFilters['userType'] }))}><option value="">全部</option><option value="INDIVIDUAL">一般使用者</option><option value="GROUP_ENABLED">AI 額度負責人</option></select></label>
         <label>更新時間<select value={userFilters.sortUpdated ?? 'DESC'} onChange={(event) => setUserFilters((value) => ({ ...value, sortUpdated: event.target.value as 'ASC' | 'DESC' }))}><option value="DESC">新 → 舊</option><option value="ASC">舊 → 新</option></select></label>
       </div><button disabled={busy} onClick={() => void loadCurrent()}>套用篩選</button></article>
-      <DataTable rows={users} preferred={['id','display_name','plan_code','user_type','ai_allowance_units','ai_used_units','ai_remaining_units','text_count','audio_count','image_count','file_count','owned_group_count','last_interaction_at','updated_at']} onRow={openUser} />
+      <DataTable rows={users} preferred={['id','display_name','plan_code','user_type','ai_granted_points','ai_used_points','ai_reserved_points','ai_available_points','platform_subsidized_points','responsible_group_count','member_group_count','last_interaction_at','updated_at']} onRow={openUser} />
     </section>}
 
     {tab === 'groups' && <section className="stack">
-      <article className="card filter-card"><div className="search-row"><input value={groupQuery} onChange={(event) => setGroupQuery(event.target.value)} placeholder="來源 / LINE 群組 / 群組擁有者" /><button disabled={busy} onClick={() => void loadCurrent()}>搜尋</button></div></article>
-      <DataTable rows={groups} preferred={['id','line_group_id','status','owner_user_id','owner_display_name','owner_plan_code','owner_ai_allowance_units','owner_ai_used_units','owner_ai_remaining_units','active_members','record_count','group_ai_used_units','group_ai_cost_twd','updated_at']} onRow={openGroup} />
+      <article className="card filter-card"><div className="search-row"><input value={groupQuery} onChange={(event) => setGroupQuery(event.target.value)} placeholder="來源 / LINE 群組 / AI 額度負責人" /><button disabled={busy} onClick={() => void loadCurrent()}>搜尋</button></div></article>
+      <DataTable rows={groups} preferred={['id','line_group_id','status','ai_responsible_user_id','ai_responsible_display_name','ai_responsible_plan_code','ai_available_points','ai_reserved_points','group_ai_used_points','platform_subsidized_points','group_ai_cost_twd','active_members','record_count','updated_at']} onRow={openGroup} />
     </section>}
 
     {tab === 'plans' && <section className="stack">
-      <article className="card"><h2>AI 額度週期規則</h2><p className="muted">方案中的 AI 額度是建立新週期時使用的模板。若使用者目前週期已建立額度快照，修改方案模板不會改動本期既有額度，也不會重新計算已使用或已保留的額度。</p></article>
+      <article className="card"><h2>訂閱週期 AI 點數模板</h2><p className="muted">方案內的點數只用來建立之後的訂閱週期 Grant。已經建立的 FREE／訂閱／加購 Grant 都是獨立歷史事實，不會因為修改方案模板而被重算。</p></article>
       <PlanEditor key="new-plan" plan={null} definitions={capabilityDefinitions} busy={busy} onSave={savePlan} />
       {plans.map((plan) => <PlanEditor key={plan.code} plan={plan} definitions={capabilityDefinitions} busy={busy} onSave={savePlan} />)}
     </section>}
@@ -270,7 +270,7 @@ function PlanEditor({ plan, definitions, busy, onSave }: { plan: AdminPlan | nul
       if (definition.type === 'boolean') value = Boolean(raw);
       else if (definition.type === 'number') value = raw === '' ? 0 : Number(raw);
       else value = String(raw);
-      return { ...current, [definition.key]: value };
+      return { ...current, [definition.key]: value;
     });
   }
 
@@ -292,7 +292,7 @@ function PlanEditor({ plan, definitions, busy, onSave }: { plan: AdminPlan | nul
       <label>顯示名稱<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label>
       <label>價格（新台幣）<input inputMode="decimal" value={priceTwd} onChange={(event) => setPriceTwd(event.target.value)} /></label>
       <label>排序順位<input inputMode="numeric" value={rank} onChange={(event) => setRank(event.target.value)} /></label>
-      <label>AI 可用額度<input inputMode="numeric" value={allowance} onChange={(event) => setAllowance(event.target.value)} /></label>
+      <label>訂閱週期 AI 點數<input inputMode="numeric" value={allowance} onChange={(event) => setAllowance(event.target.value)} /></label>
     </div>
 
     <h3>功能權限</h3>
@@ -309,7 +309,6 @@ function PlanEditor({ plan, definitions, busy, onSave }: { plan: AdminPlan | nul
       })}
     </div>}
 
-    {code.trim().toUpperCase() === 'FREE' && <p className="muted">免費方案的群組協作功能會由系統強制關閉。</p>}
     <button disabled={busy || !code.trim() || !displayName.trim() || definitions.length === 0} onClick={() => void submit()}>儲存方案</button>
   </article>;
 }
@@ -352,17 +351,18 @@ function UserDetail({ value, plans, busy, onUpdatePlan }: { value: Record<string
   const [planCode, setPlanCode] = useState(String(user.plan_code ?? plans[0]?.code ?? 'FREE'));
   const [periodEnd, setPeriodEnd] = useState(toLocalInput(user.current_period_end));
   useEffect(() => { setPlanCode(String(user.plan_code ?? plans[0]?.code ?? 'FREE')); setPeriodEnd(toLocalInput(user.current_period_end)); }, [user.id, user.plan_code, user.current_period_end, plans.length]);
-  return <div className="stack"><article className="card"><h3>使用者資料與額度</h3><Detail value={user} /></article>
+  return <div className="stack"><article className="card"><h3>使用者資料與 AI 點數</h3><Detail value={user} /></article>
     <article className="card"><h3>手動調整方案</h3><div className="form-grid"><label>方案<select value={planCode} onChange={(event) => setPlanCode(event.target.value)}>{plans.map((plan) => <option key={plan.code} value={plan.code}>{plan.code} · {plan.display_name}</option>)}</select></label><label>本期結束時間<input type="datetime-local" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} /></label></div><button disabled={busy || !userId || !planCode} onClick={() => void onUpdatePlan(userId, planCode, periodEnd ? new Date(periodEnd).toISOString() : null)}>套用方案</button></article>
-    <DetailTable title="擁有的群組" value={value.ownedGroups} preferred={['source_id','line_group_id','status','owner_binding_method','active_members','record_count','ai_used_units','updated_at']} />
-    <DetailTable title="加入的群組" value={value.memberGroups} preferred={['source_id','line_group_id','status','recording_enabled','first_seen_at','last_seen_at','updated_at']} />
-    <DetailTable title="近期 AI 使用紀錄" value={value.aiUsage} preferred={['id','billing_relation','source_id','record_id','provider','model','ai_units_consumed','provider_cost_twd','created_at']} />
+    <DetailTable title="AI Grant" value={value.grants} preferred={['id','type','status','original_points','remaining_points','scoped_used_points','scoped_reserved_points','enabled_source_count','effective_at','expires_at']} />
+    <DetailTable title="擔任 AI 額度負責人的群組" value={value.responsibleGroups} preferred={['source_id','line_group_id','status','active_members','record_count','ai_used_points','platform_subsidized_points','assigned_at','updated_at']} />
+    <DetailTable title="加入的群組" value={value.memberGroups} preferred={['source_id','line_group_id','status','first_seen_at','last_seen_at','updated_at']} />
+    <DetailTable title="近期 AI 使用紀錄" value={value.aiUsage} preferred={['id','billing_relation','source_id','record_id','operation','provider','model','customer_points_charged','platform_subsidized_points','provider_cost_twd','created_at']} />
     <DetailTable title="方案異動紀錄" value={value.subscriptionHistory} preferred={['id','previous_plan_code','next_plan_code','source','actor','metadata','created_at']} />
   </div>;
 }
 
 function GroupDetail({ value }: { value: Record<string, unknown> }) {
-  return <div className="stack"><article className="card"><h3>群組擁有者、額度與綁定資訊</h3><Detail value={value.group} /></article><DetailTable title="群組成員" value={value.members} preferred={['user_id','display_name','is_active','recording_enabled','ai_used_units','ai_cost_twd','text_count','audio_count','image_count','file_count','last_seen_at','updated_at']} /><DetailTable title="近期工作紀錄" value={value.recentRecords} preferred={['id','author_user_id','input_type','category','normalized_summary','raw_text','source_timestamp']} /><DetailTable title="近期 AI 使用紀錄" value={value.recentUsage} preferred={['id','actor_user_id','charged_user_id','record_id','provider','model','ai_units_consumed','provider_cost_twd','created_at']} /></div>;
+  return <div className="stack"><article className="card"><h3>群組 AI 額度負責人與點數</h3><Detail value={value.group} /></article><DetailTable title="群組成員" value={value.members} preferred={['user_id','display_name','is_active','ai_used_points','platform_subsidized_points','ai_cost_twd','text_count','audio_count','image_count','file_count','last_seen_at','updated_at']} /><DetailTable title="近期工作紀錄" value={value.recentRecords} preferred={['id','title','author_display_name','input_type','raw_text','occurred_at','status','version','updated_at']} /><DetailTable title="近期 AI 使用紀錄" value={value.recentUsage} preferred={['id','actor_user_id','charged_user_id','record_id','operation','provider','model','customer_points_charged','platform_subsidized_points','provider_cost_twd','created_at']} /><DetailTable title="群組 Grant 分配" value={value.fundingScopes} preferred={['scope_id','grant_id','owner_user_id','grant_type','cap_points','used_points','reserved_points','enabled','remaining_points','expires_at','updated_at']} /><DetailTable title="AI 額度負責人異動" value={value.responsibilityHistory} preferred={['id','previous_user_id','next_user_id','actor_user_id','reason','created_at']} /></div>;
 }
 
 function DetailTable({ title, value, preferred }: { title: string; value: unknown; preferred: string[] }) {
@@ -393,20 +393,23 @@ function capabilityDefaults(definitions: AdminCapabilityDefinition[], current?: 
 
 const COLUMN_LABELS: Record<string, string> = {
   id: '編號', user_id: '使用者編號', display_name: '顯示名稱', line_user_id: 'LINE 使用者 ID', line_group_id: 'LINE 群組 ID',
-  plan_code: '方案', user_type: '使用者類型', status: '狀態', source_id: '來源編號', owner_user_id: '擁有者編號', owner_display_name: '擁有者名稱',
-  owner_plan_code: '擁有者方案', ai_allowance_units: 'AI 總額度', ai_used_units: 'AI 已使用額度', ai_remaining_units: 'AI 剩餘額度',
-  owner_ai_allowance_units: '擁有者 AI 總額度', owner_ai_used_units: '擁有者 AI 已使用', owner_ai_remaining_units: '擁有者 AI 剩餘',
-  group_ai_used_units: '群組 AI 使用量', group_ai_cost_twd: '群組 AI 成本', ai_cost_twd: 'AI 成本', provider_cost_twd: '供應商成本',
-  text_count: '文字紀錄數', audio_count: '語音紀錄數', image_count: '圖片紀錄數', file_count: '檔案紀錄數', record_count: '紀錄數', owned_group_count: '擁有群組數', active_members: '啟用成員數',
-  last_interaction_at: '最後互動時間', first_seen_at: '首次出現時間', last_seen_at: '最後出現時間', updated_at: '更新時間', created_at: '建立時間', started_at: '開始時間', source_timestamp: '來源時間',
-  recording_enabled: '允許記錄', is_active: '啟用中', owner_binding_method: '擁有者綁定方式',
-  billing_relation: '計費關係', record_id: '紀錄編號', provider: 'AI 供應商', model: 'AI 模型', ai_units_consumed: 'AI 使用額度',
-  previous_plan_code: '原方案', next_plan_code: '新方案', source: '來源', actor: '操作人員', metadata: '附加資料',
-  author_user_id: '作者編號', actor_user_id: '操作使用者', charged_user_id: '計費使用者', input_type: '輸入類型', category: '分類', normalized_summary: '整理摘要', raw_text: '原始文字',
+  plan_code: '方案', user_type: '使用者類型', status: '狀態', source_id: '來源編號',
+  ai_responsible_user_id: 'AI 額度負責人編號', ai_responsible_display_name: 'AI 額度負責人', ai_responsible_plan_code: '負責人方案',
+  ai_granted_points: '累計發放 AI 點數', ai_available_points: '可用 AI 點數', ai_reserved_points: '保留中 AI 點數', ai_used_points: '已扣 AI 點數',
+  group_ai_used_points: '群組已扣 AI 點數', platform_subsidized_points: '平台補貼點數', group_ai_cost_twd: '群組 AI 成本', ai_cost_twd: 'AI 成本', provider_cost_twd: '供應商成本',
+  responsible_group_count: '負責 AI 額度群組數', member_group_count: '加入群組數', active_members: '啟用成員數',
+  text_count: '文字紀錄數', audio_count: '語音紀錄數', image_count: '圖片紀錄數', file_count: '檔案紀錄數', record_count: '紀錄數',
+  last_interaction_at: '最後互動時間', first_seen_at: '首次出現時間', last_seen_at: '最後出現時間', updated_at: '更新時間', created_at: '建立時間', started_at: '開始時間', occurred_at: '發生時間',
+  is_active: '啟用中', billing_relation: '計費關係', record_id: '紀錄編號', provider: 'AI 供應商', model: 'AI 模型', operation: 'AI 操作',
+  customer_points_charged: '使用者扣點', previous_plan_code: '原方案', next_plan_code: '新方案', source: '來源', actor: '操作人員', metadata: '附加資料',
+  author_user_id: '作者編號', author_display_name: '作者', actor_user_id: '操作使用者', charged_user_id: '計費使用者', input_type: '輸入類型', raw_text: '紀錄內容', title: '紀錄標題', version: '版本',
   channel: '管道', text: '內容', context: '相關資訊', severity: '嚴重程度', error_code: '錯誤代碼', summary: '摘要', line_message_id: 'LINE 訊息 ID',
   command_line_message_id: '指令訊息 ID', quoted_line_message_id: '引用訊息 ID', last_error_code: '最後錯誤代碼', last_error_detail: '最後錯誤內容', retry_disposition: '處理方式', retry_guidance: '處理建議',
   actor_admin: '操作管理員', workspace_id: '工作區編號', action: '操作', target_type: '目標類型', target_id: '目標編號', before_value: '修改前', after_value: '修改後',
   subscription_effective_state: '方案有效狀態', subscription_status: '訂閱狀態', current_period_start: '本期開始時間', current_period_end: '本期結束時間', effective_at: '生效時間', plan_enabled: '方案是否啟用',
+  original_points: '原始點數', remaining_points: '剩餘點數', scoped_used_points: 'Scope 已用點數', scoped_reserved_points: 'Scope 保留點數', enabled_source_count: '啟用來源數', expires_at: '到期時間',
+  scope_id: 'Scope 編號', grant_id: 'Grant 編號', owner_user_id: 'Grant 擁有者', grant_type: 'Grant 類型', cap_points: '群組上限點數', used_points: '已用點數', reserved_points: '保留點數', enabled: '啟用',
+  previous_user_id: '前任負責人', next_user_id: '新負責人', reason: '原因', assigned_at: '指派時間',
 };
 
 function isRow(value: unknown): value is Row { return Boolean(value && typeof value === 'object' && !Array.isArray(value)); }
