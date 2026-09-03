@@ -41,6 +41,8 @@ This file is the current-state handoff. Git history preserves older implementati
 - Raw TEXT persistence/idempotency; bounded GROUP quoted-TEXT PostgreSQL cache; direct LINE attachment fetch with no binary persistence.
 - Durable Gemini TEXT normalization and attachment ingestion with quota reservation/settlement and provider-price snapshots.
 - Gemini attachment usage reads `usageMetadata.promptTokensDetails`: total `promptTokenCount` remains the quota input total while AUDIO/IMAGE values are stored as subsets for pricing. Provider cost subtracts modality subsets from ordinary input so a token is not priced twice; null modality-specific price falls back to ordinary input rate.
+- AI reservation is now treated as preflight only once a provider-success usage snapshot is durable: full actual usage can settle above the held estimate; a reservation already moved to `EXPIRED` can be recovered without subtracting held units twice; duplicate settlement of an already `COMMITTED` reservation is idempotent.
+- Attachment source-loss after Gemini success now durably stores reservation + usage on the ingestion row before returning `SOURCE_NOT_FOUND`; settlement is retried without re-fetching LINE or re-calling Gemini, and the real provider cost is committed before the ingestion becomes FAILED.
 - GROUP/PRIVATE one-time Web entry and ordinary LINE Login; no LIFF.
 - PWA personal/group browsing, owner usage/member controls, customer/project CRUD, record organization, finance and feedback.
 - Admin username/password + HMAC session, users/groups/plans/quota/AI runtime/feedback/anomaly/audit views.
@@ -138,52 +140,38 @@ After FREE `ONE_TIME` vs `MONTHLY` is decided, choose one consistent strategy: d
 
 Missing/malformed max count fails closed. Existing group-enabled plan rows should be normalized to explicit numeric `maxGroupCount` and invalid legacy configuration should be visible in Admin.
 
-### H. AI provider accounting / quota settlement — high priority, unresolved
+### H. AI provider accounting / quota settlement — core exact settlement fixed; thinking/persistence edge remains
 
-Fixed previously:
+Fixed:
 - total Gemini prompt usage and AUDIO/IMAGE modality subsets are no longer double-counted;
 - null media-specific price falls back to ordinary input price;
-- impossible media subset totals are rejected.
+- impossible media subset totals are rejected;
+- TEXT and attachment provider-success paths no longer release quota merely because actual usage exceeded the preflight estimate;
+- `WorklogSubscriptionService.commitAiUsage()` accepts durable provider-success settlement from both `RESERVED` and `EXPIRED` reservations and treats an already `COMMITTED` reservation as an idempotent success;
+- base and runtime-safe Drizzle settlement record full actual usage even above the held estimate; `used_units` may exceed allowance only as a historical accounting consequence, while future reservations remain blocked by normal preflight;
+- runtime-safe settlement locks reservation + matching balance and subtracts `reserved_units` only when previous state was `RESERVED`; an already expired hold is not decremented twice;
+- attachment `SOURCE_NOT_FOUND` after Gemini success no longer releases a real provider cost: usage/reservation is durably preserved on the ingestion row, can resume from the existing `PROCESSING` row, settles first, then terminalizes as the source-loss failure;
+- authored regression tests now cover over-reservation settlement, EXPIRED settlement without double-decrement, already-COMMITTED idempotency, attachment source-loss settlement/resume, and TEXT/attachment overage behavior. They have not been executed.
 
-Confirmed current defects:
+Still unresolved:
 
-1. **Provider-success over-reservation is released as unused.**
-   - TEXT normalization and attachment ingestion both call Gemini first, then if `actualUnits > unitsReserved`, explicitly release the reservation and fail with `AI_USAGE_EXCEEDED_RESERVATION`.
-   - That means a real provider cost occurred but no `worklog_ai_usage_events` row is committed and quota is restored as if the call never happened.
-   - This contradicts the surrounding provider-success reliability invariant.
-
-2. **Provider-success can also lose settlement through reservation expiry.**
-   - AI reservations use a finite TTL (current normalization/attachment callers request 10 minutes).
-   - `reserveAi()` expires stale reservations for the charged user before creating a new hold.
-   - Therefore another request can transition an old in-flight reservation to `EXPIRED` and release its held units if provider execution/persistence/settlement outlives the TTL.
-   - Current `commitAiUsage()` and both Drizzle commit implementations only settle `RESERVED`; a durable `PROVIDER_SUCCEEDED` result whose reservation is now `EXPIRED` cannot create the authoritative provider usage/cost event.
-   - TEXT/attachment retry paths then see a non-COMMITTED reservation and terminalize/fail even though provider cost was real.
-
-3. **Thinking tokens are omitted.**
+1. **Thinking tokens are omitted.**
    - Gemini responses can report `usageMetadata.thoughtsTokenCount`; current TEXT/attachment response types ignore it.
    - Current Gemini pricing charges output including thinking tokens, so provider cost and token-equivalent quota can be understated on thinking-enabled models.
 
-4. **One request shape is not safely model-generic.**
+2. **One request shape is not safely model-generic.**
    - Active model is DB-configurable, but current requests hard-code `temperature: 0.1` and no thinking policy.
-   - Current Google guidance differs by model generation: Gemini 3.x uses `thinkingLevel`, while Gemini 2.5 uses `thinkingBudget`; Gemini 3.5 guidance also recommends removing older manual sampling parameters in normal use.
-   - A single hard-coded thinking field is therefore not a safe fix while arbitrary model ids remain operator-configurable.
+   - Current Google guidance differs by model generation: Gemini 3.x uses `thinkingLevel`, while Gemini 2.5 uses `thinkingBudget`; a single hard-coded thinking field is not a safe fix while arbitrary model ids remain operator-configurable.
 
-Important implementation observation from current DB baseline:
-- `worklog_ai_quota_balances` has no constraint requiring `used_units <= allowance_units`.
-- Reservation preflight already refuses future holds when `used + reserved + requested > allowance`.
-- Therefore an exact provider-success settlement can safely record an unexpected overage by adding full actual usage to `used_units` (possibly above allowance), making remaining entitlement effectively zero and naturally blocking future reservations. This is preferable to dropping a real provider cost.
+3. **Provider success before any durable usage snapshot can still become a manual-accounting edge if the DB persistence itself is unavailable/uncertain.**
+   - TEXT does not release after such uncertainty, and attachment retries its atomic persistence before leaving the ingestion in progress, but exact provider metering is not reconstructible if the provider returned and every attempt to durably persist the usage snapshot failed.
+   - The new attachment source-loss case is fixed because the repository explicitly persists usage before returning SOURCE_NOT_FOUND; generic infrastructure-level persistence uncertainty remains a separate reliability edge.
+   - Do not automatically replay Gemini in this state. If stronger cost completeness is required, add a provider-success usage ledger write that can succeed independently of applying the normalized record, while preserving idempotency.
 
-Recommended deterministic settlement design:
-- once provider returns successfully, persist provider result + exact usage/cost snapshot before any settlement decision;
-- provider success must never call `releaseAi()`;
-- make settlement accept exact actual usage even when `actualUnits > unitsReserved`;
-- make settlement recover a durable provider-success result whose reservation became `EXPIRED`: lock reservation/balance, avoid subtracting reserved units a second time when expiry already released them, add full actual usage, transition reservation to `COMMITTED`, and insert exactly one usage event;
-- retain row-lock/status transition idempotency so duplicate resume cannot double-charge;
-- allow `used_units` to exceed allowance only as an accounting consequence of provider overrun, not as a permission to start a call; preflight remains the user-facing quota gate;
-- add explicit regression tests for overage commit, expiry-before-settlement, concurrent resume, and provider-success persistence uncertainty;
-- separately add billable thinking-token accounting and a model-compatible thinking/reservation policy before plan quotas are finalized.
+4. **Already-COMMITTED service resume validates reservation state/units committed only indirectly.**
+   - The service currently returns idempotent COMMITTED from the durable reservation. A later hardening can verify the resumed usage payload is compatible with `units_committed` and surface corruption/mismatch rather than silently accepting a divergent payload.
 
-Do not finalize FREE/paid AI allowance numbers until real text/image/audio/PDF calls are measured with the corrected ledger.
+Do not finalize FREE/paid AI allowance numbers until real text/image/audio/PDF calls are measured with thinking-aware accounting and the corrected settlement ledger.
 
 ### I. Admin/current-effective quota drift — confirmed, unresolved
 
@@ -204,13 +192,15 @@ Recommended:
 
 ### J. Admin AI pricing editor — confirmed destructive mismatch, unresolved
 
-Backend/API support distinct `audio_usd_per_million` and `image_usd_per_million`, but current Admin editor exposes only ordinary input/output prices and on every save writes ordinary input price into both media fields.
+Backend/API types support distinct `audio_usd_per_million` and `image_usd_per_million`. Re-audit confirms Admin `AiRuntimeEditor` still exposes only ordinary input/output prices and on every save sends ordinary input price into both media fields.
 
 Required low-risk fix:
 - expose independent optional audio and image input-price fields;
 - initialize them from existing config;
 - preserve null as “use ordinary input price fallback” instead of overwriting with a duplicate number;
 - update explanatory copy so it does not claim all modalities always have the same rate.
+
+This batch deliberately did not rewrite the whole Admin component just for this UI change while higher-risk quota settlement code was being modified; keep this as the next low-risk Admin fix.
 
 ### K. Structured anomaly coverage — main LINE/Web/Admin boundaries FIXED, deduplication optional
 
@@ -277,35 +267,39 @@ Read before work:
 - `WORKLOG_LINE_CONTENT_POLICY.md`
 - `WORKLOG_DEPLOYMENT.md`
 
-Source areas audited this batch:
-- `text-normalization.ts` provider-success/settlement boundary;
-- `attachment-ingestion.ts` provider-success/settlement boundary;
-- `subscription.ts` reservation/commit service semantics;
-- `drizzle-subscription.ts` and runtime `drizzle-subscription-safe.ts` atomic settlement predicates;
-- consolidated DB quota-balance constraints/trigger;
-- Gemini TEXT/attachment reservation and usage response parsing;
-- Admin user/group effective-state SQL/client reconstruction;
-- Admin AI runtime editor versus backend media-pricing contract.
+Source areas audited/changed this batch:
+- `subscription.ts` service settlement semantics;
+- `drizzle-subscription-safe.ts` runtime row-lock settlement;
+- `drizzle-subscription.ts` base repository semantics;
+- `text-normalization.ts` provider-success overage path;
+- `attachment-ingestion.ts` provider-success overage and source-loss path;
+- `drizzle-attachment-ingestion.ts` durable provider-success source-loss state using existing PROCESSING/reservation/usage columns;
+- `subscription.test.ts`, `text-normalization.test.ts`, `attachment-ingestion.test.ts` regression expectations;
+- consolidated DB attachment state constraint and AI quota tables;
+- Admin AI runtime API/editor contract was re-checked; destructive media-price UI behavior remains unresolved.
 
-Current external Google API facts re-verified during this batch:
-- thinking tokens are billable as output;
-- Gemini 3.x uses model-specific `thinkingLevel` controls and dynamic thinking;
-- Gemini 2.5 uses `thinkingBudget` rather than `thinkingLevel`;
-- current Gemini 3.5 guidance recommends avoiding older manual sampling settings such as custom temperature/top-p/top-k for ordinary use;
-- a thinking level is a relative reasoning control, not an exact token-reservation guarantee.
+Implementation changes this batch:
+- removed service-level `ACTUAL_EXCEEDS_RESERVED` rejection;
+- exact usage settlement accepts `RESERVED` or `EXPIRED` and records actual usage above reservation;
+- already-COMMITTED settlement is idempotent at service level;
+- safe Drizzle settlement locks reservation/balance and distinguishes previous RESERVED versus EXPIRED accounting;
+- TEXT/attachment no longer release a successful Gemini call merely because actual usage exceeded reservation;
+- attachment source disappearance after provider success preserves usage + reservation durably, settles cost, then records SOURCE_NOT_FOUND;
+- stale attachment PROCESSING cleanup excludes rows that already contain durable provider-success usage/reservation state so they can resume settlement instead of being terminalized before accounting.
 
-New confirmed defect this batch:
-- provider-success accounting can be lost not only on `actual > reserved`, but also when a reservation expires before durable provider-result settlement. `expireStaleAiReservations()` can be invoked by another request for the same charged user, while commit accepts only `RESERVED`.
-
-Implementation change this batch:
-- no runtime code was changed because the correct fix spans provider-result persistence, reservation status transitions, balance settlement and idempotency; a local conditional would leave the expiry race or ledger inconsistency behind.
-- this handoff now records the deterministic exact-settlement design so the next implementation batch does not fix only one symptom.
+Authored regression tests this batch:
+- exact overage commit;
+- EXPIRED reservation settlement without double release;
+- already-COMMITTED idempotent service resume;
+- TEXT over-reservation provider result persists/commits without release;
+- attachment over-reservation commits actual usage without release;
+- attachment source-loss provider cost settles before failure;
+- attachment durable provider-success/source-loss resume does not refetch LINE or call Gemini again.
 
 Tests/status:
 - no tests were executed.
-- existing authored tests still encode the old “reject actual > reserved” behavior and must be changed with the settlement implementation.
 - no typecheck, build, schema check, migration, browser smoke, Worker smoke, LINE E2E or Gemini E2E was run.
-- **GitHub Actions were not run, dispatched, rerun, enabled or modified.** This documentation commit uses `[skip ci]`.
+- **GitHub Actions were not run, dispatched, rerun, enabled or modified.** Code/doc commits use `[skip ci]`.
 
 ## Concentrated validation still pending
 
@@ -328,24 +322,24 @@ After remaining static/code gaps are closed, run one explicit local validation p
 
 Planning estimates only; not test results:
 
-- MVP non-provider feature implementation: **about 95–96%**.
-- Static architecture/logic audit coverage: **about 97–98%**.
-- Production readiness including still-unrun executable validation, AI settlement/accounting, migration and provider gaps: **about 79–82%**.
-- Remaining internal static/code work before concentrated validation: roughly **2–3 large batches / about 4–8 focused hours**.
-- After concentrated validation starts, reserve roughly **2–8 focused hours** for ordinary compile/schema/browser/runtime fixes; deeper migration or AI settlement defects could extend this.
+- MVP non-provider feature implementation: **about 96%**.
+- Static architecture/logic audit coverage: **about 98%**.
+- Production readiness including still-unrun executable validation, thinking/accounting, migration and provider gaps: **about 82–85%**.
+- Remaining internal static/code work before concentrated validation: roughly **2 large batches / about 3–6 focused hours**.
+- After concentrated validation starts, reserve roughly **2–8 focused hours** for ordinary compile/schema/browser/runtime fixes; deeper migration or AI/provider defects could extend this.
 - External/provider work is separate: payment provider selection, recurring authorization/webhooks, production secrets/domains/LINE configuration and production migration-history reconciliation.
 
 ## Next batch
 
 Continue from, in order:
 
-1. implement exact provider-success settlement: persist result before settlement, never release successful calls, support actual usage above reserved, and recover durable provider success from reservation `EXPIRED` without double-decrement/double-usage;
-2. add regression tests for overage, expiry-before-settlement, idempotent resume and concurrency; tests remain unexecuted until concentrated validation unless explicitly requested earlier;
-3. design model-aware thinking usage/configuration and account `thoughtsTokenCount` without assuming one Gemini generation supports the same control shape as another;
-4. fix Admin effective subscription/quota presentation, group-detail server facts, `GROUP_ENABLED` semantics and actual group-id list output;
-5. fix Admin audio/image pricing editor so media prices are independent/nullable and never destructively overwritten;
-6. design private OA entitlement/capability boundary after FREE semantics are decided;
-7. continue billing type/renewal scaffolding only where migration/default/provider decisions are not guessed;
-8. revisit Office-file support wording versus actual MVP implementation and harden low-level record-read layering if useful.
+1. design model-aware Gemini thinking usage/configuration and account `thoughtsTokenCount` without assuming one Gemini generation supports the same control shape as another; keep provider-dollar cost and customer quota concepts separable;
+2. harden provider-success persistence uncertainty if a DB outage prevents the first durable usage snapshot, without ever auto-replaying Gemini;
+3. fix Admin effective subscription/quota presentation, group-detail server facts, `GROUP_ENABLED` semantics and actual group-id list output;
+4. fix Admin audio/image pricing editor so media prices are independent/nullable and never destructively overwritten;
+5. design private OA entitlement/capability boundary after FREE semantics are decided;
+6. continue billing type/renewal scaffolding only where migration/default/provider decisions are not guessed;
+7. revisit Office-file support wording versus actual MVP implementation and harden low-level record-read layering if useful;
+8. add an optional committed-payload mismatch guard and concurrency-focused exact-settlement test when executable validation begins.
 
 Do not use GitHub Actions as validation.
