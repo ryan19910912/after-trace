@@ -47,14 +47,6 @@ class FakeCollaboration {
   accessResult: GroupAccessAuthorizationResult = {
     status: 'OK',
     actorUserId: 7,
-    ownerUserId: 7,
-    ownerPlanCode: 'SUB1',
-    ownerCapabilities: {
-      groupCollaboration: true,
-      maxGroupCount: 3,
-      aiTextRecording: true,
-      aiMediaIngestion: true,
-    },
   };
   result: GroupRecordAuthorizationResult = {
     status: 'OK',
@@ -62,8 +54,6 @@ class FakeCollaboration {
     chargedUserId: 7,
     ownerPlanCode: 'SUB1',
     ownerCapabilities: {
-      groupCollaboration: true,
-      maxGroupCount: 3,
       aiTextRecording: true,
       aiMediaIngestion: true,
     },
@@ -121,7 +111,7 @@ class FakeNormalizer {
 
   async normalizeText(recordId: number) {
     this.calls.push(recordId);
-    return { status: 'NORMALIZED' as const };
+    return { status: 'NORMALIZED' as const, entityId: 71, createdEntity: false };
   }
 }
 
@@ -152,7 +142,7 @@ describe('WorklogLineRuntime', () => {
     expect(records.remembered).toHaveLength(0);
   });
 
-  it('keeps an unowned group pending and tells the subscriber to claim it explicitly', async () => {
+  it('keeps the transitional unowned group state until AI responsible-user bootstrap is replaced', async () => {
     const bootstrap = new FakeBootstrap();
     bootstrap.group = { status: 'PENDING_OWNER', userId: 7, pendingGroupId: 3 };
     const collaboration = new FakeCollaboration();
@@ -166,7 +156,7 @@ describe('WorklogLineRuntime', () => {
     expect(records.calls).toBe(0);
   });
 
-  it('supports explicit owner claim without guessing from normal speaker activity', async () => {
+  it('supports the transitional explicit AI responsible-user claim command', async () => {
     const bootstrap = new FakeBootstrap();
     const runtime = new WorklogLineRuntime(bootstrap, new FakeCollaboration(), new FakeRecords());
 
@@ -176,7 +166,7 @@ describe('WorklogLineRuntime', () => {
     expect(bootstrap.bindCalls).toBe(1);
   });
 
-  it('blocks a member before record persistence when owner disabled recording', async () => {
+  it('blocks a member before LINE AI record persistence when legacy funding authorization denies recording', async () => {
     const collaboration = new FakeCollaboration();
     collaboration.result = { status: 'RECORDING_DISABLED' };
     const records = new FakeRecords();
@@ -188,7 +178,7 @@ describe('WorklogLineRuntime', () => {
     expect(records.calls).toBe(0);
   });
 
-  it('persists raw TEXT without reserving AI units at the authorization boundary', async () => {
+  it('persists raw TEXT first and lets the post-persist interpreter own provider preflight', async () => {
     const collaboration = new FakeCollaboration();
     const records = new FakeRecords();
     const runtime = new WorklogLineRuntime(new FakeBootstrap(), collaboration, records);
@@ -202,7 +192,7 @@ describe('WorklogLineRuntime', () => {
     expect(records.calls).toBe(1);
   });
 
-  it('keeps raw group TEXT recording when AI text normalization is disabled', async () => {
+  it('does not invoke text interpretation when the transitional capability disables AI text', async () => {
     const collaboration = new FakeCollaboration();
     if (collaboration.result.status === 'OK') {
       collaboration.result.ownerCapabilities.aiTextRecording = false;
@@ -219,7 +209,7 @@ describe('WorklogLineRuntime', () => {
     expect(normalizer.calls).toEqual([]);
   });
 
-  it('normalizes group TEXT when the owner plan enables AI text normalization', async () => {
+  it('runs one-title/time interpretation for group TEXT when AI text is enabled', async () => {
     const normalizer = new FakeNormalizer();
     const runtime = new WorklogLineRuntime(
       new FakeBootstrap(),
@@ -232,7 +222,7 @@ describe('WorklogLineRuntime', () => {
     expect(normalizer.calls).toEqual([99]);
   });
 
-  it('passes disabled AI media capability into attachment classification/ingestion', async () => {
+  it('passes disabled AI media capability into attachment ingestion', async () => {
     const collaboration = new FakeCollaboration();
     if (collaboration.result.status === 'OK') {
       collaboration.result.ownerCapabilities.aiMediaIngestion = false;
@@ -313,7 +303,7 @@ describe('WorklogLineRuntime', () => {
     expect(records.quotedCalls).toBe(0);
   });
 
-  it('returns a scoped query action only when the owner plan still has group collaboration', async () => {
+  it('returns the group query action from active-member manual access without a plan gate', async () => {
     const collaboration = new FakeCollaboration();
     const runtime = new WorklogLineRuntime(new FakeBootstrap(), collaboration, new FakeRecords());
     await expect(runtime.handle(message('@AFTERTRACE 查詢'))).resolves.toEqual({
@@ -325,7 +315,7 @@ describe('WorklogLineRuntime', () => {
     expect(collaboration.calls).toBe(0);
   });
 
-  it('does not let recording permission remove historical query access', async () => {
+  it('does not let legacy recording permission remove historical query access', async () => {
     const collaboration = new FakeCollaboration();
     collaboration.result = { status: 'RECORDING_DISABLED' };
     const runtime = new WorklogLineRuntime(new FakeBootstrap(), collaboration, new FakeRecords());
@@ -339,19 +329,19 @@ describe('WorklogLineRuntime', () => {
     expect(collaboration.calls).toBe(0);
   });
 
-  it('keeps FREE personal-only by rejecting group query links when entitlement is gone', async () => {
+  it('denies a group query when the actor is not an active member', async () => {
     const collaboration = new FakeCollaboration();
-    collaboration.accessResult = { status: 'GROUP_NOT_ENTITLED' };
+    collaboration.accessResult = { status: 'NOT_ACTIVE_MEMBER' };
     const runtime = new WorklogLineRuntime(new FakeBootstrap(), collaboration, new FakeRecords());
 
     const result = await runtime.handle(message('@AFTERTRACE 查詢'));
     expect(result.status).toBe('REJECTED');
-    if (result.status === 'REJECTED') expect(result.reason).toBe('GROUP_NOT_ENTITLED');
+    if (result.status === 'REJECTED') expect(result.reason).toBe('NOT_ACTIVE_MEMBER');
     expect(collaboration.accessCalls).toBe(1);
     expect(collaboration.calls).toBe(0);
   });
 
-  it('keeps cache miss on quoted content away from legacy Memory', async () => {
+  it('keeps cache miss on quoted content away from retired conversation Memory', async () => {
     const runtime = new WorklogLineRuntime(new FakeBootstrap(), new FakeCollaboration(), new FakeRecords());
     const result = await runtime.handle(message('@AFTERTRACE', { quotedLineMessageId: 'quoted-image-1' }));
     expect(result.status).toBe('QUOTED_NOT_READY');
