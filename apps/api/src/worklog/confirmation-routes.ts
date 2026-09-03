@@ -3,7 +3,7 @@ import { sql } from 'drizzle-orm';
 import { verifyWebSessionToken } from '../auth/token';
 import { createDatabase, type Database } from '../db/client';
 import { WorklogConfirmationService, type WorklogConfirmationDecision } from './confirmations';
-import { DrizzleWorklogConfirmationRepository } from './drizzle-confirmations';
+import { DrizzleWorklogConfirmationRepository } from './drizzle-confirmations-safe';
 
 export type WorklogConfirmationRouteBindings = {
   DATABASE_URL: string;
