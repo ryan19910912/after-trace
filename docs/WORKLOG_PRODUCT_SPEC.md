@@ -8,7 +8,7 @@ Core surfaces:
 
 - LINE OA/private chat: AI-assisted Record capture/edit and navigation to filtered PWA history.
 - LINE group bot: shared AI-assisted Record capture/edit and navigation to group PWA history.
-- Web/PWA: free manual browse/search/filter/create/edit/delete/restore; title management; AI allowance settings/history; paid export where enabled.
+- Web/PWA: free manual browse/search/filter/create/edit/delete/restore; AI allowance settings/history; paid export where enabled.
 - Internal Admin: users/groups/plans/grants/usage/subsidy/anomalies/audit.
 
 The universal domain must stay general-purpose. Do not hard-code construction, finance, Customer, Project, payment, materials, etc. as universal schema.
@@ -29,7 +29,7 @@ Any operation requiring AI compute requires positive eligible AI balance at requ
 
 If balance is positive when AI starts but actual provider usage exceeds remaining eligible units, customer balance floors at zero and AFTERTRACE absorbs the shortfall for that already-started request. Admin records customer-charged usage, platform subsidy and actual provider cost.
 
-## Plans
+## Plans and AI points
 
 Launch defaults remain:
 
@@ -37,26 +37,18 @@ Launch defaults remain:
 - PRO: NT$99/month, `MONTHLY`, included AI allowance per successful renewal, unused monthly included allowance does not roll over, unlimited groups, export intended paid.
 - TEAM: NT$299/month, `MONTHLY`, larger included AI allowance per successful renewal, unused monthly included allowance does not roll over, unlimited groups, export intended paid.
 
-The previously discussed hard-coded 500/500/2500 display amounts are not the final economic truth. Final customer-facing **AI 點數** must be derived from the accepted pricing formula and current model pricing rather than manually guessed.
+Customer-facing allowance is **AI 點數**.
 
-## AI cost budget and AI points
+Accepted pricing rules are defined in `WORKLOG_AI_POINT_POLICY.md`:
 
-AI-assisted Record creation consumes AI allowance normally.
+- 1 AI point = 1 output-price-equivalent token;
+- real provider input/output/thinking/modality cost is included when converting actual usage to points;
+- subscription allowance planning starts around 40% target gross margin;
+- one-time/top-up allowance planning starts around 50% target gross margin;
+- Admin calculator shows recommended points, but final included points are explicitly entered/confirmed by Admin;
+- Admin shows average usage/cost, allowance utilization, subsidy and realized margin so pricing can be tuned from real usage.
 
-Accepted commercial direction:
-
-- customer-facing balance is shown as **AI 點數**, not raw provider tokens;
-- plan price determines an AI-cost budget automatically rather than requiring an admin to manually type an arbitrary allowance number for every plan;
-- initial target budget is approximately 50% of plan price, rounded according to final implementation policy. Example: NT$99 plan -> approximately NT$50 AI provider-cost budget;
-- the remaining plan revenue covers margin, infrastructure, operations, payment fees, support and other product costs;
-- AI points do not need to be 1:1 with provider tokens; final point conversion remains a separate decision;
-- PWA shows AI points used, remaining, and percentage used/remaining.
-
-Provider pricing must be configuration/pricing-snapshot driven. Do not hard-code a stale model price into business logic.
-
-The customer-point budget may use output-token-equivalent pricing as the simple customer-facing accounting basis, but provider accounting must still retain actual provider input/output/thinking/modality usage and real dollar cost. This separation is necessary because provider billing includes more than one token category.
-
-Before finalizing point conversion, verify representative costs for short/long text, image/audio/file ingestion and LINE edit.
+Provider pricing must be configuration/pricing-snapshot driven.
 
 ## AI allowance grants and allocation
 
@@ -98,13 +90,11 @@ Accepted result:
 - 紀錄標題: `晴空案`
 - Record content keeps `王大明`, `陳師傅`, work details and amounts as text.
 
-Do **not** automatically create `王大明` and `陳師傅` as extra related Entities merely because AI recognized them. This avoids noisy title lists in groups where the natural filing unit is a project/site/context.
+Do **not** automatically create `王大明` and `陳師傅` as extra related Entities merely because AI recognized them. If the user searches `王大明`, fuzzy search over Record content still finds matching Records.
 
-If the user searches `王大明`, fuzzy search over Record content still finds these Records and shows the title they belong to.
+The accepted MVP does not need a generic PRIMARY/RELATED many-to-many relationship model. `worklog_records.entity_id` (or equivalent single-title relation) is sufficient.
 
-The accepted MVP therefore does not need a generic PRIMARY/RELATED many-to-many relationship model. `worklog_records.entity_id` (or equivalent single-title relation) is sufficient.
-
-Entity metadata remains lightweight: name, optional loose type, merge state/status and aliases.
+Entity metadata remains lightweight.
 
 ## Alias / 其他稱呼
 
@@ -121,13 +111,7 @@ If AI thinks a new title may be an existing title under another name, ask for co
 
 Ambiguous title/identity decisions must be stored durably, not only in Worker memory.
 
-A pending-confirmation domain/table supports at least:
-
-- `ALIAS_MATCH`;
-- `RECORD_TITLE` ambiguity;
-- `ENTITY_MATCH` ambiguity.
-
-Status includes `PENDING` and resolved states such as `CONFIRMED`, `REJECTED`, `EXPIRED`.
+A pending-confirmation domain/table supports at least `ALIAS_MATCH`, `RECORD_TITLE`, and `ENTITY_MATCH`, with `PENDING` and resolved states such as `CONFIRMED`, `REJECTED`, `EXPIRED`.
 
 ## AI responsibilities when creating an AI-assisted Record
 
@@ -138,7 +122,7 @@ AI-assisted Record creation should stay narrow:
 - resolve existing title/Alias in the same Source;
 - detect possible Alias match needing confirmation;
 - resolve `occurred_at` from relative date/time language when present;
-- preserve the Record text/durable textual extraction.
+- preserve Record text/durable textual extraction.
 
 Do not create extra Related Entities and do not require universal extraction of amount/address/payment/material/task fields.
 
@@ -165,11 +149,9 @@ User-facing fields:
 
 - **紀錄標題**
 - **紀錄內容**
-- **發生時間** with a date/time picker, not natural-language text input
+- **發生時間** with a date/time picker
 
 Title field autocompletes existing titles and aliases. Selecting an existing title uses it; entering a new title creates a new Entity/title.
-
-No Related Entity inference occurs on manual create.
 
 ## PWA browse/search/filter
 
@@ -187,24 +169,38 @@ Examples:
 - fuzzy keyword `王大明` + this week;
 - fuzzy keyword `冷氣` with no title filter.
 
+## PWA title and Record operations — simplified MVP
+
+Do not create a separate title-management section merely to administer titles.
+
+Keep common operations directly in normal Record list/detail UX where practical:
+
+- modify/change the Record title;
+- edit Record content;
+- delete/restore Record;
+- inspect edit history.
+
+### Duplicate titles / Merge
+
+Generic title Merge/Undo is **not MVP** and should not be implemented now.
+
+If a Record is filed under the wrong title, the user can manually change that Record's title. If duplicate titles exist, users can manually correct affected Records. This is intentionally simpler than building merge batches, merged-state history and undo behavior that may rarely be used.
+
+Reconsider Merge only if actual user feedback shows duplicate-title cleanup is a recurring pain point.
+
 ## LINE history/navigation policy
 
 LINE AI does not independently retrieve arbitrary history and compose answers in MVP. AI's job is to understand the user's intent and translate a history request into deterministic PWA filters.
 
-Example:
-
-`王大明這週做了什麼`
+Example `王大明這週做了什麼`:
 
 - classify as history/search intent;
 - if `王大明` is an existing title, use title filter; otherwise use fuzzy keyword `王大明`;
 - recognize the date phrase and include this week's date range;
 - return the filtered PWA URL.
 
-Example:
+Example `這個群組今天發生什麼`:
 
-`這個群組今天發生什麼`
-
-- no title required;
 - include today's date range;
 - return group PWA history URL.
 
@@ -212,7 +208,7 @@ Keep the backend function surface small, conceptually one deterministic function
 
 `build_history_link(source_id, entity_id?, keyword?, from?, to?)`
 
-PWA/API performs actual SQL/search. This avoids an unbounded set of AI function calls for arbitrary questions.
+PWA/API performs actual SQL/search.
 
 ## Record editing and revision history
 
@@ -224,7 +220,7 @@ Use DB optimistic concurrency with integer `version`; stale saves are rejected. 
 
 ### PWA manual edit
 
-Manual text editing does not automatically re-run AI or change the Record title. If the user manually changes content so it no longer matches the title, AFTERTRACE does not silently spend AI to reinterpret it.
+Manual text editing does not automatically re-run AI. The user may explicitly change the Record title in PWA if the filing context is wrong.
 
 ### LINE natural-language edit
 
@@ -239,12 +235,6 @@ LINE AI edit requires positive eligible AI balance and a reliable Reply target.
 ## Soft delete / recycle bin
 
 Delete is reversible state change, not physical deletion. Keep title reference, revisions, delete actor/time and restore history. Normal search hides deleted Records; recycle bin exposes them to authorized users.
-
-## Entity/title merge and undo
-
-PWA supports rename, alias management, duplicate-title merge, merged history and undo.
-
-Merge retains source Entity with MERGED state, repoints affected Records to canonical target and records exactly which Records moved. Undo restores those original Record-title associations even if Record text was edited later.
 
 ## AI summaries / broad historical analysis
 
@@ -275,7 +265,7 @@ Do not implement implicitly until separately approved:
 - project/engineering scheduling;
 - broad AI historical reporting beyond the accepted navigation flow;
 - final product/brand name and go-to-market positioning;
-- final AI-point conversion ratio and exact plan/top-up point amounts.
+- exact FREE/PRO/TEAM/top-up point amounts.
 
 ## Platform / deployment
 
