@@ -22,27 +22,6 @@ export const worklogRecordInputTypeEnum = pgEnum('worklog_record_input_type', [
   'IMAGE',
   'FILE',
 ]);
-export const worklogRecordCategoryEnum = pgEnum('worklog_record_category', [
-  'NOTE',
-  'WORK',
-  'ISSUE',
-  'PAYMENT',
-  'EXPENSE',
-  'MATERIAL',
-  'PHOTO',
-  'AUDIO',
-  'OTHER',
-]);
-export const worklogProjectStatusEnum = pgEnum('worklog_project_status', [
-  'ACTIVE',
-  'COMPLETED',
-  'ARCHIVED',
-]);
-export const worklogTransactionTypeEnum = pgEnum('worklog_transaction_type', [
-  'RECEIVED',
-  'EXPENSE',
-  'RECEIVABLE',
-]);
 export const worklogSubscriptionStatusEnum = pgEnum('worklog_subscription_status', [
   'ACTIVE',
   'PAST_DUE',
@@ -80,11 +59,14 @@ export const worklogUsers = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (table) => [
-    index('worklog_user_oa_updated_idx').on(table.isOaFriend, table.updatedAt),
-  ],
+  (table) => [index('worklog_user_oa_updated_idx').on(table.isOaFriend, table.updatedAt)],
 );
 
+/**
+ * Transitional user container retained while bootstrap/auth and aggregate AI accounting
+ * are being migrated. Universal Record semantics must not depend on Customer/Project/
+ * finance concepts living under a workspace.
+ */
 export const worklogWorkspaces = pgTable(
   'worklog_workspaces',
   {
@@ -112,6 +94,10 @@ export const worklogSources = pgTable(
       onDelete: 'restrict',
     }),
     lineGroupId: varchar('line_group_id', { length: 64 }).unique('worklog_source_line_group_uq'),
+
+    // Transitional legacy ownership fields. Manual GROUP data authorization no longer
+    // depends on these. The AI grant batch will replace their billing meaning with the
+    // explicit customer-facing AI 額度負責人 domain.
     ownerUserId: bigint('owner_user_id', { mode: 'number' }).references(() => worklogUsers.id, {
       onDelete: 'restrict',
     }),
@@ -121,6 +107,7 @@ export const worklogSources = pgTable(
       () => worklogUsers.id,
       { onDelete: 'restrict' },
     ),
+
     inactiveAt: timestamp('inactive_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -144,12 +131,15 @@ export const worklogSourceMembers = pgTable(
       .notNull()
       .references(() => worklogUsers.id, { onDelete: 'restrict' }),
     isActive: boolean('is_active').default(true).notNull(),
+
+    // Transitional AI-path fields. Customer manual PWA authorization ignores them.
     recordingEnabled: boolean('recording_enabled').default(true).notNull(),
     recordingUpdatedByUserId: bigint('recording_updated_by_user_id', { mode: 'number' }).references(
       () => worklogUsers.id,
       { onDelete: 'restrict' },
     ),
     recordingUpdatedAt: timestamp('recording_updated_at', { withTimezone: true }),
+
     firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).defaultNow().notNull(),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).defaultNow().notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -166,117 +156,6 @@ export const worklogSourceMembers = pgTable(
   ],
 );
 
-export const worklogCustomers = pgTable(
-  'worklog_customers',
-  {
-    id: bigserial('id', { mode: 'number' }).primaryKey(),
-    workspaceId: bigint('workspace_id', { mode: 'number' })
-      .notNull()
-      .references(() => worklogWorkspaces.id, { onDelete: 'restrict' }),
-    name: varchar('name', { length: 255 }).notNull(),
-    phone: varchar('phone', { length: 64 }),
-    address: text('address'),
-    note: text('note'),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [index('worklog_customer_workspace_name_idx').on(table.workspaceId, table.name)],
-);
-
-export const worklogProjects = pgTable(
-  'worklog_projects',
-  {
-    id: bigserial('id', { mode: 'number' }).primaryKey(),
-    workspaceId: bigint('workspace_id', { mode: 'number' })
-      .notNull()
-      .references(() => worklogWorkspaces.id, { onDelete: 'restrict' }),
-    customerId: bigint('customer_id', { mode: 'number' }).references(() => worklogCustomers.id, {
-      onDelete: 'restrict',
-    }),
-    name: varchar('name', { length: 255 }).notNull(),
-    address: text('address'),
-    status: worklogProjectStatusEnum('status').default('ACTIVE').notNull(),
-    note: text('note'),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [
-    index('worklog_project_workspace_status_idx').on(table.workspaceId, table.status),
-    index('worklog_project_customer_idx').on(table.customerId),
-  ],
-);
-
-export const worklogRecords = pgTable(
-  'worklog_records',
-  {
-    id: bigserial('id', { mode: 'number' }).primaryKey(),
-    workspaceId: bigint('workspace_id', { mode: 'number' })
-      .notNull()
-      .references(() => worklogWorkspaces.id, { onDelete: 'restrict' }),
-    sourceId: bigint('source_id', { mode: 'number' })
-      .notNull()
-      .references(() => worklogSources.id, { onDelete: 'restrict' }),
-    authorUserId: bigint('author_user_id', { mode: 'number' }).references(() => worklogUsers.id, {
-      onDelete: 'restrict',
-    }),
-    customerId: bigint('customer_id', { mode: 'number' }).references(() => worklogCustomers.id, {
-      onDelete: 'restrict',
-    }),
-    projectId: bigint('project_id', { mode: 'number' }).references(() => worklogProjects.id, {
-      onDelete: 'restrict',
-    }),
-    lineMessageId: varchar('line_message_id', { length: 64 }),
-    quotedLineMessageId: varchar('quoted_line_message_id', { length: 64 }),
-    inputType: worklogRecordInputTypeEnum('input_type').notNull(),
-    category: worklogRecordCategoryEnum('category').default('OTHER').notNull(),
-    rawText: text('raw_text'),
-    attachmentMetadata: jsonb('attachment_metadata'),
-    normalizedSummary: text('normalized_summary'),
-    sourceTimestamp: timestamp('source_timestamp', { withTimezone: true }),
-    editedAt: timestamp('edited_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [
-    uniqueIndex('worklog_record_line_message_uq').on(table.lineMessageId),
-    index('worklog_record_source_created_idx').on(table.sourceId, table.createdAt),
-    index('worklog_record_workspace_customer_idx').on(table.workspaceId, table.customerId),
-    index('worklog_record_workspace_project_idx').on(table.workspaceId, table.projectId),
-    index('worklog_record_author_type_idx').on(table.authorUserId, table.inputType),
-    index('worklog_record_source_author_type_idx').on(table.sourceId, table.authorUserId, table.inputType),
-  ],
-);
-
-export const worklogTransactions = pgTable(
-  'worklog_transactions',
-  {
-    id: bigserial('id', { mode: 'number' }).primaryKey(),
-    workspaceId: bigint('workspace_id', { mode: 'number' })
-      .notNull()
-      .references(() => worklogWorkspaces.id, { onDelete: 'restrict' }),
-    recordId: bigint('record_id', { mode: 'number' }).references(() => worklogRecords.id, {
-      onDelete: 'restrict',
-    }),
-    customerId: bigint('customer_id', { mode: 'number' }).references(() => worklogCustomers.id, {
-      onDelete: 'restrict',
-    }),
-    projectId: bigint('project_id', { mode: 'number' }).references(() => worklogProjects.id, {
-      onDelete: 'restrict',
-    }),
-    type: worklogTransactionTypeEnum('type').notNull(),
-    amountTwd: numeric('amount_twd', { precision: 14, scale: 2 }).notNull(),
-    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
-    note: text('note'),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [
-    index('worklog_transaction_workspace_time_idx').on(table.workspaceId, table.occurredAt),
-    index('worklog_transaction_project_idx').on(table.projectId),
-    index('worklog_transaction_record_idx').on(table.recordId),
-  ],
-);
-
 export const worklogSubscriptionPlans = pgTable(
   'worklog_subscription_plans',
   {
@@ -286,6 +165,8 @@ export const worklogSubscriptionPlans = pgTable(
     priceTwd: numeric('price_twd', { precision: 12, scale: 2 }).default('0').notNull(),
     rank: integer('rank').default(0).notNull(),
     enabled: boolean('enabled').default(true).notNull(),
+    // Transitional aggregate field. Independent AI grants replace this entitlement
+    // model in the dedicated grant/point batch.
     aiAllowanceUnits: integer('ai_allowance_units').default(0).notNull(),
     capabilities: jsonb('capabilities').default({}).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -353,50 +234,6 @@ export const worklogAiRuntimeConfig = pgTable('worklog_ai_runtime_config', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
-
-export const worklogAiUsageEvents = pgTable(
-  'worklog_ai_usage_events',
-  {
-    id: bigserial('id', { mode: 'number' }).primaryKey(),
-    actorUserId: bigint('actor_user_id', { mode: 'number' })
-      .notNull()
-      .references(() => worklogUsers.id, { onDelete: 'restrict' }),
-    chargedUserId: bigint('charged_user_id', { mode: 'number' })
-      .notNull()
-      .references(() => worklogUsers.id, { onDelete: 'restrict' }),
-    workspaceId: bigint('workspace_id', { mode: 'number' }).references(() => worklogWorkspaces.id, {
-      onDelete: 'restrict',
-    }),
-    sourceId: bigint('source_id', { mode: 'number' }).references(() => worklogSources.id, {
-      onDelete: 'restrict',
-    }),
-    recordId: bigint('record_id', { mode: 'number' }).references(() => worklogRecords.id, {
-      onDelete: 'restrict',
-    }),
-    provider: varchar('provider', { length: 128 }).notNull(),
-    model: varchar('model', { length: 255 }).notNull(),
-    inputTokens: integer('input_tokens').default(0).notNull(),
-    outputTokens: integer('output_tokens').default(0).notNull(),
-    audioInputUnits: integer('audio_input_units').default(0).notNull(),
-    imageInputUnits: integer('image_input_units').default(0).notNull(),
-    inputUsdPerMillion: numeric('input_usd_per_million', { precision: 18, scale: 8 }).notNull(),
-    outputUsdPerMillion: numeric('output_usd_per_million', { precision: 18, scale: 8 }).notNull(),
-    audioUsdPerMillion: numeric('audio_usd_per_million', { precision: 18, scale: 8 }),
-    imageUsdPerMillion: numeric('image_usd_per_million', { precision: 18, scale: 8 }),
-    usdTwdRate: numeric('usd_twd_rate', { precision: 12, scale: 6 }),
-    providerCostUsd: numeric('provider_cost_usd', { precision: 18, scale: 8 }).notNull(),
-    providerCostTwd: numeric('provider_cost_twd', { precision: 18, scale: 6 }),
-    aiUnitsConsumed: integer('ai_units_consumed').default(0).notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [
-    index('worklog_ai_usage_actor_time_idx').on(table.actorUserId, table.createdAt),
-    index('worklog_ai_usage_charged_time_idx').on(table.chargedUserId, table.createdAt),
-    index('worklog_ai_usage_source_actor_time_idx').on(table.sourceId, table.actorUserId, table.createdAt),
-    index('worklog_ai_usage_workspace_time_idx').on(table.workspaceId, table.createdAt),
-    index('worklog_ai_usage_record_idx').on(table.recordId),
-  ],
-);
 
 export const worklogFeedback = pgTable(
   'worklog_feedback',
