@@ -38,6 +38,9 @@ Read first every run:
 - If group billing Owner leaves, LINE AI-assisted recording pauses; manual PWA group work continues.
 - Another active member may run `@AFTERTRACE 啟用` to take over AI billing responsibility only while old billing Owner is absent.
 - Current AI billing Owner may explicitly transfer responsibility to another active group member through two-party approval: Owner initiates, target confirms in authenticated PWA, request is single-use/expiring, balances do not move with the role.
+- Related business events should preserve history rather than overwrite earlier records. Example: an earlier `RECEIVABLE` and later `RECEIVED` remain separate records/transactions but may be deterministically linked/allocated.
+- **AI must never guess a business-state relation when confidence is insufficient.** If customer/project/issue/receivable matching is ambiguous, save the new record truthfully, leave prior state unchanged, and tell the user that AFTERTRACE cannot currently determine which prior item the new message refers to.
+- Ambiguous financial matching must never automatically settle/change a receivable. It requires explicit user confirmation/selection before deterministic finance state changes.
 - Export is MVP; CSV first is acceptable and currently remains paid.
 - XLSX/DOCX are MVP input targets; prefer verified Google provider-native ingestion before custom parsing.
 - Dev/prod DBs are prelaunch/disposable and may be rebuilt.
@@ -97,6 +100,22 @@ Required:
 - add manual PWA create API for both scopes;
 - manual create/edit costs zero AI units;
 - preserve actor/editor identity and timestamps.
+
+## Record relationship / finance state requirement
+
+Current schema already has records linked to customer/project plus typed finance transactions (`RECEIVABLE`, `RECEIVED`, `EXPENSE`), but it does not yet model explicit settlement/allocation between a later receipt and an earlier receivable.
+
+Required direction:
+
+- work records remain event history and should not be overwritten merely because later events update current state;
+- add deterministic relation/allocation support so one `RECEIVED` transaction can settle all or part of one or more `RECEIVABLE` transactions;
+- support partial payment (for example 30,000 receivable -> 10,000 received -> 20,000 received) rather than assuming one-to-one full settlement;
+- PWA project/customer finance view should derive `應收 / 已收 / 未收 / 已結清` from typed deterministic transactions/allocations, with the underlying record timeline still visible;
+- candidate matching may use source/workspace, customer, project, amount, unresolved state and recency, but only high-confidence unique matches may be auto-linked;
+- if there are multiple plausible matches or confidence is below the accepted threshold, **do not mutate the earlier transaction/current state**;
+- in the ambiguous case, preserve the newly submitted record and return a clear LINE reply such as: `已記錄這筆收款資訊，但目前無法判斷是對應哪一筆未收款紀錄。請到 AFTERTRACE 確認要結清／沖銷的項目。`;
+- the reply should include the durable PWA record/confirmation deep link where practical so the user can resolve the ambiguity immediately;
+- the same no-guess rule should apply to ambiguous customer/project/issue relations that would materially change existing state.
 
 ## AI grant/allocation domain requirement
 
@@ -162,17 +181,18 @@ Do not expose:
 2. Separate free group/source existence from AI billing-owner binding.
 3. Split manual group authorization from LINE AI entitlement.
 4. Implement PWA manual create + collaborative group edit/private-owner edit.
-5. Implement user-owned AI grant/allocation/cap model and migrate quota reservation/settlement to eligible-grant selection, retaining immutable grant-funding references for group history.
-6. Add billing_type and durable FREE/PRO/TEAM defaults now that DBs are rebuildable.
-7. Add one-time top-up products/purchases as separate grant creators.
-8. Implement AI billing-owner transfer requests/approval; after acceptance new Owner must use/configure their own eligible grants.
-9. Implement LINE success summary + durable record deep link.
-10. Implement private OA AI entitlement/allocation gates while preserving manual PWA access.
-11. Fix Admin effective included/top-up/grant allocation facts and AI media pricing; expose billing-owner transfer, current group-specific AI availability and **historical group AI usage**.
-12. Implement group PWA AI history UI/API (current state + paginated historical ledger/summary).
-13. Implement CSV export.
-14. Verify Gemini provider-native XLSX/DOCX path.
-15. Finish AI hardening and enter concentrated local validation.
+5. Implement record relationship/finance allocation model and ambiguity-confirmation flow for later events that may update prior state.
+6. Implement user-owned AI grant/allocation/cap model and migrate quota reservation/settlement to eligible-grant selection, retaining immutable grant-funding references for group history.
+7. Add billing_type and durable FREE/PRO/TEAM defaults now that DBs are rebuildable.
+8. Add one-time top-up products/purchases as separate grant creators.
+9. Implement AI billing-owner transfer requests/approval; after acceptance new Owner must use/configure their own eligible grants.
+10. Implement LINE success summary + durable record deep link, including ambiguous-relation confirmation guidance.
+11. Implement private OA AI entitlement/allocation gates while preserving manual PWA access.
+12. Fix Admin effective included/top-up/grant allocation facts and AI media pricing; expose billing-owner transfer, current group-specific AI availability and historical group AI usage.
+13. Implement group PWA AI history UI/API (current state + paginated historical ledger/summary).
+14. Implement CSV export.
+15. Verify Gemini provider-native XLSX/DOCX path.
+16. Finish AI hardening and enter concentrated local validation.
 
 ## AI billing-owner transfer requirement
 
@@ -207,10 +227,10 @@ Recent tests are authored but not executed. Typecheck/test/build/schema/browser/
 ## Planning estimate
 
 Planning estimates only:
-- MVP non-payment-provider implementation: about **90–93%** after introducing per-grant allocation/cap accounting, free-group/manual scope, top-up, billing-owner transfer and group AI history UI requirements.
+- MVP non-payment-provider implementation: about **89–92%** after adding relationship/finance allocation + ambiguity-confirmation requirements on top of grant allocation, free-group/manual scope, top-up, billing-owner transfer and group AI history.
 - Static architecture/logic audit: about **98–99%**.
-- Production readiness including unrun validation/provider integration: about **79–83%**.
-- Remaining internal development before concentrated validation: about **4–5 large batches / roughly 13–23 focused hours** because the AI quota ledger needs a real grant-allocation refactor plus group-history reporting/API/UI.
+- Production readiness including unrun validation/provider integration: about **78–82%**.
+- Remaining internal development before concentrated validation: about **5 large batches / roughly 15–26 focused hours** because finance settlement linkage and the AI quota grant-allocation refactor are both real domain changes.
 - After concentrated validation begins, reserve **2–8 focused hours** for ordinary compile/schema/browser/runtime fixes.
 - Payment-provider recurring + top-up purchase integration remains separate and likely **1–3 working days after provider selection**.
 
