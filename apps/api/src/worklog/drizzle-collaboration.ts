@@ -2,9 +2,16 @@ import { sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
 import type {
   GroupAuthorizationContext,
+  GroupManualAccessContext,
   WorklogCollaborationRepository,
 } from './collaboration';
 import type { WorklogSubscriptionStatus } from './subscription';
+
+type ManualAccessRow = {
+  source_id: string;
+  source_status: 'ACTIVE' | 'INACTIVE';
+  member_active: boolean | null;
+};
 
 type AuthorizationRow = {
   source_id: string;
@@ -23,11 +30,36 @@ type AuthorizationRow = {
   capabilities: unknown;
   ai_allowance_units: number | string | null;
   consumed_units: number | string | null;
-  owner_group_position: number | string | null;
 };
 
 export class DrizzleWorklogCollaborationRepository implements WorklogCollaborationRepository {
   constructor(private readonly db: Database) {}
+
+  async getGroupManualAccessContext(
+    sourceId: number,
+    actorUserId: number,
+  ): Promise<GroupManualAccessContext | null> {
+    const result = await this.db.execute(sql`
+      SELECT
+        source.id::text AS source_id,
+        source.status AS source_status,
+        member.is_active AS member_active
+      FROM worklog_sources AS source
+      LEFT JOIN worklog_source_members AS member
+        ON member.source_id = source.id
+       AND member.user_id = ${actorUserId}
+      WHERE source.id = ${sourceId}
+        AND source.type = 'GROUP'
+      LIMIT 1
+    `);
+    const row = result.rows[0] as ManualAccessRow | undefined;
+    if (!row) return null;
+    return {
+      sourceId: Number(row.source_id),
+      sourceStatus: row.source_status,
+      actorIsActiveMember: row.member_active === true,
+    };
+  }
 
   async getGroupAuthorizationContext(
     sourceId: number,
@@ -50,19 +82,7 @@ export class DrizzleWorklogCollaborationRepository implements WorklogCollaborati
         COALESCE(plan.enabled, FALSE) AS plan_enabled,
         COALESCE(plan.capabilities, '{}'::jsonb) AS capabilities,
         COALESCE(balance.allowance_units, plan.ai_allowance_units, 0) AS ai_allowance_units,
-        COALESCE(balance.used_units, 0) + COALESCE(balance.reserved_units, 0) AS consumed_units,
-        CASE
-          WHEN source.owner_user_id IS NULL THEN 1
-          ELSE (
-            SELECT COUNT(*)
-            FROM worklog_sources AS sibling
-            WHERE sibling.type = 'GROUP'
-              AND sibling.status = 'ACTIVE'
-              AND sibling.owner_user_id = source.owner_user_id
-              AND (COALESCE(sibling.owner_bound_at, sibling.created_at), sibling.id)
-                  <= (COALESCE(source.owner_bound_at, source.created_at), source.id)
-          )
-        END AS owner_group_position
+        COALESCE(balance.used_units, 0) + COALESCE(balance.reserved_units, 0) AS consumed_units
       FROM worklog_sources AS source
       LEFT JOIN worklog_source_members AS member
         ON member.source_id = source.id
@@ -101,7 +121,6 @@ export class DrizzleWorklogCollaborationRepository implements WorklogCollaborati
       ownerCapabilities: row.capabilities,
       ownerAllowanceUnits: numeric(row.ai_allowance_units),
       ownerConsumedUnits: numeric(row.consumed_units),
-      ownerGroupPosition: numeric(row.owner_group_position),
     };
   }
 
