@@ -10,6 +10,7 @@ type AuthorizationRow = {
   source_id: string;
   source_status: 'ACTIVE' | 'INACTIVE';
   owner_user_id: string | null;
+  owner_member_active: boolean | null;
   member_active: boolean | null;
   recording_enabled: boolean | null;
   plan_code: string | null;
@@ -37,6 +38,7 @@ export class DrizzleWorklogCollaborationRepository implements WorklogCollaborati
         source.id::text AS source_id,
         source.status AS source_status,
         source.owner_user_id::text AS owner_user_id,
+        owner_member.is_active AS owner_member_active,
         member.is_active AS member_active,
         member.recording_enabled,
         subscription.plan_code,
@@ -65,6 +67,9 @@ export class DrizzleWorklogCollaborationRepository implements WorklogCollaborati
       LEFT JOIN worklog_source_members AS member
         ON member.source_id = source.id
        AND member.user_id = ${actorUserId}
+      LEFT JOIN worklog_source_members AS owner_member
+        ON owner_member.source_id = source.id
+       AND owner_member.user_id = source.owner_user_id
       LEFT JOIN worklog_user_subscriptions AS subscription
         ON subscription.user_id = source.owner_user_id
       LEFT JOIN worklog_subscription_plans AS plan
@@ -83,6 +88,7 @@ export class DrizzleWorklogCollaborationRepository implements WorklogCollaborati
       sourceId: Number(row.source_id),
       sourceStatus: row.source_status,
       ownerUserId: nullableNumber(row.owner_user_id),
+      ownerIsActiveMember: row.owner_member_active === true,
       actorIsActiveMember: row.member_active === true,
       actorRecordingEnabled: row.recording_enabled !== false,
       ownerPlanCode: row.plan_code,
