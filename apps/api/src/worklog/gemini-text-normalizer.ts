@@ -3,6 +3,7 @@ import {
   normalizeWorklogTextOutput,
   type WorklogAiRuntimeConfigSnapshot,
   type WorklogTextNormalizationProvider,
+  type WorklogTextProviderInput,
   type WorklogTextProviderResponse,
 } from './text-normalization';
 
@@ -35,53 +36,68 @@ type GeminiGenerateContentResponse = {
 
 const STABLE_WORKLOG_MODEL = 'gemini-3.5-flash';
 const THINKING_LEVEL = 'low';
+const PRODUCT_TIME_ZONE = 'Asia/Taipei';
 
 const structuredOutputSchema = z.object({
-  summary: z.string().trim().min(1).max(2000),
-  category: z.enum(['NOTE', 'WORK', 'ISSUE', 'PAYMENT', 'EXPENSE', 'MATERIAL', 'OTHER']),
-  customer_hint: z.string().trim().min(1).max(255).nullable(),
-  project_hint: z.string().trim().min(1).max(255).nullable(),
+  title: z.string().trim().min(1).max(255).nullable(),
+  title_requires_confirmation: z.boolean(),
+  occurred_at: z.string().trim().min(1).max(64).nullable(),
 }).strict();
 
 const responseJsonSchema = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    summary: { type: 'string', description: 'Concise Traditional Chinese work-record summary preserving only facts present in the input.' },
-    category: {
-      type: 'string',
-      enum: ['NOTE', 'WORK', 'ISSUE', 'PAYMENT', 'EXPENSE', 'MATERIAL', 'OTHER'],
-    },
-    customer_hint: {
+    title: {
       anyOf: [{ type: 'string' }, { type: 'null' }],
-      description: 'Customer/person/business name only when explicitly identifiable from the input.',
+      description: 'Exactly one concise filing title for this Record, or null when the text does not provide enough grounded context to choose one safely.',
     },
-    project_hint: {
+    title_requires_confirmation: {
+      type: 'boolean',
+      description: 'True when more than one plausible filing title exists or choosing/creating the proposed title would require user confirmation.',
+    },
+    occurred_at: {
       anyOf: [{ type: 'string' }, { type: 'null' }],
-      description: 'Project/site/job hint only when explicitly identifiable from the input.',
+      description: 'RFC3339 event datetime only when the Record text explicitly provides or implies event time; null means keep the original LINE/create timestamp.',
     },
   },
-  required: ['summary', 'category', 'customer_hint', 'project_hint'],
+  required: ['title', 'title_requires_confirmation', 'occurred_at'],
 } as const;
 
-export function buildGeminiWorklogTextRequestBody(text: string, maxOutputTokens = 384) {
-  const normalizedText = requiredText(text, 'text', 20_000);
+export function buildGeminiWorklogTextRequestBody(
+  input: WorklogTextProviderInput,
+  maxOutputTokens = 256,
+) {
+  const text = requiredText(input.text, 'text', 20_000);
+  const referenceOccurredAt = requiredDateTime(input.referenceOccurredAt, 'referenceOccurredAt');
   const maxTokens = positiveInteger(maxOutputTokens, 'maxOutputTokens');
   return {
     systemInstruction: {
       parts: [{
         text: [
-          'You normalize AFTERTRACE work records.',
-          'Return only grounded facts from the supplied record. Never infer a customer, project, amount, status, date, or action that is not present.',
-          'Write summary in concise Traditional Chinese unless the source itself clearly requires preserving another language.',
-          'Choose one broad category. customer_hint/project_hint are null unless the source explicitly identifies them.',
-          'Do not create database ids and do not turn suggestions into completed work.',
+          'You interpret one newly persisted AFTERTRACE work Record.',
+          'The raw Record text is already durable and must never be summarized, rewritten, or replaced by your output.',
+          'Your job is intentionally narrow: propose exactly one filing title and optionally resolve the real event time.',
+          'Choose the title that best represents the Record filing context (for example a site, job, customer, equipment, person, or other central subject actually grounded in the text).',
+          'Do not create extra related entities for people or objects merely mentioned in the text.',
+          'If there is not enough grounded context to choose one title safely, return title=null and title_requires_confirmation=true.',
+          'If several titles are plausible, return the best grounded proposal but set title_requires_confirmation=true.',
+          'If the text has no explicit or relative event-time expression, occurred_at must be null.',
+          `Resolve relative time expressions against the supplied reference timestamp using ${PRODUCT_TIME_ZONE}, and return RFC3339 with an explicit offset or Z.`,
+          'Do not output summary, category, customer/project hints, amounts, database ids, or any fields outside the schema.',
         ].join(' '),
       }],
     },
     contents: [{
       role: 'user',
-      parts: [{ text: `原始工作紀錄：\n${normalizedText}` }],
+      parts: [{
+        text: [
+          `reference_timestamp: ${referenceOccurredAt}`,
+          `reference_timezone: ${PRODUCT_TIME_ZONE}`,
+          'record_text:',
+          text,
+        ].join('\n'),
+      }],
     }],
     generationConfig: {
       responseMimeType: 'application/json',
@@ -92,13 +108,16 @@ export function buildGeminiWorklogTextRequestBody(text: string, maxOutputTokens 
   };
 }
 
-export function worklogTextReservationUnits(text: string, maxOutputTokens = 384): number {
+export function worklogTextReservationUnits(
+  input: WorklogTextProviderInput,
+  maxOutputTokens = 256,
+): number {
   const requestBytes = new TextEncoder().encode(
-    JSON.stringify(buildGeminiWorklogTextRequestBody(text, maxOutputTokens)),
+    JSON.stringify(buildGeminiWorklogTextRequestBody(input, maxOutputTokens)),
   ).byteLength;
-  // Gemini 3.5 low thinking has no strict numeric thought-token ceiling. Reserve an
-  // additional output-sized cushion to reduce ordinary overrun; exact settlement
-  // remains authoritative when real provider usage is higher.
+  // Transitional legacy quota reservation. The grant-ledger batch will convert
+  // provider cost to output-price-equivalent AI points; until then keep a conservative
+  // request/output cushion so the provider cannot be started with an obviously tiny hold.
   const outputBudget = positiveInteger(maxOutputTokens, 'maxOutputTokens');
   const total = requestBytes + outputBudget + outputBudget;
   if (!Number.isSafeInteger(total) || total <= 0) {
@@ -115,20 +134,20 @@ export class GeminiWorklogTextNormalizer implements WorklogTextNormalizationProv
   constructor(private readonly options: GeminiWorklogTextNormalizerOptions) {
     this.fetchFn = options.fetchFn ?? fetch;
     this.endpoint = options.endpoint ?? 'https://generativelanguage.googleapis.com/v1beta';
-    this.maxOutputTokens = positiveInteger(options.maxOutputTokens ?? 384, 'maxOutputTokens');
+    this.maxOutputTokens = positiveInteger(options.maxOutputTokens ?? 256, 'maxOutputTokens');
   }
 
-  reservationUnits(text: string, config: WorklogAiRuntimeConfigSnapshot): number {
+  reservationUnits(input: WorklogTextProviderInput, config: WorklogAiRuntimeConfigSnapshot): number {
     this.assertConfig(config);
-    return worklogTextReservationUnits(text, this.maxOutputTokens);
+    return worklogTextReservationUnits(input, this.maxOutputTokens);
   }
 
   async normalize(
-    text: string,
+    input: WorklogTextProviderInput,
     config: WorklogAiRuntimeConfigSnapshot,
   ): Promise<WorklogTextProviderResponse> {
     this.assertConfig(config);
-    const requestBody = buildGeminiWorklogTextRequestBody(text, this.maxOutputTokens);
+    const requestBody = buildGeminiWorklogTextRequestBody(input, this.maxOutputTokens);
     const requestTokenUpperBound = new TextEncoder().encode(JSON.stringify(requestBody)).byteLength;
     const startedAt = Date.now();
 
@@ -183,7 +202,16 @@ export class GeminiWorklogTextNormalizer implements WorklogTextNormalizationProv
     } catch {
       throw new WorklogTextProviderError('GEMINI_INVALID_RESPONSE', 'Gemini worklog structured output failed schema validation');
     }
-    const output = normalizeWorklogTextOutput(parsed);
+
+    let output;
+    try {
+      output = normalizeWorklogTextOutput(parsed);
+    } catch (error) {
+      throw new WorklogTextProviderError(
+        'GEMINI_INVALID_RESPONSE',
+        error instanceof Error ? error.message : 'Gemini worklog interpretation was invalid',
+      );
+    }
 
     const inputTokens = safeTokenCount(body.usageMetadata?.promptTokenCount, 'prompt');
     const candidateTokens = safeTokenCount(body.usageMetadata?.candidatesTokenCount, 'candidate output');
@@ -199,8 +227,8 @@ export class GeminiWorklogTextNormalizer implements WorklogTextNormalizationProv
     return {
       output,
       inputTokens,
-      // Gemini 3.5 bills thinking as output. Fold thought usage into billed output so
-      // existing durable usage/cost schema remains correct without a migration.
+      // Gemini bills thinking under output for this selected model family. Fold it into
+      // billed output exactly once so provider cost remains auditable.
       outputTokens,
       providerResponseId: body.responseId?.slice(0, 255) ?? null,
       latencyMs,
@@ -212,7 +240,7 @@ export class GeminiWorklogTextNormalizer implements WorklogTextNormalizationProv
       throw new WorklogTextProviderError('AI_PROVIDER_UNSUPPORTED', `Unsupported worklog AI provider: ${config.provider}`);
     }
     if (!this.options.apiKey.trim()) {
-      throw new WorklogTextProviderError('GEMINI_CONFIG_INVALID', 'Gemini API key is required for Worklog AI normalization');
+      throw new WorklogTextProviderError('GEMINI_CONFIG_INVALID', 'Gemini API key is required for Worklog AI interpretation');
     }
     if (config.model.trim() !== STABLE_WORKLOG_MODEL) {
       throw new WorklogTextProviderError('GEMINI_CONFIG_INVALID', `Worklog currently supports only ${STABLE_WORKLOG_MODEL}`);
@@ -256,15 +284,30 @@ function safeAddTokens(left: number, right: number, label: string): number {
 
 function requiredText(value: string, label: string, max: number): string {
   const normalized = value.trim();
-  if (!normalized || normalized.length > max) throw new WorklogTextProviderError('GEMINI_CONFIG_INVALID', `invalid ${label}`);
+  if (!normalized || normalized.length > max) {
+    throw new WorklogTextProviderError('GEMINI_CONFIG_INVALID', `invalid ${label}`);
+  }
   return normalized;
 }
 
+function requiredDateTime(value: string, label: string): string {
+  const normalized = requiredText(value, label, 64);
+  const parsed = new Date(normalized);
+  if (!Number.isFinite(parsed.getTime())) {
+    throw new WorklogTextProviderError('GEMINI_CONFIG_INVALID', `invalid ${label}`);
+  }
+  return parsed.toISOString();
+}
+
 function positiveInteger(value: number, label: string): number {
-  if (!Number.isSafeInteger(value) || value <= 0) throw new WorklogTextProviderError('GEMINI_CONFIG_INVALID', `${label} must be a positive safe integer`);
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new WorklogTextProviderError('GEMINI_CONFIG_INVALID', `${label} must be a positive safe integer`);
+  }
   return value;
 }
 
 function nonNegativeFinite(value: number, label: string): void {
-  if (!Number.isFinite(value) || value < 0) throw new WorklogTextProviderError('GEMINI_CONFIG_INVALID', `${label} must be a non-negative finite number`);
+  if (!Number.isFinite(value) || value < 0) {
+    throw new WorklogTextProviderError('GEMINI_CONFIG_INVALID', `${label} must be a non-negative finite number`);
+  }
 }
