@@ -64,53 +64,106 @@ Deletion remains status change, not physical deletion.
 - recycle-bin view includes deleted records and their history;
 - restore changes the record back to active state and retains all prior delete/restore/edit audit history.
 
-## LINE natural-language edit — product direction under discussion
+## PWA manual editing
 
-A future LINE flow may allow commands such as:
+PWA manual editing is free and deliberately non-AI.
 
-`@AFTERTRACE 幫我上面那筆改成 2800`
+- The user edits the current raw record text directly.
+- Saving the manual edit does not invoke AI and consumes zero AI allowance.
+- PWA manual text editing does **not** automatically re-evaluate or change the record's Primary/Related Entity associations.
+- If a user changes `王大明去晴空案換冷氣` into `王大明去信義案換冷氣` manually, the product treats that as the user's intentional manual text edit and does not silently move the record from `晴空案` to `信義案`.
+- If the user intends to move the business context/subject as well, the expected manual workflow is to explicitly manage the record/entity association in PWA when that capability exists, or delete/replace the mistaken record as appropriate. Do not hide AI work inside a free manual save.
 
-when the previous record was:
+This boundary keeps free PWA CRUD deterministic and avoids unexpected AI cost or silent reclassification.
+
+## LINE natural-language edit
+
+LINE may support natural-language editing such as:
+
+`@AFTERTRACE 幫我改成 2800`
+
+when replying to a previous recorded message such as:
 
 `王大明冷氣清潔費 3000`
 
-This requires reliable target resolution before mutation. The system must not modify a record merely because one previous message looks plausible.
+### Target resolution
 
-Potential safe target resolution order:
+The normal LINE edit path should require a **Reply** to the earlier message/record context so the target can be identified safely.
 
-1. explicit Reply to an AFTERTRACE success message / record where a durable record id can be recovered;
-2. explicit record deep link/id context;
-3. a bounded, unambiguous recent-record reference such as `上面那筆` only when the conversation/source context yields exactly one safe candidate;
-4. otherwise ask the user which record they want to edit or direct them to PWA.
+Rules:
 
-If AI is used to interpret the requested change, the backend should expose deterministic edit operations/tools rather than allowing the model to write arbitrary SQL or mutate records directly.
+1. First inspect whether the command is a LINE Reply and whether the replied-to message can be mapped deterministically to one AFTERTRACE record.
+2. If yes, use that record as the edit target.
+3. If the command is not a Reply, do not let AI guess among recent records merely from phrases such as `上面那筆`.
+4. Reply clearly, for example: `目前無法確定你要修改哪一筆紀錄，請直接回覆要修改的紀錄，或前往 AFTERTRACE 編輯。`
+5. A durable record deep link/id may also be used when the product explicitly supplies that exact context.
 
-Example conceptual function/tool:
+If LINE/API limitations make a replied-to Bot success message insufficient to recover the target record id directly, the implementation must persist/use whatever bounded mapping is needed to resolve that Reply safely. Do not fall back to display-text guessing.
 
-- `find_record_candidate(...)`
-- `update_record(record_id, expected_version, new_raw_text, actor_user_id, source)`
+### AI allowance rule
+
+LINE natural-language editing is an AI-assisted action.
+
+- It requires an eligible AI allowance grant for the relevant PRIVATE/GROUP scope.
+- If eligible AI balance is **zero before the request starts**, do not invoke AI; tell the user to edit manually in PWA or obtain AI allowance.
+- If eligible balance is greater than zero, the AI request may start under the product's general overage/subsidy policy.
+- Any shortfall after the request starts may floor the customer's balance at zero and be recorded as platform-subsidized usage according to the general AI accounting policy.
+
+General product rule: **whenever a requested operation requires AI compute, zero eligible balance means that AI operation is unavailable. Manual PWA CRUD remains free.**
+
+### AI edit interpretation and Entity changes
+
+For a valid replied-to target, AI may interpret both the text change and whether the requested edit changes the record's subject/entity associations.
+
+Example current record:
+
+`王大明去晴空案換冷氣`
+
+Current associations:
+
+- Primary Entity: `晴空案`
+- Related Entity: `王大明`
+
+Reply command:
+
+`@AFTERTRACE 幫我改成去信義案換冷氣`
+
+AI-assisted edit may determine that:
+
+- raw text should become `王大明去信義案換冷氣` (or equivalent faithful updated text);
+- Primary Entity should change from `晴空案` to `信義案`;
+- `王大明` remains Related.
+
+If `信義案` already exists in the same source, re-associate the record to that Entity. If it does not exist, the AI-assisted entity-resolution flow may create it, subject to the same duplicate/Alias confirmation rules used for normal AI ingestion.
+
+If AI is not confident whether the subject should change, it must not silently reclassify the record; ask the user for confirmation.
+
+### Backend mutation boundary
+
+AI does not write arbitrary SQL or mutate records directly. The model produces an interpreted edit plan/function-call payload and deterministic backend code validates and commits it.
+
+Conceptual operations may include:
+
+- resolve replied-to record target;
+- interpret requested text change;
+- resolve/create Entity candidates;
+- update record with `expected_version`;
+- replace/add/remove record-Entity associations when explicitly determined;
+- append immutable revision history.
 
 Before commit:
 
 - verify PRIVATE owner or active GROUP membership authorization;
 - verify record is active/editable;
 - verify target source matches the current private/group scope;
+- verify any Entity belongs to the same source;
 - apply optimistic version check;
-- create revision history atomically with the update.
+- create revision history atomically with the record/entity update.
 
-If target resolution is ambiguous, do not edit anything and tell the user the system cannot safely determine which record they mean.
+If any material target/entity decision is ambiguous, do not partially mutate the record. Ask the user to confirm instead.
 
 ## AI-derived summaries
 
 Current product direction is moving away from permanently stored per-record AI summaries. If on-demand AI summary/query becomes the accepted model, record edit history remains based on raw durable records and Entity associations; no persistent summary revision needs to be maintained.
-
-## Open decisions
-
-Still to discuss before implementing LINE editing:
-
-- whether LINE natural-language edit is MVP or post-MVP;
-- whether `上面那筆` may rely on short-lived conversation context or must require Reply/deep-link targeting;
-- whether an edit instruction itself consumes AI allowance when AI interpretation is required;
-- what happens when AI allowance is zero but the user wants to edit via LINE (PWA manual edit remains free regardless).
 
 GitHub Actions must not be used as validation unless explicitly requested by the user.
