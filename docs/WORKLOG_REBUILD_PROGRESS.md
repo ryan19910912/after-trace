@@ -12,128 +12,185 @@ Read first every run:
 - `docs/WORKLOG_LINE_CONTENT_POLICY.md`
 - `docs/WORKLOG_DEPLOYMENT.md`
 
-## Current execution checkpoint — 2026-09-04 00:xx batch
+## Current execution checkpoint — 2026-09-04 01:xx batch
 
-This run continued from the previous manual-GROUP authorization checkpoint. It did **not** redo the backend entitlement split. The main goals were to remove the customer Web dependency on legacy Owner/CRM/finance APIs and to start the accepted single-title Record schema foundation.
+This run continued from the previous single-title schema foundation checkpoint. It did **not** redo the GROUP manual-authorization or Customer/Project/Finance customer-surface cleanup. The main goal was to replace the legacy Record domain in TypeScript/runtime code, add free manual PWA CRUD/search/title operations, and remove attachment persistence dependence on category/normalized-summary fields.
 
 ### Scanned this run
 
 - all required product/entity/edit/AI-point/development/LINE-content/deployment/progress documents;
-- `apps/web/src/WorklogRoot.tsx`;
-- `apps/web/src/worklog-api.ts`;
-- `apps/web/src/SubscriptionRoot.tsx`;
-- `apps/api/src/worklog/routes.ts`;
-- current collaboration repository/service boundaries;
-- current `schema-worklog.ts` legacy Customer/Project/Transaction/Record structure;
-- `schema-all.ts` migration/schema export path.
+- `apps/api/src/db/schema-worklog.ts`;
+- `apps/api/src/db/schema-worklog-record-core.ts`;
+- `apps/api/src/db/schema-all.ts`;
+- normalization/attachment schema FKs;
+- `apps/api/src/worklog/records.ts` and `drizzle-records.ts`;
+- customer Worklog routes;
+- legacy workspace-management runtime;
+- attachment ingestion/provider/tests;
+- customer Web API client and `WorklogRoot`;
+- prelaunch SQL baseline/journal status;
+- legacy text-normalization repository, which still needs the dedicated LINE intent/title rewrite.
 
 ### Completed this run
 
-1. **Customer Web no longer fetches or depends on GROUP Owner view.**
-   - Removed `GroupOwnerView` state/fetch.
-   - Removed Owner panel and member `recordingEnabled` controls.
-   - Loading a GROUP scope now performs only the already-authorized records request.
-   - This closes the previous Web blocker where a valid active group member could still fail because the UI requested an Owner-only endpoint.
+1. **The universal TypeScript schema no longer defines Customer/Project/Transaction/category/normalized-summary as Record-core data.**
+   - `schema-worklog.ts` no longer declares Customer, Project, Transaction, record-category or transaction/project enums/tables.
+   - The old `worklog_records` definition was removed from `schema-worklog.ts`.
+   - Users, Sources, memberships, plans, runtime AI pricing, feedback, anomalies and audit remain.
+   - Workspace plus legacy Source Owner/subscription-owner/member-recording columns are intentionally marked transitional because bootstrap/AI funding still references them; manual PWA authorization does not.
 
-2. **Legacy Customer / Project / Finance customer UI was removed from the normal PWA.**
-   - Removed `客戶 / 專案` and `收支` tabs from `WorklogRoot`.
-   - Removed Customer/Project/Transaction CRUD UI and old Record `category/customer/project/normalizedSummary` editing UI.
-   - Record list now renders durable raw Record text and trace time only until the new title/Record editor is wired.
-   - Filter UI is intentionally narrowed to fuzzy text + date range. Title filter will be added against the new Entity schema.
+2. **`schema-worklog-record-core.ts` now owns the accepted single-title Record model.**
+   - `worklog_entities`: Source-scoped user-facing 紀錄標題.
+   - `worklog_entity_aliases`: confirmed Source-scoped alternate titles.
+   - `worklog_records`: `source_id`, single nullable-during-AI-resolution `entity_id`, author, LINE trace ids, input type, durable `raw_text`, authoritative `occurred_at`, `ACTIVE/DELETED`, integer `version`, delete actor/time and timestamps.
+   - `worklog_record_revisions`: immutable before/after text/time/title/status snapshots keyed by resulting version.
+   - `worklog_ai_confirmations`: durable `ALIAS_MATCH` / `RECORD_TITLE` / `ENTITY_MATCH` ambiguity state.
+   - No PRIMARY/RELATED Record-Entity many-to-many model was added.
 
-3. **Customer Web API client was narrowed to surviving product surfaces.**
-   - Removed Owner-view/member-recording methods.
-   - Removed Customer/Project/Transaction types and CRUD methods.
-   - Removed category/customer/project/input-type filter parameters from the customer records query.
-   - Subscription/checkout and feedback surfaces remain.
+3. **AI provider usage schema was split from the old base domain.**
+   - Added `schema-worklog-ai-usage.ts` so immutable provider usage/cost facts reference the new Record table without reintroducing CRM/finance semantics.
+   - `ai_units_consumed` remains explicitly transitional until the grant/AI-point settlement batch.
+   - `schema-all.ts`, attachment schema and normalization schema now reference the new Record-core table.
 
-4. **Customer Worklog API routes no longer expose legacy Owner/CRM/finance operations.**
-   - Removed customer-facing Owner-view/member-recording endpoints.
-   - Removed Customer/Project/Transaction CRUD endpoints and obsolete old Record metadata-edit endpoint.
-   - Route context no longer constructs `DrizzleWorklogWorkspaceManagementRepository`.
-   - GROUP read error handling is now only Source/membership authorization, not Owner/plan metadata.
-   - Transitional record search SQL no longer joins Customer/Project or normalized summaries/categories; it searches durable raw text and time only until Entity/occurred-at migration lands.
+4. **LINE raw TEXT persistence/read paths now use the final Record columns.**
+   - `drizzle-records.ts` no longer inserts workspace/category/source_timestamp/normalized-summary fields.
+   - New LINE text Records persist raw text + `occurred_at`, status/version and trace ids.
+   - `entity_id` may temporarily be null only while the later AI title pipeline resolves/asks for confirmation.
+   - Record reads join the current title, hide deleted rows and sort by `occurred_at`.
 
-5. **Subscription UI no longer advertises legacy group entitlement/limits.**
-   - Removed `groupCollaboration` / `maxGroupCount` presentation.
-   - Explicitly states group count is unlimited and manual PWA is not unlocked by subscription.
-   - Customer label changed from generic AI allowance wording to **AI 點數** while the API field remains transitional.
+5. **Free manual PWA Record APIs were implemented against Source/member authorization, not billing entitlement.**
+   - PRIVATE = active PRIVATE Source owned by current user.
+   - GROUP = current user is an active member of an active GROUP Source.
+   - Added title/entity autocomplete endpoints for PRIVATE/GROUP.
+   - Added manual create with existing-title reuse / deterministic new-title creation and date-time `occurredAt`.
+   - Added manual edit with `expectedVersion` optimistic concurrency and immutable revision insert.
+   - Added single Record title move.
+   - Added same-Source batch title move (max 100) with expected versions and all-or-none update/revision CTE.
+   - Added soft delete, recycle-bin list, restore and revision-history read.
+   - Search now composes `entityId`, fuzzy title/alias/raw-text query and `occurred_at` date range.
+   - Manual operations do not call AI or inspect subscription/quota.
 
-6. **Single-title Record schema foundation was added.**
-   - Added `apps/api/src/db/schema-worklog-record-core.ts`.
-   - Added Source-scoped `worklog_entities`.
-   - Added Source-scoped confirmed `worklog_entity_aliases`.
-   - Added immutable `worklog_record_revisions` snapshot structure.
-   - Added durable `worklog_ai_confirmations` with `ALIAS_MATCH`, `RECORD_TITLE`, `ENTITY_MATCH` and pending/resolved statuses.
-   - Added Record/Entity/revision/confirmation enums.
-   - Did **not** add a generic `worklog_record_entities` many-to-many table.
-   - Exported the new schema from `schema-all.ts`.
+6. **The old workspace Customer/Project/Finance runtime was physically deleted.**
+   - Deleted `drizzle-workspace-management.ts`.
+   - Deleted its obsolete test file.
 
-7. **FREE AI-point policy inconsistency was corrected.**
-   - `WORKLOG_AI_POINT_POLICY.md` now freezes MVP FREE at **400,000 AI points once**.
-   - It no longer tells future runs to recalculate the exact FREE balance from live pricing/FX.
-   - Historical grants remain immutable; future promotional changes require an explicit new configuration/product decision.
+7. **Customer Web client and PWA were wired to the new manual Record contract.**
+   - Record DTO now uses title/entity, `occurredAt`, status, version and delete state.
+   - Added entity autocomplete/list APIs, create/edit/move/batch-move/delete/restore/revision/recycle APIs.
+   - PWA now exposes:
+     - 紀錄標題 filter;
+     - fuzzy title/alias/content search;
+     - occurred-time date range;
+     - `＋新增紀錄` with title/content/date-time picker;
+     - edit content/time;
+     - single-title move;
+     - checkbox batch move;
+     - 回收桶 and restore;
+     - revision history.
+   - Editor state was separated from persisted Record state so partial `datetime-local` editing no longer attempts `toISOString()` on every keystroke.
+   - PRIVATE/GROUP discriminated API scope construction was made explicit to avoid a union-literal typing hazard.
+
+8. **Attachment storage no longer depends on removed category/summary/attachment Record columns.**
+   - Attachment ingestion now persists only durable extracted/transcribed `raw_text`, trace ids, input type, occurred time and Record state/version.
+   - Gemini attachment structured output now returns only `raw_text` for durable content; it no longer asks for or persists `summary` or `category`.
+   - Provider metadata remains transient to processing; there is still no permanent PWA attachment library.
+   - Attachment tests were updated to the new durable-text output contract, but were **not executed**.
 
 ### Files changed this run
 
-- `apps/web/src/WorklogRoot.tsx`
-- `apps/web/src/worklog-api.ts`
-- `apps/web/src/SubscriptionRoot.tsx`
-- `apps/api/src/worklog/routes.ts`
-- `apps/api/src/db/schema-worklog-record-core.ts` (new)
+- `apps/api/src/db/schema-worklog.ts`
+- `apps/api/src/db/schema-worklog-record-core.ts`
+- `apps/api/src/db/schema-worklog-ai-usage.ts` (new)
 - `apps/api/src/db/schema-all.ts`
-- `docs/WORKLOG_AI_POINT_POLICY.md`
+- `apps/api/src/db/schema-worklog-normalization.ts`
+- `apps/api/src/db/schema-worklog-attachment.ts`
+- `apps/api/src/worklog/records.ts`
+- `apps/api/src/worklog/drizzle-records.ts`
+- `apps/api/src/worklog/routes.ts`
+- `apps/api/src/worklog/drizzle-attachment-ingestion.ts`
+- `apps/api/src/worklog/attachment-ingestion.ts`
+- `apps/api/src/worklog/gemini-attachment-normalizer.ts`
+- `apps/api/src/worklog/attachment-ingestion.test.ts`
+- `apps/api/src/worklog/gemini-attachment-normalizer.test.ts`
+- `apps/api/src/worklog/drizzle-workspace-management.ts` (deleted)
+- `apps/api/src/worklog/drizzle-workspace-management.test.ts` (deleted)
+- `apps/web/src/worklog-api.ts`
+- `apps/web/src/WorklogRoot.tsx`
 - `docs/WORKLOG_REBUILD_PROGRESS.md`
 
-## Important transitional state after this run
+## Important transitional / blocking state after this run
 
-The new Record-core tables are a **schema foundation, not yet the final migrated Record runtime**.
+### 1. Prelaunch migration baseline is still old and therefore deployment is **not ready**
 
-Current legacy `worklog_records` still lacks the final accepted fields:
+`drizzle/0000_worklog_baseline.sql` still physically creates the old Customer/Project/Transaction/category/normalized-summary Record schema. `drizzle/meta/0000_snapshot.json` is also still based on that old schema, while `_journal.json` has only the `0000_worklog_baseline` entry.
 
-- `entity_id`;
-- `occurred_at` as the authoritative event-time field;
-- `status` (`ACTIVE` / `DELETED`);
-- integer `version`;
-- delete actor/time metadata.
+Do **not** run the current migration against a fresh environment and do **not** claim the new schema is deployable yet. The next schema-focused run must regenerate/safely replace the consolidated prelaunch baseline + snapshot/journal from the final TypeScript schema. Because no local repository/toolchain was available in this run, fabricating a large Drizzle snapshot by hand was intentionally avoided.
 
-It still physically contains old Customer/Project/category/normalized-summary columns in `schema-worklog.ts` and the consolidated prelaunch SQL baseline. Those columns are no longer exposed in customer Web/API but must be removed in the destructive schema batch.
+### 2. Legacy text normalization is now the main runtime mismatch
 
-`schema-worklog-record-core.ts` currently references the legacy `worklog_records` id for revision/confirmation foreign keys so the accepted audit structures can be established before the destructive Record-row rewrite. Do not treat the migration baseline as ready until the next schema batch updates `worklog_records` and `drizzle/0000_worklog_baseline.sql` consistently.
+`drizzle-text-normalization.ts`, `text-normalization.ts` and `gemini-text-normalizer.ts` still implement the old post-persist output:
 
-The Web Record surface is intentionally browse-only for this short transition. The obsolete metadata editor was removed rather than pretending it satisfied the accepted free manual editing contract. Manual create/edit/delete/restore/title-move will be reintroduced only against the correct Entity/version/revision schema.
+- summary;
+- category;
+- customer/project hints;
+- writes to `normalized_summary` / `category`;
+- legacy charged-user/Owner aggregate quota context.
 
-The displayed `UserUsage` / plan `ai_allowance_units` shape is also still the legacy aggregate quota representation. It remains temporarily for continuity and must be replaced by grants/points later.
+Those columns no longer exist in the accepted Record schema. This path must be rewritten before runtime validation/deployment. The existing **idempotent provider execution / reservation / durable settlement state machine should be preserved**, but its output must become the bounded AFTERTRACE intent/title/time domain:
+
+- CREATE / EDIT / HISTORY classification where appropriate;
+- one title proposal + Source-scoped Entity/Alias resolution;
+- durable pending confirmation on ambiguity;
+- `occurred_at` resolution;
+- deterministic filtered PWA link for HISTORY;
+- Reply-targeted Record id for EDIT.
+
+Until that rewrite lands, do not consider LINE AI text creation runtime-complete even though raw TEXT persistence itself uses the new Record row.
+
+### 3. AI accounting is intentionally still aggregate/subscription-based
+
+`worklog_ai_quota_balances`, reservations, `WorklogSubscriptionService`, UI `UserUsage` and Admin allowance views are still the legacy aggregate model. They remain temporarily so the Record/manual batch did not mix a second major accounting rewrite into the same change.
+
+Next AI-accounting batch must replace this with independent FREE/subscription/top-up grants/scopes/caps, output-equivalent points and platform subsidy.
+
+### 4. Legacy Source Owner/bootstrap fields still exist
+
+GROUP manual CRUD is already independent of Owner/billing. However bootstrap/source schema and AI runtime still retain `owner_user_id`, `subscription_owner_user_id`, owner binding and member-recording fields. These are not accepted long-term data-ownership semantics and must be replaced/reframed when the AI 額度負責人/grant flow lands.
 
 ## Next implementation batch — highest priority
 
-Continue directly with the destructive core Record schema replacement:
+Continue from this exact checkpoint, in this order:
 
-1. rewrite `worklog_records` around the accepted universal fields:
-   - `source_id`;
-   - single `entity_id`;
-   - `author_user_id`;
-   - durable `raw_text`;
-   - `input_type` and LINE trace ids;
-   - `occurred_at`;
-   - `status`;
-   - integer `version`;
-   - `deleted_at` / `deleted_by_user_id`;
-   - normal timestamps;
-2. remove universal Customer/Project/Transaction/category/normalized-summary schema from `schema-worklog.ts` and then delete dead workspace-management runtime/tests when references are gone;
-3. update the prelaunch consolidated migration baseline and schema snapshot/journal consistently; do not leave the new schema only in TypeScript;
-4. implement a Drizzle Record/Entity repository with Source-scoped title lookup/autocomplete, alias lookup, fuzzy title/alias/raw-text search and `occurred_at` date range;
-5. implement free manual API operations with authorization + optimistic concurrency + immutable revisions:
-   - create;
-   - edit content/time;
-   - move title;
-   - batch move;
-   - soft delete;
-   - recycle-bin list;
-   - restore;
-   - revision history;
-6. wire the PWA manual create/editor/title autocomplete and these operations for PRIVATE owner / active GROUP member;
-7. only after manual core is stable, replace LINE Gemini normalization output with CREATE/EDIT/HISTORY title/time intent and then move AI funding to grants + AI 額度負責人.
+1. **Finish schema/migration consistency before deployment work.**
+   - obtain a usable local/toolchain path to regenerate or safely rebuild `drizzle/0000_worklog_baseline.sql` + `drizzle/meta/0000_snapshot.json` + journal consistently;
+   - remove old Customer/Project/Transaction/category/normalized-summary DB artifacts;
+   - include Entity/Alias/final Record/Revision/AI-confirmation tables and all current non-Record operational tables;
+   - do not handwave migration success without executing it.
+
+2. **Rewrite the old text normalization domain while preserving its idempotent state machine.**
+   - remove summary/category/customer/project output types and prompt;
+   - make AI-assisted Record creation determine one title and optional `occurred_at` adjustment;
+   - Source-scope title/Alias matching;
+   - store ambiguity in `worklog_ai_confirmations` rather than guessing;
+   - never create RELATED Entities.
+
+3. **Implement bounded LINE intent/navigation/edit contract.**
+   - distinguish CREATE / EDIT / HISTORY instead of treating every `@AFTERTRACE ...` as RECORD_TEXT;
+   - HISTORY -> deterministic PWA `entityId?/q?/from?/to?` URL;
+   - EDIT requires reliable Reply-target Record id and writes revision/version transaction;
+   - success replies include scoped PWA deep link.
+
+4. **Then replace aggregate quota with user-owned AI grants / points.**
+   - FREE 400,000 once;
+   - monthly subscription grants;
+   - independent top-ups;
+   - per-grant PRIVATE/GROUP scopes/caps;
+   - AI 額度負責人 transfer/recovery;
+   - positive-start rule;
+   - provider actual cost -> output-equivalent AI points;
+   - customer balance floors at zero and excess is platform subsidy, never user overdraw.
+
+5. **After code/schema consistency, perform concentrated local/runtime validation** before Workers deployment.
 
 ## Stable product contract
 
@@ -161,36 +218,37 @@ Continue directly with the destructive core Record schema replacement:
 
 ## Remaining major debt
 
-1. **COMPLETE for customer manual read path:** remove legacy max-group/groupCollaboration/Owner gating from GROUP browse.
-2. **COMPLETE for customer UI/API surface:** remove Owner member-recording UI/API plus Customer/Project/Finance customer features.
-3. **FOUNDATION ADDED / MIGRATION PENDING:** Entity/Alias/Revision/AI-confirmation schema.
-4. **NEXT:** final Record row + destructive migration baseline.
-5. manual PWA CRUD/title/search/revision/delete/restore/batch move.
-6. replace pending-group/legacy data Owner bootstrap so GROUP Source exists independently of an Owner claim.
+1. **COMPLETE in TypeScript/customer runtime; DB baseline pending:** universal Customer/Project/Finance/category/normalized-summary Record core removal.
+2. **COMPLETE in customer runtime:** active-member GROUP manual authorization independent from legacy Owner/billing.
+3. **COMPLETE in customer API/PWA implementation:** free manual create/edit/title search/move/batch move/soft delete/recycle/restore/revision operations.
+4. **BLOCKER:** regenerate/synchronize consolidated prelaunch SQL baseline + Drizzle snapshot/journal and execute migration validation.
+5. **BLOCKER:** replace legacy Gemini text summary/category normalization with single-title/time/intent semantics.
+6. replace pending-group/legacy data Owner bootstrap with independent GROUP Source + explicit AI 額度負責人 semantics.
 7. bounded LINE CREATE/EDIT/HISTORY intent + filtered deep links + Reply edit.
-8. replace Gemini summary/category/customer/project output with title/time/history-filter interpretation.
-9. user-owned AI grant/scope/cap ledger and AI 額度負責人 transfer/recovery.
-10. AI settlement conversion from provider cost to output-equivalent points, plus platform subsidy rather than customer overdraw.
-11. FREE/PRO/TEAM billing types, FREE one-time grant and monthly/top-up independent grants.
-12. Admin pricing calculator, utilization/profitability/subsidy analytics.
-13. paid export after manual core.
-14. provider-native DOCX/XLSX ingestion validation/hardening.
-15. payment-provider lifecycle after merchant eligibility/fees are confirmed.
-16. Workers deployment/runtime validation.
+8. user-owned AI grant/scope/cap ledger and AI 額度負責人 transfer/recovery.
+9. AI settlement conversion from provider cost to output-equivalent points + platform subsidy rather than customer overdraw.
+10. FREE/PRO/TEAM billing types, FREE one-time grant and monthly/top-up independent grants.
+11. Admin pricing calculator, utilization/profitability/subsidy analytics.
+12. paid export after core validation.
+13. provider-native DOCX/XLSX ingestion validation/hardening.
+14. payment-provider lifecycle after merchant eligibility/fees are confirmed.
+15. Workers deployment/runtime validation.
 
 ## Validation status
 
-Static code/schema/doc changes only in this run. No local build, typecheck, unit test, migration, browser, Worker, LINE or Gemini runtime validation was executed, so none is claimed successful.
+This run made static code/schema/test/doc edits only. The container did not have a local checkout/toolchain and outbound git clone was unavailable, so **no local build, typecheck, unit test, migration, browser, Worker, LINE or Gemini runtime validation was executed**. Test files were updated where their compile-time fixture shape clearly changed, but they are not claimed passing.
 
-**GitHub Actions were not run, dispatched, rerun, enabled or modified.**
+The current branch should therefore be treated as an active refactor checkpoint, **not deployment-ready** until migration consistency and concentrated executable validation are completed.
+
+**GitHub Actions were not run, dispatched, rerun, enabled, modified or otherwise triggered.**
 
 ## Planning estimate
 
 Planning-only estimate after this batch:
 
 - static product/domain contract: ~99% defined for core MVP;
-- customer browse surface legacy cleanup: largely complete;
-- core Record schema migration + manual CRUD remains the largest near-term block;
-- expect roughly 4–5 substantial implementation batches before concentrated validation;
-- rough internal coding range before validation: ~12–24 focused hours, payment-provider integration separate;
-- reserve additional time for compile/schema/browser/runtime fixes once validation begins.
+- final Record/manual customer behavior: materially implemented in code;
+- migration + LINE intent/title rewrite are now the two largest immediate blockers;
+- expect roughly 3–4 substantial implementation batches before concentrated validation;
+- rough internal coding range before validation: ~9–20 focused hours, payment-provider integration separate;
+- reserve additional time for migration/build/browser/runtime fixes once a local executable toolchain is available.
