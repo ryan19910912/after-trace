@@ -8,16 +8,19 @@ import { LineMessagingReplyClient } from './line/reply';
 import { verifyLineSignature } from './line/signature';
 import { WorklogAiGrantService } from './worklog/ai-grants';
 import { WorklogAiPointLedgerService } from './worklog/ai-point-ledger';
+import { WorklogAiResponsibilityService } from './worklog/ai-responsibility';
 import { DrizzleWorklogAnomalyRepository } from './worklog/anomalies';
 import { WorklogBootstrapService } from './worklog/bootstrap';
 import { WorklogCollaborationService } from './worklog/collaboration';
 import { DrizzleWorklogAiGrantRepository } from './worklog/drizzle-ai-grants';
 import { DrizzleWorklogAiPointLedgerRepository } from './worklog/drizzle-ai-point-ledger';
+import { DrizzleWorklogAiResponsibilityRepository } from './worklog/drizzle-ai-responsibility';
 import { DrizzleWorklogBootstrapRepository } from './worklog/drizzle-bootstrap';
 import { DrizzleWorklogCollaborationRepository } from './worklog/drizzle-collaboration';
 import { DrizzleWorklogRecordWriteRepository } from './worklog/drizzle-records';
 import { DrizzleWorklogTextNormalizationRepository } from './worklog/drizzle-text-normalization';
 import { GeminiWorklogTextNormalizer } from './worklog/gemini-text-normalizer';
+import { WorklogGrantBackedCollaboration } from './worklog/grant-collaboration';
 import type { WorklogHistoryFilters } from './worklog/history-navigation';
 import { processWorklogGroupWebhook } from './worklog/group-webhook';
 import { WorklogLineRuntime } from './worklog/line-runtime';
@@ -100,9 +103,14 @@ app.post('/webhooks/line', async (c) => {
   const worklogAnomalies = new DrizzleWorklogAnomalyRepository(database);
   const worklogAiGrants = new WorklogAiGrantService(new DrizzleWorklogAiGrantRepository(database));
   const worklogAiPoints = new WorklogAiPointLedgerService(new DrizzleWorklogAiPointLedgerRepository(database));
+  const worklogAiResponsibility = new WorklogAiResponsibilityService(
+    new DrizzleWorklogAiResponsibilityRepository(database),
+    worklogAiGrants,
+  );
   const worklogBootstrapService = new WorklogBootstrapService(
     new DrizzleWorklogBootstrapRepository(database),
     worklogAiGrants,
+    worklogAiResponsibility,
   );
   const worklogRecordWriteService = new WorklogRecordWriteService(new DrizzleWorklogRecordWriteRepository(database));
   const worklogTextNormalizationService = new WorklogTextNormalizationService(
@@ -110,9 +118,10 @@ app.post('/webhooks/line', async (c) => {
     worklogAiPoints,
     new GeminiWorklogTextNormalizer({ apiKey: c.env.GEMINI_API_KEY }),
   );
+  const worklogManualCollaboration = new WorklogCollaborationService(new DrizzleWorklogCollaborationRepository(database));
   const worklogLineRuntime = new WorklogLineRuntime(
     worklogBootstrapService,
-    new WorklogCollaborationService(new DrizzleWorklogCollaborationRepository(database)),
+    new WorklogGrantBackedCollaboration(worklogManualCollaboration, worklogAiResponsibility),
     worklogRecordWriteService,
     worklogTextNormalizationService,
   );
