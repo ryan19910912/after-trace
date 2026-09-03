@@ -35,6 +35,14 @@ export interface WorklogBootstrapRepository {
   }): Promise<WorklogBoundGroup | null>;
 }
 
+export interface WorklogInitialGrantPort {
+  ensureInitialFreeGrant(input: {
+    userId: number;
+    privateSourceId: number;
+    at?: Date;
+  }): Promise<unknown>;
+}
+
 export type PrivateBootstrapResult =
   | { status: 'READY'; userId: number; workspaceId: number; sourceId: number }
   | { status: 'NOT_OA_FRIEND'; userId: number };
@@ -59,7 +67,10 @@ export type GroupOwnerBindResult =
   | { status: 'OWNER_CONFLICT'; sourceId: number; ownerUserId: number };
 
 export class WorklogBootstrapService {
-  constructor(private readonly repository: WorklogBootstrapRepository) {}
+  constructor(
+    private readonly repository: WorklogBootstrapRepository,
+    private readonly initialGrants?: WorklogInitialGrantPort,
+  ) {}
 
   async handleOaFollow(input: {
     lineUserId: string;
@@ -75,6 +86,7 @@ export class WorklogBootstrapService {
     await this.repository.setOaFriendState(user.userId, true, at);
     const workspaceId = await this.repository.ensureWorkspace(user.userId, at);
     const sourceId = await this.repository.ensurePrivateSource(user.userId, workspaceId, at);
+    await this.ensureInitialGrant(user.userId, sourceId, at);
     return { userId: user.userId, workspaceId, sourceId };
   }
 
@@ -116,6 +128,7 @@ export class WorklogBootstrapService {
 
     const workspaceId = await this.repository.ensureWorkspace(user.userId, at);
     const sourceId = await this.repository.ensurePrivateSource(user.userId, workspaceId, at);
+    await this.ensureInitialGrant(user.userId, sourceId, at);
     return { status: 'READY', userId: user.userId, workspaceId, sourceId };
   }
 
@@ -251,6 +264,11 @@ export class WorklogBootstrapService {
 
     await this.repository.upsertBoundGroupMember(promoted.sourceId, owner.userId, true, at);
     return { status: 'BOUND', sourceId: promoted.sourceId, ownerUserId: owner.userId };
+  }
+
+  private async ensureInitialGrant(userId: number, privateSourceId: number, at: Date): Promise<void> {
+    if (!this.initialGrants) return;
+    await this.initialGrants.ensureInitialFreeGrant({ userId, privateSourceId, at });
   }
 }
 
