@@ -242,7 +242,7 @@ export class DrizzleWorklogTextNormalizationRepository implements WorklogTextNor
   ): Promise<'RESERVED' | 'COMMITTED' | 'RELEASED' | 'EXPIRED' | null> {
     const result = await this.db.execute(sql`
       SELECT status
-      FROM worklog_ai_quota_reservations
+      FROM worklog_ai_point_reservations
       WHERE token = ${reservationToken}
       LIMIT 1
     `);
@@ -283,8 +283,6 @@ export class DrizzleWorklogTextNormalizationRepository implements WorklogTextNor
       return { status: 'SKIPPED_RECORD_CHANGED' };
     }
 
-    // Another deterministic/manual path may have resolved the title while provider
-    // settlement was in flight. Never overwrite it with stale AI output.
     if (record.entityId !== null) {
       await this.completeNormalization(input.recordId, input.claimToken);
       return { status: 'APPLIED', entityId: record.entityId, createdEntity: false };
@@ -538,9 +536,6 @@ export class DrizzleWorklogTextNormalizationRepository implements WorklogTextNor
   }
 
   private async findPotentialCandidates(sourceId: number, title: string): Promise<EntityCandidate[]> {
-    // Very short proposed titles produce too many substring false positives. In that
-    // case prefer creating the explicit title unless the provider itself requested
-    // confirmation or an exact Entity/Alias matched above.
     if (Array.from(title.trim()).length < 3) return [];
     const result = await this.db.execute(sql`
       SELECT DISTINCT
@@ -636,7 +631,7 @@ export class DrizzleWorklogTextNormalizationRepository implements WorklogTextNor
         record.source_id::text AS source_id,
         record.author_user_id::text AS actor_user_id,
         CASE
-          WHEN source.type = 'GROUP' THEN COALESCE(source.subscription_owner_user_id, source.owner_user_id)::text
+          WHEN source.type = 'GROUP' THEN responsibility.responsible_user_id::text
           WHEN source.type = 'PRIVATE' THEN source.private_user_id::text
           ELSE NULL
         END AS charged_user_id,
@@ -644,6 +639,11 @@ export class DrizzleWorklogTextNormalizationRepository implements WorklogTextNor
         record.occurred_at
       FROM worklog_records AS record
       INNER JOIN worklog_sources AS source ON source.id = record.source_id
+      LEFT JOIN worklog_source_ai_responsibility AS responsibility
+        ON responsibility.source_id = source.id
+      LEFT JOIN worklog_source_members AS responsible_member
+        ON responsible_member.source_id = source.id
+       AND responsible_member.user_id = responsibility.responsible_user_id
       WHERE record.id = ${recordId}
         AND record.input_type = 'TEXT'
         AND record.raw_text IS NOT NULL
@@ -654,7 +654,11 @@ export class DrizzleWorklogTextNormalizationRepository implements WorklogTextNor
         AND record.version = 1
         AND source.status = 'ACTIVE'
         AND (
-          (source.type = 'GROUP' AND COALESCE(source.subscription_owner_user_id, source.owner_user_id) IS NOT NULL)
+          (
+            source.type = 'GROUP'
+            AND responsibility.responsible_user_id IS NOT NULL
+            AND responsible_member.is_active = TRUE
+          )
           OR (source.type = 'PRIVATE' AND source.private_user_id IS NOT NULL)
         )
       LIMIT 1
@@ -739,6 +743,7 @@ function parseUsageCommit(value: unknown): WorklogAiUsageCommit {
     actualUnits: nonNegativeIntegerValue(row.actualUnits, 'actualUnits'),
     workspaceId: optionalPositiveIntegerValue(row.workspaceId, 'workspaceId'),
     recordId: optionalPositiveIntegerValue(row.recordId, 'recordId'),
+    operation: optionalTextValue(row.operation, 'operation', 64),
     provider: requiredUnknownText(row.provider, 'provider'),
     model: requiredUnknownText(row.model, 'model'),
     inputTokens: nonNegativeIntegerValue(row.inputTokens, 'inputTokens'),
@@ -801,6 +806,13 @@ function requiredDbText(value: unknown, label: string): string {
 
 function requiredUnknownText(value: unknown, label: string): string {
   return requiredDbText(value, label);
+}
+
+function optionalTextValue(value: unknown, label: string, max: number): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value !== 'string') throw new Error(`invalid ${label}`);
+  const normalized = value.trim();
+  return normalized ? normalized.slice(0, max) : undefined;
 }
 
 function positiveNumeric(value: unknown, label: string): number {
