@@ -310,9 +310,50 @@ describe('WorklogLineRuntime', () => {
       status: 'QUERY',
       sourceId: 20,
       userId: 7,
+      filters: {},
     });
     expect(collaboration.accessCalls).toBe(1);
     expect(collaboration.calls).toBe(0);
+  });
+
+  it('routes strong natural-language history to deterministic PWA filters without persisting a Record', async () => {
+    const collaboration = new FakeCollaboration();
+    const records = new FakeRecords();
+    const runtime = new WorklogLineRuntime(new FakeBootstrap(), collaboration, records);
+
+    await expect(runtime.handle(message('@AFTERTRACE 王大明這週做了什麼', {
+      lineTimestamp: new Date('2026-09-04T03:30:00+08:00'),
+    }))).resolves.toEqual({
+      status: 'QUERY',
+      sourceId: 20,
+      userId: 7,
+      filters: {
+        query: '王大明',
+        from: '2026-08-30T16:00:00.000Z',
+        to: '2026-09-06T16:00:00.000Z',
+      },
+    });
+    expect(records.calls).toBe(0);
+    expect(collaboration.accessCalls).toBe(1);
+    expect(collaboration.calls).toBe(0);
+  });
+
+  it('does not persist obvious edit commands and requires a reliable Reply target', async () => {
+    const records = new FakeRecords();
+    const runtime = new WorklogLineRuntime(new FakeBootstrap(), new FakeCollaboration(), records);
+
+    await expect(runtime.handle(message('@AFTERTRACE 幫我改成 2800'))).resolves.toMatchObject({
+      status: 'REJECTED',
+      reason: 'EDIT_TARGET_REQUIRED',
+    });
+    await expect(runtime.handle(message('@AFTERTRACE 幫我改成 2800', {
+      quotedLineMessageId: 'quoted-record-1',
+    }))).resolves.toMatchObject({
+      status: 'REJECTED',
+      reason: 'EDIT_NOT_READY',
+    });
+    expect(records.calls).toBe(0);
+    expect(records.quotedCalls).toBe(0);
   });
 
   it('does not let legacy recording permission remove historical query access', async () => {
@@ -324,6 +365,7 @@ describe('WorklogLineRuntime', () => {
       status: 'QUERY',
       sourceId: 20,
       userId: 7,
+      filters: {},
     });
     expect(collaboration.accessCalls).toBe(1);
     expect(collaboration.calls).toBe(0);
