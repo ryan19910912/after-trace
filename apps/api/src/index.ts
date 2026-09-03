@@ -15,6 +15,7 @@ import { DrizzleWorklogRecordWriteRepository } from './worklog/drizzle-records';
 import { SafeDrizzleWorklogSubscriptionRepository } from './worklog/drizzle-subscription-safe';
 import { DrizzleWorklogTextNormalizationRepository } from './worklog/drizzle-text-normalization';
 import { GeminiWorklogTextNormalizer } from './worklog/gemini-text-normalizer';
+import type { WorklogHistoryFilters } from './worklog/history-navigation';
 import { processWorklogGroupWebhook } from './worklog/group-webhook';
 import { WorklogLineRuntime } from './worklog/line-runtime';
 import { WorklogOaRuntime } from './worklog/oa-runtime';
@@ -122,12 +123,15 @@ app.post('/webhooks/line', async (c) => {
       reply: lineReplyClient,
       anomalies: worklogAnomalies,
       createQueryUrl: webAuthService && webAppUrl
-        ? (target) => webAuthService.createBotEntry({
-            webAppUrl,
-            lineUserId: target.lineUserId,
-            lineGroupId: target.lineGroupId,
-            at: target.at,
-          })
+        ? async (target) => appendHistoryFilters(
+            await webAuthService.createBotEntry({
+              webAppUrl,
+              lineUserId: target.lineUserId,
+              lineGroupId: target.lineGroupId,
+              at: target.at,
+            }),
+            target.filters,
+          )
         : undefined,
     }),
     processWorklogOaWebhook({
@@ -136,18 +140,31 @@ app.post('/webhooks/line', async (c) => {
       reply: lineReplyClient,
       anomalies: worklogAnomalies,
       createQueryUrl: webAuthService && webAppUrl
-        ? (target) => webAuthService.createPrivateBotEntry({
-            webAppUrl,
-            lineUserId: target.lineUserId,
-            userId: target.userId,
-            sourceId: target.sourceId,
-            at: target.at,
-          })
+        ? async (target) => appendHistoryFilters(
+            await webAuthService.createPrivateBotEntry({
+              webAppUrl,
+              lineUserId: target.lineUserId,
+              userId: target.userId,
+              sourceId: target.sourceId,
+              at: target.at,
+            }),
+            target.filters,
+          )
         : undefined,
     }),
   ]);
 
   return c.json({ ok: true, ...groupCounters, ...oaCounters });
 });
+
+function appendHistoryFilters(url: string | null, filters: WorklogHistoryFilters): string | null {
+  if (!url) return null;
+  const value = new URL(url);
+  if (filters.entityId) value.searchParams.set('entityId', String(filters.entityId));
+  if (filters.query?.trim()) value.searchParams.set('q', filters.query.trim());
+  if (filters.from) value.searchParams.set('from', filters.from);
+  if (filters.to) value.searchParams.set('to', filters.to);
+  return value.toString();
+}
 
 export default app;
