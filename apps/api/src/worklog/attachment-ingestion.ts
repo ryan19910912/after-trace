@@ -33,6 +33,12 @@ export type WorklogAttachmentProviderResponse = {
 export type WorklogAttachmentClaimState =
   | { status: 'CLAIMED' }
   | { status: 'PROCESSING' }
+  | {
+      status: 'PROVIDER_SUCCEEDED';
+      reservationToken: string;
+      usage: WorklogAiUsageCommit;
+      failureReason: string;
+    }
   | { status: 'RECORD_CREATED'; recordId: number; reservationToken: string; usage: WorklogAiUsageCommit }
   | { status: 'SUCCEEDED'; recordId: number }
   | { status: 'FAILED'; reason: string };
@@ -122,6 +128,14 @@ export class WorklogAttachmentIngestionService {
     }
     if (claimed.status === 'PROCESSING') return { status: 'IN_PROGRESS' };
     if (claimed.status === 'FAILED') return { status: 'FAILED', reason: claimed.reason };
+    if (claimed.status === 'PROVIDER_SUCCEEDED') {
+      return this.settleProviderFailure(
+        commandLineMessageId,
+        claimed.reservationToken,
+        claimed.usage,
+        claimed.failureReason,
+      );
+    }
     if (claimed.status === 'RECORD_CREATED') return this.settleExisting(commandLineMessageId, claimed);
 
     let reservationToken: string | null = null;
@@ -158,13 +172,14 @@ export class WorklogAttachmentIngestionService {
 
       const provider = await this.provider.analyze(content, config, input.instruction ?? null);
       providerCompleted = true;
-      // User quota remains based on total provider prompt + output tokens. Modality
-      // breakdown only changes historical provider-cost pricing, not quota counting.
+      // Reservation is a preflight estimate only. Once provider output exists, full
+      // actual usage must be settled even if it exceeded the held estimate.
       const actualUnits = provider.inputTokens + provider.outputTokens;
-      if (!Number.isSafeInteger(actualUnits) || actualUnits < 0 || actualUnits > reservation.reservation.unitsReserved) {
-        await this.safeRelease(reservationToken);
-        await this.repository.fail(commandLineMessageId, 'AI_USAGE_EXCEEDED_RESERVATION');
-        return { status: 'FAILED', reason: 'AI_USAGE_EXCEEDED_RESERVATION' };
+      if (!Number.isSafeInteger(actualUnits) || actualUnits < 0) {
+        // The provider returned, so do not release the reservation. This response is
+        // unusable for exact accounting and must remain an operator-visible failure.
+        await this.repository.fail(commandLineMessageId, 'AI_USAGE_INVALID');
+        return { status: 'FAILED', reason: 'AI_USAGE_INVALID' };
       }
 
       const pricingSnapshot = snapshotAiUsage({
@@ -241,9 +256,18 @@ export class WorklogAttachmentIngestionService {
           usage: input.usage,
         });
         if (stored.status === 'SOURCE_NOT_FOUND') {
-          await this.safeRelease(input.reservationToken);
-          await this.repository.fail(input.claimInput.commandLineMessageId, 'SOURCE_NOT_FOUND');
-          return { status: 'STOP', result: { status: 'FAILED', reason: 'SOURCE_NOT_FOUND' } };
+          // persistRecordCreated durably stores the provider usage/reservation on the
+          // ingestion row before returning SOURCE_NOT_FOUND. Settle that real provider
+          // cost even though no work record can be attached to the now-inactive source.
+          return {
+            status: 'STOP',
+            result: await this.settleProviderFailure(
+              input.claimInput.commandLineMessageId,
+              input.reservationToken,
+              input.usage,
+              'SOURCE_NOT_FOUND',
+            ),
+          };
         }
         return { status: 'PERSISTED', recordId: stored.recordId };
       } catch {
@@ -258,6 +282,17 @@ export class WorklogAttachmentIngestionService {
           return {
             status: 'STOP',
             result: await this.settleExisting(input.claimInput.commandLineMessageId, recovered),
+          };
+        }
+        if (recovered?.status === 'PROVIDER_SUCCEEDED') {
+          return {
+            status: 'STOP',
+            result: await this.settleProviderFailure(
+              input.claimInput.commandLineMessageId,
+              recovered.reservationToken,
+              recovered.usage,
+              recovered.failureReason,
+            ),
           };
         }
         if (recovered?.status === 'FAILED') {
@@ -292,13 +327,32 @@ export class WorklogAttachmentIngestionService {
   ): Promise<WorklogAttachmentIngestionResult> {
     const committed = await this.subscriptions.commitAiUsage(state.reservationToken, state.usage);
     if (committed.status !== 'COMMITTED') {
-      if (committed.status !== 'RESERVATION_NOT_ACTIVE' || await this.repository.reservationStatus(state.reservationToken) !== 'COMMITTED') {
+      if (await this.repository.reservationStatus(state.reservationToken) !== 'COMMITTED') {
         await this.repository.fail(commandLineMessageId, committed.status);
         return { status: 'FAILED', reason: committed.status };
       }
     }
     await this.repository.markSucceeded(commandLineMessageId, state.recordId);
     return { status: 'RECORDED', recordId: state.recordId, duplicate: false };
+  }
+
+  private async settleProviderFailure(
+    commandLineMessageId: string,
+    reservationToken: string,
+    usage: WorklogAiUsageCommit,
+    failureReason: string,
+  ): Promise<WorklogAttachmentIngestionResult> {
+    const committed = await this.subscriptions.commitAiUsage(reservationToken, usage);
+    if (committed.status !== 'COMMITTED') {
+      const reservationStatus = await this.repository.reservationStatus(reservationToken);
+      if (reservationStatus !== 'COMMITTED') {
+        // Keep the durable PROCESSING+provider-usage state so a later redelivery can
+        // retry settlement without re-fetching the attachment or calling Gemini again.
+        return { status: 'IN_PROGRESS' };
+      }
+    }
+    await this.repository.fail(commandLineMessageId, failureReason);
+    return { status: 'FAILED', reason: failureReason };
   }
 
   private async safeRelease(token: string): Promise<void> {
