@@ -10,6 +10,7 @@ export type GroupAuthorizationContext = {
   sourceId: number;
   sourceStatus: 'ACTIVE' | 'INACTIVE';
   ownerUserId: number | null;
+  ownerIsActiveMember: boolean;
   actorIsActiveMember: boolean;
   actorRecordingEnabled: boolean;
   ownerPlanCode: string | null;
@@ -49,6 +50,7 @@ type GroupAuthorizationFailureStatus =
   | 'GROUP_NOT_FOUND'
   | 'GROUP_INACTIVE'
   | 'OWNER_UNBOUND'
+  | 'OWNER_ABSENT'
   | 'NOT_ACTIVE_MEMBER'
   | 'GROUP_NOT_ENTITLED'
   | 'GROUP_LIMIT_REACHED';
@@ -106,6 +108,7 @@ export class WorklogCollaborationService {
     if (!context) return { status: 'GROUP_NOT_FOUND' };
     if (context.sourceStatus !== 'ACTIVE') return { status: 'GROUP_INACTIVE' };
     if (context.ownerUserId === null) return { status: 'OWNER_UNBOUND' };
+    if (!context.ownerIsActiveMember) return { status: 'OWNER_ABSENT' };
     if (!context.actorIsActiveMember) return { status: 'NOT_ACTIVE_MEMBER' };
 
     const entitlement = groupEntitlement(context, input.at ?? new Date());
@@ -133,6 +136,7 @@ export class WorklogCollaborationService {
     if (!context) return { status: 'GROUP_NOT_FOUND' };
     if (context.sourceStatus !== 'ACTIVE') return { status: 'GROUP_INACTIVE' };
     if (context.ownerUserId === null) return { status: 'OWNER_UNBOUND' };
+    if (!context.ownerIsActiveMember) return { status: 'OWNER_ABSENT' };
     if (!context.actorIsActiveMember) return { status: 'NOT_ACTIVE_MEMBER' };
 
     const isOwner = context.ownerUserId === input.actorUserId;
@@ -236,8 +240,6 @@ function groupEntitlement(
   const capabilities = parsePlanCapabilities(context.ownerCapabilities);
   if (!canUseGroupCollaboration(planCode, capabilities)) return notEntitled(context);
 
-  // A group-enabled plan must carry an explicit numeric limit. Missing/malformed
-  // legacy capability data fails closed rather than silently becoming unlimited.
   const maxGroupCount = configuredGroupLimit(capabilities);
   if (maxGroupCount === null) return notEntitled(context);
 
