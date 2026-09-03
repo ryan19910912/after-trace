@@ -7,14 +7,15 @@ import {
 export type WorklogRecordListItem = {
   id: number;
   sourceId: number;
+  entityId: number | null;
+  title: string | null;
   authorUserId: number | null;
   inputType: 'TEXT' | 'AUDIO' | 'IMAGE' | 'FILE';
-  category: string;
-  rawText: string | null;
-  normalizedSummary: string | null;
-  customerId: number | null;
-  projectId: number | null;
-  sourceTimestamp: string | null;
+  rawText: string;
+  occurredAt: string;
+  status: 'ACTIVE' | 'DELETED';
+  version: number;
+  deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -43,7 +44,7 @@ export type StoredTextRecordIdentity = {
   authorUserId: number | null;
   lineMessageId: string;
   quotedLineMessageId: string | null;
-  rawText: string | null;
+  rawText: string;
 };
 
 export interface WorklogRecordWriteRepository extends WorklogLineTextCacheRepository {
@@ -53,7 +54,7 @@ export interface WorklogRecordWriteRepository extends WorklogLineTextCacheReposi
     lineMessageId: string;
     quotedLineMessageId?: string | null;
     rawText: string;
-    sourceTimestamp: Date;
+    occurredAt: Date;
   }): Promise<
     | { status: 'CREATED'; record: StoredTextRecordIdentity }
     | { status: 'EXISTING'; record: StoredTextRecordIdentity }
@@ -84,7 +85,11 @@ export class WorklogRecordWriteService {
     return this.textCache.remember(input);
   }
 
-  async resolve(lineGroupId: string, quotedLineMessageId: string, now?: Date): Promise<CachedLineText | null> {
+  async resolve(
+    lineGroupId: string,
+    quotedLineMessageId: string,
+    now?: Date,
+  ): Promise<CachedLineText | null> {
     return this.textCache.resolve(lineGroupId, quotedLineMessageId, now);
   }
 
@@ -130,7 +135,7 @@ export class WorklogRecordWriteService {
       lineMessageId,
       quotedLineMessageId,
       rawText: text,
-      sourceTimestamp: input.sourceTimestamp ?? new Date(),
+      occurredAt: input.sourceTimestamp ?? new Date(),
     });
 
     if (stored.status === 'SOURCE_NOT_FOUND') return stored;
@@ -167,9 +172,18 @@ export class WorklogRecordReadService {
     return this.repository.listRecordsBySource(sourceId, safeLimit(limit));
   }
 
-  async groupRecords(userId: number, sourceId: number, limit = 100): Promise<{ status: 'OK'; records: WorklogRecordListItem[] } | { status: 'FORBIDDEN' }> {
-    if (!(await this.repository.isActiveGroupMember(userId, sourceId))) return { status: 'FORBIDDEN' };
-    return { status: 'OK', records: await this.repository.listRecordsBySource(sourceId, safeLimit(limit)) };
+  async groupRecords(
+    userId: number,
+    sourceId: number,
+    limit = 100,
+  ): Promise<{ status: 'OK'; records: WorklogRecordListItem[] } | { status: 'FORBIDDEN' }> {
+    if (!(await this.repository.isActiveGroupMember(userId, sourceId))) {
+      return { status: 'FORBIDDEN' };
+    }
+    return {
+      status: 'OK',
+      records: await this.repository.listRecordsBySource(sourceId, safeLimit(limit)),
+    };
   }
 }
 
