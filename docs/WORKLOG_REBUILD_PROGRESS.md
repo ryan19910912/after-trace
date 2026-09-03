@@ -3,235 +3,116 @@
 Durable handoff for branch `revive/line-worklog`.
 
 Read first every run:
+
 - `docs/WORKLOG_PRODUCT_SPEC.md`
+- `docs/WORKLOG_ENTITY_MODEL.md`
+- `docs/WORKLOG_RECORD_EDIT_POLICY.md`
 - this file
 - `docs/WORKLOG_LINE_CONTENT_POLICY.md`
 - `docs/WORKLOG_DEPLOYMENT.md`
 - `docs/WORKLOG_DEVELOPMENT_POLICY.md`
 
-## Stable product contract
+## Current stable product contract
 
-- LINE is the fast AI-assisted capture surface; Web/PWA is the durable manual record surface.
-- FREE = NT$0, ONE_TIME, 500 AI units once, no calendar expiry/no refresh.
-- PRO = NT$99/month, MONTHLY, 500 included AI units per successful renewal.
-- TEAM = NT$299/month, MONTHLY, 2500 included AI units per successful renewal.
-- Users on any plan may purchase one-time AI top-up packs; each purchase remains a separate durable allowance grant.
-- AI allowance is always **user-owned**, never group-owned.
-- Every included/top-up grant can independently allow PRIVATE and selected GROUP scopes and can optionally set per-scope usage caps.
-- Multiple one-time top-up purchases must not be merged if doing so would lose independent allocation settings.
-- If a scope has no cap, it may consume until the shared grant is exhausted; aggregate usage across all scopes can never exceed the real grant balance.
-- Recommended grant spend order: current included grant first, then one-time top-up grants oldest first.
-- Group members may see current group-specific AI billing Owner + available/used/remaining amount **and the historical AI usage ledger for that group across prior Billing Owners/grants**.
-- Historical group AI usage must remain visible after Owner transfer, plan renewal/expiry, allocation changes or AI pause; history is append-only/auditable and group-scoped.
-- Group history may show actor, charged Owner, grant source/type, units used, record reference/type and time, but must not reveal Owner private/global/other-group balances or unrelated payment details.
-- Platform does not police private agreements about whether an Owner also uses their own allowance privately; it enforces only the Owner's configured allocation/caps.
-- Group dissolution requires no quota refund because units never leave the user's grant; the obsolete group allocation simply stops being eligible while historical group usage remains intact.
-- Paid plans and FREE do **not** limit group count.
-- FREE may add AFTERTRACE Bot to LINE groups and use group PWA manually.
-- Group existence/manual collaboration is free; AI billing ownership is required only when LINE AI/provider work spends quota.
-- PWA manual read/create/edit is baseline free functionality and consumes zero AI units unless an explicit AI action is invoked.
-- Private manual scope: owner only.
-- Group manual scope: active group members may read/create/edit collaboratively even without a paid plan, even if billing Owner is absent, and even after AI allowance is exhausted.
-- Record deep links are durable authenticated `/records/<id>` routes, not short-lived capability links.
-- Successful LINE AI recording must return what was actually saved/normalized plus that record deep link.
-- AI use requires at least one eligible allowance grant and, for group AI, an eligible bound billing Owner whose allocation permits that group.
-- If group billing Owner leaves, LINE AI-assisted recording pauses; manual PWA group work continues.
-- Another active member may run `@AFTERTRACE 啟用` to take over AI billing responsibility only while old billing Owner is absent.
-- Current AI billing Owner may explicitly transfer responsibility to another active group member through two-party approval: Owner initiates, target confirms in authenticated PWA, request is single-use/expiring, balances do not move with the role.
-- Related business events should preserve history rather than overwrite earlier records. Example: an earlier `RECEIVABLE` and later `RECEIVED` remain separate records/transactions but may be deterministically linked/allocated.
-- **AI must never guess a business-state relation when confidence is insufficient.** If customer/project/issue/receivable matching is ambiguous, save the new record truthfully, leave prior state unchanged, and tell the user that AFTERTRACE cannot currently determine which prior item the new message refers to.
-- Ambiguous financial matching must never automatically settle/change a receivable. It requires explicit user confirmation/selection before deterministic finance state changes.
-- Export is MVP; CSV first is acceptable and currently remains paid.
-- XLSX/DOCX are MVP input targets; prefer verified Google provider-native ingestion before custom parsing.
-- Dev/prod DBs are prelaunch/disposable and may be rebuilt.
-- GitHub Actions must not run unless explicitly requested by user.
+- Product/domain is general-purpose work recording, not a construction/finance-specific schema.
+- Core model is Source + Entity + Alias + Record + RecordEntity + Revision + Pending AI Confirmation.
+- PRIVATE and GROUP Sources are isolated data spaces.
+- PWA manual read/create/edit/delete/restore is free baseline functionality.
+- Active GROUP members may collaboratively use group records without paid plan, AI balance, AI responsible user or group-count restriction.
+- Customer-facing role name is `AI 額度負責人`.
+- AI allowance is user-owned and represented by separate FREE/subscription/top-up grants with independent PRIVATE/GROUP allocation/caps.
+- Subscription expiry does not disable separately eligible top-up grants.
+- AI request starts only when eligible balance > 0. If real provider usage exceeds remaining eligible units after start, user balance floors at zero and platform subsidy is durably recorded by user/source/group/responsible-user/request/provider cost.
+- Group PWA shows current group-specific AI availability plus complete historical group AI usage across responsible-user/grant changes without exposing unrelated private balances.
+- Responsible-user transfer uses two-party approval and does not transfer balances.
 
-## Implemented / fixed
+## Entity model decisions
 
-- Worklog-only OA/group runtime, Web/Admin Workers, PostgreSQL/Drizzle foundations.
-- Explicit billing Owner binding because LINE Bot join cannot reliably identify inviter.
-- Owner-presence / absent-owner rebind flow exists in current AI collaboration path.
-- Group AI text/media capability gates exist.
-- Gemini modality double-count and provider-success reservation settlement defects were corrected.
-- Gemini 3.x thinking usage accounting exists in current provider path; executable validation pending.
-- `pwaEditing` removed from Admin plan capability definitions.
-- Product/development/deployment docs reflect rebuildable prelaunch DBs.
+- Every concrete reusable lookup subject is an Entity: person, project/context, place, equipment/item, etc.
+- Entity metadata stays minimal and general-purpose.
+- `PRIMARY` and `RELATED` are roles of an Entity in one Record, not permanent Entity types.
+- One Record has at most one PRIMARY Entity and zero/many RELATED Entities.
+- The Record exists once and must be discoverable through every attached Entity.
+- Example: `王大明跟陳師傅今天去三重晴空案換冷氣` -> PRIMARY `晴空案`; RELATED `王大明`, `陳師傅`.
+- Do not extract every noun into an Entity; only meaningful future lookup targets.
+- Alias means another genuine name for the same Entity. Context phrases such as `王大明的晴空案` are not automatically aliases.
+- Possible alias/entity ambiguity must ask user confirmation rather than silently create duplicates or attach uncertain aliases.
+- Pending confirmation is durable, supporting at least `ALIAS_MATCH`, `PRIMARY_ENTITY`, `ENTITY_MATCH`.
+- Merge is reversible; undo moves associations that originally belonged to source Entity back even if Record text changed after merge.
+- Generic Record-to-Record relation is not required for MVP solely for chronological progression; Entity + occurred_at + on-demand AI is sufficient until a concrete deterministic feature requires relations.
 
-## Superseded code/contracts requiring cleanup
+## Record / time / edit decisions
 
-### 1. `maxGroupCount` is obsolete
+- Durable truth is raw Record text or durable textual extraction plus Entity associations and audit history.
+- No persistent per-record AI summary. AI summaries/queries are generated on demand and are ephemeral.
+- Record time distinguishes `created_at`, `occurred_at`, `updated_at`.
+- `occurred_at` defaults to message/create time when unspecified; AI can parse relative time such as yesterday/last Friday.
+- Every content edit creates immutable revision history.
+- PWA shows `已編輯` and lets authorized users inspect history.
+- Record editing uses DB integer `version` optimistic concurrency; no Redis/memory lock for normal edit concurrency.
+- PWA manual edit does not call AI and does not automatically reassign Entity associations.
+- Record delete is soft delete; RecordEntity/revision data remains stored, normal queries ignore deleted rows, recycle-bin view can restore them.
 
-Remove end-to-end:
-- Admin capability definition/control/defaults;
-- plan JSON/defaults;
-- collaboration ordinal SQL;
-- GROUP_LIMIT_REACHED result/copy/tests;
-- any Web filtering based on group ordinal.
+## LINE AI edit decisions
 
-No plan limits number of groups.
+- LINE natural-language editing requires positive eligible AI balance.
+- Record target should be deterministic through Reply to the exact prior Record/AFTERTRACE success context.
+- If no reliable Reply target exists, do not guess; tell user to Reply to the Record or edit in PWA.
+- After target record id is fixed, AI interprets requested change.
+- AI may update text and, when user clearly changes subject, update PRIMARY/RELATED Entity associations.
+- Unknown/ambiguous new subject uses normal Entity/Alias/Pending Confirmation flow.
+- Backend performs authorization + version check + revision + update atomically; AI never receives arbitrary SQL mutation authority.
 
-### 2. Generic paid `groupCollaboration` is too broad
+## Current code/schema mismatch requiring refactor
 
-FREE group/manual collaboration is allowed. If a group capability remains, redefine it specifically for AI-assisted spending rather than group existence/read/manual CRUD.
+Legacy code/schema still reflects earlier workspace/customer/project/finance/Owner/capability assumptions and must not be treated as product truth.
 
-### 3. Group source existence must not depend on billing Owner
+Major cleanup/refactor areas:
 
-Refactor so:
-- Bot can join/create a usable group surface without paid entitlement;
-- active members can reach group PWA and manually create/edit records without billing Owner;
-- billing Owner may remain null until AI group capture is requested/enabled;
-- binding/rebinding determines whose eligible grants may be charged, not whether the group exists.
+1. remove `maxGroupCount`, `GROUP_LIMIT_REACHED` and any group ordinal enforcement;
+2. remove/redefine generic paid `groupCollaboration` gating;
+3. separate GROUP existence/data ownership from AI allowance responsibility;
+4. split free manual/history authorization from AI entitlement/balance gates;
+5. replace workspace-owner-centric group edit/read with Source/member authorization;
+6. refactor fixed Customer/Project-centric core toward generic Entity/Alias/RecordEntity model;
+7. add `occurred_at`, record status/delete audit, integer `version`, revision history;
+8. add durable Entity merge history/undo and pending AI confirmations;
+9. remove dependence on persistent per-record normalized summary as product truth;
+10. implement user-owned AI grant/allocation/cap ledger and separate top-up purchases;
+11. implement platform-subsidy accounting for overage after a positive-balance AI request begins;
+12. implement AI 額度負責人 transfer and group AI history;
+13. implement LINE Reply AI edit with deterministic target and Entity reclassification when requested;
+14. implement on-demand AI query/summary retrieval after remaining query semantics are finalized;
+15. preserve LINE attachment policy and verify XLSX/DOCX provider-native ingestion.
 
-This likely requires separating source/workspace ownership from AI billing ownership rather than overloading one Owner field.
+## Product discussions still open
 
-### 4. Historical/manual group access is still over-restricted
+Core model is close to freeze. Remaining high-value discussions:
 
-Required:
-- manual/history read: authenticated active group membership + active source;
-- manual PWA create/edit: same membership/source boundary;
-- no paid plan, Owner presence or AI balance requirement;
-- LINE AI/provider path uses stronger billing-owner/allocation/balance gates.
+- exact charging semantics for AI-assisted Record creation/entity parsing;
+- exact AI create output beyond PRIMARY/RELATED/Alias candidate/occurred_at, if anything;
+- AI Query retrieval scope/UX: single Entity, whole Source/group, date ranges, questions without explicit Entity, and candidate retrieval strategy;
+- PWA manual flow for explicitly changing a Record's PRIMARY/RELATED Entity without AI;
+- final export/report behavior under the on-demand AI model;
+- final product/brand name and go-to-market positioning.
 
-### 5. Generic record edit is still workspace-owner-centric
+Future backlog, not approved MVP work yet:
 
-Required:
-- PRIVATE -> private owner only;
-- GROUP -> active group member may edit;
-- add manual PWA create API for both scopes;
-- manual create/edit costs zero AI units;
-- preserve actor/editor identity and timestamps.
-
-## Record relationship / finance state requirement
-
-Current schema already has records linked to customer/project plus typed finance transactions (`RECEIVABLE`, `RECEIVED`, `EXPENSE`), but it does not yet model explicit settlement/allocation between a later receipt and an earlier receivable.
-
-Required direction:
-
-- work records remain event history and should not be overwritten merely because later events update current state;
-- add deterministic relation/allocation support so one `RECEIVED` transaction can settle all or part of one or more `RECEIVABLE` transactions;
-- support partial payment (for example 30,000 receivable -> 10,000 received -> 20,000 received) rather than assuming one-to-one full settlement;
-- PWA project/customer finance view should derive `應收 / 已收 / 未收 / 已結清` from typed deterministic transactions/allocations, with the underlying record timeline still visible;
-- candidate matching may use source/workspace, customer, project, amount, unresolved state and recency, but only high-confidence unique matches may be auto-linked;
-- if there are multiple plausible matches or confidence is below the accepted threshold, **do not mutate the earlier transaction/current state**;
-- in the ambiguous case, preserve the newly submitted record and return a clear LINE reply such as: `已記錄這筆收款資訊，但目前無法判斷是對應哪一筆未收款紀錄。請到 AFTERTRACE 確認要結清／沖銷的項目。`;
-- the reply should include the durable PWA record/confirmation deep link where practical so the user can resolve the ambiguity immediately;
-- the same no-guess rule should apply to ambiguous customer/project/issue relations that would materially change existing state.
-
-## AI grant/allocation domain requirement
-
-The previous simple “user aggregate balance” model is now insufficient.
-
-Required grant model:
-
-- every FREE initial grant, monthly included period grant, and one-time top-up purchase is an identifiable allowance grant;
-- top-up purchases remain separate grant rows so allocation rules can differ per purchase;
-- grants are owned by a user and never transferred to a group;
-- allocation policy supports PRIVATE plus selected GROUP source ids;
-- each grant can optionally set PRIVATE cap and per-group cap;
-- no cap means the allowed scope may consume until grant balance is exhausted;
-- aggregate consumption across scopes cannot exceed grant remaining units;
-- usage/reservations must retain which grant(s) funded the provider call and which PRIVATE/GROUP scope consumed them;
-- reservation/commit spanning multiple grants must be transactional/idempotent;
-- deterministic initial grant selection order: current included grant first, then oldest top-up grants;
-- monthly renewal replaces/creates only the included-period grant; top-up grants survive;
-- group closure simply disables that group's allocation eligibility; no refund/ownership transfer is necessary;
-- immutable usage/grant-consumption references must be sufficient to reconstruct group history across Owner/grant/allocation changes.
-
-Recommended default allocation on new grant:
-- PRIVATE allowed;
-- no group automatically allowed until the user explicitly accepts/configures billing responsibility for that group;
-- no per-scope caps by default.
-
-## Group AI visibility/history requirement
-
-Group members should be able to understand both the group's **current AI state** and **historical AI consumption** without seeing a Billing Owner's unrelated personal finances.
-
-Current state exposed to active group members:
-- current AI billing Owner;
-- amount currently available to this group under eligible allocations/caps;
-- amount already used from the current eligible group allocations;
-- amount remaining available to this group.
-
-Historical group AI ledger exposed to active group members:
-- usage timestamp/date;
-- actor who triggered the AI work;
-- charged Billing Owner at that time;
-- funding grant source/type (`FREE`, subscription-period grant, or individual top-up grant) at an appropriate non-sensitive level;
-- AI units consumed by this group for the usage event;
-- related record id/type where useful;
-- group totals/period totals so users can understand historical consumption;
-- Owner-transfer/period boundaries sufficient to explain why the funding Owner/grant changed.
-
-History rules:
-- Owner transfer must not hide or rewrite previous Owner usage;
-- subscription renewal/expiry or allocation/cap changes must not rewrite old group usage;
-- group AI pause/resume must not erase history;
-- group close/inactive state may stop future use but preserves history;
-- usage history should come from immutable provider/AI usage events plus funding-grant references, not from recomputing only the current Owner state.
-
-Do not expose:
-- Owner's unrelated private balance or private AI usage;
-- Owner's global remaining balance beyond what is made available/consumed by this group;
-- other groups' allocation or usage;
-- raw payment method/provider secrets or unrelated purchase details.
-
-## High-priority implementation queue
-
-1. Remove `maxGroupCount` / GROUP_LIMIT_REACHED end-to-end.
-2. Separate free group/source existence from AI billing-owner binding.
-3. Split manual group authorization from LINE AI entitlement.
-4. Implement PWA manual create + collaborative group edit/private-owner edit.
-5. Implement record relationship/finance allocation model and ambiguity-confirmation flow for later events that may update prior state.
-6. Implement user-owned AI grant/allocation/cap model and migrate quota reservation/settlement to eligible-grant selection, retaining immutable grant-funding references for group history.
-7. Add billing_type and durable FREE/PRO/TEAM defaults now that DBs are rebuildable.
-8. Add one-time top-up products/purchases as separate grant creators.
-9. Implement AI billing-owner transfer requests/approval; after acceptance new Owner must use/configure their own eligible grants.
-10. Implement LINE success summary + durable record deep link, including ambiguous-relation confirmation guidance.
-11. Implement private OA AI entitlement/allocation gates while preserving manual PWA access.
-12. Fix Admin effective included/top-up/grant allocation facts and AI media pricing; expose billing-owner transfer, current group-specific AI availability and historical group AI usage.
-13. Implement group PWA AI history UI/API (current state + paginated historical ledger/summary).
-14. Implement CSV export.
-15. Verify Gemini provider-native XLSX/DOCX path.
-16. Finish AI hardening and enter concentrated local validation.
-
-## AI billing-owner transfer requirement
-
-Accepted product flow:
-
-- command example: `@AFTERTRACE 擁有者轉移 @Ryan Hsu`;
-- only current AI billing Owner may initiate;
-- target must be active member of same group;
-- use reliable LINE mention user id when available; never guess by display name;
-- if reliable mention id unavailable, Owner chooses target in PWA;
-- create pending transfer request with bounded expiry (24–72h target range), single-use state and cancellation/rejection handling;
-- target authenticates in PWA and explicitly accepts;
-- existing Owner remains in force until acceptance;
-- after acceptance future group AI can use only the new Owner's own grants permitted for that group;
-- previous Owner's grants/allocation settings remain personal and do not transfer;
-- transfer event/history is auditable.
-
-## LINE non-AI manual mode
-
-Still not required for MVP. Current recommendation remains:
-- LINE: fast AI-assisted capture + query/deep-link entry;
-- PWA: free structured manual create/edit.
-
-Do not build a second complex LINE manual CRUD grammar unless user testing shows real demand.
+- invoice integration;
+- full-history natural-language search expansion;
+- automatic reminders/follow-up;
+- project/engineering scheduling.
 
 ## Validation status
 
-Recent tests are authored but not executed. Typecheck/test/build/schema/browser/Worker/LINE/Gemini concentrated validation remains pending.
+Schema/runtime implementation has not yet been refactored to this newly finalized Entity-first contract. Existing authored tests do not validate the new model yet.
+
+Concentrated typecheck/test/build/schema/browser/Worker/LINE/Gemini validation remains pending.
 
 **GitHub Actions were not run, dispatched, rerun, enabled or modified.**
 
-## Planning estimate
+## Planning note
 
-Planning estimates only:
-- MVP non-payment-provider implementation: about **89–92%** after adding relationship/finance allocation + ambiguity-confirmation requirements on top of grant allocation, free-group/manual scope, top-up, billing-owner transfer and group AI history.
-- Static architecture/logic audit: about **98–99%**.
-- Production readiness including unrun validation/provider integration: about **78–82%**.
-- Remaining internal development before concentrated validation: about **5 large batches / roughly 15–26 focused hours** because finance settlement linkage and the AI quota grant-allocation refactor are both real domain changes.
-- After concentrated validation begins, reserve **2–8 focused hours** for ordinary compile/schema/browser/runtime fixes.
-- Payment-provider recurring + top-up purchase integration remains separate and likely **1–3 working days after provider selection**.
+The recent product decisions are a meaningful domain refactor, so older percentage estimates are no longer useful until the Entity/grant/edit schema is implemented. Next implementation should prioritize coherent schema/domain migration rather than incremental patching of the legacy Customer/Project/Owner model.
 
 Do not use GitHub Actions as validation.
