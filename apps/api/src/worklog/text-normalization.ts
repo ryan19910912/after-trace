@@ -1,9 +1,10 @@
 import type {
-  AiCommitResult,
-  AiReleaseResult,
-  AiReservationResult,
-  WorklogAiUsageCommit,
-} from './subscription';
+  AiPointCommitResult,
+  AiPointReleaseResult,
+  AiPointReservationResult,
+} from './ai-point-ledger';
+import { providerCostToAiPoints } from './ai-points';
+import type { WorklogAiUsageCommit } from './subscription';
 
 /**
  * Persisted interpretation for a newly-created LINE text Record.
@@ -101,15 +102,13 @@ export type WorklogTextProviderResponse = {
 };
 
 export interface WorklogTextNormalizationProvider {
+  /** Conservative customer-point hold estimate; positive balance is still sufficient to start. */
   reservationUnits(input: WorklogTextProviderInput, config: WorklogAiRuntimeConfigSnapshot): number;
   normalize(input: WorklogTextProviderInput, config: WorklogAiRuntimeConfigSnapshot): Promise<WorklogTextProviderResponse>;
 }
 
-/**
- * Transitional accounting port. The next grant-ledger batch replaces this legacy
- * subscription/aggregate-quota implementation without changing provider idempotency.
- */
-export interface WorklogTextNormalizationSubscriptionPort {
+/** Grant-ledger accounting port used by provider execution. */
+export interface WorklogTextNormalizationAiPointPort {
   reserveAi(input: {
     chargedUserId: number;
     actorUserId: number;
@@ -117,9 +116,9 @@ export interface WorklogTextNormalizationSubscriptionPort {
     requestedUnits: number;
     at?: Date;
     ttlMs?: number;
-  }): Promise<AiReservationResult>;
-  commitAiUsage(token: string, usage: WorklogAiUsageCommit, at?: Date): Promise<AiCommitResult>;
-  releaseAi(token: string, at?: Date): Promise<AiReleaseResult>;
+  }): Promise<AiPointReservationResult>;
+  commitAiUsage(token: string, usage: WorklogAiUsageCommit, at?: Date): Promise<AiPointCommitResult>;
+  releaseAi(token: string, at?: Date): Promise<AiPointReleaseResult>;
 }
 
 export type WorklogTextNormalizationResult =
@@ -136,14 +135,14 @@ export type WorklogTextNormalizationResult =
  * AI interpretation deliberately happens after the raw LINE Record is durable.
  *
  * The state row is a one-record claim. LINE redelivery may resume after durable
- * provider success / quota settlement, but it never starts a second provider call
+ * provider success / point settlement, but it never starts a second provider call
  * after an uncertain provider attempt. The provider output is limited to title/time;
  * raw Record content is never replaced by this pipeline.
  */
 export class WorklogTextNormalizationService {
   constructor(
     private readonly repository: WorklogTextNormalizationRepository,
-    private readonly subscriptions: WorklogTextNormalizationSubscriptionPort,
+    private readonly aiPoints: WorklogTextNormalizationAiPointPort,
     private readonly provider: WorklogTextNormalizationProvider,
     private readonly tokenFactory: () => string = () => crypto.randomUUID(),
   ) {}
@@ -179,11 +178,11 @@ export class WorklogTextNormalizationService {
       referenceOccurredAt: context.occurredAt.toISOString(),
     };
 
-    let requestedUnits: number;
+    let requestedPoints: number;
     try {
-      requestedUnits = positiveInteger(
+      requestedPoints = positiveInteger(
         this.provider.reservationUnits(providerInput, config),
-        'requested AI units',
+        'requested AI points',
       );
     } catch (error) {
       const detail = errorDetail(error);
@@ -191,11 +190,14 @@ export class WorklogTextNormalizationService {
       return { status: 'DEFERRED', reason: 'AI_RUNTIME_CONFIG_INVALID' };
     }
 
-    const reservation = await this.subscriptions.reserveAi({
+    // The point ledger holds up to requestedPoints, but a smaller positive eligible
+    // balance is still sufficient to start the provider request. Any actual overage
+    // after provider success is platform subsidy, never customer negative balance.
+    const reservation = await this.aiPoints.reserveAi({
       chargedUserId: context.chargedUserId,
       actorUserId: context.actorUserId,
       sourceId: context.sourceId,
-      requestedUnits,
+      requestedUnits: requestedPoints,
       ttlMs: 10 * 60_000,
     });
     if (reservation.status !== 'RESERVED') {
@@ -210,20 +212,23 @@ export class WorklogTextNormalizationService {
       const response = await this.provider.normalize(providerInput, config);
       providerCompleted = true;
 
-      // Transitional aggregate quota still settles legacy units. The grant-ledger batch
-      // will replace this with output-price-equivalent AI points while preserving this
-      // provider-success durability boundary.
-      const actualUnits = safeActualUnits(response.inputTokens, response.outputTokens);
       const providerCostUsd =
         (response.inputTokens / 1_000_000) * config.inputUsdPerMillion +
         (response.outputTokens / 1_000_000) * config.outputUsdPerMillion;
       const providerCostTwd = config.usdTwdRate === null
         ? null
         : providerCostUsd * config.usdTwdRate;
+      const actualPoints = providerCostToAiPoints({
+        providerCostUsd,
+        outputUsdPerMillion: config.outputUsdPerMillion,
+      });
       const usage: WorklogAiUsageCommit = {
-        actualUnits,
+        // Transitional field retained for old reporting only. The grant ledger settles
+        // from immutable provider cost and output reference price, not from this value.
+        actualUnits: actualPoints,
         workspaceId: context.workspaceId,
         recordId: context.recordId,
+        operation: 'TEXT_RECORD_CREATE',
         provider: config.provider,
         model: config.model,
         inputTokens: response.inputTokens,
@@ -275,7 +280,7 @@ export class WorklogTextNormalizationService {
   private async settleProviderResult(
     payload: WorklogPersistedNormalizationPayload,
   ): Promise<WorklogTextNormalizationResult> {
-    const committed = await this.subscriptions.commitAiUsage(payload.reservationToken, payload.usage);
+    const committed = await this.aiPoints.commitAiUsage(payload.reservationToken, payload.usage);
     if (committed.status !== 'COMMITTED') {
       const reservationStatus = await this.repository.getReservationStatus(payload.reservationToken);
       if (reservationStatus !== 'COMMITTED') {
@@ -316,7 +321,7 @@ export class WorklogTextNormalizationService {
 
   private async safeRelease(token: string): Promise<void> {
     try {
-      await this.subscriptions.releaseAi(token);
+      await this.aiPoints.releaseAi(token);
     } catch {
       // Reservation expiry is the durable fallback. Never turn raw-record success
       // into a user-visible failure because cleanup itself had a transient DB error.
@@ -336,14 +341,6 @@ export function normalizeWorklogTextOutput(value: unknown): WorklogTextNormaliza
   );
   const occurredAt = optionalDateTime(row.occurredAt ?? row.occurred_at, 'occurredAt');
   return { title, titleRequiresConfirmation, occurredAt };
-}
-
-function safeActualUnits(inputTokens: number, outputTokens: number): number {
-  const input = nonNegativeInteger(inputTokens, 'inputTokens');
-  const output = nonNegativeInteger(outputTokens, 'outputTokens');
-  const total = input + output;
-  if (!Number.isSafeInteger(total)) throw new Error('AI token usage exceeds safe integer range');
-  return total;
 }
 
 function requiredBoolean(value: unknown, label: string): boolean {
