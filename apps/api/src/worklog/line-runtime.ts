@@ -53,7 +53,7 @@ export type WorklogLineRuntimeResult =
   | {
       status: 'REJECTED';
       reason:
-        | 'USER_UNKNOWN' | 'PENDING_OWNER' | 'OWNER_CONFLICT' | 'GROUP_NOT_FOUND' | 'GROUP_INACTIVE'
+        | 'USER_UNKNOWN' | 'OWNER_CONFLICT' | 'GROUP_NOT_FOUND' | 'GROUP_INACTIVE'
         | 'OWNER_UNBOUND' | 'OWNER_ABSENT' | 'NOT_ACTIVE_MEMBER' | 'RECORDING_DISABLED'
         | 'GROUP_NOT_ENTITLED' | 'AI_QUOTA_EXHAUSTED' | 'AI_MEDIA_DISABLED' | 'SOURCE_NOT_FOUND'
         | 'IDEMPOTENCY_CONFLICT' | 'ATTACHMENT_FAILED' | 'EDIT_TARGET_REQUIRED' | 'EDIT_NOT_READY';
@@ -89,9 +89,6 @@ export class WorklogLineRuntime {
     }
 
     const group = await this.bootstrap.bootstrapGroupInteraction({ lineGroupId: message.lineGroupId, lineUserId: message.lineUserId, at: message.lineTimestamp });
-    if (group.status === 'PENDING_OWNER') {
-      return { status: 'REJECTED', reason: 'PENDING_OWNER', replyText: '這個群組目前還沒有 AI 額度負責人。請由要提供群組 AI 點數的人輸入「@AFTERTRACE 啟用」。' };
-    }
 
     if (command.kind === 'QUERY') {
       const access = await this.collaboration.authorizeGroupAccess({ sourceId: group.sourceId, actorUserId: group.userId });
@@ -106,6 +103,8 @@ export class WorklogLineRuntime {
       return { status: 'REJECTED', reason: 'EDIT_NOT_READY', replyText: '已辨識這是修改指令，但 LINE AI 修改尚未完成接線；為避免改錯資料，請先到 AFTERTRACE 紀錄頁手動編輯。' };
     }
 
+    // Only AI-backed create/attachment paths require the transitional funding check.
+    // Manual PWA and history navigation remain available when no responsible user exists.
     const authorization = await this.collaboration.authorizeGroupRecord({ sourceId: group.sourceId, actorUserId: group.userId, requestedAiUnits: 0 });
     if (authorization.status !== 'OK') return rejectedAuthorization(authorization);
     const allowAiText = hasCapability(authorization.ownerCapabilities, 'aiTextRecording');
