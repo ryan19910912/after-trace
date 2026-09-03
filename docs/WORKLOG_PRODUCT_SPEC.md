@@ -116,6 +116,30 @@ A LINE group existing in AFTERTRACE and a user agreeing to pay/consume AI allowa
 
 Preferred no-billing-owner / absent-owner AI reply should explain that AI fast recording is paused while PWA manual records remain usable.
 
+### AI billing owner transfer
+
+The current AI billing Owner may explicitly transfer future group AI billing responsibility to another current group member.
+
+Preferred LINE initiation form:
+
+`@AFTERTRACE 擁有者轉移 @Ryan Hsu`
+
+The transfer is a two-party approval flow:
+
+1. only the current AI billing Owner may initiate while they still hold the role;
+2. the target must be an active member of the same LINE group;
+3. when LINE mention metadata includes a reliable target `userId`, bind the pending request to that exact user id rather than matching display-name text;
+4. if LINE cannot provide a reliable mentioned-user id, do not guess by nickname; direct the current Owner to choose the target member in PWA instead;
+5. AFTERTRACE replies that the transfer has been submitted and gives the target a PWA confirmation link;
+6. the target must authenticate in PWA and explicitly accept before the billing Owner changes;
+7. the request must be single-use and expire after a bounded window such as 24–72 hours; acceptance/rejection/cancellation/role change invalidates it;
+8. until acceptance, the existing billing Owner remains authoritative and their balance continues to fund eligible AI usage;
+9. after acceptance, future group AI usage charges the new billing Owner; the previous Owner returning/rejoining later does not reclaim the role automatically.
+
+AI balances are personal and do not transfer with the role. The previous Owner keeps their own remaining included/top-up balance, and the new Owner starts paying from their own eligible AI balance.
+
+Transfer history must be auditable with initiator, target, group/source, status, timestamps and final accepter identity.
+
 ### Group AI billing
 
 - Group AI usage is charged to the current bound billing Owner/subscriber, never silently to the actor.
@@ -232,7 +256,7 @@ Export is MVP and initially remains a paid capability. CSV first is acceptable. 
 
 ## Internal Admin
 
-Admin supports users/groups, AI billing-owner visibility, plans/billing cadence, included AI balance, top-up products/balances, AI pricing, anomalies, feedback, manual subscription changes and audit.
+Admin supports users/groups, AI billing-owner visibility/transfer history, plans/billing cadence, included AI balance, top-up products/balances, AI pricing, anomalies, feedback, manual subscription changes and audit.
 
 Do not expose `maxGroupCount`, generic paid `groupCollaboration`, or record editing as plan capabilities. Any future group-related paid capability must correspond to a real paid cost/feature.
 
