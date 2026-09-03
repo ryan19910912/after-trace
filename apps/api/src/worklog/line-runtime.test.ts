@@ -142,17 +142,18 @@ describe('WorklogLineRuntime', () => {
     expect(records.remembered).toHaveLength(0);
   });
 
-  it('keeps the transitional unowned group state until AI responsible-user bootstrap is replaced', async () => {
+  it('keeps an unowned group Source usable while AI-backed creation still requires funding', async () => {
     const bootstrap = new FakeBootstrap();
-    bootstrap.group = { status: 'PENDING_OWNER', userId: 7, pendingGroupId: 3 };
+    bootstrap.group = { status: 'BOUND', userId: 7, sourceId: 20, ownerUserId: null };
     const collaboration = new FakeCollaboration();
+    collaboration.result = { status: 'OWNER_UNBOUND' };
     const records = new FakeRecords();
     const runtime = new WorklogLineRuntime(bootstrap, collaboration, records);
 
     const result = await runtime.handle(message('@AFTERTRACE 王先生二樓漏水已修復'));
     expect(result.status).toBe('REJECTED');
-    if (result.status === 'REJECTED') expect(result.reason).toBe('PENDING_OWNER');
-    expect(collaboration.calls).toBe(0);
+    if (result.status === 'REJECTED') expect(result.reason).toBe('OWNER_UNBOUND');
+    expect(collaboration.calls).toBe(1);
     expect(records.calls).toBe(0);
   });
 
@@ -303,9 +304,11 @@ describe('WorklogLineRuntime', () => {
     expect(records.quotedCalls).toBe(0);
   });
 
-  it('returns the group query action from active-member manual access without a plan gate', async () => {
+  it('returns the group query action from active-member manual access without a plan or responsible-user gate', async () => {
+    const bootstrap = new FakeBootstrap();
+    bootstrap.group = { status: 'BOUND', userId: 7, sourceId: 20, ownerUserId: null };
     const collaboration = new FakeCollaboration();
-    const runtime = new WorklogLineRuntime(new FakeBootstrap(), collaboration, new FakeRecords());
+    const runtime = new WorklogLineRuntime(bootstrap, collaboration, new FakeRecords());
     await expect(runtime.handle(message('@AFTERTRACE 查詢'))).resolves.toEqual({
       status: 'QUERY',
       sourceId: 20,
