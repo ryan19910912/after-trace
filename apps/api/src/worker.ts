@@ -8,15 +8,15 @@ import {
   DrizzleWorklogAnomalyRepository,
   recordAnomalySafely,
 } from './worklog/anomalies';
+import { WorklogAiPointLedgerService } from './worklog/ai-point-ledger';
 import { WorklogAttachmentIngestionService } from './worklog/attachment-ingestion';
 import { configureWorklogAttachmentRuntime } from './worklog/attachment-runtime';
 import { createWorklogConfirmationRoutes } from './worklog/confirmation-routes';
+import { DrizzleWorklogAiPointLedgerRepository } from './worklog/drizzle-ai-point-ledger';
 import { DrizzleWorklogAttachmentRepository } from './worklog/drizzle-attachment-ingestion';
-import { SafeDrizzleWorklogSubscriptionRepository } from './worklog/drizzle-subscription-safe';
 import { GeminiWorklogAttachmentNormalizer } from './worklog/gemini-attachment-normalizer';
 import { createWorklogRoutes } from './worklog/routes';
 import { createWorklogSubscriptionRoutes } from './worklog/subscription-routes';
-import { WorklogSubscriptionService } from './worklog/subscription';
 
 type ExecutionContextLike = { waitUntil(promise: Promise<unknown>): void };
 type ApiBoundary = 'ADMIN_API' | 'SUBSCRIPTION_API' | 'WORKLOG_WEB_API';
@@ -32,7 +32,7 @@ function configureWorklogRuntime(env: Bindings): void {
   const database = createDatabase(env.DATABASE_URL);
   configureWorklogAttachmentRuntime(new WorklogAttachmentIngestionService(
     new DrizzleWorklogAttachmentRepository(database),
-    new WorklogSubscriptionService(new SafeDrizzleWorklogSubscriptionRepository(database)),
+    new WorklogAiPointLedgerService(new DrizzleWorklogAiPointLedgerRepository(database)),
     new LineMessageContentResolver(env.LINE_CHANNEL_ACCESS_TOKEN),
     new GeminiWorklogAttachmentNormalizer({ apiKey: env.GEMINI_API_KEY }),
   ));
