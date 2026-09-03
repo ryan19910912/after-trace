@@ -6,6 +6,7 @@ import type {
   WorklogAttachmentProvider,
   WorklogAttachmentProviderResponse,
 } from './attachment-ingestion';
+import { providerCostToAiPoints } from './ai-points';
 import type { WorklogAiRuntimeConfigSnapshot } from './text-normalization';
 
 export class WorklogAttachmentProviderError extends Error {
@@ -70,13 +71,26 @@ export class GeminiWorklogAttachmentNormalizer implements WorklogAttachmentProvi
 
   reservationUnits(content: LineMessageContent, config: WorklogAiRuntimeConfigSnapshot): number {
     this.assertConfig(config);
+    // The binary byte length is intentionally treated as a conservative input-token
+    // upper bound. Add request/output/thinking overhead, then price the whole upper
+    // bound at the most expensive configured modality. This only sizes the hold;
+    // actual customer points come from real provider cost after success.
     const outputBudget = this.maxOutputTokens;
-    const overhead = 8_000 + outputBudget + outputBudget;
-    const total = content.byteLength + overhead;
-    if (!Number.isSafeInteger(total) || total <= 0) {
+    const upperBoundUnits = content.byteLength + 8_000 + outputBudget + outputBudget;
+    if (!Number.isSafeInteger(upperBoundUnits) || upperBoundUnits <= 0) {
       throw new WorklogAttachmentProviderError('AI_RESERVATION_ESTIMATE_INVALID', 'attachment reservation estimate invalid');
     }
-    return total;
+    const worstUsdPerMillion = Math.max(
+      config.inputUsdPerMillion,
+      config.outputUsdPerMillion,
+      config.audioUsdPerMillion ?? 0,
+      config.imageUsdPerMillion ?? 0,
+    );
+    const conservativeCostUsd = (upperBoundUnits / 1_000_000) * worstUsdPerMillion;
+    return Math.max(1, providerCostToAiPoints({
+      providerCostUsd: conservativeCostUsd,
+      outputUsdPerMillion: config.outputUsdPerMillion,
+    }));
   }
 
   async analyze(
@@ -157,6 +171,11 @@ export class GeminiWorklogAttachmentNormalizer implements WorklogAttachmentProvi
     if (config.model.trim() !== STABLE_WORKLOG_MODEL) {
       throw new WorklogAttachmentProviderError('GEMINI_CONFIG_INVALID', `Worklog currently supports only ${STABLE_WORKLOG_MODEL}`);
     }
+    nonNegativeFinite(config.inputUsdPerMillion, 'inputUsdPerMillion');
+    positiveFinite(config.outputUsdPerMillion, 'outputUsdPerMillion');
+    if (config.audioUsdPerMillion !== null) nonNegativeFinite(config.audioUsdPerMillion, 'audioUsdPerMillion');
+    if (config.imageUsdPerMillion !== null) nonNegativeFinite(config.imageUsdPerMillion, 'imageUsdPerMillion');
+    if (config.usdTwdRate !== null) nonNegativeFinite(config.usdTwdRate, 'usdTwdRate');
   }
 }
 
@@ -271,4 +290,16 @@ function positiveInteger(value: number, label: string) {
     throw new WorklogAttachmentProviderError('GEMINI_CONFIG_INVALID', `${label} invalid`);
   }
   return value;
+}
+
+function nonNegativeFinite(value: number, label: string): void {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new WorklogAttachmentProviderError('GEMINI_CONFIG_INVALID', `${label} must be a non-negative finite number`);
+  }
+}
+
+function positiveFinite(value: number, label: string): void {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new WorklogAttachmentProviderError('GEMINI_CONFIG_INVALID', `${label} must be a positive finite number`);
+  }
 }
