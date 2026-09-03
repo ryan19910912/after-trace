@@ -25,7 +25,7 @@ function providerBody(usageMetadata: Record<string, unknown>) {
     responseId: 'response-1',
     candidates: [{
       content: {
-        parts: [{ text: JSON.stringify({ raw_text: '配電箱', summary: '配電箱現況', category: 'WORK' }) }],
+        parts: [{ text: JSON.stringify({ raw_text: '配電箱' }) }],
       },
     }],
     usageMetadata,
@@ -54,6 +54,7 @@ describe('GeminiWorklogAttachmentNormalizer modality usage', () => {
     });
 
     await expect(normalizer.analyze(image, config)).resolves.toMatchObject({
+      output: { rawText: '配電箱' },
       inputTokens: 1200,
       outputTokens: 100,
       audioInputUnits: 0,
