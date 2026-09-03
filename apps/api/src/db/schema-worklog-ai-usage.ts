@@ -1,4 +1,4 @@
-import { bigint, bigserial, index, integer, numeric, pgTable, timestamp, varchar } from 'drizzle-orm/pg-core';
+import { bigint, bigserial, index, integer, numeric, pgTable, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
 import { worklogSources, worklogUsers, worklogWorkspaces } from './schema-worklog';
 import { worklogRecords } from './schema-worklog-record-core';
 
@@ -7,16 +7,18 @@ import { worklogRecords } from './schema-worklog-record-core';
  *
  * Provider usage/cost is immutable factual accounting. Customer points and platform
  * subsidy are separate settlement facts: customer_points_charged can never exceed the
- * eligible balance available to the already-started request, while any remainder is
+ * eligible balance held for the already-started request, while any remainder is
  * retained as platform_subsidized_points/cost rather than customer overdraw.
  *
- * ai_units_consumed remains transitional until every executable caller has moved from
- * the legacy aggregate quota repository to the grant ledger.
+ * reservation_token is the exactly-once bridge from durable provider success to
+ * customer grant settlement. ai_units_consumed remains transitional until all legacy
+ * aggregate-quota readers are removed.
  */
 export const worklogAiUsageEvents = pgTable(
   'worklog_ai_usage_events',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
+    reservationToken: varchar('reservation_token', { length: 64 }),
     actorUserId: bigint('actor_user_id', { mode: 'number' })
       .notNull()
       .references(() => worklogUsers.id, { onDelete: 'restrict' }),
@@ -54,6 +56,7 @@ export const worklogAiUsageEvents = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
+    uniqueIndex('worklog_ai_usage_reservation_uq').on(table.reservationToken),
     index('worklog_ai_usage_actor_time_idx').on(table.actorUserId, table.createdAt),
     index('worklog_ai_usage_charged_time_idx').on(table.chargedUserId, table.createdAt),
     index('worklog_ai_usage_source_actor_time_idx').on(table.sourceId, table.actorUserId, table.createdAt),
