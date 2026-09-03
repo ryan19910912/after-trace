@@ -127,27 +127,21 @@ export class DrizzleWorklogRecordReadRepository implements WorklogRecordReadRepo
     return id ? Number(id) : null;
   }
 
+  /**
+   * Baseline PWA surfaces are data authorization, not billing entitlement.
+   * Any active member of an active GROUP Source can see that group in PWA even
+   * when no owner/subscription/AI allowance responsible user exists.
+   */
   async listActiveGroupSurfaces(userId: number): Promise<WorklogGroupSurface[]> {
     const result = await this.db.execute(sql`
       SELECT source.id::text AS source_id, source.line_group_id
       FROM worklog_source_members AS member
       INNER JOIN worklog_sources AS source ON source.id = member.source_id
-      INNER JOIN worklog_user_subscriptions AS subscription
-        ON subscription.user_id = source.owner_user_id
-       AND subscription.status = 'ACTIVE'
-       AND subscription.effective_at <= NOW()
-       AND subscription.current_period_start <= NOW()
-       AND (subscription.current_period_end IS NULL OR NOW() < subscription.current_period_end)
-      INNER JOIN worklog_subscription_plans AS plan
-        ON plan.code = subscription.plan_code
-       AND plan.enabled = TRUE
       WHERE member.user_id = ${userId}
         AND member.is_active = TRUE
         AND source.type = 'GROUP'
         AND source.status = 'ACTIVE'
         AND source.line_group_id IS NOT NULL
-        AND UPPER(subscription.plan_code) <> 'FREE'
-        AND plan.capabilities @> '{"groupCollaboration": true}'::jsonb
       ORDER BY source.updated_at DESC, source.id DESC
     `);
     return (result.rows as Array<{ source_id: string; line_group_id: string }>).map((row) => ({
@@ -161,19 +155,11 @@ export class DrizzleWorklogRecordReadRepository implements WorklogRecordReadRepo
         SELECT 1
         FROM worklog_source_members AS member
         INNER JOIN worklog_sources AS source ON source.id = member.source_id
-        INNER JOIN worklog_user_subscriptions AS subscription
-          ON subscription.user_id = source.owner_user_id
-         AND subscription.status = 'ACTIVE'
-         AND subscription.effective_at <= NOW()
-         AND subscription.current_period_start <= NOW()
-         AND (subscription.current_period_end IS NULL OR NOW() < subscription.current_period_end)
-        INNER JOIN worklog_subscription_plans AS plan
-          ON plan.code = subscription.plan_code
-         AND plan.enabled = TRUE
-        WHERE member.user_id = ${userId} AND member.source_id = ${sourceId}
-          AND member.is_active = TRUE AND source.type = 'GROUP' AND source.status = 'ACTIVE'
-          AND UPPER(subscription.plan_code) <> 'FREE'
-          AND plan.capabilities @> '{"groupCollaboration": true}'::jsonb
+        WHERE member.user_id = ${userId}
+          AND member.source_id = ${sourceId}
+          AND member.is_active = TRUE
+          AND source.type = 'GROUP'
+          AND source.status = 'ACTIVE'
       ) AS allowed
     `);
     return Boolean((result.rows[0] as { allowed?: boolean } | undefined)?.allowed);
