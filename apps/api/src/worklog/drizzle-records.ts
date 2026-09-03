@@ -13,14 +13,15 @@ import type {
 type RecordRow = {
   id: string;
   source_id: string;
+  entity_id: string | null;
+  title: string | null;
   author_user_id: string | null;
   input_type: WorklogRecordListItem['inputType'];
-  category: string;
-  raw_text: string | null;
-  normalized_summary: string | null;
-  customer_id: string | null;
-  project_id: string | null;
-  source_timestamp: Date | string | null;
+  raw_text: string;
+  occurred_at: Date | string;
+  status: WorklogRecordListItem['status'];
+  version: number;
+  deleted_at: Date | string | null;
   created_at: Date | string;
   updated_at: Date | string;
 };
@@ -31,7 +32,7 @@ type TextWriteRow = {
   author_user_id: string | null;
   line_message_id: string;
   quoted_line_message_id: string | null;
-  raw_text: string | null;
+  raw_text: string;
   inserted: boolean;
 };
 
@@ -52,7 +53,7 @@ export class DrizzleWorklogRecordWriteRepository implements WorklogRecordWriteRe
     lineMessageId: string;
     quotedLineMessageId?: string | null;
     rawText: string;
-    sourceTimestamp: Date;
+    occurredAt: Date;
   }): Promise<
     | { status: 'CREATED'; record: StoredTextRecordIdentity }
     | { status: 'EXISTING'; record: StoredTextRecordIdentity }
@@ -60,17 +61,18 @@ export class DrizzleWorklogRecordWriteRepository implements WorklogRecordWriteRe
   > {
     const result = await this.db.execute(sql`
       WITH active_source AS (
-        SELECT id, workspace_id FROM worklog_sources
+        SELECT id FROM worklog_sources
         WHERE id = ${input.sourceId} AND status = 'ACTIVE' LIMIT 1
       ), inserted AS (
         INSERT INTO worklog_records (
-          workspace_id, source_id, author_user_id, line_message_id,
-          quoted_line_message_id, input_type, category, raw_text,
-          source_timestamp, created_at, updated_at
+          source_id, entity_id, author_user_id, line_message_id,
+          quoted_line_message_id, input_type, raw_text, occurred_at,
+          status, version, created_at, updated_at
         )
-        SELECT active_source.workspace_id, active_source.id, ${input.authorUserId},
+        SELECT active_source.id, NULL, ${input.authorUserId},
                ${input.lineMessageId}, ${input.quotedLineMessageId ?? null},
-               'TEXT', 'OTHER', ${input.rawText}, ${input.sourceTimestamp}, NOW(), NOW()
+               'TEXT', ${input.rawText}, ${input.occurredAt},
+               'ACTIVE', 1, NOW(), NOW()
         FROM active_source
         ON CONFLICT (line_message_id) DO NOTHING
         RETURNING id, source_id, author_user_id, line_message_id, quoted_line_message_id, raw_text
@@ -127,11 +129,7 @@ export class DrizzleWorklogRecordReadRepository implements WorklogRecordReadRepo
     return id ? Number(id) : null;
   }
 
-  /**
-   * Baseline PWA surfaces are data authorization, not billing entitlement.
-   * Any active member of an active GROUP Source can see that group in PWA even
-   * when no owner/subscription/AI allowance responsible user exists.
-   */
+  /** Baseline GROUP PWA authorization is membership, not billing entitlement. */
   async listActiveGroupSurfaces(userId: number): Promise<WorklogGroupSurface[]> {
     const result = await this.db.execute(sql`
       SELECT source.id::text AS source_id, source.line_group_id
@@ -167,26 +165,38 @@ export class DrizzleWorklogRecordReadRepository implements WorklogRecordReadRepo
 
   async listRecordsBySource(sourceId: number, limit: number): Promise<WorklogRecordListItem[]> {
     const result = await this.db.execute(sql`
-      SELECT id::text AS id, source_id::text AS source_id,
-             author_user_id::text AS author_user_id, input_type, category,
-             raw_text, normalized_summary, customer_id::text AS customer_id,
-             project_id::text AS project_id, source_timestamp, created_at, updated_at
-      FROM worklog_records
-      WHERE source_id = ${sourceId}
-      ORDER BY COALESCE(source_timestamp, created_at) DESC, id DESC
+      SELECT record.id::text AS id,
+             record.source_id::text AS source_id,
+             record.entity_id::text AS entity_id,
+             entity.name AS title,
+             record.author_user_id::text AS author_user_id,
+             record.input_type,
+             record.raw_text,
+             record.occurred_at,
+             record.status,
+             record.version,
+             record.deleted_at,
+             record.created_at,
+             record.updated_at
+      FROM worklog_records AS record
+      LEFT JOIN worklog_entities AS entity ON entity.id = record.entity_id
+      WHERE record.source_id = ${sourceId}
+        AND record.status = 'ACTIVE'
+      ORDER BY record.occurred_at DESC, record.id DESC
       LIMIT ${limit}
     `);
     return (result.rows as RecordRow[]).map((row) => ({
       id: Number(row.id),
       sourceId: Number(row.source_id),
+      entityId: nullableNumber(row.entity_id),
+      title: row.title,
       authorUserId: nullableNumber(row.author_user_id),
       inputType: row.input_type,
-      category: row.category,
       rawText: row.raw_text,
-      normalizedSummary: row.normalized_summary,
-      customerId: nullableNumber(row.customer_id),
-      projectId: nullableNumber(row.project_id),
-      sourceTimestamp: row.source_timestamp ? new Date(row.source_timestamp).toISOString() : null,
+      occurredAt: new Date(row.occurred_at).toISOString(),
+      status: row.status,
+      version: Number(row.version),
+      deletedAt: row.deleted_at ? new Date(row.deleted_at).toISOString() : null,
       createdAt: new Date(row.created_at).toISOString(),
       updatedAt: new Date(row.updated_at).toISOString(),
     }));
@@ -195,10 +205,15 @@ export class DrizzleWorklogRecordReadRepository implements WorklogRecordReadRepo
 
 function textRecordIdentity(row: TextWriteRow): StoredTextRecordIdentity {
   return {
-    id: Number(row.id), sourceId: Number(row.source_id),
-    authorUserId: nullableNumber(row.author_user_id), lineMessageId: row.line_message_id,
-    quotedLineMessageId: row.quoted_line_message_id, rawText: row.raw_text,
+    id: Number(row.id),
+    sourceId: Number(row.source_id),
+    authorUserId: nullableNumber(row.author_user_id),
+    lineMessageId: row.line_message_id,
+    quotedLineMessageId: row.quoted_line_message_id,
+    rawText: row.raw_text,
   };
 }
 
-function nullableNumber(value: string | null): number | null { return value === null ? null : Number(value); }
+function nullableNumber(value: string | null): number | null {
+  return value === null ? null : Number(value);
+}
