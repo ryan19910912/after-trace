@@ -34,7 +34,7 @@ If balance is positive when AI starts but actual provider usage exceeds remainin
 
 Launch structure:
 
-- FREE: NT$0, `ONE_TIME`, **400,000 AI points once**, no calendar expiry/no refresh, unlimited groups.
+- FREE: NT$0, `ONE_TIME`, one initial AI-point grant, no calendar expiry/no refresh, unlimited groups.
 - PRO: NT$99/month, `MONTHLY`, included AI points per successful renewal, unused monthly included allowance does not roll over, unlimited groups, export intended paid.
 - TEAM: NT$299/month, `MONTHLY`, larger included AI points per successful renewal, unused monthly included allowance does not roll over, unlimited groups, export intended paid.
 
@@ -51,7 +51,7 @@ Commercial planning defaults:
 - Admin pricing UI may calculate a recommended point amount from price, target margin, FX and model pricing, but the final included point amount is explicitly entered/confirmed by Admin and persisted;
 - existing grants are never retroactively resized when assumptions change.
 
-FREE launch grant is intentionally generous enough to let a new user form a real LINE-recording habit. The current working launch value is **400,000 AI points once**, roughly representing the previously discussed NT$30-class acquisition subsidy under the current conservative output-price-equivalent reference. Customer UI displays points rather than TWD cost.
+Current FREE launch direction is **400,000 AI points once** for a new user, roughly targeting about NT$30 of conservative output-price-equivalent AI value at the current selected model/pricing snapshot. FREE does not refresh and does not expire by calendar.
 
 Admin must expose average AI usage, average provider cost, actual usage %, allowance exhaustion %, platform subsidy and realized gross margin so pricing can be adjusted from production data. Exact PRO/TEAM/top-up point amounts remain configured separately.
 
@@ -256,18 +256,16 @@ Export remains MVP and initially paid. Exact format can be refined separately.
 
 ## Brand / naming direction
 
-The final brand name is not frozen.
+**Brand decision is frozen for MVP: the product/project name and LINE Official Account name both use `AFTERTRACE`.**
 
-Naming should be short, general-purpose and easy to use as a LINE mention. Do not force the English name to be a literal English compound such as `Trace AI` if that creates heavy search/brand collision.
+Do not introduce a separate LINE OA nickname/consumer brand in MVP. Use one consistent name across product UI, PWA, LINE OA and core customer-facing copy unless a later explicit rebrand decision is made.
 
-A preferred naming direction is now **Chinese meaning or Chinese sound -> stylized Latin/English brand**, for example the concept `順手` may inspire a short form such as `Shenso`, `Shunso`, or another deliberately stylized spelling rather than strict Hanyu Pinyin. The name may subtly imply AI without requiring the literal suffix `AI`.
+Current slogan direction:
 
-Before freezing a candidate, check obvious web/product collision, domains/social/app-store presence and Taiwan trademark availability where practical.
+- **AFTERTRACE**
+- **隨筆落墨，AI 循跡。**
 
-Rejected/crowded working names so far:
-
-- `TRACE` / `TRACE AI`: too many existing products/companies;
-- `TraceX`: also too crowded. Exact-name collisions include an existing TraceX eQMS/PLM SaaS with an AI assistant, a separate TraceX AI investigation platform, and TraceX Labs/security products. Adding `X` therefore does not create enough brand/search distinctiveness.
+Supporting product copy should stay truthful to the actual MVP: AI helps capture/title/date/route records, while PWA is the primary place to browse/search/filter history. Do not imply an unlimited autonomous AI historical-analysis agent.
 
 ## Future discussion backlog
 
@@ -278,7 +276,7 @@ Do not implement implicitly until separately approved:
 - project/engineering scheduling;
 - broad AI historical reporting beyond the accepted navigation flow;
 - duplicate-title merge/undo unless requested by users;
-- final product/brand name and go-to-market positioning.
+- future rebrand only if explicitly approved.
 
 ## Platform / deployment
 
