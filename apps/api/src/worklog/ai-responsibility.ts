@@ -64,12 +64,8 @@ export class WorklogAiResponsibilityService {
     if (context.responsibleUserId === null) return { status: 'AI_RESPONSIBLE_USER_UNBOUND' };
     if (!context.responsibleUserIsActiveMember) return { status: 'AI_RESPONSIBLE_USER_ABSENT' };
 
-    const eligible = await this.grants.canStartAi({
-      userId: context.responsibleUserId,
-      sourceId,
-      at,
-    });
-    if (!eligible.allowed) return { status: 'AI_POINTS_EXHAUSTED' };
+    const eligible = await this.grants.canStartAi(context.responsibleUserId, sourceId, at);
+    if (!eligible) return { status: 'AI_POINTS_EXHAUSTED' };
     return { status: 'OK', actorUserId, chargedUserId: context.responsibleUserId };
   }
 
