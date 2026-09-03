@@ -134,19 +134,24 @@ describe('processWorklogOaWebhook', () => {
     });
   });
 
-  it('uses a private query URL callback without inventing a group id', async () => {
+  it('uses a private query URL callback with deterministic filters and no invented group id', async () => {
     const runtime = new FakeRuntime();
-    runtime.nextMessage = { status: 'QUERY', sourceId: 9, userId: 7 };
+    runtime.nextMessage = {
+      status: 'QUERY',
+      sourceId: 9,
+      userId: 7,
+      filters: { query: '王大明', from: '2026-08-30T16:00:00.000Z', to: '2026-09-06T16:00:00.000Z' },
+    };
     const reply = new FakeReply();
     const targets: unknown[] = [];
 
     const result = await processWorklogOaWebhook({
-      parsed: parsedWithMessage(privateMessage('@AFTERTRACE 查詢')),
+      parsed: parsedWithMessage(privateMessage('@AFTERTRACE 王大明這週做了什麼')),
       runtime,
       reply,
       createQueryUrl: async (target) => {
         targets.push(target);
-        return 'https://app.example.test/?t=private-token';
+        return 'https://app.example.test/?t=private-token&q=%E7%8E%8B%E5%A4%A7%E6%98%8E';
       },
     });
 
@@ -157,6 +162,7 @@ describe('processWorklogOaWebhook', () => {
         sourceId: 9,
         userId: 7,
         at: new Date('2026-09-02T08:30:00+08:00'),
+        filters: { query: '王大明', from: '2026-08-30T16:00:00.000Z', to: '2026-09-06T16:00:00.000Z' },
       },
     ]);
     expect(reply.calls[0]?.text).toContain('https://app.example.test/?t=private-token');
@@ -203,13 +209,13 @@ describe('processWorklogOaWebhook', () => {
     expect(anomalies.calls[0]).toMatchObject({ category: 'LINE_OA_WEBHOOK' });
   });
 
-  it('records query-entry failures with private user/source context', async () => {
+  it('records query-entry failures with private user/source/filter context', async () => {
     const runtime = new FakeRuntime();
-    runtime.nextMessage = { status: 'QUERY', sourceId: 9, userId: 7 };
+    runtime.nextMessage = { status: 'QUERY', sourceId: 9, userId: 7, filters: { query: '晴空案' } };
     const anomalies = new FakeAnomalies();
 
     const result = await processWorklogOaWebhook({
-      parsed: parsedWithMessage(privateMessage('@AFTERTRACE 查詢')),
+      parsed: parsedWithMessage(privateMessage('@AFTERTRACE 查詢 晴空案')),
       runtime,
       reply: new FakeReply(),
       anomalies,
@@ -221,6 +227,7 @@ describe('processWorklogOaWebhook', () => {
       category: 'LINE_OA_QUERY_ENTRY',
       userId: 7,
       sourceId: 9,
+      metadata: { filters: { query: '晴空案' } },
     });
   });
 
