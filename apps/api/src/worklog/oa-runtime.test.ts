@@ -130,6 +130,39 @@ describe('WorklogOaRuntime', () => {
       status: 'QUERY',
       sourceId: 9,
       userId: 7,
+      filters: {},
+    });
+    expect(records.calls).toHaveLength(0);
+  });
+
+  it('converts strong natural-language history requests into deterministic filters instead of a new Record', async () => {
+    const records = new FakeRecords();
+    const runtime = new WorklogOaRuntime(new FakeBootstrap(), records);
+
+    await expect(runtime.handleMessage(privateMessage('@AFTERTRACE 王大明這週做了什麼'))).resolves.toEqual({
+      status: 'QUERY',
+      sourceId: 9,
+      userId: 7,
+      filters: {
+        query: '王大明',
+        from: '2026-08-30T16:00:00.000Z',
+        to: '2026-09-06T16:00:00.000Z',
+      },
+    });
+    expect(records.calls).toHaveLength(0);
+  });
+
+  it('never persists an obvious edit request as a new Record', async () => {
+    const records = new FakeRecords();
+    const runtime = new WorklogOaRuntime(new FakeBootstrap(), records);
+
+    await expect(runtime.handleMessage(privateMessage('@AFTERTRACE 幫我改成 2800'))).resolves.toMatchObject({
+      status: 'REJECTED',
+      reason: 'EDIT_TARGET_REQUIRED',
+    });
+    await expect(runtime.handleMessage(privateMessage('@AFTERTRACE 幫我改成 2800', 'quoted-record-1'))).resolves.toMatchObject({
+      status: 'REJECTED',
+      reason: 'EDIT_NOT_READY',
     });
     expect(records.calls).toHaveLength(0);
   });
