@@ -96,19 +96,28 @@ describe('processWorklogGroupWebhook', () => {
     });
   });
 
-  it('creates scoped query links from the exact group/user context', async () => {
+  it('creates scoped query links with deterministic history filters from the exact group/user context', async () => {
     const runtime = new FakeRuntime();
-    runtime.next = { status: 'QUERY', sourceId: 19, userId: 7 };
+    runtime.next = {
+      status: 'QUERY',
+      sourceId: 19,
+      userId: 7,
+      filters: {
+        query: '王大明',
+        from: '2026-08-30T16:00:00.000Z',
+        to: '2026-09-06T16:00:00.000Z',
+      },
+    };
     const reply = new FakeReply();
     const targets: unknown[] = [];
     const result = await processWorklogGroupWebhook({
-      parsed: parsedWithMessage(groupMessage('@AFTERTRACE 查詢')),
+      parsed: parsedWithMessage(groupMessage('@AFTERTRACE 王大明這週做了什麼')),
       runtime,
       reply,
       bootstrap: new FakeBootstrap(),
       createQueryUrl: async (target) => {
         targets.push(target);
-        return 'https://app.example.test/?t=group-token';
+        return 'https://app.example.test/?t=group-token&q=%E7%8E%8B%E5%A4%A7%E6%98%8E';
       },
     });
     expect(result.worklogQueries).toBe(1);
@@ -118,6 +127,11 @@ describe('processWorklogGroupWebhook', () => {
       sourceId: 19,
       userId: 7,
       at: new Date('2026-09-02T12:00:00+08:00'),
+      filters: {
+        query: '王大明',
+        from: '2026-08-30T16:00:00.000Z',
+        to: '2026-09-06T16:00:00.000Z',
+      },
     }]);
     expect(reply.calls[0]?.text).toContain('https://app.example.test/?t=group-token');
   });
@@ -161,12 +175,12 @@ describe('processWorklogGroupWebhook', () => {
     expect(anomalies.calls[0]).toMatchObject({ category: 'LINE_GROUP_WEBHOOK' });
   });
 
-  it('records query-entry failures with user/source context', async () => {
+  it('records query-entry failures with user/source/filter context', async () => {
     const runtime = new FakeRuntime();
-    runtime.next = { status: 'QUERY', sourceId: 19, userId: 7 };
+    runtime.next = { status: 'QUERY', sourceId: 19, userId: 7, filters: { query: '晴空案' } };
     const anomalies = new FakeAnomalies();
     const result = await processWorklogGroupWebhook({
-      parsed: parsedWithMessage(groupMessage('@AFTERTRACE 查詢')),
+      parsed: parsedWithMessage(groupMessage('@AFTERTRACE 查詢 晴空案')),
       runtime,
       reply: new FakeReply(),
       anomalies,
@@ -178,6 +192,7 @@ describe('processWorklogGroupWebhook', () => {
       category: 'LINE_GROUP_QUERY_ENTRY',
       userId: 7,
       sourceId: 19,
+      metadata: { filters: { query: '晴空案' } },
     });
   });
 
