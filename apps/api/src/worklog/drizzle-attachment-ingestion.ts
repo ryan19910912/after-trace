@@ -51,9 +51,9 @@ export class DrizzleWorklogAttachmentRepository implements WorklogAttachmentRepo
     `);
     if (inserted.rows.length > 0) return { status: 'CLAIMED' };
 
-    // Never auto-replay an uncertain provider attempt. If a Worker died while the
-    // provider call may have been in flight, terminalize it and require an explicit
-    // future/admin retry instead of risking duplicate AI cost.
+    // Never auto-replay an uncertain provider attempt. PROCESSING rows that already
+    // contain a durable reservation + usage snapshot represent provider success that
+    // still needs accounting settlement, so they must not be terminalized as stale.
     await this.db.execute(sql`
       UPDATE worklog_attachment_ingestions
       SET status = 'FAILED',
@@ -61,6 +61,8 @@ export class DrizzleWorklogAttachmentRepository implements WorklogAttachmentRepo
           updated_at = NOW()
       WHERE command_line_message_id = ${input.commandLineMessageId}
         AND status = 'PROCESSING'
+        AND reservation_token IS NULL
+        AND usage_commit_json IS NULL
         AND updated_at < NOW() - INTERVAL '15 minutes'
     `);
 
@@ -72,6 +74,14 @@ export class DrizzleWorklogAttachmentRepository implements WorklogAttachmentRepo
       row.quoted_line_message_id !== input.quotedLineMessageId
     ) return { status: 'FAILED', reason: 'IDEMPOTENCY_CONFLICT' };
 
+    if (row.status === 'PROCESSING' && row.reservation_token && row.usage_commit_json) {
+      return {
+        status: 'PROVIDER_SUCCEEDED',
+        reservationToken: row.reservation_token,
+        usage: parseUsage(row.usage_commit_json),
+        failureReason: row.last_error_code || 'PROVIDER_RESULT_PENDING_SETTLEMENT',
+      };
+    }
     if (row.status === 'PROCESSING') return { status: 'PROCESSING' };
     if (row.status === 'SUCCEEDED' && row.record_id != null) {
       return { status: 'SUCCEEDED', recordId: positiveNumber(row.record_id, 'record_id') };
@@ -183,6 +193,23 @@ export class DrizzleWorklogAttachmentRepository implements WorklogAttachmentRepo
       ) AS active
     `);
     if (!Boolean((source.rows[0] as { active?: boolean } | undefined)?.active)) {
+      // Gemini has already succeeded at this point. Preserve exact metering and the
+      // reservation token on the ingestion row even though the source disappeared,
+      // so a later delivery can settle provider cost without calling Gemini again.
+      const preserved = await this.db.execute(sql`
+        UPDATE worklog_attachment_ingestions
+        SET reservation_token = ${input.reservationToken},
+            usage_commit_json = ${usageJson}::jsonb,
+            last_error_code = 'SOURCE_NOT_FOUND',
+            updated_at = NOW()
+        WHERE command_line_message_id = ${input.commandLineMessageId}
+          AND quoted_line_message_id = ${input.quotedLineMessageId}
+          AND source_id = ${input.sourceId}
+          AND actor_user_id = ${input.actorUserId}
+          AND status = 'PROCESSING'
+        RETURNING id
+      `);
+      if (preserved.rows.length < 1) throw new Error('ATTACHMENT_PROVIDER_USAGE_PERSIST_FAILED');
       return { status: 'SOURCE_NOT_FOUND' };
     }
     throw new Error('ATTACHMENT_STATE_ADVANCE_FAILED');
