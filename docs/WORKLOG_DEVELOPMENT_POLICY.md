@@ -24,7 +24,7 @@ Agreed product decisions must not live only in chat.
 In the same work batch:
 
 - update `WORKLOG_PRODUCT_SPEC.md` for product/monetization/access/AI/LINE/data rules;
-- update `WORKLOG_ENTITY_MODEL.md` when Entity/Record/alias/query identity rules change;
+- update `WORKLOG_ENTITY_MODEL.md` when Entity/Record/alias/search identity rules change;
 - update `WORKLOG_RECORD_EDIT_POLICY.md` when edit/revision/delete/LINE-edit rules change;
 - update `WORKLOG_REBUILD_PROGRESS.md` when implementation debt/priorities/estimates change;
 - surface code/doc mismatches instead of redefining product behavior to match legacy code.
@@ -63,13 +63,12 @@ Examples requiring AI allowance when implemented:
 
 - LINE AI-assisted Record creation/entity parsing;
 - LINE natural-language Record editing;
-- AI summary/query;
-- AI report generation;
-- attachment understanding/transcription/extraction when provider AI is required.
+- attachment understanding/transcription/extraction when provider AI is required;
+- any later explicit AI report/summary feature.
 
 If eligible balance is exactly zero at request start, do not start the AI/provider call. Direct the user to free PWA manual functionality or top-up/subscription paths as appropriate.
 
-If balance is positive at request start but actual provider usage exceeds the user's remaining eligible units, customer balance floors at zero and AFTERTRACE may absorb the remainder. Durable Admin/accounting must retain at least:
+If balance is positive at request start but actual provider usage exceeds the user's remaining eligible units, customer balance floors at zero and AFTERTRACE absorbs the remainder for that already-started request. Durable Admin/accounting must retain at least:
 
 - provider actual units/cost;
 - customer-charged units;
@@ -80,7 +79,20 @@ If balance is positive at request start but actual provider usage exceeds the us
 - related Record/request where available;
 - model/pricing snapshot and timestamp.
 
-Do not create negative customer balances for this accepted overage policy.
+Do not create negative customer balances.
+
+## AI unit economics / cost calibration
+
+AI-assisted Record creation consumes allowance normally. Do not hard-code permanent customer-unit values from guesses.
+
+Before finalizing unit packs/plan economics, measure representative real provider usage/cost for shipped AI paths. Provider-dollar cost and customer-facing allowance units must remain separate so conversion/pricing can be adjusted while historical provider cost remains truthful.
+
+Admin/accounting must make it possible to compare:
+
+- provider cost by request/model/input type;
+- customer units charged;
+- platform subsidy;
+- plan/top-up revenue assumptions.
 
 ## Entity / Record implementation rules
 
@@ -119,6 +131,26 @@ Implement a durable pending-confirmation domain/table for cases such as:
 
 Never silently create an uncertain alias or choose among multiple plausible existing Entities. Ask the user and persist pending/resolved state.
 
+## PWA manual Record creation
+
+PWA manual creation is free and must not invoke AI implicitly.
+
+User-facing fields are:
+
+- `紀錄標題`;
+- `紀錄內容`;
+- `發生時間` selected with a date/time picker.
+
+Internal mapping:
+
+- `紀錄標題` is the user-facing name of the PRIMARY Entity/context;
+- title autocomplete searches current Source Entity names/aliases;
+- selecting an existing title attaches that Entity as PRIMARY;
+- entering a new title creates a new Entity in the current Source and attaches it as PRIMARY;
+- manual create does not infer RELATED Entities automatically because that would require AI.
+
+Do not expose internal Entity jargon unnecessarily in ordinary create UI.
+
 ## Record time model
 
 Records distinguish:
@@ -127,7 +159,36 @@ Records distinguish:
 - `occurred_at`: real-world event time; defaults to message/create time when unspecified;
 - `updated_at`: current row last changed.
 
-AI-assisted ingestion may interpret relative time expressions. Query/filter code must prefer `occurred_at` for “yesterday/this week/last month” business-history questions.
+AI-assisted ingestion may interpret relative time expressions. PWA manual create uses a date/time picker. Search/filter code uses `occurred_at` for business-history date ranges.
+
+## PWA history/search contract
+
+PWA is the authoritative history retrieval surface for MVP.
+
+Implement three composable retrieval controls:
+
+1. Entity / 紀錄標題 selection;
+2. fuzzy search across Entity names/aliases plus Record content;
+3. `occurred_at` date range.
+
+Deleted Records are excluded from normal search and available only through recycle-bin/history views.
+
+Do not build a growing set of arbitrary backend query functions merely to support every possible natural-language historical question.
+
+## LINE history/navigation contract
+
+LINE history requests navigate to PWA rather than becoming an open-ended historical AI agent.
+
+When a LINE message is judged to be lookup/history intent:
+
+- if a specific Entity can be confidently resolved, build a PWA history URL with that Entity id/filter;
+- if no specific Entity can be confidently resolved, return the normal Source PWA history URL;
+- backend/PWA performs actual retrieval;
+- keep function surface very small and deterministic, conceptually one history-link builder with optional Entity id.
+
+Recognized date-range URL filters may be added later as a small UX optimization, but are not required to implement the accepted bounded navigation model.
+
+Broad AI historical analysis/query is not an MVP requirement unless separately approved later.
 
 ## Record editing / revision rule
 
@@ -141,7 +202,7 @@ PWA manual edits are free and do not invoke AI automatically.
 - use integer `version` optimistic concurrency; stale saves fail rather than overwrite;
 - do not use in-memory locks or Redis for ordinary Record edit concurrency.
 
-PWA manual text editing does **not** automatically re-parse/reassign Entity associations. If the user manually changes `晴空案` text to `信義案`, the system does not spend AI to infer intent. The user should explicitly adjust context/create the correct Record as needed.
+PWA manual text editing does **not** automatically re-parse/reassign Entity associations. If the user manually changes `晴空案` text to `信義案`, the system does not spend AI to infer intent. The user should explicitly move/create the correct Record as needed.
 
 ## LINE natural-language Record edit
 
@@ -162,7 +223,7 @@ Record deletion is status-based, not physical.
 
 - require a safety confirmation;
 - store delete actor/time;
-- hide deleted Records from normal views/AI queries;
+- hide deleted Records from normal views/search;
 - show them in a dedicated PWA deleted-record/recycle-bin view;
 - allow restore;
 - keep RecordEntity associations and revision history durable while deleted.
@@ -177,24 +238,23 @@ Merge is reversible and Source-scoped.
 - undo restores those associations to source even if Record text was edited after merge;
 - content edits remain intact.
 
-## Summary policy
+PWA Entity management should support rename, aliases, merge, merged-history visibility and undo merge.
+
+## Summary / broad AI query policy
 
 Do not maintain a persistent per-record AI summary as a second source of truth.
 
-- stored truth is raw Record/durable textual extraction + Entity relations + audit history;
-- AI summary/query is on-demand and ephemeral;
-- users do not manually edit a stored summary;
-- edits/merge/undo therefore do not trigger summary regeneration.
+Broad autonomous AI history retrieval/query is not required for MVP. PWA search/filter is the primary retrieval path. If a later explicit AI summary/report feature is approved, it consumes AI allowance and remains ephemeral.
 
 ## Generic Record-to-Record relation policy
 
-Do not add a universal RecordRelation table for MVP merely because two Records appear chronologically related. Entity + time history is sufficient for AI to answer many progress questions.
+Do not add a universal RecordRelation table for MVP merely because two Records appear chronologically related. Entity + time history is sufficient for MVP browsing.
 
-Add deterministic typed Record relations later only when a separately approved feature genuinely needs them (e.g. payment settlement, reminder lifecycle, task completion).
+Add deterministic typed Record relations later only when a separately approved feature genuinely needs them.
 
 ## Attachment policy
 
-- PWA manual create/edit is text/structured-data only; no permanent PWA file/photo library for MVP.
+- PWA manual create/edit is text-only; no permanent PWA file/photo library for MVP.
 - LINE image/audio/file can be fetched and converted into durable textual information; original binary is not permanently retained.
 - Follow `WORKLOG_LINE_CONTENT_POLICY.md` for reply cache/content retrieval/Office/PDF handling.
 
