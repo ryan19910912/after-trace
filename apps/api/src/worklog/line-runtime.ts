@@ -84,6 +84,7 @@ export type WorklogLineRuntimeResult =
         | 'GROUP_NOT_FOUND'
         | 'GROUP_INACTIVE'
         | 'OWNER_UNBOUND'
+        | 'OWNER_ABSENT'
         | 'NOT_ACTIVE_MEMBER'
         | 'RECORDING_DISABLED'
         | 'GROUP_NOT_ENTITLED'
@@ -129,7 +130,7 @@ export class WorklogLineRuntime {
         at: message.lineTimestamp,
       });
       if (bound.status === 'OWNER_CONFLICT') {
-        return { status: 'REJECTED', reason: 'OWNER_CONFLICT', replyText: '這個群組已經綁定其他 AFTERTRACE Owner；目前不會覆蓋既有 Owner。' };
+        return { status: 'REJECTED', reason: 'OWNER_CONFLICT', replyText: '這個群組已經綁定其他仍在群組中的 AFTERTRACE Owner；目前不會覆蓋既有 Owner。' };
       }
       return {
         status: 'OWNER_BOUND', sourceId: bound.sourceId,
@@ -259,7 +260,7 @@ function attachmentFailure(reason: string): WorklogLineRuntimeResult {
   if (reason === 'LINE_CONTENT_NOT_RETRIEVABLE') return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '如果你回覆的是較早的文字，LINE 無法事後取回原文，請改傳「@AFTERTRACE 原文」；如果是附件，請重新傳送後再 Reply「@AFTERTRACE」。' };
   if (reason === 'LINE_CONTENT_EXPIRED') return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '這則內容已過期，請重新傳送後再 Reply @AFTERTRACE。' };
   if (reason === 'LINE_CONTENT_TOO_LARGE') return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '這個附件太大，目前無法處理，請縮小檔案後重新傳送。' };
-  if (reason === 'ATTACHMENT_UNSUPPORTED') return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '目前不支援這個檔案格式，請改傳圖片、音檔、PDF 或文字檔。' };
+  if (reason === 'ATTACHMENT_UNSUPPORTED') return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '目前不支援這個檔案格式，請改傳圖片、音檔、PDF、Word、Excel 或文字檔。' };
   if (reason === 'AI_MEDIA_DISABLED') return { status: 'REJECTED', reason: 'AI_MEDIA_DISABLED', replyText: '目前 Owner 的方案沒有開啟 AI 語音／圖片／檔案處理功能，這次沒有處理附件。' };
   if (/QUOTA|ALLOWANCE|SUBSCRIPTION/.test(reason)) return { status: 'REJECTED', reason: 'AI_QUOTA_EXHAUSTED', replyText: '目前 Owner 的 AI 額度不足，這次沒有處理附件。' };
   return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '這次附件沒有成功處理，請重新傳送後再試。' };
@@ -294,6 +295,7 @@ function rejectedAuthorization(result: RejectedAuthorization): WorklogLineRuntim
     GROUP_NOT_FOUND: '找不到這個 AFTERTRACE 群組設定，請重新啟用後再試。',
     GROUP_INACTIVE: '這個 AFTERTRACE 群組目前已停用。',
     OWNER_UNBOUND: '這個群組還沒有 AFTERTRACE Owner，請先輸入「@AFTERTRACE 啟用」。',
+    OWNER_ABSENT: '目前群組 Owner 已不在此 LINE 群組，AFTERTRACE 已暫停群組功能。請要負責此群組訂閱的人輸入「@AFTERTRACE 啟用」完成帳號綁定。',
     NOT_ACTIVE_MEMBER: '你目前不是這個 AFTERTRACE 群組的有效成員。',
     RECORDING_DISABLED: '群組 Owner 已關閉你的 AFTERTRACE 紀錄權限。',
     AI_QUOTA_EXHAUSTED: '目前 Owner 的 AI 額度已用完。',
