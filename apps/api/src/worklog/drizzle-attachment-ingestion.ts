@@ -126,23 +126,21 @@ export class DrizzleWorklogAttachmentRepository implements WorklogAttachmentRepo
     reservationToken: string;
     usage: WorklogAiUsageCommit;
   }): Promise<{ status: 'CREATED' | 'EXISTING'; recordId: number } | { status: 'SOURCE_NOT_FOUND' }> {
-    const metadata = JSON.stringify(input.output.attachmentMetadata);
     const usageJson = JSON.stringify({ ...input.usage, recordId: null });
     const result = await this.db.execute(sql`
       WITH active_source AS (
-        SELECT id, workspace_id FROM worklog_sources
+        SELECT id FROM worklog_sources
         WHERE id = ${input.sourceId} AND status = 'ACTIVE' LIMIT 1
       ), inserted AS (
         INSERT INTO worklog_records (
-          workspace_id, source_id, author_user_id, line_message_id,
-          quoted_line_message_id, input_type, category, raw_text,
-          attachment_metadata, normalized_summary, source_timestamp,
-          created_at, updated_at
+          source_id, entity_id, author_user_id, line_message_id,
+          quoted_line_message_id, input_type, raw_text, occurred_at,
+          status, version, created_at, updated_at
         )
-        SELECT workspace_id, id, ${input.actorUserId}, ${input.commandLineMessageId},
-               ${input.quotedLineMessageId}, ${input.output.inputType}, ${input.output.category},
-               ${input.output.rawText}, ${metadata}::jsonb, ${input.output.summary},
-               ${input.sourceTimestamp}, NOW(), NOW()
+        SELECT id, NULL, ${input.actorUserId}, ${input.commandLineMessageId},
+               ${input.quotedLineMessageId}, ${input.output.inputType},
+               ${input.output.rawText}, ${input.sourceTimestamp},
+               'ACTIVE', 1, NOW(), NOW()
         FROM active_source
         ON CONFLICT (line_message_id) DO NOTHING
         RETURNING id
