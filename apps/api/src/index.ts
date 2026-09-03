@@ -6,9 +6,11 @@ import { createDatabase } from './db/client';
 import { parseLineWebhook, parseOaWebhook } from './line/events';
 import { LineMessagingReplyClient } from './line/reply';
 import { verifyLineSignature } from './line/signature';
+import { WorklogAiGrantService } from './worklog/ai-grants';
 import { DrizzleWorklogAnomalyRepository } from './worklog/anomalies';
 import { WorklogBootstrapService } from './worklog/bootstrap';
 import { WorklogCollaborationService } from './worklog/collaboration';
+import { DrizzleWorklogAiGrantRepository } from './worklog/drizzle-ai-grants';
 import { DrizzleWorklogBootstrapRepository } from './worklog/drizzle-bootstrap';
 import { DrizzleWorklogCollaborationRepository } from './worklog/drizzle-collaboration';
 import { DrizzleWorklogRecordWriteRepository } from './worklog/drizzle-records';
@@ -96,7 +98,11 @@ app.post('/webhooks/line', async (c) => {
     : null;
   const lineReplyClient = new LineMessagingReplyClient(c.env.LINE_CHANNEL_ACCESS_TOKEN);
   const worklogAnomalies = new DrizzleWorklogAnomalyRepository(database);
-  const worklogBootstrapService = new WorklogBootstrapService(new DrizzleWorklogBootstrapRepository(database));
+  const worklogAiGrants = new WorklogAiGrantService(new DrizzleWorklogAiGrantRepository(database));
+  const worklogBootstrapService = new WorklogBootstrapService(
+    new DrizzleWorklogBootstrapRepository(database),
+    worklogAiGrants,
+  );
   const worklogRecordWriteService = new WorklogRecordWriteService(new DrizzleWorklogRecordWriteRepository(database));
   const worklogTextNormalizationService = new WorklogTextNormalizationService(
     new DrizzleWorklogTextNormalizationRepository(database),
