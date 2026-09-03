@@ -51,7 +51,22 @@ Commercial planning defaults:
 - Admin pricing UI may calculate a recommended point amount from price, target margin, FX and model pricing, but the final included point amount is explicitly entered/confirmed by Admin and persisted;
 - existing grants are never retroactively resized when assumptions change.
 
-Admin must expose average AI usage, average provider cost, actual usage %, allowance exhaustion %, platform subsidy and realized gross margin so pricing can be adjusted from production data. Exact FREE/PRO/TEAM/top-up point amounts are configured separately.
+Current FREE launch direction is to grant roughly **NT$30 of conservative output-price-equivalent AI value once** to a new user. This is a product-acquisition subsidy, not a margin-derived plan. Exact displayed FREE points should be calculated from the selected model/pricing snapshot and then rounded to a deliberate launch value; the current working target is roughly the high-hundreds-of-thousands rather than the old 500-unit scale.
+
+Admin must expose average AI usage, average provider cost, actual usage %, allowance exhaustion %, platform subsidy and realized gross margin so pricing can be adjusted from production data. Exact PRO/TEAM/top-up point amounts remain configured separately.
+
+## Payment provider direction
+
+Payment integration must support both monthly subscription renewal and one-time AI point purchases, with idempotent webhook handling and no raw card storage in AFTERTRACE.
+
+Current Taiwan MVP evaluation direction:
+
+- **NewebPay / 藍新** is the current preferred candidate for an individual studio / early small SaaS because its public individual-merchant path and low fixed-cost structure appear better suited to low-ticket plans such as NT$99; recurring-card availability/eligibility for the exact merchant account must still be confirmed before implementation.
+- **ECPay / 綠界** remains a mature fallback and may become more attractive at larger volume or under a negotiated/special-merchant fee schedule, but do not assume its recurring-payment economics are better for a tiny NT$99 plan without checking the actual contract.
+- **Oen / 應援支付** is worth requesting a direct quote because the user's company already uses it and it may offer competitive recurring/tokenized-card terms; do not select it without confirming individual-studio eligibility, recurring billing support, fixed/percentage fees, refund/settlement fees and webhook/API terms.
+- LINE Pay may later be offered as an additional payment method, but it is not currently the preferred sole subscription-billing backbone.
+
+Final provider selection is intentionally not frozen until actual merchant eligibility and commercial terms are confirmed.
 
 ## AI allowance grants and responsible user
 
@@ -238,6 +253,16 @@ LINE image/audio/file/PDF/DOCX/XLSX may be fetched/understood/extracted into dur
 ## Export
 
 Export remains MVP and initially paid. Exact format can be refined separately.
+
+## Brand / naming direction
+
+The final brand name is not frozen.
+
+Naming should be short, general-purpose and easy to use as a LINE mention. Do not force the English name to be a literal English compound such as `Trace AI` if that creates heavy search/brand collision.
+
+A preferred naming direction is now **Chinese meaning or Chinese sound -> stylized Latin/English brand**, for example the concept `順手` may inspire a short form such as `Shenso`, `Shunso`, or another deliberately stylized spelling rather than strict Hanyu Pinyin. The name may subtly imply AI without requiring the literal suffix `AI`.
+
+Before freezing a candidate, check obvious web/product collision, domains/social/app-store presence and Taiwan trademark availability where practical. `TRACE` / `TRACE AI` is considered too crowded to adopt without a stronger differentiating name.
 
 ## Future discussion backlog
 
