@@ -19,137 +19,108 @@ Do not use Actions as validation. Tests may be authored but must not be claimed 
 
 ## Durable product-decision policy
 
-Agreed product decisions must not live only in chat.
-
-In the same work batch:
-
-- update `WORKLOG_PRODUCT_SPEC.md` for product/monetization/access/AI/LINE/data rules;
-- update `WORKLOG_ENTITY_MODEL.md` when Entity/Record/alias/search identity rules change;
-- update `WORKLOG_RECORD_EDIT_POLICY.md` when edit/revision/delete/LINE-edit rules change;
-- update `WORKLOG_REBUILD_PROGRESS.md` when implementation debt/priorities/estimates change;
-- surface code/doc mismatches instead of redefining product behavior to match legacy code.
+Agreed product decisions must not live only in chat. Update product/entity/edit/progress docs in the same batch when those contracts change, and surface code/doc mismatches rather than redefining desired behavior to match legacy code.
 
 ## Current product architecture rules
 
 Treat these as authoritative until the user changes them:
 
-- Product/domain is general-purpose work recording; do not hard-code construction/finance/customer/project as the universal schema.
-- PRIVATE and GROUP Sources are independent data spaces.
-- A GROUP can exist and be used manually without a paid subscription, AI allowance, or AI allowance responsible user.
-- Manual PWA read/create/edit/delete/restore is baseline free functionality and consumes no AI units unless an explicit AI operation is invoked.
-- Group active members may read/create/edit group records; private records remain private-owner scoped.
-- No plan limits number of groups.
-- Customer-facing term is **AI 額度負責人**, not group/data Owner.
-- AI allowance is user-owned; every FREE/subscription/top-up grant remains independently identifiable and independently allocatable to PRIVATE and selected GROUP scopes with optional caps.
-- Multiple top-up purchases must not be merged when independent allocation settings would be lost.
-- Subscription expiry does not disable AI when another eligible grant remains; a grant not authorized for the requested scope must never be used as implicit fallback.
-
-## Plan defaults
-
-Current launch defaults:
-
-- FREE: NT$0, `ONE_TIME`, 500 AI units once, no calendar expiry/no refresh.
-- PRO: NT$99/month, `MONTHLY`, 500 included AI units per confirmed successful renewal.
-- TEAM: NT$299/month, `MONTHLY`, 2500 included AI units per confirmed successful renewal.
-- Paid included monthly allowance does not roll over.
-- Top-up units survive monthly renewal and are separate grants.
-- Export remains an intended paid capability until changed.
+- product/domain is general-purpose work recording;
+- PRIVATE and GROUP Sources are independent data spaces;
+- GROUP can exist and be used manually without paid subscription, AI allowance, or AI allowance responsible user;
+- manual PWA read/create/edit/delete/restore is baseline free functionality and consumes no AI unless explicit AI work is invoked;
+- active group members may manually collaborate; private scope remains private-owner scoped;
+- no plan limits group count;
+- customer-facing term is **AI 額度負責人**;
+- AI allowance is user-owned; FREE/subscription/top-up grants remain independently identifiable/allocatable;
+- subscription expiry does not disable another eligible grant and unauthorized grants never become fallback.
 
 ## AI execution / zero-balance rule
 
-Any operation requiring AI compute requires a positive eligible AI balance at request start.
+Any operation requiring AI compute requires positive eligible balance at request start.
 
-Examples requiring AI allowance when implemented:
+Examples:
 
-- LINE AI-assisted Record creation/entity parsing;
+- LINE AI-assisted Record creation/title parsing;
 - LINE natural-language Record editing;
 - attachment understanding/transcription/extraction when provider AI is required;
-- any later explicit AI report/summary feature.
+- future explicit AI report/summary features.
 
-If eligible balance is exactly zero at request start, do not start the AI/provider call. Direct the user to free PWA manual functionality or top-up/subscription paths as appropriate.
+If eligible balance is zero, do not start provider AI. Direct user to free PWA/manual or top-up/subscription paths.
 
-If balance is positive at request start but actual provider usage exceeds the user's remaining eligible units, customer balance floors at zero and AFTERTRACE absorbs the remainder for that already-started request. Durable Admin/accounting must retain at least:
+If balance is positive at start but actual provider usage exceeds remaining customer allowance, customer balance floors at zero and AFTERTRACE absorbs the remainder for that already-started request.
 
-- provider actual units/cost;
-- customer-charged units;
-- platform-subsidized units/cost;
-- user id;
-- PRIVATE/GROUP source id;
-- AI allowance responsible user when GROUP;
-- related Record/request where available;
-- model/pricing snapshot and timestamp.
+Admin/accounting must retain provider actual usage/cost, customer charge, platform subsidy, user, Source, AI 額度負責人 where relevant, model/pricing snapshot and timestamp.
 
-Do not create negative customer balances.
+## AI points / economic model
 
-## AI unit economics / cost calibration
+Customer-facing allowance is **AI 點數**, not raw provider token count.
 
-AI-assisted Record creation consumes allowance normally. Do not hard-code permanent customer-unit values from guesses.
+Accepted direction:
 
-Before finalizing unit packs/plan economics, measure representative real provider usage/cost for shipped AI paths. Provider-dollar cost and customer-facing allowance units must remain separate so conversion/pricing can be adjusted while historical provider cost remains truthful.
+- plan AI-cost budget is derived automatically from plan price;
+- initial commercial target allocates about 50% of plan price to AI provider-cost budget, subject to final rounding/configuration policy;
+- example: NT$99 plan -> approximately NT$50 AI-cost budget;
+- remaining revenue covers margin, Cloudflare/DB/Redis/payment/support/operations and other costs;
+- AI points do not need to equal provider tokens 1:1;
+- final point conversion ratio and exact plan/top-up point amounts remain pending discussion;
+- PWA displays points used, points remaining and usage/remaining percentage.
 
-Admin/accounting must make it possible to compare:
+Do not hard-code provider prices into business logic. Store/configure model pricing snapshots.
 
-- provider cost by request/model/input type;
-- customer units charged;
-- platform subsidy;
-- plan/top-up revenue assumptions.
+The product may use output-token-equivalent pricing as a simple point-accounting basis, but real provider accounting must still capture actual input/output/thinking/modality usage and true provider cost. Do not confuse the provider's input price with output price.
 
-## Entity / Record implementation rules
+## Record/title implementation rules
 
-Core universal model is Source + Entity + Alias + Record + RecordEntity + Revision + pending AI confirmation.
+Core universal model is Source + Entity(title) + Alias + Record + Revision + pending AI confirmation.
 
-- An Entity is a reusable lookup subject such as a person, project/context, place, equipment/item, etc.
-- Entity metadata stays lightweight; do not add universal address/phone/payment/construction columns merely because one use case has them.
-- PRIMARY/RELATED are roles of an Entity inside one Record, not permanent Entity types.
-- A Record has at most one PRIMARY and zero/many RELATED Entities.
-- A single Record must be discoverable through all of its Entity relations.
-- Only concrete future lookup targets become Entities; do not entity-extract every noun.
-- Alias is a confirmed alternate name for one Entity; contextual phrases expressing relationships must not be silently converted into aliases.
-- Entity/Alias matching is Source-scoped and must never cross unrelated PRIVATE/GROUP data spaces.
+Accepted MVP is **single-title**, not multi-Entity relationship indexing:
+
+- internal `Entity` is user-facing **紀錄標題**;
+- each Record belongs to exactly one title/Entity (`entity_id` or equivalent);
+- do not automatically create Related Entities for every person/object mentioned in Record content;
+- `王大明跟陳師傅去晴空案換冷氣` under a construction-site group should normally be filed as title `晴空案`; `王大明` and `陳師傅` stay in `raw_text`;
+- fuzzy search over title/alias/raw Record content must still find those names;
+- a generic PRIMARY/RELATED `worklog_record_entities` many-to-many table is not required for the accepted MVP unless a future feature explicitly reintroduces multi-Entity relationships;
+- Entity metadata stays lightweight;
+- Alias is a confirmed alternate title/name and matching is Source-scoped.
 
 ## AI-assisted Record parsing
 
-When a new Record uses AI, current target parsing responsibilities are:
+When a new Record uses AI, keep responsibilities bounded:
 
-- determine PRIMARY Entity candidate;
-- determine meaningful RELATED Entity candidates;
-- resolve existing Entity/Alias candidates inside the same Source;
-- detect possible Alias matches requiring confirmation;
-- resolve `occurred_at` when time language is present.
+- classify whether the request is create/edit/history-navigation;
+- determine one Record title/Entity;
+- resolve existing Entity/Alias inside the same Source;
+- detect possible Alias match requiring confirmation;
+- resolve `occurred_at` when relative time language is present;
+- preserve durable Record text/extraction.
 
-Do not require AI to extract universal fixed finance/address/material/task fields. Those are not core schema until a separately approved feature requires deterministic typed state.
+Do not require universal finance/address/material/task extraction and do not create extra Related Entities.
 
 ## Pending AI confirmation
 
-Ambiguous AI identity decisions must be durable, not Worker-memory-only.
+Ambiguous identity/title decisions must be durable, not Worker-memory-only.
 
-Implement a durable pending-confirmation domain/table for cases such as:
+Support cases such as:
 
 - `ALIAS_MATCH`;
-- `PRIMARY_ENTITY` ambiguity;
+- `RECORD_TITLE` ambiguity;
 - `ENTITY_MATCH` ambiguity.
 
-Never silently create an uncertain alias or choose among multiple plausible existing Entities. Ask the user and persist pending/resolved state.
+Never silently choose among multiple plausible existing titles or create uncertain aliases.
 
 ## PWA manual Record creation
 
-PWA manual creation is free and must not invoke AI implicitly.
+PWA manual creation is free and must not invoke AI.
 
-User-facing fields are:
+User-facing fields:
 
 - `紀錄標題`;
 - `紀錄內容`;
-- `發生時間` selected with a date/time picker.
+- `發生時間` selected through a date/time picker.
 
-Internal mapping:
-
-- `紀錄標題` is the user-facing name of the PRIMARY Entity/context;
-- title autocomplete searches current Source Entity names/aliases;
-- selecting an existing title attaches that Entity as PRIMARY;
-- entering a new title creates a new Entity in the current Source and attaches it as PRIMARY;
-- manual create does not infer RELATED Entities automatically because that would require AI.
-
-Do not expose internal Entity jargon unnecessarily in ordinary create UI.
+Title autocomplete searches current Source title names/aliases. Selecting existing title uses it; entering a new title creates it. Do not expose `Entity` jargon unnecessarily.
 
 ## Record time model
 
@@ -159,123 +130,94 @@ Records distinguish:
 - `occurred_at`: real-world event time; defaults to message/create time when unspecified;
 - `updated_at`: current row last changed.
 
-AI-assisted ingestion may interpret relative time expressions. PWA manual create uses a date/time picker. Search/filter code uses `occurred_at` for business-history date ranges.
+PWA date filter uses `occurred_at`.
 
-## PWA history/search contract
+## PWA search contract
 
-PWA is the authoritative history retrieval surface for MVP.
+PWA is authoritative history retrieval for MVP. Implement three composable filters:
 
-Implement three composable retrieval controls:
-
-1. Entity / 紀錄標題 selection;
-2. fuzzy search across Entity names/aliases plus Record content;
+1. 紀錄標題 / Entity;
+2. fuzzy keyword search across title names/aliases and Record content;
 3. `occurred_at` date range.
 
-Deleted Records are excluded from normal search and available only through recycle-bin/history views.
-
-Do not build a growing set of arbitrary backend query functions merely to support every possible natural-language historical question.
+Deleted Records are excluded from normal search.
 
 ## LINE history/navigation contract
 
-LINE history requests navigate to PWA rather than becoming an open-ended historical AI agent.
+LINE does not become an open-ended history-query agent.
 
-When a LINE message is judged to be lookup/history intent:
+AI classifies the request and converts it to deterministic PWA filters.
 
-- if a specific Entity can be confidently resolved, build a PWA history URL with that Entity id/filter;
-- if no specific Entity can be confidently resolved, return the normal Source PWA history URL;
-- backend/PWA performs actual retrieval;
-- keep function surface very small and deterministic, conceptually one history-link builder with optional Entity id.
+Examples:
 
-Recognized date-range URL filters may be added later as a small UX optimization, but are not required to implement the accepted bounded navigation model.
+- `王大明這週做了什麼`: if `王大明` is an existing title, use entity filter; otherwise fuzzy keyword `王大明`; also encode this week's date range.
+- `這個群組今天發生什麼`: no title/keyword required unless useful; encode today's date range.
 
-Broad AI historical analysis/query is not an MVP requirement unless separately approved later.
+Keep function surface small, conceptually:
+
+`build_history_link(source_id, entity_id?, keyword?, from?, to?)`
+
+Backend/PWA performs actual deterministic search. Do not create arbitrary query functions for every possible sentence.
 
 ## Record editing / revision rule
 
 PWA manual edits are free and do not invoke AI automatically.
 
 - every content-changing edit writes immutable revision history;
-- Record current row holds latest state;
-- preserve previous/new text, actor, channel, time and relevant Entity snapshots where needed;
-- show `已編輯` and revision history in PWA;
-- restoring an old revision creates a new revision; do not erase newer history;
-- use integer `version` optimistic concurrency; stale saves fail rather than overwrite;
-- do not use in-memory locks or Redis for ordinary Record edit concurrency.
+- Record row holds latest state;
+- show `已編輯` and history;
+- restoring old version creates a new revision;
+- use integer `version` optimistic concurrency;
+- do not use memory/Redis lock for normal editing.
 
-PWA manual text editing does **not** automatically re-parse/reassign Entity associations. If the user manually changes `晴空案` text to `信義案`, the system does not spend AI to infer intent. The user should explicitly move/create the correct Record as needed.
+Manual text editing does not automatically re-run AI or change the Record title.
 
 ## LINE natural-language Record edit
 
-LINE AI edit is allowed only with reliable target identification and positive AI allowance.
+LINE AI edit requires positive eligible balance and reliable target identification.
 
-Preferred rule:
-
-- require Reply to the specific prior Record/AFTERTRACE success context so backend can deterministically recover `record_id`;
-- if not Replying and target cannot be deterministically identified, do not guess; reply that the user must Reply to the Record or edit in PWA;
-- AI interprets the requested mutation after target Record is fixed;
-- AI may change raw text and, when the instruction clearly changes the subject, propose/update PRIMARY/RELATED Entity associations;
-- if new subject is not existing, use normal Entity/Alias/pending-confirmation flow;
-- commit through deterministic backend functions, authorization, expected-version check and atomic revision write; AI never receives arbitrary SQL mutation authority.
+- require Reply to the specific prior Record/AFTERTRACE success context when possible;
+- if target is not deterministic, do not guess; ask user to Reply or edit in PWA;
+- after Record id is fixed, AI interprets mutation;
+- if instruction clearly changes the title, AI may change `entity_id` and use normal title/Alias/pending-confirmation logic;
+- commit through deterministic backend authorization/version/revision transaction; AI never gets arbitrary SQL mutation authority.
 
 ## Soft delete / recycle bin
 
-Record deletion is status-based, not physical.
+Deletion is status-based, not physical. Require confirmation, retain actor/time/title/revisions, hide from normal search, show in recycle bin and allow restore.
 
-- require a safety confirmation;
-- store delete actor/time;
-- hide deleted Records from normal views/search;
-- show them in a dedicated PWA deleted-record/recycle-bin view;
-- allow restore;
-- keep RecordEntity associations and revision history durable while deleted.
+## Entity/title merge / undo
 
-## Entity merge / undo
+Merge is reversible and Source-scoped. Retain source as MERGED, record exactly which Records moved to canonical target, and undo restores those original Record-title associations even if Record content was edited later.
 
-Merge is reversible and Source-scoped.
-
-- show safety confirmation;
-- retain source Entity as MERGED rather than physically deleting it;
-- record which Record associations originally belonged to source;
-- undo restores those associations to source even if Record text was edited after merge;
-- content edits remain intact.
-
-PWA Entity management should support rename, aliases, merge, merged-history visibility and undo merge.
+PWA title management should support rename, aliases, merge, merged-history visibility and undo.
 
 ## Summary / broad AI query policy
 
-Do not maintain a persistent per-record AI summary as a second source of truth.
-
-Broad autonomous AI history retrieval/query is not required for MVP. PWA search/filter is the primary retrieval path. If a later explicit AI summary/report feature is approved, it consumes AI allowance and remains ephemeral.
-
-## Generic Record-to-Record relation policy
-
-Do not add a universal RecordRelation table for MVP merely because two Records appear chronologically related. Entity + time history is sufficient for MVP browsing.
-
-Add deterministic typed Record relations later only when a separately approved feature genuinely needs them.
+Do not maintain persistent per-record AI summaries. Broad autonomous AI historical retrieval is not MVP. PWA search/filter is primary. Future explicit AI summaries/reports consume AI allowance and remain ephemeral.
 
 ## Attachment policy
 
-- PWA manual create/edit is text-only; no permanent PWA file/photo library for MVP.
-- LINE image/audio/file can be fetched and converted into durable textual information; original binary is not permanently retained.
-- Follow `WORKLOG_LINE_CONTENT_POLICY.md` for reply cache/content retrieval/Office/PDF handling.
+- PWA manual create/edit is text-only; no permanent attachment library for MVP.
+- LINE image/audio/file can be fetched and converted into durable text; original binary is not permanently retained.
+- follow `WORKLOG_LINE_CONTENT_POLICY.md` for exact handling.
 
 ## AI provider accounting invariant
 
-Provider cost and customer allowance are separate ledgers/facts.
+Provider cost and customer points are separate facts.
 
 - reservation is preflight only;
-- provider-success usage is never erased because settlement is late/over-estimate/persistence later fails;
-- avoid double settlement/double provider calls on resume;
-- thinking/modality usage is counted exactly once;
-- grant consumption and platform subsidy must remain auditable.
+- successful provider usage is never erased because settlement is late/over estimate;
+- avoid double settlement/provider calls;
+- thinking/modality usage counted exactly once;
+- grant consumption and platform subsidy remain auditable.
 
 ## Prelaunch database policy
 
-Both dev/prod are prelaunch/disposable while schema is being finalized. Current repository migration/schema is authoritative and may be destructively rebuilt after confirming no real user/business data requires preservation.
-
-Once real production data exists, immediately switch to forward-only migration discipline.
+Dev/prod are prelaunch/disposable while schema is finalized. Current repo migration/schema may be destructively rebuilt after confirming no real user/business data must be preserved. Once real production data exists, switch to forward-only migrations.
 
 ## Validation and handoff
 
 - never claim unexecuted tests passed;
 - use local/runtime validation, not GitHub Actions;
-- every meaningful development run updates `WORKLOG_REBUILD_PROGRESS.md` with completed work, remaining debt, validation state, next batch, estimates, and explicit confirmation that GitHub Actions were not run/triggered.
+- meaningful development runs update `WORKLOG_REBUILD_PROGRESS.md` with completed work, debt, validation state, next batch, estimates and explicit confirmation Actions were not run/triggered.
