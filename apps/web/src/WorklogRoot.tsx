@@ -4,6 +4,7 @@ import {
   type RecordFilters,
   type RecordPage,
   type UserUsage,
+  type WebEntryContext,
   type WorklogEntity,
   type WorklogInputType,
   type WorklogRecord,
@@ -29,6 +30,7 @@ const EMPTY_RECORD: RecordDraft = { title: '', rawText: '', occurredAt: '' };
 export function WorklogRoot({ apiBaseUrl }: Props) {
   const api = useMemo(() => new WorklogApi(apiBaseUrl), [apiBaseUrl]);
   const started = useRef(false);
+  const initialFilters = useMemo(() => filtersFromUrl(), []);
   const [session, setSession] = useState<string | null>(() => localStorage.getItem(SESSION_KEY));
   const [surfaces, setSurfaces] = useState<WorklogSurfaces | null>(null);
   const [scope, setScope] = useState<Scope | null>(() => storedScope());
@@ -37,8 +39,8 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
   const [recordPage, setRecordPage] = useState<RecordPage | null>(null);
   const [usage, setUsage] = useState<UserUsage | null>(null);
   const [page, setPage] = useState<Page>('RECORDS');
-  const [filterDraft, setFilterDraft] = useState<FilterDraft>(EMPTY_FILTER);
-  const [filters, setFilters] = useState<FilterDraft>(EMPTY_FILTER);
+  const [filterDraft, setFilterDraft] = useState<FilterDraft>(initialFilters);
+  const [filters, setFilters] = useState<FilterDraft>(initialFilters);
   const [showDeleted, setShowDeleted] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [createDraft, setCreateDraft] = useState<RecordDraft>(() => ({
@@ -81,12 +83,14 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
       const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
       const callback = hash.get('session')?.trim();
       let token = callback || localStorage.getItem(SESSION_KEY);
+      let entryContext: WebEntryContext | null = null;
       const url = new URL(window.location.href);
       const entry = url.searchParams.get('t')?.trim();
 
       if (entry) {
         const exchanged = await api.exchangeEntry(entry);
         token = exchanged.sessionToken;
+        entryContext = exchanged.entryContext;
         persistSession(token);
         setSession(token);
         url.searchParams.delete('t');
@@ -105,8 +109,9 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
       ]);
       setSurfaces(nextSurfaces);
       setUsage(nextUsage);
+      const linked = scopeFromEntry(entryContext, nextSurfaces);
       const remembered = storedScope();
-      setScope(remembered && scopeExists(remembered, nextSurfaces) ? remembered : defaultScope(nextSurfaces));
+      setScope(linked ?? (remembered && scopeExists(remembered, nextSurfaces) ? remembered : defaultScope(nextSurfaces)));
     } catch (cause) {
       const text = message(cause, '載入失敗');
       if (/INVALID_WEB_SESSION|WEB_SESSION_REQUIRED/.test(text)) clearSession();
@@ -615,6 +620,32 @@ function apiFilters(value: FilterDraft, offset: number): RecordFilters {
     limit: 50,
     offset,
   };
+}
+
+function filtersFromUrl(): FilterDraft {
+  const params = new URL(window.location.href).searchParams;
+  const entityId = params.get('entityId')?.trim() ?? '';
+  const query = params.get('q')?.trim() ?? '';
+  const from = urlDateToLocal(params.get('from'));
+  const to = urlDateToLocal(params.get('to'));
+  return { entityId: /^\d+$/.test(entityId) ? entityId : '', query, from, to };
+}
+
+function urlDateToLocal(value: string | null): string {
+  if (!value) return '';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : datetimeLocalValue(date.toISOString());
+}
+
+function scopeFromEntry(entry: WebEntryContext | null, surfaces: WorklogSurfaces): Scope | null {
+  if (!entry) return null;
+  if (entry.type === 'PRIVATE') {
+    return surfaces.personal?.sourceId === entry.sourceId
+      ? { type: 'PERSONAL', sourceId: entry.sourceId }
+      : null;
+  }
+  const group = surfaces.groups.find((value) => value.lineGroupId === entry.lineGroupId);
+  return group ? { type: 'GROUP', sourceId: group.sourceId, lineGroupId: group.lineGroupId } : null;
 }
 
 function storedScope(): Scope | null {
