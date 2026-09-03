@@ -34,22 +34,24 @@ The Admin calculator shows a **recommended included AI points** value, but the f
 
 If the product later wants fully automatic pricing, it requires a separate explicit decision and durable configuration for the target margin.
 
-## FREE acquisition grant direction
+## FREE acquisition grant — frozen MVP launch value
 
 FREE has no purchase price, so its initial grant is not derived from a gross-margin formula. Treat it as a customer-acquisition / product-trial subsidy.
 
-Current launch direction is to give each eligible new user approximately **NT$30 of conservative output-price-equivalent AI value once**.
+**MVP launch FREE grant is frozen at 400,000 AI points once per eligible new user.**
+
+This amount was selected as the current launch-friendly rounded balance and is roughly in the intended NT$30 conservative output-price-equivalent subsidy range under the current selected model/pricing snapshot. Do not recalculate each new user's FREE grant from live FX or model pricing at grant time.
 
 Rules:
 
-- granted once per eligible user/account;
+- grant exactly **400,000 AI points** once per eligible user/account for the MVP launch configuration;
 - no calendar expiry unless product policy changes later;
-- never refreshes automatically;
+- never refresh automatically;
 - after it reaches zero, manual PWA functionality remains available for free;
-- exact displayed point count is calculated from the selected launch model/pricing snapshot using the accepted point basis and then intentionally rounded to a customer-friendly launch amount;
-- Admin must be able to compare the FREE grant's average real provider cost, conversion to paid plans/top-ups and exhaustion rate so the subsidy can be tuned after launch.
+- existing FREE grants are never resized retroactively when model pricing or FX changes;
+- Admin must compare the FREE grant's average real provider cost, conversion to paid plans/top-ups and exhaustion rate so a future launch-policy change can be made explicitly.
 
-This NT$30 value is a current launch direction, not a promise that future new-user promotions must always use the same subsidy.
+A future change to the new-user promotional amount is allowed only as an explicit configuration/product decision; it must not silently mutate historical grants.
 
 ## Conservative allowance sizing and actual charging
 
@@ -92,15 +94,21 @@ Do not silently change the definition of one AI point later. If a future product
 
 ## Model pricing snapshot
 
-As of 2026-09-03, official Gemini Developer API standard paid pricing for `gemini-3.5-flash-lite` is USD $0.30 / 1M input tokens and USD $2.50 / 1M output tokens including thinking tokens. Pricing changes over time, therefore historical usage must retain the pricing snapshot that applied when the request ran.
+As of 2026-09-03, the selected planning snapshot documented for the current Gemini Developer API model family uses separate input and output pricing, with thinking counted under the applicable billed output usage. Pricing changes over time, therefore historical usage must retain the exact provider/model pricing snapshot that applied when the request ran.
+
+Do not hard-code a current web price into entitlement logic. Provider prices belong in durable/configurable pricing snapshots.
 
 ## Existing plan point counts must be recalibrated
 
 Legacy values such as FREE `500`, PRO `500`, and TEAM `2500` were defined before the AI-point unit was frozen and must **not** be treated as final customer allowances under the new 1:1 output-price-equivalent model.
 
-Before implementation is considered complete, Admin/product configuration must set new explicit point balances for FREE / PRO / TEAM and each top-up product using the pricing calculator plus manual Admin confirmation.
+Current launch rule:
 
-Historical/prelaunch data is disposable, so these launch defaults may be replaced directly while there is no real production customer data.
+- FREE is explicitly **400,000 AI points once**;
+- PRO and TEAM included point amounts remain explicit Admin configuration and must be checked against representative usage/cost measurements before launch;
+- top-up products likewise use explicit persisted point amounts.
+
+Historical/prelaunch data is disposable, so obsolete launch defaults may be replaced directly while there is no real production customer data.
 
 ## Admin usage and profitability analytics
 
