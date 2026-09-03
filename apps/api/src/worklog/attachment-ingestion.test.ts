@@ -23,6 +23,7 @@ class Repo implements WorklogAttachmentRepository {
   failed: string | null = null;
   persistFailures = 0;
   persistCalls = 0;
+  sourceMissing = false;
 
   claim() {
     const current = this.state;
@@ -35,6 +36,15 @@ class Repo implements WorklogAttachmentRepository {
     if (this.persistFailures > 0) {
       this.persistFailures -= 1;
       throw new Error('database write uncertain');
+    }
+    if (this.sourceMissing) {
+      this.state = {
+        status: 'PROVIDER_SUCCEEDED',
+        reservationToken: input.reservationToken,
+        usage: input.usage,
+        failureReason: 'SOURCE_NOT_FOUND',
+      };
+      return { status: 'SOURCE_NOT_FOUND' as const };
     }
     const usage = { ...input.usage, recordId: 33 };
     this.saved = { recordId: 33, reservationToken: input.reservationToken, usage };
@@ -50,6 +60,7 @@ class Subscription {
   reserveCalls = 0;
   commitCalls = 0;
   releaseCalls = 0;
+  committedActualUnits: number[] = [];
   async reserveAi(input: { chargedUserId: number; actorUserId: number; sourceId?: number | null; requestedUnits: number }) {
     this.reserveCalls += 1;
     const reservation: WorklogAiReservationSnapshot = {
@@ -60,7 +71,11 @@ class Subscription {
     };
     return { status: 'RESERVED' as const, reservation, remainingAiUnits: 1000 };
   }
-  async commitAiUsage() { this.commitCalls += 1; return { status: 'COMMITTED' as const, reservation: {} as WorklogAiReservationSnapshot }; }
+  async commitAiUsage(_token?: string, usage?: WorklogAiUsageCommit) {
+    this.commitCalls += 1;
+    if (usage) this.committedActualUnits.push(usage.actualUnits);
+    return { status: 'COMMITTED' as const, reservation: {} as WorklogAiReservationSnapshot };
+  }
   async releaseAi() { this.releaseCalls += 1; return { status: 'RELEASED' as const, reservation: {} as WorklogAiReservationSnapshot }; }
 }
 
@@ -88,6 +103,13 @@ class Provider {
   }
 }
 
+class OverageProvider extends Provider {
+  override async analyze(): Promise<WorklogAttachmentProviderResponse> {
+    this.calls += 1;
+    return { output, inputTokens: 450, outputTokens: 100, audioInputUnits: 0, imageInputUnits: 400, providerResponseId: 'r2', latencyMs: 10 };
+  }
+}
+
 const input = {
   sourceId: 20, actorUserId: 7, chargedUserId: 9,
   commandLineMessageId: 'command-1', quotedLineMessageId: 'quoted-1',
@@ -101,6 +123,48 @@ describe('WorklogAttachmentIngestionService', () => {
     await expect(service.ingest(input)).resolves.toEqual({ status: 'RECORDED', recordId: 33, duplicate: false });
     expect(resolver.calls).toBe(1); expect(provider.calls).toBe(1); expect(subscription.reserveCalls).toBe(1); expect(subscription.commitCalls).toBe(1);
     expect(repo.saved?.usage.recordId).toBe(33);
+  });
+
+  it('commits full actual provider usage when attachment usage exceeds the conservative reservation', async () => {
+    const repo = new Repo(); const subscription = new Subscription(); const resolver = new ContentResolver(); const provider = new OverageProvider();
+    const service = new WorklogAttachmentIngestionService(repo, subscription, resolver, provider);
+
+    await expect(service.ingest(input)).resolves.toEqual({ status: 'RECORDED', recordId: 33, duplicate: false });
+    expect(subscription.releaseCalls).toBe(0);
+    expect(subscription.committedActualUnits).toEqual([550]);
+  });
+
+  it('settles provider cost and never releases quota if the source disappears after Gemini succeeds', async () => {
+    const repo = new Repo(); repo.sourceMissing = true;
+    const subscription = new Subscription(); const resolver = new ContentResolver(); const provider = new Provider();
+    const service = new WorklogAttachmentIngestionService(repo, subscription, resolver, provider);
+
+    await expect(service.ingest(input)).resolves.toEqual({ status: 'FAILED', reason: 'SOURCE_NOT_FOUND' });
+    expect(provider.calls).toBe(1);
+    expect(subscription.commitCalls).toBe(1);
+    expect(subscription.releaseCalls).toBe(0);
+    expect(repo.failed).toBe('SOURCE_NOT_FOUND');
+  });
+
+  it('resumes a durable provider-success failure without refetching LINE or calling Gemini again', async () => {
+    const repo = new Repo();
+    repo.state = {
+      status: 'PROVIDER_SUCCEEDED',
+      reservationToken: 'reservation-1',
+      usage: {
+        actualUnits: 150, provider: 'GOOGLE', model: 'gemini-test', inputTokens: 100, outputTokens: 50,
+        inputUsdPerMillion: 0.1, outputUsdPerMillion: 0.4, providerCostUsd: 0.00003,
+      },
+      failureReason: 'SOURCE_NOT_FOUND',
+    };
+    const subscription = new Subscription(); const resolver = new ContentResolver(); const provider = new Provider();
+    const service = new WorklogAttachmentIngestionService(repo, subscription, resolver, provider);
+
+    await expect(service.ingest(input)).resolves.toEqual({ status: 'FAILED', reason: 'SOURCE_NOT_FOUND' });
+    expect(resolver.calls).toBe(0);
+    expect(provider.calls).toBe(0);
+    expect(subscription.reserveCalls).toBe(0);
+    expect(subscription.commitCalls).toBe(1);
   });
 
   it('classifies LINE content but blocks media before quota/provider work when AI media capability is disabled', async () => {
