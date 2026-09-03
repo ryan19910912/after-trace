@@ -1,246 +1,105 @@
 import { sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
-import {
-  emptyRecordTypeCounts,
-  type ActiveUsageWindow,
-  type AiUsageAggregate,
-  type GroupMemberUsage,
-  type RecordTypeCounts,
-  type WorklogUsageRepository,
+import type {
+  SourceAiFundingSnapshot,
+  SourceAiPointBalance,
+  SourceAiUsageAggregate,
+  WorklogUsageRepository,
 } from './usage';
-
-type AiAggregateRow = {
-  ai_units: number | string | null;
-  provider_cost_usd: number | string | null;
-  provider_cost_twd: number | string | null;
-};
-
-type RecordCountRow = {
-  text_count: number | string | null;
-  audio_count: number | string | null;
-  image_count: number | string | null;
-  file_count: number | string | null;
-};
-
-type MemberUsageRow = RecordCountRow & AiAggregateRow & {
-  user_id: string;
-  display_name: string | null;
-  recording_enabled: boolean;
-  last_interaction_at: Date | string | null;
-  updated_at: Date | string;
-};
-
-const EARLIEST_USAGE = new Date('1970-01-01T00:00:00.000Z');
-const LATEST_USAGE = new Date('9999-12-31T23:59:59.999Z');
 
 export class DrizzleWorklogUsageRepository implements WorklogUsageRepository {
   constructor(private readonly db: Database) {}
 
-  async getActiveUsageWindow(userId: number): Promise<ActiveUsageWindow | null> {
+  async getGroupAiFunding(sourceId: number): Promise<SourceAiFundingSnapshot> {
     const result = await this.db.execute(sql`
       SELECT
-        subscription.plan_code,
-        COALESCE(balance.allowance_units, plan.ai_allowance_units, 0) AS allowance_units,
-        COALESCE(balance.reserved_units, 0) AS reserved_units,
-        subscription.current_period_start,
-        subscription.current_period_end
-      FROM worklog_user_subscriptions AS subscription
-      INNER JOIN worklog_subscription_plans AS plan
-        ON plan.code = subscription.plan_code
-       AND plan.enabled = TRUE
-      LEFT JOIN worklog_ai_quota_balances AS balance
-        ON balance.user_id = subscription.user_id
-       AND balance.period_start = subscription.current_period_start
-      WHERE subscription.user_id = ${userId}
-        AND subscription.status = 'ACTIVE'
-        AND subscription.effective_at <= NOW()
-        AND subscription.current_period_start <= NOW()
-        AND (subscription.current_period_end IS NULL OR NOW() < subscription.current_period_end)
+        responsibility.responsible_user_id::text AS responsible_user_id,
+        profile.display_name AS responsible_display_name
+      FROM worklog_sources source
+      LEFT JOIN worklog_source_ai_responsibility responsibility
+        ON responsibility.source_id = source.id
+      LEFT JOIN worklog_users profile
+        ON profile.id = responsibility.responsible_user_id
+      WHERE source.id = ${sourceId}
+        AND source.type = 'GROUP'
+        AND source.status = 'ACTIVE'
       LIMIT 1
     `);
     const row = result.rows[0] as {
-      plan_code?: string;
-      allowance_units?: number | string | null;
-      reserved_units?: number | string | null;
-      current_period_start?: Date | string | null;
-      current_period_end?: Date | string | null;
+      responsible_user_id?: string | null;
+      responsible_display_name?: string | null;
     } | undefined;
-    if (!row?.plan_code) return null;
+    const responsibleUserId = positiveIntegerOrNull(row?.responsible_user_id ?? null);
     return {
-      planCode: row.plan_code,
-      allowanceUnits: numeric(row.allowance_units ?? 0),
-      reservedUnits: numeric(row.reserved_units ?? 0),
-      periodStart: nullableDate(row.current_period_start ?? null),
-      periodEnd: nullableDate(row.current_period_end ?? null),
+      responsibleUserId,
+      responsibleDisplayName: responsibleUserId ? row?.responsible_display_name ?? null : null,
     };
   }
 
-  async sumChargedAiUsage(
-    chargedUserId: number,
-    periodStart: Date | null,
-    periodEnd: Date | null,
-    sourceId?: number,
-  ): Promise<AiUsageAggregate> {
-    const start = periodStart ?? EARLIEST_USAGE;
-    const end = periodEnd ?? LATEST_USAGE;
-    const result = sourceId === undefined
-      ? await this.db.execute(sql`
-          SELECT
-            COALESCE(SUM(ai_units_consumed), 0)::bigint AS ai_units,
-            COALESCE(SUM(provider_cost_usd), 0) AS provider_cost_usd,
-            COALESCE(SUM(provider_cost_twd), 0) AS provider_cost_twd
-          FROM worklog_ai_usage_events
-          WHERE charged_user_id = ${chargedUserId}
-            AND created_at >= ${start}
-            AND created_at < ${end}
-        `)
-      : await this.db.execute(sql`
-          SELECT
-            COALESCE(SUM(ai_units_consumed), 0)::bigint AS ai_units,
-            COALESCE(SUM(provider_cost_usd), 0) AS provider_cost_usd,
-            COALESCE(SUM(provider_cost_twd), 0) AS provider_cost_twd
-          FROM worklog_ai_usage_events
-          WHERE charged_user_id = ${chargedUserId}
-            AND source_id = ${sourceId}
-            AND created_at >= ${start}
-            AND created_at < ${end}
-        `);
-    return aiAggregate(result.rows[0] as AiAggregateRow | undefined);
-  }
-
-  async countRecordsByAuthor(userId: number, sourceId?: number): Promise<RecordTypeCounts> {
-    const result = sourceId === undefined
-      ? await this.db.execute(sql`
-          SELECT
-            COUNT(*) FILTER (WHERE input_type = 'TEXT')::bigint AS text_count,
-            COUNT(*) FILTER (WHERE input_type = 'AUDIO')::bigint AS audio_count,
-            COUNT(*) FILTER (WHERE input_type = 'IMAGE')::bigint AS image_count,
-            COUNT(*) FILTER (WHERE input_type = 'FILE')::bigint AS file_count
-          FROM worklog_records
-          WHERE author_user_id = ${userId}
-        `)
-      : await this.db.execute(sql`
-          SELECT
-            COUNT(*) FILTER (WHERE input_type = 'TEXT')::bigint AS text_count,
-            COUNT(*) FILTER (WHERE input_type = 'AUDIO')::bigint AS audio_count,
-            COUNT(*) FILTER (WHERE input_type = 'IMAGE')::bigint AS image_count,
-            COUNT(*) FILTER (WHERE input_type = 'FILE')::bigint AS file_count
-          FROM worklog_records
-          WHERE author_user_id = ${userId}
-            AND source_id = ${sourceId}
-        `);
-    return recordCounts(result.rows[0] as RecordCountRow | undefined);
-  }
-
-  async getGroupOwnerUserId(sourceId: number): Promise<number | null> {
+  async getSourcePointBalance(input: {
+    ownerUserId: number;
+    sourceId: number;
+    at: Date;
+  }): Promise<SourceAiPointBalance> {
     const result = await this.db.execute(sql`
-      SELECT owner_user_id::text AS owner_user_id
-      FROM worklog_sources
-      WHERE id = ${sourceId}
-        AND type = 'GROUP'
-        AND status = 'ACTIVE'
-      LIMIT 1
-    `);
-    const value = (result.rows[0] as { owner_user_id?: string | null } | undefined)?.owner_user_id;
-    return value ? Number(value) : null;
-  }
-
-  async listGroupMemberUsage(
-    sourceId: number,
-    periodStart: Date | null,
-    periodEnd: Date | null,
-  ): Promise<GroupMemberUsage[]> {
-    const start = periodStart ?? EARLIEST_USAGE;
-    const end = periodEnd ?? LATEST_USAGE;
-    const result = await this.db.execute(sql`
-      WITH record_usage AS (
-        SELECT
-          author_user_id,
-          COUNT(*) FILTER (WHERE input_type = 'TEXT')::bigint AS text_count,
-          COUNT(*) FILTER (WHERE input_type = 'AUDIO')::bigint AS audio_count,
-          COUNT(*) FILTER (WHERE input_type = 'IMAGE')::bigint AS image_count,
-          COUNT(*) FILTER (WHERE input_type = 'FILE')::bigint AS file_count
-        FROM worklog_records
-        WHERE source_id = ${sourceId}
-          AND author_user_id IS NOT NULL
-        GROUP BY author_user_id
-      ),
-      ai_usage AS (
-        SELECT
-          actor_user_id,
-          COALESCE(SUM(ai_units_consumed), 0)::bigint AS ai_units,
-          COALESCE(SUM(provider_cost_usd), 0) AS provider_cost_usd,
-          COALESCE(SUM(provider_cost_twd), 0) AS provider_cost_twd
-        FROM worklog_ai_usage_events
-        WHERE source_id = ${sourceId}
-          AND created_at >= ${start}
-          AND created_at < ${end}
-        GROUP BY actor_user_id
-      )
       SELECT
-        member.user_id::text AS user_id,
-        profile.display_name,
-        member.recording_enabled,
-        COALESCE(ai.ai_units, 0) AS ai_units,
-        COALESCE(ai.provider_cost_usd, 0) AS provider_cost_usd,
-        COALESCE(ai.provider_cost_twd, 0) AS provider_cost_twd,
-        COALESCE(records.text_count, 0) AS text_count,
-        COALESCE(records.audio_count, 0) AS audio_count,
-        COALESCE(records.image_count, 0) AS image_count,
-        COALESCE(records.file_count, 0) AS file_count,
-        profile.last_interaction_at,
-        GREATEST(member.updated_at, profile.updated_at) AS updated_at
-      FROM worklog_source_members AS member
-      INNER JOIN worklog_users AS profile ON profile.id = member.user_id
-      LEFT JOIN record_usage AS records ON records.author_user_id = member.user_id
-      LEFT JOIN ai_usage AS ai ON ai.actor_user_id = member.user_id
-      WHERE member.source_id = ${sourceId}
-        AND member.is_active = TRUE
-      ORDER BY profile.display_name ASC NULLS LAST, member.user_id ASC
+        COALESCE(SUM(
+          LEAST(
+            grant.remaining_points,
+            CASE
+              WHEN scope.cap_points IS NULL THEN grant.remaining_points
+              ELSE GREATEST(0, scope.cap_points - scope.used_points - scope.reserved_points)
+            END
+          )
+        ), 0)::bigint AS available_points,
+        COALESCE(SUM(scope.reserved_points), 0)::bigint AS reserved_points
+      FROM worklog_ai_grants grant
+      INNER JOIN worklog_ai_grant_scopes scope
+        ON scope.grant_id = grant.id
+       AND scope.source_id = ${input.sourceId}
+       AND scope.enabled = TRUE
+      WHERE grant.owner_user_id = ${input.ownerUserId}
+        AND grant.status = 'ACTIVE'
+        AND grant.effective_at <= ${input.at}
+        AND (grant.expires_at IS NULL OR grant.expires_at > ${input.at})
     `);
+    const row = result.rows[0] as {
+      available_points?: number | string | null;
+      reserved_points?: number | string | null;
+    } | undefined;
+    return {
+      availablePoints: nonNegativeInteger(row?.available_points),
+      reservedPoints: nonNegativeInteger(row?.reserved_points),
+    };
+  }
 
-    return (result.rows as MemberUsageRow[]).map((row) => ({
-      userId: Number(row.user_id),
-      displayName: row.display_name,
-      recordingEnabled: row.recording_enabled,
-      aiUsedUnits: numeric(row.ai_units),
-      providerCostUsd: numeric(row.provider_cost_usd),
-      providerCostTwd: numeric(row.provider_cost_twd),
-      records: recordCounts(row),
-      lastInteractionAt: nullableIso(row.last_interaction_at),
-      updatedAt: new Date(row.updated_at).toISOString(),
-    }));
+  async sumSourceAiUsage(sourceId: number): Promise<SourceAiUsageAggregate> {
+    const result = await this.db.execute(sql`
+      SELECT
+        COALESCE(SUM(customer_points_charged), 0)::bigint AS customer_points_charged,
+        COALESCE(SUM(platform_subsidized_points), 0)::bigint AS platform_subsidized_points
+      FROM worklog_ai_usage_events
+      WHERE source_id = ${sourceId}
+    `);
+    const row = result.rows[0] as {
+      customer_points_charged?: number | string | null;
+      platform_subsidized_points?: number | string | null;
+    } | undefined;
+    return {
+      customerPointsCharged: nonNegativeInteger(row?.customer_points_charged),
+      platformSubsidizedPoints: nonNegativeInteger(row?.platform_subsidized_points),
+    };
   }
 }
 
-function aiAggregate(row: AiAggregateRow | undefined): AiUsageAggregate {
-  return {
-    aiUnits: numeric(row?.ai_units ?? 0),
-    providerCostUsd: numeric(row?.provider_cost_usd ?? 0),
-    providerCostTwd: numeric(row?.provider_cost_twd ?? 0),
-  };
+function positiveIntegerOrNull(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
-function recordCounts(row: RecordCountRow | undefined): RecordTypeCounts {
-  if (!row) return emptyRecordTypeCounts();
-  return {
-    TEXT: numeric(row.text_count),
-    AUDIO: numeric(row.audio_count),
-    IMAGE: numeric(row.image_count),
-    FILE: numeric(row.file_count),
-  };
-}
-
-function numeric(value: number | string | null): number {
-  if (value === null) return 0;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
-}
-
-function nullableDate(value: Date | string | null): Date | null {
-  return value === null ? null : new Date(value);
-}
-
-function nullableIso(value: Date | string | null): string | null {
-  return value === null ? null : new Date(value).toISOString();
+function nonNegativeInteger(value: unknown): number {
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : 0;
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.floor(parsed));
 }
