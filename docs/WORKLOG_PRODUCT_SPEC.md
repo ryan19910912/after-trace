@@ -6,9 +6,9 @@ AFTERTRACE is a general-purpose LINE-first work-record assistant for individuals
 
 Core surfaces:
 
-- LINE OA/private chat: personal work records, AI query/edit entry, subscription/top-up/help.
-- LINE group bot: shared work-record capture and AI query/edit entry.
-- Web/PWA: free manual browse/search/filter/create/edit/delete/restore; Entity views; AI allowance settings; AI history; paid export where enabled.
+- LINE OA/private chat: personal AI-assisted work-record capture/edit entry, subscription/top-up/help, and navigation to PWA records.
+- LINE group bot: shared AI-assisted work-record capture/edit entry and navigation to group PWA records.
+- Web/PWA: free manual browse/search/filter/create/edit/delete/restore; Entity views; AI allowance settings/history; paid export where enabled.
 - Internal Admin: users/groups/plans/grants/usage/subsidy/anomalies/audit.
 
 The product/domain is intentionally general-purpose. Do not hard-code construction, finance, Customer, Project, payment, materials, etc. as universal schema. Future vertical features may add structured domain-specific state later.
@@ -29,7 +29,20 @@ Any operation that requires AI compute requires a positive eligible AI balance a
 
 If eligible AI balance is exactly zero, do not start AI. Manual PWA functions remain available.
 
-If balance is positive when AI starts but actual provider usage exceeds the remaining eligible units, user balance floors at zero and AFTERTRACE may absorb the shortfall. Admin must show how much was subsidized, for which user/group/private source/request, and the actual provider cost.
+If balance is positive when AI starts but actual provider usage exceeds the remaining eligible units, user balance floors at zero and AFTERTRACE absorbs the shortfall for that already-started request. Admin must show how much was subsidized, for which user/group/private source/request, and the actual provider cost.
+
+### AI-assisted Record cost
+
+AI-assisted Record creation consumes AI allowance normally. The allowance-unit economics must be derived from measured real provider cost rather than guessed permanently in product copy.
+
+Before finalizing pack sizes/plan economics, measure representative Gemini usage for at least:
+
+- short/long text Record parsing;
+- image/audio/file Record ingestion;
+- LINE natural-language edit;
+- any future AI report/summary operation that is actually shipped.
+
+Provider-dollar cost and customer-facing AI units remain separate accounting concepts so unit conversion/pricing can be adjusted without losing historical provider cost.
 
 ## Plans
 
@@ -160,7 +173,7 @@ Conceptual result:
 - RELATED: `王大明`
 - RELATED: `陳師傅`
 
-All three have Entity rows. The Record exists only once and is discoverable from all three Entity views/queries.
+All three have Entity rows. The Record exists only once and is discoverable from all three Entity views/searches.
 
 One Record has at most one PRIMARY and zero/many RELATED Entities. Only concrete future lookup targets become Entities; do not extract every noun.
 
@@ -193,7 +206,7 @@ If multiple candidate Entities are plausible, ask the user to choose one or crea
 
 ## AI responsibilities when creating an AI-assisted Record
 
-At minimum AI should determine:
+AI-assisted Record creation consumes AI allowance and should at minimum determine:
 
 - PRIMARY Entity candidate;
 - meaningful RELATED Entity candidates;
@@ -213,17 +226,62 @@ Important time fields:
 - `occurred_at`: when the event actually happened; defaults to create/message time when unspecified;
 - `updated_at`: last modification.
 
-`occurred_at` is used for queries such as yesterday/this week/last month.
+## PWA manual Record creation
 
-## AI summaries are on-demand only
+Manual PWA creation does not call AI and therefore costs zero AI units.
+
+User-facing create form is intentionally simple:
+
+- **紀錄標題**
+- **紀錄內容**
+- **發生時間** using a date/time picker, not free-form natural-language time input
+
+`紀錄標題` is the user-facing name for the Record's PRIMARY Entity/context. The UI should not force ordinary users to understand the internal term `Entity / 主體`.
+
+Recommended behavior:
+
+- title field searches/autocompletes existing Entity names and aliases in the current Source;
+- selecting an existing title attaches that Entity as PRIMARY;
+- entering a new title creates a new Entity in that Source and attaches it as PRIMARY;
+- PWA manual create does not automatically infer RELATED Entities because doing so would require AI;
+- users can still find text-only references later through PWA fuzzy search over title/entity names and Record content.
+
+## PWA browse/search/filter
+
+PWA is the authoritative place for searching and reviewing history. MVP search/filter scope is intentionally bounded:
+
+1. **紀錄標題 / Entity** lookup;
+2. **模糊搜尋** across Entity/title names/aliases plus Record content;
+3. **日期範圍** based on `occurred_at`.
+
+These three mechanisms should compose together.
+
+Examples:
+
+- choose `王大明` + this week;
+- fuzzy search `冷氣` + August;
+- choose `晴空案` with no date filter.
+
+## LINE lookup/navigation policy
+
+Do not build an open-ended AI agent that independently retrieves arbitrary historical Records and answers unlimited natural-language queries in MVP.
+
+When a LINE message is clearly asking to look up history rather than create/edit a Record:
+
+- if AI can confidently identify a specific Entity from the request, resolve that Entity id and return a PWA link pre-filtered to that Entity;
+- if no specific Entity can be confidently identified, return the normal PRIVATE/GROUP PWA history link;
+- do not attempt a growing set of arbitrary backend function calls for every possible user question;
+- PWA remains responsible for actual Record retrieval/search/filtering.
+
+The backend should keep this to a very small deterministic navigation function surface, conceptually one operation such as `build_history_link(source_id, entity_id?)` after AI intent/entity parsing.
+
+Whether the LINE navigation link should additionally encode recognized date-range filters is a small UX optimization still available for discussion; it must not turn into a general autonomous AI retrieval system.
+
+## AI summaries
 
 Do not maintain a persistent per-record AI summary.
 
-- Raw Record + Entity relationships are durable truth.
-- Users do not edit an AI summary.
-- AI summary/query is generated only when requested in LINE/PWA.
-- Generated summary is ephemeral and not stored as a second source of truth.
-- Therefore edit/merge/undo/new records do not need summary regeneration.
+Current MVP direction does not require a broad AI historical-query/summary agent. If an explicit on-demand AI summary/report feature is added later, it consumes AI allowance and remains ephemeral rather than becoming a second source of truth.
 
 ## Record editing and revision history
 
@@ -256,21 +314,13 @@ Preferred MVP behavior:
 - if a new subject is unknown, use normal Entity/Alias/pending-confirmation flow;
 - backend performs authorization/version/revision transaction; AI never writes arbitrary SQL.
 
-Example:
-
-Original: `王大明去晴空案換冷氣`
-
-Reply: `@AFTERTRACE 幫我改成去信義案換冷氣`
-
-AI may propose text update plus PRIMARY `晴空案 -> 信義案`; create/resolve `信義案` as needed.
-
 ## Soft delete / recycle bin
 
 Delete is reversible state change, not physical deletion.
 
 - show confirmation before delete;
 - mark Record `DELETED`, keep delete actor/time;
-- normal views and AI query ignore deleted Records;
+- normal views/search ignore deleted Records;
 - PWA has a dedicated deleted-record/recycle-bin list;
 - restore returns Record to active state;
 - RecordEntity relationships and revision history remain stored while deleted.
@@ -287,6 +337,14 @@ PWA supports reversible duplicate Entity merge.
 - undo moves those original associations back even if the Record text was later edited;
 - current Record content remains unchanged.
 
+PWA Entity management should at minimum support:
+
+- rename canonical Entity;
+- view/add/remove aliases;
+- merge duplicate Entities;
+- view merged status/history;
+- undo merge.
+
 ## Generic Record-to-Record relation
 
 MVP does not require a universal RecordRelation table just because two Records concern the same subject over time.
@@ -296,9 +354,7 @@ Example:
 - 9/1 `晴空案冷氣壞掉`
 - 9/3 `晴空案冷氣已修好`
 
-Both attach to PRIMARY `晴空案`. An AI query can read chronological relevant Records and infer current status.
-
-Add deterministic typed relations later only when an approved feature truly requires them, such as payment settlement, reminder lifecycle or task completion.
+Both attach to PRIMARY `晴空案`. PWA chronological history is sufficient for MVP. Add deterministic typed relations later only when an approved feature truly requires them.
 
 ## LINE attachment/input policy
 
@@ -308,16 +364,16 @@ LINE image/audio/file/PDF/DOCX/XLSX inputs may be fetched, understood/extracted 
 
 ## Export
 
-Export remains MVP and initially paid. Exact report UX can be discussed separately. Any AI-generated report requires AI allowance and must not overwrite raw source/audit truth.
+Export remains MVP and initially paid. Exact report UX can be discussed separately. Any future AI-generated report requires AI allowance and must not overwrite raw source/audit truth.
 
 ## Future discussion backlog
 
 Do not implement implicitly until separately approved:
 
 - invoice integration;
-- AI natural-language search across full history / final retrieval strategy;
 - automatic reminders/follow-up such as unpaid-item reminders;
 - project/engineering scheduling;
+- broad AI natural-language historical analysis/reporting beyond the accepted PWA navigation flow;
 - final product/brand name and go-to-market positioning.
 
 ## Platform / deployment
