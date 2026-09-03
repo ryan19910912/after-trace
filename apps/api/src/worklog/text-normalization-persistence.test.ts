@@ -7,6 +7,7 @@ import {
   type WorklogTextNormalizationSubscriptionPort,
 } from './text-normalization';
 
+const referenceOccurredAt = new Date('2026-09-02T03:00:00Z');
 const context: WorklogTextNormalizationContext = {
   recordId: 10,
   workspaceId: 20,
@@ -14,6 +15,7 @@ const context: WorklogTextNormalizationContext = {
   actorUserId: 40,
   chargedUserId: 50,
   rawText: '今天完成浴室配線',
+  occurredAt: referenceOccurredAt,
 };
 
 const config: WorklogAiRuntimeConfigSnapshot = {
@@ -34,7 +36,7 @@ function repository(saveProviderResult: WorklogTextNormalizationRepository['save
     saveProviderResult,
     getReservationStatus: vi.fn(async () => 'RESERVED' as const),
     markUsageCommitted: vi.fn(async () => undefined),
-    applyResult: vi.fn(async () => undefined),
+    applyResult: vi.fn(async () => ({ status: 'APPLIED' as const, entityId: 77, createdEntity: true })),
     fail: vi.fn(async () => undefined),
   };
 }
@@ -72,7 +74,11 @@ describe('WorklogTextNormalizationService persistence uncertainty', () => {
     const repo = repository(saveProviderResult);
     const { port, releaseAi } = subscriptions();
     const normalize = vi.fn(async () => ({
-      output: { summary: '完成浴室配線', category: 'WORK' as const, customerHint: null, projectHint: null },
+      output: {
+        title: '浴室配線',
+        titleRequiresConfirmation: false,
+        occurredAt: referenceOccurredAt.toISOString(),
+      },
       inputTokens: 20,
       outputTokens: 10,
       providerResponseId: 'provider-1',
@@ -84,6 +90,10 @@ describe('WorklogTextNormalizationService persistence uncertainty', () => {
     }, () => 'claim-1');
 
     await expect(service.normalizeText(10)).resolves.toEqual({ status: 'IN_PROGRESS' });
+    expect(normalize).toHaveBeenCalledWith({
+      text: context.rawText,
+      referenceOccurredAt: referenceOccurredAt.toISOString(),
+    }, config);
     expect(normalize).toHaveBeenCalledTimes(1);
     expect(saveProviderResult).toHaveBeenCalledTimes(1);
     expect(releaseAi).not.toHaveBeenCalled();
