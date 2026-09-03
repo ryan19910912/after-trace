@@ -15,7 +15,11 @@ const config: WorklogAiRuntimeConfigSnapshot = {
   audioUsdPerMillion: null, imageUsdPerMillion: null, usdTwdRate: 32,
 };
 const content: LineMessageContent = { lineMessageId: 'quoted-1', mimeType: 'image/jpeg', byteLength: 100, dataBase64: 'AA==' };
-const output: WorklogAttachmentOutput = { inputType: 'IMAGE', rawText: '配電箱照片', summary: '配電箱現況', category: 'WORK', attachmentMetadata: { mimeType: 'image/jpeg' } };
+const output: WorklogAttachmentOutput = {
+  inputType: 'IMAGE',
+  rawText: '配電箱照片',
+  attachmentMetadata: { mimeType: 'image/jpeg' },
+};
 
 class Repo implements WorklogAttachmentRepository {
   state: WorklogAttachmentClaimState = { status: 'CLAIMED' };
