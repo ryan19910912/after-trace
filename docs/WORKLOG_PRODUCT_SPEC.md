@@ -63,6 +63,7 @@ Rules:
 - When raw content is saved but AI is disabled/deferred/failed, state that truthfully and never fabricate an AI summary.
 - The record URL is a durable PWA deep link containing the durable record id.
 - PWA authentication/authorization remains authoritative; knowing a record id/URL never grants access by itself.
+- If the new message appears to update/resolve an earlier business item but AFTERTRACE cannot determine the exact target confidently, the reply must say so explicitly instead of pretending the relationship is known.
 
 ## PWA manual record creation and editing
 
@@ -191,6 +192,60 @@ Always preserve original user-provided content/reference. AI output is derived m
 A record retains at least workspace/source, LINE ids where applicable, author, original raw input/attachment metadata, normalized summary, category, customer/project links, input type, creation/edit timestamps, and creation mode such as `LINE_AI` / `PWA_MANUAL`.
 
 Amounts requiring arithmetic use deterministic numeric fields/tables; AI text is never accounting truth.
+
+## Related records and current business state
+
+Worklog records are event history. Later events should usually create new records and update deterministic current state through explicit relations instead of overwriting the earlier record.
+
+Example:
+
+```text
+Day 1: 三重王先生 裝潢 30000 還沒給
+Day 4: 三重王先生 裝潢 30000 已給
+```
+
+Preferred model:
+
+- Day 1 remains its own record plus a typed `RECEIVABLE` transaction for 30,000;
+- Day 4 remains its own record plus a typed `RECEIVED` transaction for 30,000;
+- the later receipt is explicitly allocated/linked to the earlier receivable when the target is known;
+- the earlier historical record is not rewritten to pretend the debt was always paid;
+- PWA current finance state is derived from deterministic transactions/allocations and may show `應收 / 已收 / 未收 / 已結清`, while the timeline still shows both historical events.
+
+The finance relation must support partial settlement, for example a 30,000 receivable followed by 10,000 and 20,000 receipts. Prefer a relation/allocation model capable of many-to-many partial allocation rather than assuming every receipt fully settles exactly one receivable.
+
+### AI relation matching and ambiguity
+
+AI may help identify candidate customer/project/issue/receivable relations, but it must not invent a high-impact relation merely because text looks similar.
+
+Candidate matching may use deterministic facts such as:
+
+- same PRIVATE/GROUP source/workspace boundary;
+- customer identity;
+- project identity;
+- amount;
+- unresolved/open state;
+- event type;
+- recency.
+
+Rules:
+
+- a unique, high-confidence match may be auto-linked according to the product's accepted confidence policy;
+- if multiple plausible targets exist, important identifying data conflicts, or confidence is otherwise insufficient, **do not automatically mutate/settle/resolve the earlier item**;
+- save the new user's record truthfully even when the relation is unresolved;
+- mark/retain the relation as pending/unresolved where useful;
+- tell the user clearly that AFTERTRACE currently cannot determine which previous item this refers to;
+- provide a PWA deep link/action allowing the user to select the correct target and confirm the state change manually.
+
+Preferred financial ambiguity reply:
+
+```text
+已記錄這筆收款資訊，但目前無法判斷是對應哪一筆未收款紀錄。
+請到 AFTERTRACE 確認要結清／沖銷的項目：
+https://<aftertrace-web>/records/{{recordId}}
+```
+
+For financial state, ambiguity must fail safe: an uncertain AI match never automatically changes an outstanding receivable to paid. The same principle applies to other stateful relations such as resolving an issue or attaching an update to one of several similarly named projects.
 
 ## Subscription plan model
 
