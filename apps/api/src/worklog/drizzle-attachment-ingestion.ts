@@ -51,9 +51,6 @@ export class DrizzleWorklogAttachmentRepository implements WorklogAttachmentRepo
     `);
     if (inserted.rows.length > 0) return { status: 'CLAIMED' };
 
-    // Never auto-replay an uncertain provider attempt. PROCESSING rows that already
-    // contain a durable reservation + usage snapshot represent provider success that
-    // still needs accounting settlement, so they must not be terminalized as stale.
     await this.db.execute(sql`
       UPDATE worklog_attachment_ingestions
       SET status = 'FAILED',
@@ -191,9 +188,6 @@ export class DrizzleWorklogAttachmentRepository implements WorklogAttachmentRepo
       ) AS active
     `);
     if (!Boolean((source.rows[0] as { active?: boolean } | undefined)?.active)) {
-      // Gemini has already succeeded at this point. Preserve exact metering and the
-      // reservation token on the ingestion row even though the source disappeared,
-      // so a later delivery can settle provider cost without calling Gemini again.
       const preserved = await this.db.execute(sql`
         UPDATE worklog_attachment_ingestions
         SET reservation_token = ${input.reservationToken},
@@ -214,7 +208,9 @@ export class DrizzleWorklogAttachmentRepository implements WorklogAttachmentRepo
   }
 
   async reservationStatus(token: string) {
-    const result = await this.db.execute(sql`SELECT status FROM worklog_ai_quota_reservations WHERE token = ${token} LIMIT 1`);
+    const result = await this.db.execute(sql`
+      SELECT status FROM worklog_ai_point_reservations WHERE token = ${token} LIMIT 1
+    `);
     const value = (result.rows[0] as { status?: string } | undefined)?.status;
     return value === 'RESERVED' || value === 'COMMITTED' || value === 'RELEASED' || value === 'EXPIRED' ? value : null;
   }
@@ -258,6 +254,7 @@ function parseUsage(value: unknown): WorklogAiUsageCommit {
   const row = value as Record<string, unknown>;
   return {
     actualUnits: integer(row.actualUnits, 'actualUnits'), workspaceId: optionalInteger(row.workspaceId), recordId: optionalInteger(row.recordId),
+    operation: optionalText(row.operation, 64),
     provider: requiredUnknownText(row.provider, 'provider'), model: requiredUnknownText(row.model, 'model'),
     inputTokens: integer(row.inputTokens, 'inputTokens'), outputTokens: integer(row.outputTokens, 'outputTokens'),
     audioInputUnits: integer(row.audioInputUnits ?? 0, 'audioInputUnits'), imageInputUnits: integer(row.imageInputUnits ?? 0, 'imageInputUnits'),
@@ -270,6 +267,7 @@ function parseUsage(value: unknown): WorklogAiUsageCommit {
 function positiveNumber(value: string | number, label: string) { const n = Number(value); if (!Number.isSafeInteger(n) || n <= 0) throw new Error(`invalid ${label}`); return n; }
 function requiredText(value: string, label: string) { const v = value.trim(); if (!v) throw new Error(`invalid ${label}`); return v; }
 function requiredUnknownText(value: unknown, label: string) { if (typeof value !== 'string') throw new Error(`invalid ${label}`); return requiredText(value, label); }
+function optionalText(value: unknown, max: number) { if (value == null) return undefined; if (typeof value !== 'string') throw new Error('invalid text'); const v = value.trim(); return v ? v.slice(0, max) : undefined; }
 function nonNegative(value: string | number, label: string) { const n = Number(value); if (!Number.isFinite(n) || n < 0) throw new Error(`invalid ${label}`); return n; }
 function nullableNonNegative(value: string | number | null, label: string) { return value == null ? null : nonNegative(value, label); }
 function integer(value: unknown, label: string) { if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new Error(`invalid ${label}`); return value; }
