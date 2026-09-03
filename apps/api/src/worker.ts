@@ -14,6 +14,7 @@ import { configureWorklogAttachmentRuntime } from './worklog/attachment-runtime'
 import { createWorklogConfirmationRoutes } from './worklog/confirmation-routes';
 import { DrizzleWorklogAiPointLedgerRepository } from './worklog/drizzle-ai-point-ledger';
 import { DrizzleWorklogAttachmentRepository } from './worklog/drizzle-attachment-ingestion';
+import { createWorklogFundingRoutes } from './worklog/funding-routes';
 import { GeminiWorklogAttachmentNormalizer } from './worklog/gemini-attachment-normalizer';
 import { createWorklogRoutes } from './worklog/routes';
 import { createWorklogSubscriptionRoutes } from './worklog/subscription-routes';
@@ -24,6 +25,7 @@ type ApiBoundary = 'ADMIN_API' | 'SUBSCRIPTION_API' | 'WORKLOG_WEB_API';
 const adminRoutes = createAdminRoutes();
 const worklogRoutes = createWorklogRoutes();
 const worklogConfirmationRoutes = createWorklogConfirmationRoutes();
+const worklogFundingRoutes = createWorklogFundingRoutes();
 const worklogSubscriptionRoutes = createWorklogSubscriptionRoutes();
 const LEGACY_PREFIXES = ['/api/v1/management', '/api/v1/energy', '/api/v1/internal/commerce', '/api/v1/internal/proactive'];
 const LEGACY_AUTH_PATHS = new Set(['/api/v1/auth/groups', '/api/v1/auth/memories']);
@@ -125,6 +127,13 @@ export default {
       const routedRequest = new Request(rewritten, request);
       return withApiAnomalyBoundary('WORKLOG_WEB_API', request, env, () =>
         worklogConfirmationRoutes.fetch(routedRequest, env as never, executionContext as never));
+    }
+    if (url.pathname === '/api/v1/worklog/funding' || url.pathname.startsWith('/api/v1/worklog/funding/')) {
+      const rewritten = new URL(request.url);
+      rewritten.pathname = url.pathname.slice('/api/v1/worklog/funding'.length) || '/';
+      const routedRequest = new Request(rewritten, request);
+      return withApiAnomalyBoundary('WORKLOG_WEB_API', request, env, () =>
+        worklogFundingRoutes.fetch(routedRequest, env as never, executionContext as never));
     }
     if (url.pathname === '/api/v1/worklog' || url.pathname.startsWith('/api/v1/worklog/')) {
       const rewritten = new URL(request.url);
