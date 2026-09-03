@@ -75,11 +75,11 @@ Rules:
 - one Record has at most one PRIMARY Entity;
 - one Record may have zero or many RELATED Entities;
 - `(record_id, entity_id)` is unique;
-- search/query must consider both PRIMARY and RELATED relations;
+- search must consider both PRIMARY and RELATED relations;
 - PRIMARY is the main filing/context and receives higher relevance weight;
 - RELATED provides alternate lookup paths.
 
-Therefore the same Record is found when asking about `晴空案`, `王大明`, or `陳師傅`. PWA does not need to expose the technical PRIMARY/RELATED terminology prominently; it may simply show all relevant records for an Entity.
+Therefore the same Record is found when viewing/searching `晴空案`, `王大明`, or `陳師傅`. PWA does not need to expose the technical PRIMARY/RELATED terminology prominently; it may simply show all relevant records for an Entity.
 
 ## Alias / 其他稱呼
 
@@ -115,7 +115,9 @@ For an AI-assisted new Record, AI should at minimum determine:
 
 AI should use only the current Source's entities/aliases/history. Never cross PRIVATE/GROUP Source boundaries when matching identities.
 
-The AI structured result is an internal function/tool result; the product does not need to persist a per-record AI JSON summary.
+AI-assisted creation consumes AI allowance normally. Pricing/unit conversion is calibrated from measured provider cost rather than encoded into Entity logic.
+
+The AI structured result is an internal function/tool result; the product does not persist a per-record AI JSON summary.
 
 ## Pending AI confirmation
 
@@ -147,6 +149,63 @@ If multiple existing candidates are plausible, ask the user to choose among them
 
 On confirmed alias match, add the alias and attach the Record to the canonical Entity. On rejection, create/choose the correct distinct Entity as appropriate.
 
+## PWA manual create terminology
+
+Ordinary users should not be forced to understand the internal word `Entity / 主體`.
+
+For PWA manual create, present the PRIMARY Entity as **紀錄標題**.
+
+Manual create fields:
+
+- `紀錄標題`
+- `紀錄內容`
+- `發生時間` selected through a date/time picker
+
+Behavior:
+
+- title autocomplete searches existing Entity names and aliases in the current Source;
+- choosing an existing title attaches that Entity as PRIMARY;
+- entering a new title creates a new Entity and attaches it as PRIMARY;
+- manual PWA creation does not invoke AI and does not infer RELATED Entities automatically;
+- if a manually created Record mentions other people/things only in text, PWA fuzzy content search can still find those words even though no RELATED Entity relation was created.
+
+This keeps manual CRUD free and predictable while AI-assisted LINE capture can provide richer PRIMARY/RELATED indexing.
+
+## Record time
+
+A Record distinguishes:
+
+- `created_at`: when AFTERTRACE stored it;
+- `occurred_at`: when the real-world event occurred;
+- `updated_at`: last current-row modification time.
+
+If no event time is supplied, `occurred_at` defaults to message/create time. AI-assisted ingestion may parse relative language into `occurred_at`.
+
+PWA manual create uses a date/time picker for `occurred_at` rather than asking the user to type relative natural-language dates.
+
+## PWA lookup/search model
+
+PWA is the authoritative retrieval surface for MVP.
+
+Search/filter is intentionally limited to three composable mechanisms:
+
+1. Entity / 紀錄標題 lookup;
+2. fuzzy search across Entity names/aliases plus Record content;
+3. date range over `occurred_at`.
+
+Do not require an open-ended AI retrieval agent for normal history browsing.
+
+## LINE history navigation
+
+When a LINE request is clearly asking to look up history rather than create/edit:
+
+- if AI confidently resolves a specific Entity, backend returns a PWA history URL containing that Entity id/filter;
+- if there is no resolvable Entity, return the normal Source PWA history URL;
+- PWA then performs the actual Record retrieval/filtering;
+- keep backend function calling bounded to a small navigation surface instead of adding arbitrary query functions for every possible sentence.
+
+A small future enhancement may encode an already-recognized date range in the PWA URL, but this is not required to support the core navigation model.
+
 ## Merge and undo
 
 Alias prevents duplicates before creation. Merge repairs duplicates after they already exist.
@@ -164,25 +223,13 @@ Accepted merge rules:
 
 No stored AI summary needs regeneration because persistent summaries are not the durable model.
 
-## Record time
-
-A Record distinguishes:
-
-- `created_at`: when AFTERTRACE stored it;
-- `occurred_at`: when the real-world event occurred;
-- `updated_at`: last current-row modification time.
-
-If no event time is supplied, `occurred_at` defaults to message/create time. AI-assisted ingestion may parse relative language into `occurred_at`.
-
-This supports queries such as `晴空案昨天做了什麼`, `王大明這週做了什麼`, or records within a selected date range.
-
 ## Delete / restore behavior
 
 Record deletion is soft deletion only.
 
 If Record #100 has relations to `晴空案`, `王大明`, `陳師傅`, deleting it changes the Record status to `DELETED`; its Entity associations remain durable.
 
-Normal Entity/query views exclude deleted Records. The recycle-bin/history view can still show the deleted Record and all original Entity associations. Restoring the Record makes those existing associations visible again.
+Normal Entity/search views exclude deleted Records. The recycle-bin/history view can still show the deleted Record and all original Entity associations. Restoring the Record makes those existing associations visible again.
 
 Do not delete Entity or Alias rows merely because one Record was deleted.
 
@@ -195,11 +242,11 @@ Example:
 - 9/1 `晴空案冷氣壞掉`
 - 9/3 `晴空案冷氣已修好`
 
-Both attach to PRIMARY `晴空案`. An on-demand AI query can read the relevant chronological Records and infer that the later Record updates the situation.
+Both attach to PRIMARY `晴空案`. PWA chronological history is sufficient for MVP.
 
 Only introduce a durable typed Record-to-Record relation later when a concrete feature requires deterministic state, e.g. a future payment settlement, task completion, reminder lifecycle, or another explicitly approved feature.
 
-## Raw Records and on-demand AI summaries
+## Raw Records and AI summaries
 
 Raw Record text/durable textual extraction is the stored truth.
 
@@ -207,9 +254,8 @@ Accepted direction:
 
 - do not maintain a permanently stored per-record AI summary;
 - users edit the Record, not an AI summary;
-- AI summary/query is generated only when explicitly requested;
-- generated summary is ephemeral and not a second source of truth;
-- merge, undo, edit and new records therefore do not require persistent-summary synchronization.
+- broad AI historical analysis/query is not required for MVP;
+- if an explicit AI report/summary feature is added later, it is on-demand, consumes AI allowance, and does not become a second source of truth.
 
 ## Concurrency
 
