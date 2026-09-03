@@ -49,15 +49,18 @@ export class SafeDrizzleWorklogSubscriptionRepository extends DrizzleWorklogSubs
           reservation.units_reserved,
           reservation.period_start,
           reservation.period_end,
-          reservation.expires_at
+          reservation.expires_at,
+          reservation.status AS previous_status
         FROM worklog_ai_quota_reservations AS reservation
         INNER JOIN worklog_ai_quota_balances AS balance
           ON balance.user_id = reservation.charged_user_id
          AND balance.period_start = reservation.period_start
         WHERE reservation.token = ${token}
-          AND reservation.status = 'RESERVED'
-          AND reservation.units_reserved >= ${usage.actualUnits}
-          AND balance.reserved_units >= reservation.units_reserved
+          AND reservation.status IN ('RESERVED', 'EXPIRED')
+          AND (
+            reservation.status = 'EXPIRED'
+            OR balance.reserved_units >= reservation.units_reserved
+          )
         FOR UPDATE OF reservation, balance
       ),
       claimed AS (
@@ -67,12 +70,15 @@ export class SafeDrizzleWorklogSubscriptionRepository extends DrizzleWorklogSubs
             updated_at = NOW()
         FROM locked
         WHERE reservation.token = locked.token
-          AND reservation.status = 'RESERVED'
-        RETURNING reservation.*
+          AND reservation.status = locked.previous_status
+        RETURNING reservation.*, locked.previous_status
       ),
       adjusted AS (
         UPDATE worklog_ai_quota_balances AS balance
-        SET reserved_units = balance.reserved_units - claimed.units_reserved,
+        SET reserved_units = balance.reserved_units - CASE
+              WHEN claimed.previous_status = 'RESERVED' THEN claimed.units_reserved
+              ELSE 0
+            END,
             used_units = balance.used_units + claimed.units_committed,
             updated_at = NOW()
         FROM claimed
