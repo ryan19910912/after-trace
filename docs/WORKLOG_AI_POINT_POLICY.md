@@ -34,6 +34,23 @@ The Admin calculator shows a **recommended included AI points** value, but the f
 
 If the product later wants fully automatic pricing, it requires a separate explicit decision and durable configuration for the target margin.
 
+## FREE acquisition grant direction
+
+FREE has no purchase price, so its initial grant is not derived from a gross-margin formula. Treat it as a customer-acquisition / product-trial subsidy.
+
+Current launch direction is to give each eligible new user approximately **NT$30 of conservative output-price-equivalent AI value once**.
+
+Rules:
+
+- granted once per eligible user/account;
+- no calendar expiry unless product policy changes later;
+- never refreshes automatically;
+- after it reaches zero, manual PWA functionality remains available for free;
+- exact displayed point count is calculated from the selected launch model/pricing snapshot using the accepted point basis and then intentionally rounded to a customer-friendly launch amount;
+- Admin must be able to compare the FREE grant's average real provider cost, conversion to paid plans/top-ups and exhaustion rate so the subsidy can be tuned after launch.
+
+This NT$30 value is a current launch direction, not a promise that future new-user promotions must always use the same subsidy.
+
 ## Conservative allowance sizing and actual charging
 
 Allowance sizing intentionally uses the selected provider/model's output-token price as the conservative reference price when converting an AI budget into a suggested customer point balance.
@@ -102,7 +119,8 @@ Admin must make pricing decisions possible from real usage rather than intuition
 - realized gross margin based on captured direct costs;
 - platform-subsidized AI points and provider cost;
 - percentage of users exhausting their allowance;
-- average allowance utilization percentage and distribution where practical.
+- average allowance utilization percentage and distribution where practical;
+- FREE-to-paid conversion and average real provider subsidy per FREE user where available.
 
 Breakdowns should be available by at least:
 
