@@ -1,151 +1,129 @@
 # AFTERTRACE Deployment Baseline
 
-This document is part of the durable development contract for branch `revive/line-worklog`.
+Durable deployment contract for branch `revive/line-worklog`.
 
 ## Deployment topology
 
 AFTERTRACE deploys as three independent Cloudflare Workers.
 
-### 1. aftertrace-api
+### aftertrace-api
 
-- Hono / TypeScript Cloudflare Worker.
-- Responsibilities: LINE webhook, Worklog runtime, auth/session, PWA/Admin/subscription APIs, AI quota/provider orchestration and PostgreSQL/Drizzle.
-- Deployment config: `apps/api/wrangler.toml`.
-- Production helper: `worker-deploy.ps1` and API-only.
-- The API entrypoint is Worklog-only; ordinary group traffic cannot fall through to retired Memory/Energy/conversation behavior.
-- There is no active scheduled handler/cron binding for the retired reminder/proactive runtime.
+- Hono / TypeScript Worker.
+- LINE webhook, Worklog runtime, auth/session, Web/Admin/subscription APIs, AI quota/provider orchestration and PostgreSQL/Drizzle.
+- Config: `apps/api/wrangler.toml`.
+- Production helper: `worker-deploy.ps1`.
 
-### 2. aftertrace-web
+### aftertrace-web
 
-- React + Vite customer-facing Web/PWA deployed with Cloudflare Workers Static Assets.
-- Config: `apps/web/wrangler.toml`; assets: `apps/web/dist`; SPA fallback enabled.
-- Production helper: `web-worker-deploy.ps1`.
-- Responsibilities: personal/group records, customers/projects, typed finance, owner usage/member permissions, feedback, help, plan/subscription UI.
-- Calls `aftertrace-api` through explicit `VITE_API_BASE_URL`.
+- React + Vite customer Web/PWA served with Workers Static Assets.
+- Config: `apps/web/wrangler.toml`.
+- Customer records, editing, customers/projects/finance, owner usage/member controls, subscription, export, help and feedback.
 
-### 3. aftertrace-admin
+### aftertrace-admin
 
-- React + Vite internal Admin deployed with Cloudflare Workers Static Assets.
-- Config: `apps/admin/wrangler.toml`; assets: `apps/admin/dist`; SPA fallback enabled.
-- Production helper: `admin-worker-deploy.ps1`.
-- Responsibilities: username/password login, anomaly monitoring, feedback, Worklog users/groups/plans/quota, AI model/pricing, manual subscription changes and audit.
-- Calls `aftertrace-api` through explicit `VITE_API_BASE_URL`.
-- Do not reintroduce Pages Functions proxy or legacy Cloudflare Access JWT auth.
+- React + Vite internal Admin served with Workers Static Assets.
+- Config: `apps/admin/wrangler.toml`.
+- Users/groups/plans/quota, AI pricing, anomalies, feedback, manual subscriptions and audit.
 
-## Web / LINE OA destinations
+Do not reintroduce Cloudflare Pages for this branch.
 
-Stable Web Worker paths for LINE OA Rich Menu:
+## Web / LINE destinations
 
-- `https://<aftertrace-web>/help` → 使用教學
-- `https://<aftertrace-web>/` → 查看紀錄
-- `https://<aftertrace-web>/subscription` → 付款訂閱 / 方案
-- `https://<aftertrace-web>/feedback` → 意見回饋
+Typical Web paths:
 
-`/subscription` and `/feedback` use normal LINE Login when needed. LIFF is intentionally not required for the MVP.
+- `/help` → 使用教學
+- `/` → 查看紀錄
+- `/subscription` → 方案／付款訂閱
+- `/feedback` → 意見回饋
 
-## Subscription / checkout deployment boundary
+LINE-created record edit links should use short-lived/scoped Web-entry tokens that resolve to the exact record and source authorization; do not expose raw unauthenticated record ids as authorization.
 
-- Enabled `worklog_subscription_plans` are exposed to authenticated users at `GET /api/v1/subscription/plans`.
-- `POST /api/v1/subscription/checkout-intents` creates an idempotent provider-neutral checkout intent.
-- Payment provider remains undecided; until configured, the UI/API must never claim payment succeeded.
-- The current provider-neutral boundary is **not yet a complete monthly subscription system**. The product contract now requires dedicated `ONE_TIME` / `MONTHLY` plan billing type plus recurring-payment authorization and idempotent renewal success/failure events.
-- A paid monthly renewal may create the next billing/quota period only after confirmed successful provider payment. Calendar passage alone must not grant new paid quota, and unused prior-period quota does not roll forward.
-- Do not store raw card data in AFTERTRACE. Persist only provider-approved customer/subscription/authorization identifiers after a provider is selected.
+## Subscription / checkout boundary
 
-## Admin authentication boundary
+- Enabled plans are exposed through authenticated subscription APIs.
+- Provider-neutral checkout intent exists.
+- Payment provider remains undecided.
+- Paid MONTHLY plans require recurring authorization and idempotent renewal success/failure handling.
+- Only confirmed renewal success creates the next paid quota period.
+- Monthly unused quota does not roll over.
+- FREE is ONE_TIME and does not refresh.
+- Never store raw card data.
 
-- `ADMIN_USERNAME`: configured operator username.
-- `ADMIN_PASSWORD`: configured operator password.
-- `ADMIN_SESSION_SECRET`: at least 32 characters; signs short-lived Admin bearer sessions.
-- `ADMIN_WEB_ORIGIN`: exact browser origin allowed for Admin APIs.
-- `POST /api/v1/admin/login` is the only unauthenticated Admin endpoint.
-- Other Admin endpoints require the HMAC bearer session.
-- Frontend never receives/bundles password or session secret; do not put API secrets in `VITE_*`.
+## Admin authentication
 
-## AI runtime configuration boundary
+- `ADMIN_USERNAME`
+- `ADMIN_PASSWORD`
+- `ADMIN_SESSION_SECRET` (>= 32 chars)
+- `ADMIN_WEB_ORIGIN`
 
-- `GEMINI_API_KEY` is the Worklog Gemini provider credential expected from Worker environment/secrets.
-- Model name, pricing and USD/TWD conversion are DB-backed Admin configuration.
-- Historical Worklog AI usage keeps its own execution snapshot; changing current configuration must not rewrite historical cost.
-- Before production pricing/quota is finalized, reconcile the exact AI-unit and modality-pricing semantics. Current code records input/output token usage plus media fields; quota and provider-cost units must not accidentally double-count the same modality usage.
+Only Admin login is unauthenticated; all other Admin APIs require the HMAC bearer session. Do not put API secrets into `VITE_*` variables.
+
+## AI runtime
+
+- `GEMINI_API_KEY` remains server-side only.
+- Current approved production target: `gemini-3.5-flash`.
+- Model/pricing/FX configuration is DB-backed Admin configuration, but runtime currently supports the approved Gemini 3.5 model family rather than maintaining Gemini 2.5 compatibility.
+- Historical provider cost remains immutable.
+- Thinking usage and modality-specific usage must be accounted exactly once.
 
 ## Architecture rules
 
-- Keep all three Workers independently configurable/deployable.
-- Do not combine Web/Admin into API merely to reduce project count.
-- No new Cloudflare Pages configuration/functions.
+- Keep API/Web/Admin independently deployable.
+- Do not merge frontend apps into API merely to reduce Worker count.
 - No SSR unless a real requirement appears.
-- API secrets (LINE/Gemini/DB/Admin credentials) live only on `aftertrace-api`.
-- Web/Admin receive public build-time configuration only, primarily `VITE_API_BASE_URL`.
+- API secrets stay on API Worker.
+- Web/Admin receive public build-time config only, mainly `VITE_API_BASE_URL`.
 
-## Current migration reality
+## Prelaunch database / migration policy
 
-**Current branch source is authoritative for fresh databases.** As of this audit, the repository contains:
+AFTERTRACE is not live yet. The user has explicitly confirmed that both development and production databases may be destructively rebuilt while the schema is being finalized.
+
+Current repository migration state:
 
 - `drizzle/0000_worklog_baseline.sql`
 - `drizzle/meta/0000_snapshot.json`
 - `drizzle/meta/_journal.json`
 
-The current Drizzle journal contains **one entry only: `0000_worklog_baseline`**. There are no separate journal files `0001`–`0014`, and there is no current `drizzle/post-cutover/9000_worklog_legacy_cleanup.sql` path in this branch.
+The consolidated `0000_worklog_baseline` is the current authoritative baseline.
 
-The current `0000_worklog_baseline.sql` is a consolidated Worklog baseline, not a pre-Worklog historical schema. It already includes current Worklog structures and DB-level guards including the quota-cycle allowance snapshot trigger and project/customer link synchronization; the current schema also contains `oa_friend_state_at`.
+### Current rule
 
-Older handoff text that described journaled migrations `0000`–`0014` plus `post-cutover/9000` was stale after migration-history consolidation and must not be used as an execution plan.
+- Old dev/prod migration history does **not** need reconciliation merely to preserve empty/non-live environments.
+- If an environment was created from an obsolete migration history, drop/recreate or otherwise rebuild it from the current repository baseline.
+- New schema work may use the current baseline plus new forward migration(s) without carrying legacy compatibility branches for the disposable databases.
+- Before any destructive reset, confirm that there is still no real user/business data that must be preserved.
+- Once the service is live with real production data, this rule ends immediately: migrations then become forward-only and destructive reset is no longer acceptable.
 
-### Fresh database
-
-For a brand-new disposable database, validation should use the migration journal that actually exists in the repository and verify `0000_worklog_baseline` against the active Drizzle schema.
-
-### Existing production/development database
-
-**Do not blindly run the consolidated journal against an existing database until its Drizzle migration history has been inspected and reconciled.** An existing database may have been created from an older multi-migration history while the repository is now squashed to a single baseline. This can make a normal `drizzle-kit migrate` attempt unsafe or fail with already-existing objects.
-
-Before production deployment:
-
-1. Inspect the target database's Drizzle migration-history table and current schema.
-2. Compare it with the consolidated `0000_worklog_baseline` and active schema declarations.
-3. Decide and document the one-time migration-history reconciliation strategy for that database.
-4. Test that strategy on a disposable clone/backup first.
-5. Only after that proof should automated `db:deploy:migrate` remain enabled in the production deploy path.
-
-`worker-deploy.ps1` currently calls `pnpm --filter @aftertrace/api db:deploy:migrate` automatically. Until the existing target DB history is reconciled, treat this step as a **production deployment blocker**, not as a verified safe operation.
-
-## Current source/dependency state
-
-- Active pnpm workspace is `apps/*` only.
-- Current lockfile importers are root, `apps/admin`, `apps/api`, and `apps/web`.
-- There is no current `packages/shared` workspace/importer in the repository; older progress notes asking to remove it are stale.
-- Active Drizzle schema configuration points only at Worklog schema modules.
+`worker-deploy.ps1` may continue to execute the repository's current migration flow only after the target database has been rebuilt/aligned with the current journal.
 
 ## External configuration still required
 
-1. Configure actual Web/Admin custom domains or workers.dev hostnames.
-2. Set API `WEB_APP_URL` / `WEB_APP_ORIGIN` to the Web Worker origin.
-3. Set `ADMIN_WEB_ORIGIN` to the Admin Worker origin.
-4. Set API Worker secrets/vars including Admin, LINE, Gemini and DB credentials.
-5. Build Web/Admin with `VITE_API_BASE_URL` pointing to `aftertrace-api`.
-6. Configure LINE OA Rich Menu links/image externally.
-7. Select a payment provider that supports the required recurring-payment authorization/renewal model, then implement provider webhook lifecycle.
-8. Reconcile existing database migration history before allowing the production deploy helper to run migrations automatically.
-9. Run the concentrated local build/typecheck/test/schema/migration/browser/Worker/LINE/Gemini validation pass.
+1. Web/Admin production domains or workers.dev hosts.
+2. `WEB_APP_URL` / `WEB_APP_ORIGIN`.
+3. `ADMIN_WEB_ORIGIN`.
+4. API secrets/vars for Admin, LINE, Gemini and DB.
+5. Web/Admin builds with correct `VITE_API_BASE_URL`.
+6. LINE OA Rich Menu configuration.
+7. Payment provider selection and recurring-payment lifecycle implementation.
+8. Final database rebuild from the then-current migration baseline before launch.
+9. Concentrated local build/typecheck/test/schema/migration/browser/Worker/LINE/Gemini validation.
 
-## Validation expectations
+## Validation expectations before launch
 
-Before production use validate independently:
+Validate locally/runtime, not through GitHub Actions unless explicitly requested:
 
-- API/Web/Admin builds
-- current consolidated migration on a fresh disposable DB
-- existing-target migration-history reconciliation on a disposable clone before production migrate
-- Drizzle schema drift
-- SPA deep links including `/help`, `/subscription`, `/feedback`
-- correct CORS origins and secrets absent from frontend bundles
-- Admin credential/session behavior and malformed-input handling
-- subscription billing-type/effective-state presentation and quota snapshot semantics
-- monthly renewal success/failure idempotency once provider integration exists
-- group Owner explicit binding, stable ownership, current entitlement and `maxGroupCount` across both LINE and Web APIs
-- capability enforcement server-side (`privateOaRecording`, AI text/media gates, PWA editing once its exact scope is finalized)
-- OA FOLLOW/UNFOLLOW ordering under delayed/reordered webhook delivery
-- LINE webhook TEXT/Reply TEXT/media E2E
-- real Gemini text/image/audio/PDF usage and cost snapshots
-
-Workers Static Assets follows Cloudflare's SPA model: assets directory plus `not_found_handling = "single-page-application"`; no frontend Worker script is required for the current React/Vite apps.
+- API/Web/Admin builds and typecheck/tests
+- fresh database migration from current repository journal
+- schema drift
+- Admin authentication/CORS
+- Web deep links and scoped record-edit links
+- private record edit restricted to owning user
+- group record edit available to currently authorized group members
+- group Owner absence/rebind/rejoin flows
+- group entitlement and `maxGroupCount` through LINE and Web
+- FREE one-time quota semantics
+- paid MONTHLY renewal semantics once provider integration exists
+- LINE TEXT/Reply-TEXT/image/audio/PDF/file flows
+- real Gemini 3.5 thinking/modality usage and provider-cost snapshots
+- XLSX/DOCX extraction resource limits when Office support is implemented
+- CSV export authorization once export is implemented
