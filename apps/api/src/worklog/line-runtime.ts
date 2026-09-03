@@ -88,7 +88,6 @@ export type WorklogLineRuntimeResult =
         | 'NOT_ACTIVE_MEMBER'
         | 'RECORDING_DISABLED'
         | 'GROUP_NOT_ENTITLED'
-        | 'GROUP_LIMIT_REACHED'
         | 'AI_QUOTA_EXHAUSTED'
         | 'AI_MEDIA_DISABLED'
         | 'SOURCE_NOT_FOUND'
@@ -119,6 +118,8 @@ export class WorklogLineRuntime {
       };
     }
 
+    // Transitional bootstrap command. The grant-ledger batch will rename/reframe this
+    // from legacy data Owner to the customer-facing AI 額度負責人 role.
     if (command.kind === 'CLAIM_GROUP') {
       await this.bootstrap.bootstrapGroupInteraction({
         lineGroupId: message.lineGroupId, lineUserId: message.lineUserId, at: message.lineTimestamp,
@@ -130,13 +131,17 @@ export class WorklogLineRuntime {
         at: message.lineTimestamp,
       });
       if (bound.status === 'OWNER_CONFLICT') {
-        return { status: 'REJECTED', reason: 'OWNER_CONFLICT', replyText: '這個群組已經綁定其他仍在群組中的 AFTERTRACE Owner；目前不會覆蓋既有 Owner。' };
+        return {
+          status: 'REJECTED',
+          reason: 'OWNER_CONFLICT',
+          replyText: '這個群組目前已有其他 AI 額度負責人；這次不會覆蓋既有設定。',
+        };
       }
       return {
         status: 'OWNER_BOUND', sourceId: bound.sourceId,
         replyText: bound.status === 'ALREADY_BOUND'
-          ? '這個群組已經綁定在你的 AFTERTRACE 帳號。'
-          : '群組已完成 AFTERTRACE Owner 綁定。',
+          ? '你目前已是這個群組的 AI 額度負責人。'
+          : '已完成這個群組的 AI 額度負責人設定。',
       };
     }
 
@@ -147,7 +152,7 @@ export class WorklogLineRuntime {
       return {
         status: 'REJECTED',
         reason: 'PENDING_OWNER',
-        replyText: 'AFTERTRACE 無法確認當初邀請 Bot 的使用者。請要負責此群組訂閱的人輸入「@AFTERTRACE 啟用」完成 Owner 綁定。',
+        replyText: '這個群組目前還沒有 AI 額度負責人。請由要提供群組 AI 點數的人輸入「@AFTERTRACE 啟用」。',
       };
     }
     if (command.kind === 'QUERY') {
@@ -159,6 +164,9 @@ export class WorklogLineRuntime {
       return { status: 'QUERY', sourceId: group.sourceId, userId: group.userId };
     }
 
+    // Transitional legacy AI funding check. requestedAiUnits=0 only avoids charging
+    // before raw persistence; the post-persist interpreter performs provider preflight.
+    // This path is replaced by eligible user-owned grant lookup in the grant batch.
     const authorization = await this.collaboration.authorizeGroupRecord({
       sourceId: group.sourceId, actorUserId: group.userId, requestedAiUnits: 0,
     });
@@ -168,7 +176,11 @@ export class WorklogLineRuntime {
     const allowAiMedia = hasCapability(authorization.ownerCapabilities, 'aiMediaIngestion');
 
     if (command.kind === 'RECORD_QUOTED') {
-      const cached = await this.textCache.resolve(message.lineGroupId, command.quotedLineMessageId, message.lineTimestamp);
+      const cached = await this.textCache.resolve(
+        message.lineGroupId,
+        command.quotedLineMessageId,
+        message.lineTimestamp,
+      );
       if (cached) {
         const write = await this.records.recordQuotedText({
           sourceId: group.sourceId,
@@ -208,8 +220,11 @@ export class WorklogLineRuntime {
     }
 
     const write = await this.records.recordText({
-      sourceId: group.sourceId, authorUserId: group.userId, lineMessageId: message.lineMessageId,
-      text: command.text, sourceTimestamp: message.lineTimestamp,
+      sourceId: group.sourceId,
+      authorUserId: group.userId,
+      lineMessageId: message.lineMessageId,
+      text: command.text,
+      sourceTimestamp: message.lineTimestamp,
     });
     return this.finishWrite(write, message, '已記錄。', allowAiText);
   }
@@ -229,40 +244,81 @@ export class WorklogLineRuntime {
       return { status: 'RECORDED', recordId: write.recordId, duplicate: true, replyText: '這則訊息已經記錄過了。' };
     }
     if (write.status === 'IDEMPOTENCY_CONFLICT') {
-      return { status: 'REJECTED', reason: 'IDEMPOTENCY_CONFLICT', replyText: '這則 LINE 訊息的紀錄狀態不一致，為避免寫錯資料，本次沒有覆蓋既有紀錄。' };
+      return {
+        status: 'REJECTED',
+        reason: 'IDEMPOTENCY_CONFLICT',
+        replyText: '這則 LINE 訊息的紀錄狀態不一致，為避免寫錯資料，本次沒有覆蓋既有紀錄。',
+      };
     }
-    return { status: 'REJECTED', reason: 'SOURCE_NOT_FOUND', replyText: '這個群組目前無法建立紀錄，請重新啟用 AFTERTRACE 後再試。' };
+    return {
+      status: 'REJECTED',
+      reason: 'SOURCE_NOT_FOUND',
+      replyText: '這個群組目前無法建立紀錄，請稍後再試。',
+    };
   }
 
   private async cacheOrdinaryTextBestEffort(message: BufferedGroupMessage): Promise<void> {
     if (message.messageType !== 'text' || !message.textContent) return;
     try {
       await this.textCache.remember({
-        lineMessageId: message.lineMessageId, lineGroupId: message.lineGroupId,
-        lineUserId: message.lineUserId, text: message.textContent, lineTimestamp: message.lineTimestamp,
+        lineMessageId: message.lineMessageId,
+        lineGroupId: message.lineGroupId,
+        lineUserId: message.lineUserId,
+        text: message.textContent,
+        lineTimestamp: message.lineTimestamp,
       });
     } catch (error) {
-      console.error(JSON.stringify({ event: 'worklog_line_text_cache_failed', lineGroupId: message.lineGroupId, lineMessageId: message.lineMessageId, message: error instanceof Error ? error.message : 'unknown error' }));
+      console.error(JSON.stringify({
+        event: 'worklog_line_text_cache_failed',
+        lineGroupId: message.lineGroupId,
+        lineMessageId: message.lineMessageId,
+        message: error instanceof Error ? error.message : 'unknown error',
+      }));
     }
   }
 
   private async normalizeBestEffort(recordId: number, message: BufferedGroupMessage): Promise<void> {
     if (!this.textNormalization) return;
-    try { await this.textNormalization.normalizeText(recordId); }
-    catch (error) {
-      console.error(JSON.stringify({ event: 'worklog_text_normalization_failed_after_persist', source: 'GROUP', recordId, lineGroupId: message.lineGroupId, lineMessageId: message.lineMessageId, message: error instanceof Error ? error.message : 'unknown error' }));
+    try {
+      await this.textNormalization.normalizeText(recordId);
+    } catch (error) {
+      console.error(JSON.stringify({
+        event: 'worklog_text_normalization_failed_after_persist',
+        source: 'GROUP',
+        recordId,
+        lineGroupId: message.lineGroupId,
+        lineMessageId: message.lineMessageId,
+        message: error instanceof Error ? error.message : 'unknown error',
+      }));
     }
   }
 }
 
 function attachmentFailure(reason: string): WorklogLineRuntimeResult {
-  if (reason === 'LINE_CONTENT_NOT_READY') return { status: 'QUOTED_NOT_READY', replyText: 'LINE 還在準備這則附件，請稍後再 Reply「@AFTERTRACE」，不用重新上傳。' };
-  if (reason === 'LINE_CONTENT_NOT_RETRIEVABLE') return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '如果你回覆的是較早的文字，LINE 無法事後取回原文，請改傳「@AFTERTRACE 原文」；如果是附件，請重新傳送後再 Reply「@AFTERTRACE」。' };
-  if (reason === 'LINE_CONTENT_EXPIRED') return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '這則內容已過期，請重新傳送後再 Reply @AFTERTRACE。' };
-  if (reason === 'LINE_CONTENT_TOO_LARGE') return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '這個附件太大，目前無法處理，請縮小檔案後重新傳送。' };
-  if (reason === 'ATTACHMENT_UNSUPPORTED') return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '目前這個檔案格式還不能直接處理；Word／Excel 支援正在實作中，目前請先改傳 PDF、圖片、音檔或文字檔。' };
-  if (reason === 'AI_MEDIA_DISABLED') return { status: 'REJECTED', reason: 'AI_MEDIA_DISABLED', replyText: '目前 Owner 的方案沒有開啟 AI 語音／圖片／檔案處理功能，這次沒有處理附件。' };
-  if (/QUOTA|ALLOWANCE|SUBSCRIPTION/.test(reason)) return { status: 'REJECTED', reason: 'AI_QUOTA_EXHAUSTED', replyText: '目前 Owner 的 AI 額度不足，這次沒有處理附件。' };
+  if (reason === 'LINE_CONTENT_NOT_READY') {
+    return { status: 'QUOTED_NOT_READY', replyText: 'LINE 還在準備這則附件，請稍後再 Reply「@AFTERTRACE」，不用重新上傳。' };
+  }
+  if (reason === 'LINE_CONTENT_NOT_RETRIEVABLE') {
+    return {
+      status: 'REJECTED', reason: 'ATTACHMENT_FAILED',
+      replyText: '如果你回覆的是較早的文字，LINE 無法事後取回原文，請改傳「@AFTERTRACE 原文」；如果是附件，請重新傳送後再 Reply「@AFTERTRACE」。',
+    };
+  }
+  if (reason === 'LINE_CONTENT_EXPIRED') {
+    return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '這則內容已過期，請重新傳送後再 Reply @AFTERTRACE。' };
+  }
+  if (reason === 'LINE_CONTENT_TOO_LARGE') {
+    return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '這個附件太大，目前無法處理，請縮小檔案後重新傳送。' };
+  }
+  if (reason === 'ATTACHMENT_UNSUPPORTED') {
+    return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '目前這個檔案格式還不能直接處理；Word／Excel 支援正在實作中，目前請先改傳 PDF、圖片、音檔或文字檔。' };
+  }
+  if (reason === 'AI_MEDIA_DISABLED') {
+    return { status: 'REJECTED', reason: 'AI_MEDIA_DISABLED', replyText: '目前 AI 額度設定沒有開啟語音／圖片／檔案處理，這次沒有處理附件。' };
+  }
+  if (/QUOTA|ALLOWANCE|SUBSCRIPTION/.test(reason)) {
+    return { status: 'REJECTED', reason: 'AI_QUOTA_EXHAUSTED', replyText: '目前這個群組可用的 AI 額度不足，這次沒有處理附件。' };
+  }
   return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '這次附件沒有成功處理，請重新傳送後再試。' };
 }
 
@@ -271,34 +327,29 @@ type RejectedAuthorization =
   | Exclude<GroupAccessAuthorizationResult, { status: 'OK' }>;
 
 function rejectedAuthorization(result: RejectedAuthorization): WorklogLineRuntimeResult {
-  const planLabel = 'ownerPlanDisplayName' in result && result.ownerPlanDisplayName
-    ? `${result.ownerPlanDisplayName} 方案`
-    : 'Owner 的方案';
-
   if (result.status === 'GROUP_NOT_ENTITLED') {
+    const planLabel = result.ownerPlanDisplayName?.trim() || '目前設定';
     return {
       status: 'REJECTED',
       reason: result.status,
-      replyText: `目前 ${planLabel}沒有開啟群組紀錄功能，升級方案後即可在 LINE 群組使用該功能。`,
-    };
-  }
-  if (result.status === 'GROUP_LIMIT_REACHED') {
-    const maxGroupCount = result.maxGroupCount ?? 0;
-    return {
-      status: 'REJECTED',
-      reason: result.status,
-      replyText: `目前 ${planLabel}最多可使用 ${maxGroupCount} 個 LINE 群組，已超過方案上限。請停用其他群組或升級方案。`,
+      replyText: `${planLabel}目前沒有可用的群組 AI 額度。`,
     };
   }
 
-  const replyText: Record<Exclude<GroupRecordAuthorizationResult['status'], 'OK' | 'GROUP_NOT_ENTITLED' | 'GROUP_LIMIT_REACHED'>, string> = {
-    GROUP_NOT_FOUND: '找不到這個 AFTERTRACE 群組設定，請重新啟用後再試。',
-    GROUP_INACTIVE: '這個 AFTERTRACE 群組目前已停用。',
-    OWNER_UNBOUND: '這個群組還沒有 AFTERTRACE Owner，請先輸入「@AFTERTRACE 啟用」。',
-    OWNER_ABSENT: '目前群組 Owner 已不在此 LINE 群組，AFTERTRACE 已暫停群組功能。請要負責此群組訂閱的人輸入「@AFTERTRACE 啟用」完成帳號綁定。',
-    NOT_ACTIVE_MEMBER: '你目前不是這個 AFTERTRACE 群組的有效成員。',
-    RECORDING_DISABLED: '群組 Owner 已關閉你的 AFTERTRACE 紀錄權限。',
-    AI_QUOTA_EXHAUSTED: '目前 Owner 的 AI 額度已用完。',
-  };
-  return { status: 'REJECTED', reason: result.status, replyText: replyText[result.status] };
+  switch (result.status) {
+    case 'GROUP_NOT_FOUND':
+      return { status: 'REJECTED', reason: result.status, replyText: '找不到這個 AFTERTRACE 群組設定。' };
+    case 'GROUP_INACTIVE':
+      return { status: 'REJECTED', reason: result.status, replyText: '這個 AFTERTRACE 群組目前已停用。' };
+    case 'OWNER_UNBOUND':
+      return { status: 'REJECTED', reason: result.status, replyText: '這個群組目前還沒有 AI 額度負責人，請先輸入「@AFTERTRACE 啟用」。' };
+    case 'OWNER_ABSENT':
+      return { status: 'REJECTED', reason: result.status, replyText: '目前 AI 額度負責人已不在此 LINE 群組，群組 AI 功能暫停。' };
+    case 'NOT_ACTIVE_MEMBER':
+      return { status: 'REJECTED', reason: result.status, replyText: '你目前不是這個 AFTERTRACE 群組的有效成員。' };
+    case 'RECORDING_DISABLED':
+      return { status: 'REJECTED', reason: result.status, replyText: '目前你的群組 AI 紀錄權限已關閉。' };
+    case 'AI_QUOTA_EXHAUSTED':
+      return { status: 'REJECTED', reason: result.status, replyText: '目前這個群組可用的 AI 額度已用完。' };
+  }
 }
