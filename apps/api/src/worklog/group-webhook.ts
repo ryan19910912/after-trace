@@ -6,6 +6,7 @@ import {
   type WorklogAnomalyPort,
 } from './anomalies';
 import { parseWorklogCommand } from './command';
+import type { WorklogHistoryFilters } from './history-navigation';
 import type { WorklogLineRuntime, WorklogLineRuntimeResult } from './line-runtime';
 
 export interface WorklogGroupLifecyclePort {
@@ -40,6 +41,7 @@ export type WorklogGroupQueryTarget = {
   sourceId: number;
   userId: number;
   at: Date;
+  filters: WorklogHistoryFilters;
 };
 
 function emptyCounters(): WorklogGroupWebhookCounters {
@@ -114,8 +116,6 @@ async function handleLifecycle(
   event: GroupLifecycleEvent,
   bootstrap: WorklogGroupLifecyclePort,
 ): Promise<void> {
-  // LINE's Bot join event identifies the group, not the inviter. Ownership remains
-  // pending until an explicit @AFTERTRACE 啟用 claim binds a subscriber/owner.
   if (event.type === 'JOIN') return;
   if (event.type === 'LEAVE') {
     await bootstrap.handleGroupLeave({ lineGroupId: event.lineGroupId, at: event.lineTimestamp });
@@ -133,11 +133,6 @@ async function handleLifecycle(
   }
 }
 
-/**
- * Processes LINE group events exclusively through the Worklog domain. Ordinary
- * group messages stop here after WorklogLineRuntime has applied the bounded TEXT
- * cache policy; they never fall through to the retired conversation/Memory runtime.
- */
 export async function processWorklogGroupWebhook(input: {
   parsed: ParsedLineWebhook;
   bootstrap: WorklogGroupLifecyclePort;
@@ -253,6 +248,7 @@ export async function processWorklogGroupWebhook(input: {
             sourceId: result.sourceId,
             userId: result.userId,
             at: message.lineTimestamp,
+            filters: result.filters,
           });
         } catch (error) {
           counters.worklogErrors += 1;
@@ -274,6 +270,7 @@ export async function processWorklogGroupWebhook(input: {
             metadata: {
               lineGroupId: message.lineGroupId,
               lineUserId: message.lineUserId,
+              filters: result.filters,
             },
           });
         }
