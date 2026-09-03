@@ -2,6 +2,7 @@ import type { BufferedPrivateMessage, OaLifecycleEvent } from '../line/events';
 import { worklogAttachmentRuntime } from './attachment-runtime';
 import type { PrivateBootstrapResult } from './bootstrap';
 import { parseWorklogCommand } from './command';
+import { historyFiltersFromText, type WorklogHistoryFilters } from './history-navigation';
 import type { WorklogTextRecordWriteResult } from './records';
 import type { WorklogTextNormalizationService } from './text-normalization';
 
@@ -26,12 +27,19 @@ export type WorklogOaLifecycleResult =
 
 export type WorklogOaRuntimeResult =
   | { status: 'NOT_HANDLED' }
-  | { status: 'QUERY'; sourceId: number; userId: number }
+  | { status: 'QUERY'; sourceId: number; userId: number; filters: WorklogHistoryFilters }
   | { status: 'RECORDED'; recordId: number; duplicate: boolean; replyText: string }
   | { status: 'QUOTED_NOT_READY'; replyText: string }
   | {
       status: 'REJECTED';
-      reason: 'NOT_OA_FRIEND' | 'GROUP_COMMAND_IN_PRIVATE' | 'SOURCE_NOT_FOUND' | 'IDEMPOTENCY_CONFLICT' | 'ATTACHMENT_FAILED';
+      reason:
+        | 'NOT_OA_FRIEND'
+        | 'GROUP_COMMAND_IN_PRIVATE'
+        | 'SOURCE_NOT_FOUND'
+        | 'IDEMPOTENCY_CONFLICT'
+        | 'ATTACHMENT_FAILED'
+        | 'EDIT_TARGET_REQUIRED'
+        | 'EDIT_NOT_READY';
       replyText: string;
     };
 
@@ -57,7 +65,7 @@ export class WorklogOaRuntime {
     if (!command) return { status: 'NOT_HANDLED' };
 
     if (command.kind === 'CLAIM_GROUP') {
-      return { status: 'REJECTED', reason: 'GROUP_COMMAND_IN_PRIVATE', replyText: '「@AFTERTRACE 啟用」要在要綁定的 LINE 群組裡使用。' };
+      return { status: 'REJECTED', reason: 'GROUP_COMMAND_IN_PRIVATE', replyText: '「@AFTERTRACE 啟用」要在要設定的 LINE 群組裡使用。' };
     }
     if (!touched.isOaFriend) {
       return { status: 'REJECTED', reason: 'NOT_OA_FRIEND', replyText: '請先加入 AFTERTRACE LINE 官方帳號好友後再使用個人紀錄。' };
@@ -67,7 +75,30 @@ export class WorklogOaRuntime {
     if (personal.status === 'NOT_OA_FRIEND') {
       return { status: 'REJECTED', reason: 'NOT_OA_FRIEND', replyText: '請先加入 AFTERTRACE LINE 官方帳號好友後再使用個人紀錄。' };
     }
-    if (command.kind === 'QUERY') return { status: 'QUERY', sourceId: personal.sourceId, userId: personal.userId };
+
+    if (command.kind === 'QUERY') {
+      return {
+        status: 'QUERY',
+        sourceId: personal.sourceId,
+        userId: personal.userId,
+        filters: historyFiltersFromText(command.naturalText, message.lineTimestamp),
+      };
+    }
+
+    if (command.kind === 'EDIT_REQUEST') {
+      if (!command.quotedLineMessageId) {
+        return {
+          status: 'REJECTED',
+          reason: 'EDIT_TARGET_REQUIRED',
+          replyText: '目前無法確定你要修改哪一筆紀錄，請直接 Reply 要修改的原始紀錄，或前往 AFTERTRACE 編輯。',
+        };
+      }
+      return {
+        status: 'REJECTED',
+        reason: 'EDIT_NOT_READY',
+        replyText: '已辨識這是修改指令，但 LINE AI 修改尚未完成接線；為避免改錯資料，請先到 AFTERTRACE 紀錄頁手動編輯。',
+      };
+    }
 
     if (command.kind === 'RECORD_QUOTED') {
       const attachments = worklogAttachmentRuntime();
@@ -83,7 +114,9 @@ export class WorklogOaRuntime {
       });
       if (result.status === 'RECORDED') {
         return {
-          status: 'RECORDED', recordId: result.recordId, duplicate: result.duplicate,
+          status: 'RECORDED',
+          recordId: result.recordId,
+          duplicate: result.duplicate,
           replyText: result.duplicate ? '這則附件已經記錄過了。' : '已記錄到你的個人 AFTERTRACE。',
         };
       }
@@ -114,9 +147,17 @@ export class WorklogOaRuntime {
 
   private async normalizeBestEffort(recordId: number, message: BufferedPrivateMessage): Promise<void> {
     if (!this.textNormalization) return;
-    try { await this.textNormalization.normalizeText(recordId); }
-    catch (error) {
-      console.error(JSON.stringify({ event: 'worklog_text_normalization_failed_after_persist', source: 'PRIVATE', recordId, lineUserId: message.lineUserId, lineMessageId: message.lineMessageId, message: error instanceof Error ? error.message : 'unknown error' }));
+    try {
+      await this.textNormalization.normalizeText(recordId);
+    } catch (error) {
+      console.error(JSON.stringify({
+        event: 'worklog_text_normalization_failed_after_persist',
+        source: 'PRIVATE',
+        recordId,
+        lineUserId: message.lineUserId,
+        lineMessageId: message.lineMessageId,
+        message: error instanceof Error ? error.message : 'unknown error',
+      }));
     }
   }
 }
