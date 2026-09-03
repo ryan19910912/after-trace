@@ -12,66 +12,103 @@ Read first every run:
 ## Stable product contract
 
 - LINE records; Web/PWA browses, corrects, organizes and exports.
-- Current AI target: stable `gemini-3.5-flash`; Gemini 2.5 compatibility is not MVP work.
 - FREE = NT$0, `ONE_TIME`, 500 AI units once, no calendar expiry/no refresh, personal-only.
 - PRO = NT$99/month, `MONTHLY`, 500 units per confirmed successful renewal, max 3 groups.
 - TEAM = NT$299/month, `MONTHLY`, 2500 units per confirmed successful renewal, max 20 groups.
 - Monthly unused quota does not roll over; next quota exists only after successful recurring payment.
 - Record editing is baseline for every plan. `pwaEditing` is removed from plan capabilities.
 - Private records: only owning private user may view/edit.
-- Group records: currently authorized members of that group may collaboratively view/edit.
-- Successful LINE record flow must show what AFTERTRACE actually saved/AI-normalized and include a short-lived scoped PWA edit link for the exact record.
-- Owner must remain active in group; absence suspends group use. Active member may run `@AFTERTRACE 啟用` to rebind only while old Owner is absent.
+- Group historical records: active group members may collaboratively view/edit even if Owner is absent, paid subscription expired, or the group is currently over `maxGroupCount`.
+- Owner/subscription/group-limit entitlement is required for **new record creation and AI/provider spend**, not for historical read/manual edit.
+- Successful LINE record flow must show what AFTERTRACE actually saved/AI-normalized and include a durable PWA record deep link containing the exact record id.
+- Record deep links are not short-lived capability tokens; normal LINE Login/session + API authorization protects the record.
+- Owner absence suspends new group recording/AI. Active member may run `@AFTERTRACE 啟用` to rebind only while old Owner is absent.
 - Successful rebind remains authoritative; if no rebind occurs and original Owner returns, original binding resumes.
 - Export is MVP; CSV first is acceptable and must be capability/server-authorized.
-- XLSX and DOCX are MVP input targets; implement bounded extraction before Gemini.
-- Dev and prod DBs are prelaunch/disposable and may be rebuilt. Legacy migration-history reconciliation is no longer a blocker while no real data exists.
+- XLSX and DOCX are MVP input targets. Prefer a verified Google provider-native file path over custom ZIP/XML parsing when possible.
+- Dev and prod DBs are prelaunch/disposable and may be rebuilt. Legacy migration-history reconciliation is not a blocker while no real data exists.
 - GitHub Actions must not run unless the user explicitly asks.
 
 ## Implemented / fixed
 
-- Worklog-only OA/group runtime, secure Web entry/session, Web/Admin Workers, PostgreSQL/Drizzle foundations.
+- Worklog-only OA/group runtime, secure Web session, Web/Admin Workers, PostgreSQL/Drizzle foundations.
 - Explicit Owner binding because LINE Bot join cannot reliably identify inviter.
-- Owner-presence authorization and absent-Owner rebind flow implemented.
+- Owner-presence authorization and absent-Owner rebind flow implemented for current collaboration authorization.
 - FREE personal-only, `groupCollaboration`, `maxGroupCount`, stable group ordinal and fail-closed legacy limits.
-- Web group entitlement bypass fixed; LINE/Web share current group entitlement checks.
 - Group `aiTextRecording=false` saves raw text but skips Gemini.
 - Group `aiMediaIngestion=false` blocks provider/quota work for real media without breaking old Reply-TEXT guidance.
 - Structured anomalies for main LINE OA/group and Web/Admin 5xx boundaries.
 - Gemini modality double-count fixed.
-- Provider-success over-reservation and EXPIRED settlement now preserve real cost.
+- Provider-success over-reservation and EXPIRED settlement preserve real cost.
 - Attachment source-loss after provider success preserves/settles usage without replaying Gemini.
-- Gemini 3.5 TEXT/attachment request paths use Gemini-3 thinking controls and account `thoughtsTokenCount`; executable validation still pending.
+- Gemini 3.x TEXT/attachment thinking accounting is implemented in the current approved provider path; executable validation remains pending.
 - Admin capability definitions no longer expose `pwaEditing`.
-- Product/development/deployment docs now reflect baseline editing and rebuildable prelaunch DBs.
+- Product/development/deployment docs reflect baseline editing and rebuildable prelaunch DBs.
+
+## Newly identified contract drift after latest product decision
+
+### Historical group access is currently over-restricted in code
+
+Current `GET /records/group/:sourceId` and `/surfaces` still call `authorizeGroupAccess()`, which currently checks Owner presence, plan status and `maxGroupCount`. That matched the older contract but is now too strict.
+
+Required correction:
+
+- historical group read/surface visibility should require authenticated user + active membership + active source only;
+- Owner absence must not hide existing records;
+- paid subscription expiry/downgrade must not hide existing records;
+- over-limit group position must not hide existing records;
+- creation/AI paths continue using the stronger entitlement boundary.
+
+### Group record editing is currently too owner/workspace-centric
+
+Current generic `PATCH /records/:id` flows through `ownerContext()` / owned workspace, which is insufficient for collaborative group editing by ordinary group members.
+
+Required correction:
+
+- resolve record source first;
+- PRIVATE -> only private owner may edit;
+- GROUP -> any active member of that source may edit;
+- group edit does not require Owner presence or paid entitlement and does not spend AI quota;
+- preserve editor user id / edited timestamp / audit trail;
+- customer/project associations used by a group edit must still be validated safely against the record/workspace data model.
 
 ## High-priority implementation gaps
 
-### 1. LINE result reply + exact-record edit link
+### 1. LINE result reply + durable exact-record deep link
 
 Current LINE success replies still need the new contract:
 
 - return actual normalized/saved content, not only generic `已記錄`;
-- generate short-lived scoped Web entry to exact record edit view;
-- group link authorizes current group member;
-- private link authorizes only owning user;
+- append durable `https://<web>/records/<recordId>` style link;
+- no one-time/short-expiry token is required merely to identify the record;
+- if browser lacks session, LINE Login occurs and returns to the target record;
+- API authorization, not URL secrecy, protects access;
 - AI disabled/deferred/failed but raw record saved -> state that truthfully and still provide edit link.
 
-Likely requires normalization readback/result payload plus record-target entry token/route rather than only current query-page URLs.
+### 2. Split historical group access from new-record entitlement
 
-### 2. Record-edit authorization/audit re-audit
+Refactor current group authorization usage so:
+
+- read/manual edit: active group membership/source boundary;
+- new record: active actor + recording permission + Owner present + valid group plan + group limit;
+- AI/provider: above plus AI capability/quota.
+
+This supersedes the earlier “LINE/Web share one paid entitlement check for group reads” rule.
+
+### 3. Record-edit authorization/audit
 
 All plans can edit authorized records.
 
 Verify/enforce:
 
 - private owner only;
-- currently authorized group members may collaboratively edit group records;
+- active group members may collaboratively edit group records;
+- editing remains available after Owner leaves or paid plan expires;
 - preserve original input/reference;
-- retain editor identity/edit timestamp/audit log where supported;
-- no old `pwaEditing` checks or customer-facing capability copy remain.
+- retain editor identity/edit timestamp/audit log;
+- no `pwaEditing` capability checks/copy remain.
 
-### 3. Billing type + durable FREE/default plans
+### 4. Billing type + durable FREE/default plans
 
 Now safe to implement because DBs may be rebuilt:
 
@@ -83,18 +120,18 @@ Now safe to implement because DBs may be rebuilt:
 - Admin exposes billing type;
 - Web shows one-time versus `/月` correctly.
 
-### 4. Private OA entitlement
+### 5. Private OA entitlement
 
-FREE semantics are now final, so centralize effective entitlement and enforce:
+FREE semantics are final, so centralize effective entitlement and enforce for **new** private record/AI work:
 
-- `privateOaRecording` for new private records;
+- `privateOaRecording`;
 - private `aiTextRecording=false`: save raw text, skip Gemini;
 - private `aiMediaIngestion=false`: reject media before quota/provider;
-- historical read remains available.
+- historical private read/edit remains available to owner.
 
-### 5. Monthly renewal/provider lifecycle
+### 6. Monthly renewal/provider lifecycle
 
-Still needs provider-neutral domain plus provider-specific integration later:
+Need:
 
 - idempotent renewal success transition;
 - exactly one new period/quota snapshot per confirmed success;
@@ -102,7 +139,7 @@ Still needs provider-neutral domain plus provider-specific integration later:
 - cancellation semantics;
 - recurring authorization/webhooks after provider selection.
 
-### 6. Admin effective quota/group facts
+### 7. Admin effective quota/group facts
 
 Fix Admin to show current effective subscription state rather than stale template/balance values:
 
@@ -112,50 +149,47 @@ Fix Admin to show current effective subscription state rather than stale templat
 - actual compact related group/source IDs;
 - current effective quota versus historical snapshots.
 
-### 7. Admin AI pricing editor
+### 8. Admin AI pricing editor
 
 Backend supports nullable audio/image prices; Admin can still overwrite them with ordinary input price.
 
-Fix:
-- independent optional audio/image fields;
-- null = fallback to ordinary input price;
-- current model constrained/defaulted to `gemini-3.5-flash`;
-- copy reflects thinking/output and modality pricing.
+Fix independent optional media fields, null fallback semantics, and current approved Gemini 3.x model copy.
 
-### 8. Export MVP
+### 9. Export MVP
 
 Implement source-scoped, server-authorized CSV export:
 
 - private: owner only;
-- group: currently authorized group members;
-- `export=true` required;
-- useful raw/normalized/category/customer/project/time fields;
+- group: active member historical scope;
+- `export=true` remains required;
+- current paid group entitlement is not required merely to export history if export entitlement policy allows that user's plan/source;
 - no cross-source leakage.
 
-### 9. XLSX / DOCX extraction
+### 10. XLSX / DOCX provider-native path verification
 
-Current direct attachment provider still rejects Office MIME types.
+Current direct `inlineData` attachment provider rejects Office MIME types.
 
-Priority recommendation for engineering workflows:
+Important distinction from Google docs:
 
-- **XLSX first**: material lists, estimates, quantities, schedules, cost/progress sheets are common and highly useful.
-- **DOCX second**: useful for reports/spec notes, but generally lower frequency than Excel/PDF/image/audio in field workflows.
+- Gemini 3.5 Flash-Lite supports **File Search** and File Search lists DOCX/XLSX MIME types.
+- Its model card lists native model inputs as text/image/video/audio/PDF, not Office binaries.
+- Google guidance/forum evidence shows direct `generateContent` Office MIME may still reject DOCX; therefore “File Search supports XLSX/DOCX” is not proof that current direct inline generateContent does.
 
-Implement bounded Worker-safe extraction:
+Preferred next step:
 
-- compressed/uncompressed size and ZIP-entry limits;
-- XLSX sheet/row/cell/extracted-text caps;
-- DOCX paragraph/table/extracted-text caps;
-- no raw Office binary persistence;
-- extracted text enters existing FILE normalization flow.
+1. prototype the simplest Google-supported Files/File Search upload/import path with representative LINE DOCX/XLSX;
+2. enforce file/request size + MIME allowlist;
+3. verify one-shot extraction quality and latency/cost;
+4. if provider-native flow works, use it and **do not** build custom Office parsing;
+5. only fall back to custom extraction if required.
 
-### 10. AI/provider hardening
+### 11. AI/provider hardening
 
 Core settlement is fixed; still validate/harden:
 
 - provider succeeds but first durable usage snapshot cannot be written during DB outage;
 - already-COMMITTED retry payload mismatch guard;
-- real Gemini 3.5 thinking/modality usage versus reservation and pricing;
+- real Gemini thinking/modality usage versus reservation/pricing;
 - concurrency/expiry/overage tests.
 
 ## Migration/deployment status
@@ -182,7 +216,7 @@ Still not run in concentrated phase:
 - Web/Admin browser smoke
 - Worker local smoke
 - LINE E2E
-- Gemini 3.5 E2E including Office once implemented
+- Gemini E2E including Office provider-native path
 
 **GitHub Actions were not run, dispatched, rerun, enabled or modified.**
 
@@ -193,19 +227,20 @@ Planning estimates only:
 - MVP non-payment-provider implementation: **about 95–97%**.
 - Static architecture/logic audit: **about 98–99%**.
 - Production readiness including unrun validation/provider integration: **about 84–87%**.
-- Remaining internal development before concentrated validation: roughly **2–3 large batches / about 5–10 focused hours** because LINE result/edit-link, billing/FREE, export and Office extraction remain real implementation.
+- Remaining internal development before concentrated validation: roughly **2–3 large batches / about 5–10 focused hours**.
 - After concentrated validation begins, reserve **2–8 focused hours** for compile/schema/browser/runtime fixes.
 - External payment-provider recurring integration remains separate and likely **1–3 working days after provider selection**, depending on sandbox/webhook complexity.
 
 ## Next batch
 
-1. implement billing type + durable FREE + FREE/PRO/TEAM defaults now that DBs are rebuildable;
-2. implement private OA entitlement gates;
-3. implement LINE success summary + exact-record scoped edit link for group/private flows;
-4. re-audit record edit authorization/audit;
-5. fix Admin effective quota/group facts and media pricing;
-6. implement CSV export;
-7. implement XLSX extraction first, then DOCX;
-8. finish AI settlement hardening and enter concentrated local validation.
+1. split historical group read/edit authorization from new-record/AI entitlement;
+2. implement collaborative group record editing + private-owner-only edit authorization;
+3. implement LINE success summary + durable record-id deep link;
+4. implement billing type + durable FREE + FREE/PRO/TEAM defaults;
+5. implement private OA entitlement gates;
+6. fix Admin effective quota/group facts and media pricing;
+7. implement CSV export;
+8. verify provider-native XLSX/DOCX path before building any custom Office parser;
+9. finish AI settlement hardening and enter concentrated local validation.
 
 Do not use GitHub Actions as validation.
