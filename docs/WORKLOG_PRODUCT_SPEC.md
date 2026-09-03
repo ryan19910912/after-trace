@@ -148,16 +148,37 @@ Transfer history must be auditable with initiator, target, group/source, status,
 - Group count itself is never an AI entitlement restriction.
 - If no eligible permitted grant remains for the group, LINE AI recording stops while manual PWA work continues.
 
-### Group AI visibility
+### Group AI visibility and history
 
-Active group members may see group-level AI transparency needed to understand whether fast recording is available:
+The group PWA must show both the **current AI funding state** and the **historical AI usage ledger for that group**. It must not collapse history to only the current Billing Owner.
+
+Current-state view for active group members should include:
 
 - current AI billing Owner identity/display name;
-- AI units currently made available to this group under that Owner's allocation policies;
-- AI units already consumed by this group from the current eligible allocations;
+- current Owner grant(s) that are permitted for this group, shown at an appropriate product level;
+- AI units currently available to this group under those allocation policies/caps;
+- AI units consumed from the currently eligible allocations;
 - remaining amount available to this group.
 
-Do **not** expose the Owner's unrelated private allowance, total personal wallet, or allocations/usage for other groups merely because someone is a member of this group.
+Historical group AI view must remain queryable across Billing Owner transfers, plan renewals, FREE grants and individual top-up grants. At minimum it should support:
+
+- time/date of AI usage;
+- actor who triggered the AI record;
+- charged AI billing Owner at the time;
+- grant source/type used (`FREE`, subscription period, or individual top-up purchase/grant) without exposing unrelated personal financial details;
+- AI units consumed by the group for that event;
+- record reference/type where useful so members can relate usage to the created work record;
+- cumulative/group-period totals so members can see how much the group has used over time;
+- Billing Owner transfer history or clear period boundaries so historical usage remains understandable after responsibility changes.
+
+The historical ledger is **group-scoped**. A member may see what this group consumed from an Owner's grant while that grant funded this group, including past usage even after the Owner changes. A member must not gain visibility into:
+
+- the Owner's unrelated private AI usage;
+- the Owner's total/global wallet beyond what was made available/consumed by this group;
+- allocation or usage in other groups;
+- private purchase/payment details that are not necessary to explain the group's AI allowance history.
+
+Changing the current Billing Owner, changing allocation caps, plan renewal, plan expiry, or group AI being paused must never rewrite/delete historical usage rows. Historical group AI consumption is an append-only/auditable fact derived from durable usage/grant-allocation records.
 
 ### Member recording permission
 
@@ -340,6 +361,7 @@ Payment provider remains undecided.
 - Thinking/modality usage is accounted exactly once.
 - Balance accounting distinguishes included grants from individual one-time purchased top-up grants.
 - Usage/reservation settlement must retain which grant(s) funded the call and the PRIVATE/GROUP scope used, so per-grant/per-scope caps and audit totals remain correct.
+- Group usage history must remain reconstructible across Owner transfers and grant changes; usage events are immutable historical facts and must retain the charged Owner, source/group and funding-grant references necessary for group PWA history.
 
 ## AI runtime
 
@@ -361,7 +383,7 @@ Export is MVP and initially remains a paid capability. CSV first is acceptable. 
 
 Admin supports users/groups, AI billing-owner visibility/transfer history, plans/billing cadence, individual AI grants/allocation policies/caps, top-up products/purchases, AI pricing, anomalies, feedback, manual subscription changes and audit.
 
-Group detail should show the group's current AI billing Owner and group-specific allocated/used/remaining AI amount without exposing unrelated private or other-group balances.
+Group detail should show the group's current AI billing Owner/current group-specific allocation state **and historical group AI usage across all prior Billing Owners/grants**, without exposing unrelated private or other-group balances.
 
 Do not expose `maxGroupCount`, generic paid `groupCollaboration`, or record editing as plan capabilities. Any future group-related paid capability must correspond to a real paid cost/feature.
 
