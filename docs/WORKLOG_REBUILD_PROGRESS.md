@@ -12,6 +12,35 @@ Read first every run:
 - `docs/WORKLOG_LINE_CONTENT_POLICY.md`
 - `docs/WORKLOG_DEPLOYMENT.md`
 
+## Current execution checkpoint — 2026-09-03
+
+Latest interactive batch started the implementation refactor rather than only documenting it.
+
+Completed in this batch:
+
+- removed Admin plan capability definitions for obsolete `groupCollaboration` and `maxGroupCount`;
+- removed `maxGroupCount` from typed plan capabilities;
+- made the temporary legacy `canUseGroupCollaboration()` compatibility helper non-blocking so plan capabilities cannot disable baseline group/manual collaboration;
+- removed `GROUP_LIMIT_REACHED`, `maxGroupCount`, `ownerGroupPosition` and configured group-limit checks from `WorklogCollaborationService`;
+- preserved the remaining legacy Owner/subscription checks for AI paths temporarily; these still need separation from manual PWA access in the next batch;
+- no GitHub Actions were run or triggered.
+
+Files changed in this batch:
+
+- `apps/api/src/admin/capabilities.ts`
+- `apps/api/src/worklog/entitlements.ts`
+- `apps/api/src/worklog/collaboration.ts`
+- `docs/WORKLOG_REBUILD_PROGRESS.md`
+
+Next batch starts from **manual group authorization separation**:
+
+1. make GROUP Source existence/member access independent from Owner/subscription;
+2. remove/rework PWA `OWNER_UNBOUND`, `OWNER_ABSENT`, plan-entitlement access blockers;
+3. keep AI authorization separate until the new AI allowance responsible-user/grant ledger replaces legacy Owner quota;
+4. then begin schema replacement for Customer/Project/Finance -> single Entity/title + Record.
+
+Validation: static code/doc edits only so far; no local build/typecheck/test/runtime validation has been executed yet.
+
 ## Current stable product contract
 
 - Product/domain is general-purpose work recording, not construction/finance-specific.
@@ -25,7 +54,7 @@ Read first every run:
 - Any AI operation requires positive eligible balance at request start. Balance=0 means no AI call. If >0 at start and actual usage exceeds remaining points, user floors at 0 and platform subsidy is recorded with user/source/group/provider cost.
 - Customer-facing allowance is **AI 點數** with frozen unit: `1 AI point = 1 output-price-equivalent token`. Real provider input/output/thinking/modality cost is converted into this point basis; provider cost remains separately auditable.
 - Subscription included allowance currently targets about 40% gross margin; one-time top-up products target about 50% gross margin. Admin calculates a recommendation but final included points are manually confirmed/persisted.
-- Current FREE launch direction is roughly NT$30 of conservative output-price-equivalent AI value once, no refresh; exact rounded displayed points still need launch configuration.
+- FREE launch allowance is **400,000 AI points once**, no calendar refresh and no calendar expiry.
 - Admin must expose average AI usage, average provider cost, utilization/exhaustion, FREE subsidy/conversion, platform subsidy and realized gross margin for pricing tuning.
 - AI-assisted new Record parsing stays narrow: classify create/edit/history navigation, determine one title, resolve title/Alias, create pending confirmation for ambiguity, resolve `occurred_at`, preserve durable content.
 - PWA manual create fields are `紀錄標題`, `紀錄內容`, `發生時間` via date/time picker. Selecting existing title reuses Entity; new title creates Entity. No AI relationship inference.
@@ -39,13 +68,13 @@ Read first every run:
 - Duplicate-title Merge/Undo is not MVP. Use manual/batch title transfer; reconsider Merge only if real users request it.
 - Generic RecordRelation is not required for MVP.
 - PWA manual record input is text-only; no permanent attachment library. LINE image/audio/file can be converted to durable text then binary discarded.
-- Payment provider is not yet frozen. Current early-MVP evaluation prefers NewebPay for low fixed-cost individual-studio suitability, keeps ECPay as mature fallback/later negotiated option, and asks Oen for a real quote because the user's company already uses it. Exact recurring-payment merchant eligibility and commercial terms must be confirmed before implementation.
-- Brand name is not frozen. Naming may use Chinese meaning/pronunciation converted into a short stylized Latin name; `TRACE/TRACE AI` is considered too crowded.
+- Payment provider is not yet frozen. NewebPay is the current early-MVP preferred candidate for a low-fixed-cost individual-studio SaaS; ECPay remains a mature fallback. Oen is not currently preferred under the publicly shown high monthly/platform fee structure unless a materially better negotiated quote is available.
+- Brand/product/LINE OA name is frozen for MVP as **AFTERTRACE**. Current slogan direction: **隨筆落墨，AI 循跡。**
 - GitHub Actions must not be run/triggered unless explicitly requested.
 
 ## Durable docs added/updated during product refactor
 
-- `WORKLOG_PRODUCT_SPEC.md`: general-purpose single-title Record model, PWA transfer/search, bounded LINE navigation, payment and naming direction.
+- `WORKLOG_PRODUCT_SPEC.md`: general-purpose single-title Record model, PWA transfer/search, bounded LINE navigation, payment and brand direction.
 - `WORKLOG_ENTITY_MODEL.md`: one-Record/one-title semantics, Alias, pending confirmation, manual title semantics and fuzzy search.
 - `WORKLOG_RECORD_EDIT_POLICY.md`: revisions, soft delete, optimistic version, LINE Reply editing, PWA no-AI edit rule.
 - `WORKLOG_AI_POINT_POLICY.md`: 1:1 output-price-equivalent point unit, 40%/50% commercial targets, FREE launch subsidy direction and Admin profitability analytics.
@@ -57,8 +86,8 @@ Current implementation still contains substantial assumptions from the older mod
 
 High-priority cleanup includes:
 
-1. remove `maxGroupCount`, stable group ordinal and `GROUP_LIMIT_REACHED` end-to-end;
-2. remove/reframe generic paid `groupCollaboration` gates that block free group/manual use;
+1. **IN PROGRESS:** remove `maxGroupCount`, stable group ordinal and `GROUP_LIMIT_REACHED` end-to-end. Runtime service/Admin capability definitions are cleaned; repository/query/tests/UI references still require audit/removal.
+2. **IN PROGRESS:** remove/reframe generic paid `groupCollaboration` gates that block free group/manual use. Admin definition is removed and compatibility helper no longer blocks, but manual PWA access still depends on legacy Owner/subscription authorization and must be separated next.
 3. separate group/source data existence from AI allowance responsible-user binding;
 4. split manual PWA authorization from LINE AI allowance entitlement;
 5. replace universal Customer/Project/finance-centric core assumptions with Source + Entity/title + Record foundation;
@@ -68,7 +97,7 @@ High-priority cleanup includes:
 9. implement direct Record title move plus batch title transfer; no Merge/Undo subsystem;
 10. implement bounded LINE history-link navigation using deterministic PWA filters instead of arbitrary AI query function calls;
 11. implement user-owned grant/allocation/cap ledger and migrate AI reservation/settlement to eligible grants;
-12. replace legacy 500/500/2500 allowance values with explicit AI-point values under the frozen point unit; configure FREE around the current NT$30 launch subsidy direction after final rounding;
+12. replace legacy 500/500/2500 allowance values with explicit AI-point values under the frozen point unit; configure FREE as 400,000 points;
 13. add billing type + durable FREE/PRO/TEAM period grants + separate one-time top-up purchases;
 14. implement AI 額度負責人 transfer/recovery using the new terminology/domain separation;
 15. expose current/historical group AI usage plus platform-subsidized usage in Admin/PWA without leaking unrelated private balances;
@@ -76,7 +105,10 @@ High-priority cleanup includes:
 17. implement LINE success reply/deep link and Reply-based natural-language edit using revision/version safety;
 18. implement paid export after core Record/title model is stable;
 19. verify provider-native DOCX/XLSX ingestion and finish attachment hardening;
-20. select and integrate payment provider after recurring-payment eligibility/fees are confirmed.
+20. select and integrate payment provider after recurring-payment eligibility/fees are confirmed;
+21. remove old PWA Customer/Project/Finance tabs, filters and APIs after the new title/Record manual surface is in place;
+22. replace Gemini text-normalization output (`summary/category/customer_hint/project_hint`) with bounded intent/title/occurred-at/history-filter output while preserving the existing provider-call/idempotent settlement infrastructure;
+23. change AI point settlement from `inputTokens + outputTokens` to full provider-cost / output-reference-price conversion and record platform-subsidized overage instead of allowing customer usage to exceed allowance.
 
 ## Cost measurement requirement before final paid plan/top-up point packs
 
@@ -88,7 +120,7 @@ Need representative measurement fixtures for:
 - Gemini thinking/modality usage;
 - provider actual cost vs customer point charge and platform subsidy.
 
-FREE can use the current NT$30 acquisition-subsidy direction for launch planning, but PRO/TEAM/top-up point amounts should still be checked against representative usage and Admin pricing assumptions before launch.
+FREE is fixed at 400,000 launch points. PRO/TEAM/top-up point amounts should still be checked against representative usage and Admin pricing assumptions before launch.
 
 ## Future discussion backlog — do not implement implicitly
 
@@ -97,11 +129,11 @@ FREE can use the current NT$30 acquisition-subsidy direction for launch planning
 - project/engineering scheduling;
 - broad AI historical analysis/reporting beyond bounded PWA navigation;
 - duplicate-title Merge/Undo unless requested by users;
-- final product/brand name and go-to-market positioning.
+- future rebrand only if explicitly approved.
 
 ## Validation status
 
-Recent product/schema changes are documentation/domain decisions. Concentrated executable validation remains pending.
+Current implementation refactor has started. This checkpoint includes static code/doc edits only.
 
 Do not claim build/typecheck/test/schema/browser/Worker/LINE/Gemini/E2E success unless actually executed locally/runtime.
 
@@ -113,10 +145,10 @@ Because the product has shifted from the older Customer/Project/aggregate-quota 
 
 Planning-only estimate from current branch state:
 
-- static product/domain contract: ~97% defined for the core MVP;
-- implementation against the latest domain: significant refactor still required;
+- static product/domain contract: ~98% defined for the core MVP;
+- implementation against latest domain: first entitlement cleanup batch started; significant refactor remains;
 - expect roughly 5–7 substantial internal implementation batches before concentrated validation;
-- rough internal coding range before validation: ~18–32 focused hours, with payment-provider integration still separate;
+- rough internal coding range before validation: ~17–30 focused hours, payment-provider integration still separate;
 - after concentrated validation begins, reserve additional time for compile/schema/browser/runtime fixes.
 
 Do not use GitHub Actions as validation.
