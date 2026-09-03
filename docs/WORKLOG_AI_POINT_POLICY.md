@@ -80,17 +80,17 @@ For an AI call:
 1. calculate the call's full actual provider cost using the immutable pricing snapshot that applied to that request, including all billable input/output/thinking/modality usage;
 2. take the same model/pricing snapshot's output price per token as the point reference price;
 3. convert total provider cost into output-price-equivalent tokens;
-4. charge that number as AI points, using a deterministic whole-point rounding rule.
+4. charge that number as AI points using the frozen whole-point rule: **round any positive fractional result upward to the next whole AI point** (`ceil`). Zero cost remains zero points.
 
 Conceptual formula:
 
-`AI points used = total actual provider cost / output reference price per token`
+`AI points used = ceil(total actual provider cost / output reference price per token)`
 
-Therefore all billable input/output/thinking/media costs are represented in point consumption even though the reference unit is the output price.
+Therefore all billable input/output/thinking/media costs are represented in point consumption even though the reference unit is the output price. Upward whole-point rounding prevents successful provider usage from being silently under-accounted by truncation and is applied only after full real provider cost has been calculated from the request's immutable pricing snapshot.
 
 Large balances such as hundreds of thousands or millions of AI points are acceptable and intentional. Customer UI should use readable thousands separators and percentages rather than hiding the scale.
 
-Do not silently change the definition of one AI point later. If a future product revision needs a different point unit, it requires an explicit migration/versioning decision so historical grants and usage remain auditable.
+Do not silently change the definition of one AI point or the historical rounding rule later. If a future product revision needs a different point unit/rounding version, it requires an explicit migration/versioning decision so historical grants and usage remain auditable.
 
 ## Model pricing snapshot
 
