@@ -15,28 +15,36 @@ Read first every run:
 - FREE = NT$0, ONE_TIME, 500 AI units once, no calendar expiry/no refresh.
 - PRO = NT$99/month, MONTHLY, 500 included AI units per successful renewal.
 - TEAM = NT$299/month, MONTHLY, 2500 included AI units per successful renewal.
-- Users on any plan may purchase one-time AI top-up packs; top-up balance does not disappear at monthly renewal.
+- Users on any plan may purchase one-time AI top-up packs; each purchase remains a separate durable allowance grant.
+- AI allowance is always **user-owned**, never group-owned.
+- Every included/top-up grant can independently allow PRIVATE and selected GROUP scopes and can optionally set per-scope usage caps.
+- Multiple one-time top-up purchases must not be merged if doing so would lose independent allocation settings.
+- If a scope has no cap, it may consume until the shared grant is exhausted; aggregate usage across all scopes can never exceed the real grant balance.
+- Recommended grant spend order: current included grant first, then one-time top-up grants oldest first.
+- Group members may see only group-specific AI billing Owner + available/used/remaining amount for that group, not the Owner's private/global/other-group balances.
+- Platform does not police private agreements about whether an Owner also uses their own allowance privately; it enforces only the Owner's configured allocation/caps.
+- Group dissolution requires no quota refund because units never leave the user's grant; the obsolete group allocation simply stops being eligible.
 - Paid plans and FREE do **not** limit group count.
 - FREE may add AFTERTRACE Bot to LINE groups and use group PWA manually.
-- Group existence/manual collaboration is free; AI billing ownership is a separate concept required only when LINE AI/provider work spends quota.
+- Group existence/manual collaboration is free; AI billing ownership is required only when LINE AI/provider work spends quota.
 - PWA manual read/create/edit is baseline free functionality and consumes zero AI units unless an explicit AI action is invoked.
 - Private manual scope: owner only.
-- Group manual scope: active group members may read/create/edit collaboratively even without a paid plan, even if a previous billing Owner is absent, and even after included AI is exhausted.
+- Group manual scope: active group members may read/create/edit collaboratively even without a paid plan, even if billing Owner is absent, and even after AI allowance is exhausted.
 - Record deep links are durable authenticated `/records/<id>` routes, not short-lived capability links.
 - Successful LINE AI recording must return what was actually saved/normalized plus that record deep link.
-- AI use requires spendable included/top-up balance and, for group AI, an eligible bound billing Owner.
+- AI use requires at least one eligible allowance grant and, for group AI, an eligible bound billing Owner whose allocation permits that group.
 - If group billing Owner leaves, LINE AI-assisted recording pauses; manual PWA group work continues.
 - Another active member may run `@AFTERTRACE 啟用` to take over AI billing responsibility only while old billing Owner is absent.
-- Current AI billing Owner may explicitly transfer responsibility to another active group member through a two-party approval flow: Owner initiates in LINE/PWA, target confirms in authenticated PWA, transfer request is single-use/expiring, and balances do not move with the role.
+- Current AI billing Owner may explicitly transfer responsibility to another active group member through two-party approval: Owner initiates, target confirms in authenticated PWA, request is single-use/expiring, balances do not move with the role.
 - Export is MVP; CSV first is acceptable and currently remains paid.
-- XLSX/DOCX are MVP input targets; prefer verified Google provider-native file ingestion before custom parsing.
+- XLSX/DOCX are MVP input targets; prefer verified Google provider-native ingestion before custom parsing.
 - Dev/prod DBs are prelaunch/disposable and may be rebuilt.
 - GitHub Actions must not run unless explicitly requested by user.
 
 ## Implemented / fixed
 
 - Worklog-only OA/group runtime, Web/Admin Workers, PostgreSQL/Drizzle foundations.
-- Explicit billing Owner binding because LINE Bot join does not reliably identify inviter.
+- Explicit billing Owner binding because LINE Bot join cannot reliably identify inviter.
 - Owner-presence / absent-owner rebind flow exists in current AI collaboration path.
 - Group AI text/media capability gates exist.
 - Gemini modality double-count and provider-success reservation settlement defects were corrected.
@@ -59,27 +67,25 @@ No plan limits number of groups.
 
 ### 2. Generic paid `groupCollaboration` is too broad
 
-FREE group/manual collaboration is now allowed. If a group capability remains, rename/redefine it specifically for AI-assisted group spending rather than generic group existence/read/manual CRUD.
+FREE group/manual collaboration is allowed. If a group capability remains, redefine it specifically for AI-assisted spending rather than group existence/read/manual CRUD.
 
-### 3. Group source existence must not depend on paid billing Owner
+### 3. Group source existence must not depend on billing Owner
 
-Current bootstrap/source model was designed around promotion into an Owner workspace. Re-audit and refactor so:
+Refactor so:
 - Bot can join/create a usable group surface without paid entitlement;
-- active members can reach the group PWA and manually create/edit records without a billing Owner;
-- billing Owner may remain null until AI-assisted group capture is requested/enabled;
-- binding/rebinding only determines whose AI balance is charged, not whether the group can exist.
+- active members can reach group PWA and manually create/edit records without billing Owner;
+- billing Owner may remain null until AI group capture is requested/enabled;
+- binding/rebinding determines whose eligible grants may be charged, not whether the group exists.
 
-This may require separating source/workspace ownership from AI billing ownership in the data model instead of overloading one Owner field for both concerns.
+This likely requires separating source/workspace ownership from AI billing ownership rather than overloading one Owner field.
 
 ### 4. Historical/manual group access is still over-restricted
-
-Current Web group read/surface routes still use stronger collaboration entitlement in places.
 
 Required:
 - manual/history read: authenticated active group membership + active source;
 - manual PWA create/edit: same membership/source boundary;
 - no paid plan, Owner presence or AI balance requirement;
-- LINE AI/provider path uses stronger billing-owner/AI balance gates.
+- LINE AI/provider path uses stronger billing-owner/allocation/balance gates.
 
 ### 5. Generic record edit is still workspace-owner-centric
 
@@ -90,33 +96,61 @@ Required:
 - manual create/edit costs zero AI units;
 - preserve actor/editor identity and timestamps.
 
+## AI grant/allocation domain requirement
+
+The previous simple “user aggregate balance” model is now insufficient.
+
+Required grant model:
+
+- every FREE initial grant, monthly included period grant, and one-time top-up purchase is an identifiable allowance grant;
+- top-up purchases remain separate grant rows so allocation rules can differ per purchase;
+- grants are owned by a user and never transferred to a group;
+- allocation policy supports PRIVATE plus selected GROUP source ids;
+- each grant can optionally set PRIVATE cap and per-group cap;
+- no cap means the allowed scope may consume until grant balance is exhausted;
+- aggregate consumption across scopes cannot exceed grant remaining units;
+- usage/reservations must retain which grant(s) funded the provider call and which PRIVATE/GROUP scope consumed them;
+- reservation/commit spanning multiple grants must be transactional/idempotent;
+- deterministic initial grant selection order: current included grant first, then oldest top-up grants;
+- monthly renewal replaces/creates only the included-period grant; top-up grants survive;
+- group closure simply disables that group's allocation eligibility; no refund/ownership transfer is necessary.
+
+Recommended default allocation on new grant:
+- PRIVATE allowed;
+- no group automatically allowed until the user explicitly accepts/configures billing responsibility for that group;
+- no per-scope caps by default.
+
+## Group AI visibility requirement
+
+Group members should be able to understand the group's AI status without seeing the billing Owner's private finances.
+
+Expose to active group members:
+- current AI billing Owner;
+- amount currently available to this group under eligible allocations;
+- amount already used by this group;
+- amount remaining available to this group.
+
+Do not expose:
+- Owner's unrelated private balance;
+- Owner's global remaining balance beyond what is made available to this group;
+- other groups' allocation or usage.
+
 ## High-priority implementation queue
 
 1. Remove `maxGroupCount` / GROUP_LIMIT_REACHED end-to-end.
 2. Separate free group/source existence from AI billing-owner binding.
 3. Split manual group authorization from LINE AI entitlement.
 4. Implement PWA manual create + collaborative group edit/private-owner edit.
-5. Implement LINE success summary + durable record deep link.
+5. Implement user-owned AI grant/allocation/cap model and migrate quota reservation/settlement to eligible-grant selection.
 6. Add billing_type and durable FREE/PRO/TEAM defaults now that DBs are rebuildable.
-7. Add first-class AI top-up products/grants/balances and deterministic spend order: included allowance first, top-up second.
-8. Implement AI billing-owner transfer requests/approval: initiator must be current billing Owner; target active member; reliable mention user id or PWA member selection; expiring single-use request; target PWA acceptance; no quota/balance transfer; auditable history.
-9. Implement private OA AI entitlement gates while preserving manual PWA access.
-10. Fix Admin effective included/top-up balance and AI media pricing; expose billing-owner transfer status/history.
-11. Implement CSV export.
-12. Verify Gemini provider-native XLSX/DOCX path.
-13. Finish AI hardening and enter concentrated local validation.
-
-## AI top-up domain requirement
-
-Top-up is separate from subscription plan identity.
-
-Need:
-- top-up product: code/name/price/units/enabled/rank;
-- idempotent purchase/payment reference;
-- durable grant/remaining-balance ledger;
-- top-up balance survives monthly plan rollover;
-- Admin shows included, top-up and aggregate spendable balance separately;
-- pack sizes/prices remain undecided until real Gemini cost measurements.
+7. Add one-time top-up products/purchases as separate grant creators.
+8. Implement AI billing-owner transfer requests/approval; after acceptance new Owner must use/configure their own eligible grants.
+9. Implement LINE success summary + durable record deep link.
+10. Implement private OA AI entitlement/allocation gates while preserving manual PWA access.
+11. Fix Admin effective included/top-up/grant allocation facts and AI media pricing; expose billing-owner transfer and group-specific AI availability.
+12. Implement CSV export.
+13. Verify Gemini provider-native XLSX/DOCX path.
+14. Finish AI hardening and enter concentrated local validation.
 
 ## AI billing-owner transfer requirement
 
@@ -125,14 +159,14 @@ Accepted product flow:
 - command example: `@AFTERTRACE 擁有者轉移 @Ryan Hsu`;
 - only current AI billing Owner may initiate;
 - target must be active member of same group;
-- use LINE mention `userId` when reliably available; never resolve transfer target by display-name guessing;
-- if reliable mention id is unavailable, current Owner chooses target in PWA;
+- use reliable LINE mention user id when available; never guess by display name;
+- if reliable mention id unavailable, Owner chooses target in PWA;
 - create pending transfer request with bounded expiry (24–72h target range), single-use state and cancellation/rejection handling;
 - target authenticates in PWA and explicitly accepts;
-- existing billing Owner remains in force until acceptance;
-- after acceptance future group AI charges target user's own eligible balance;
-- balances/top-ups remain personal and never transfer with the role;
-- transfer event/history must be auditable.
+- existing Owner remains in force until acceptance;
+- after acceptance future group AI can use only the new Owner's own grants permitted for that group;
+- previous Owner's grants/allocation settings remain personal and do not transfer;
+- transfer event/history is auditable.
 
 ## LINE non-AI manual mode
 
@@ -151,11 +185,11 @@ Recent tests are authored but not executed. Typecheck/test/build/schema/browser/
 ## Planning estimate
 
 Planning estimates only:
-- MVP non-payment-provider implementation: about 92–94% after free-group/manual scope, top-up, and billing-owner-transfer additions.
-- Static architecture/logic audit: about 98–99%.
-- Production readiness including unrun validation/provider integration: about 81–84%.
-- Remaining internal development before concentrated validation: about 4 large batches / roughly 10–18 focused hours.
-- After concentrated validation begins, reserve 2–8 focused hours for ordinary compile/schema/browser/runtime fixes.
-- Payment-provider recurring + top-up purchase integration remains separate and likely 1–3 working days after provider selection.
+- MVP non-payment-provider implementation: about **90–93%** after introducing per-grant allocation/cap accounting, free-group/manual scope, top-up, and billing-owner transfer.
+- Static architecture/logic audit: about **98–99%**.
+- Production readiness including unrun validation/provider integration: about **79–83%**.
+- Remaining internal development before concentrated validation: about **4–5 large batches / roughly 12–22 focused hours** because the AI quota ledger now needs a real grant-allocation refactor rather than a single aggregate balance.
+- After concentrated validation begins, reserve **2–8 focused hours** for ordinary compile/schema/browser/runtime fixes.
+- Payment-provider recurring + top-up purchase integration remains separate and likely **1–3 working days after provider selection**.
 
 Do not use GitHub Actions as validation.
