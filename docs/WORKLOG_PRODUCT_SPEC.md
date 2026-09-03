@@ -14,31 +14,38 @@ Primary surfaces:
 
 ## Product monetization principle
 
-The product should charge primarily for AI convenience and paid capabilities, not for access to a user's own historical data or for the number of LINE groups they choose to organize work in.
+AFTERTRACE charges for AI convenience and paid capabilities, not for access to a user's own data, manual record keeping, or the number of LINE groups used.
 
-Baseline functions that remain available without AI quota:
+Baseline functions available without AI quota:
 
-- read existing authorized records;
+- add AFTERTRACE Bot to a LINE group;
+- open that group's PWA record surface;
+- read/search/filter authorized records;
 - manually create records in PWA;
-- manually edit authorized records in PWA;
-- search/filter/browse historical authorized records.
+- manually edit authorized records in PWA.
 
-AI-assisted ingestion consumes AI allowance. When allowance is exhausted, the user can continue using manual PWA recording/editing and may purchase additional one-time AI allowance.
+AI-assisted ingestion consumes AI allowance. When allowance is exhausted, users may keep working manually for free or purchase additional one-time AI allowance.
 
 ## LINE interaction contract
 
 ### AI-assisted record commands
 
-- `@AFTERTRACE <text>` records text and may use AI normalization according to current entitlement/quota.
-- Reply to an image/audio/file and send `@AFTERTRACE` to record the quoted content.
+- `@AFTERTRACE <text>` is the fast AI-assisted recording path and requires spendable AI allowance plus any required billing-owner binding for that source.
+- Reply to an image/audio/file and send `@AFTERTRACE` to use AI-assisted attachment ingestion.
 - Ordinary group chat is not persisted as product records unless explicitly triggered.
 - Ordinary private OA text without `@AFTERTRACE` remains human-support traffic.
 - Group quoted TEXT is available only through the bounded temporary cache. If an old quoted TEXT can no longer be reconstructed, ask the user to re-enter the original text.
 - If LINE attachment content has expired/unavailable, ask the user to resend it.
 
+### Non-AI group actions
+
+The Bot may exist in FREE groups even when no paid subscription or AI billing owner is active.
+
+Non-AI commands such as opening the PWA/group history must not require paid entitlement or AI allowance. The exact command copy may remain `@AFTERTRACE 查詢` or an equivalent entry action.
+
 ### Success reply after recording
 
-Every successful LINE record flow must tell the user what AFTERTRACE actually recorded.
+Every successful LINE AI record flow must tell the user what AFTERTRACE actually recorded.
 
 Preferred structure:
 
@@ -52,146 +59,79 @@ https://<aftertrace-web>/records/{{recordId}}
 
 Rules:
 
-- When AI normalization succeeds, show the normalized summary/category-relevant result in the reply rather than only replying `已記錄。`.
-- When raw content is saved but AI is disabled/deferred/failed, clearly state that the original record was saved and show the saved/raw content or a safe concise fallback; do not fabricate an AI summary.
-- The edit link is a durable PWA deep link containing the durable record id.
-- PWA authentication/authorization remains authoritative. If the browser is not signed in, normal LINE Login/session flow occurs and the app returns to the requested record after authentication.
-- Knowing or sharing a record id/URL never grants access by itself.
-
-### Open records
-
-- `@AFTERTRACE 查詢` returns a Web/PWA entry URL.
-- Ordinary PWA routes use normal LINE Login/session authorization.
-- LIFF is not required for MVP.
+- When AI normalization succeeds, show the normalized summary/category-relevant result rather than only `已記錄。`.
+- When raw content is saved but AI is disabled/deferred/failed, state that truthfully and never fabricate an AI summary.
+- The record URL is a durable PWA deep link containing the durable record id.
+- PWA authentication/authorization remains authoritative; knowing a record id/URL never grants access by itself.
 
 ## PWA manual record creation and editing
 
-Manual PWA recording/editing is a baseline product function for every plan, including FREE and users whose AI allowance is exhausted.
+Manual PWA recording/editing is a baseline product function for every user, including FREE users and users whose AI allowance is exhausted.
 
-The purpose is twofold:
+Manual PWA create/edit must not consume AI allowance unless the user explicitly invokes an AI-assisted action.
 
-1. users must always be able to correct AI mistakes or continue working without AI;
-2. manual use keeps their work history inside AFTERTRACE and creates a natural upgrade path when they later value faster AI-assisted capture.
-
-Manual PWA create/edit must not consume AI allowance unless the user explicitly invokes a separate AI-assisted action.
-
-### Private OA records
+### Private scope
 
 - Only the owning LINE/OA user may view, manually create into, and edit their private record scope.
-- Losing AI quota or changing paid subscription state does not remove manual read/create/edit access to that private scope.
+- Losing AI quota or paid subscription state never removes manual read/create/edit access to existing personal data.
 
-### Group records
+### Group scope
 
-- Any currently active member of that LINE group may view existing records, manually create new PWA records into that group, and manually edit records belonging to that group.
-- Manual PWA creation/editing is collaborative and does not require the Owner to be present.
-- Manual PWA creation/editing does not require an active paid subscription and does not consume AI quota.
-- Owner presence / paid entitlement / AI quota are required only for LINE AI-assisted recording/provider work that charges the Owner.
-- If the Owner leaves or the subscription expires, active group members retain historical read/edit access and may continue manual PWA record creation.
+- Any currently active member of a LINE group that has AFTERTRACE may view existing records, manually create PWA records into that group, and manually edit that group's records.
+- Manual PWA group use is available on FREE and paid plans.
+- Manual group use does not require an AI billing owner to be present, an active paid subscription, or AI allowance.
+- Group membership/source authorization still applies; unrelated users cannot access the group by guessing ids.
+- If a previous AI billing Owner leaves or their subscription expires, active members may continue all manual PWA work.
 
 ### Edit auditability
 
-- Preserve original user-provided content/reference as immutable source-of-truth where practical.
-- Store edited/normalized fields separately enough to diagnose original input versus AI/user changes.
-- Record edits and manual creates should retain actor/editor identity and timestamp in audit/history where supported.
+- Preserve original user-provided content/reference as source-of-truth where practical.
+- Retain actor/editor identity and timestamps for manual create/edit.
+- Keep enough audit history to distinguish original AI/raw input from later user corrections.
 
-`pwaEditing` is not a plan capability and must not reappear in Admin plan capability differences.
+`pwaEditing` is not a plan capability.
 
-## Query behavior
+## Group identity versus AI billing ownership
 
-- No natural-language record search in V1.
-- PWA search/filter starts with customer name, project name, time and record type/status where useful.
-- Group users can access historical/manual records from groups in which they are currently active members, independent of the current Owner's paid/AI entitlement.
-- OA users may see personal and accessible group records, clearly separated.
+A LINE group existing in AFTERTRACE and a user agreeing to pay/consume AI allowance for that group are separate concepts.
 
-## LINE OA behavior
+### Group existence
 
-### Rich menu
+- FREE users may add AFTERTRACE Bot to groups.
+- Group creation/onboarding must not require a paid plan.
+- Group members may use the group's PWA manual record surface without paying for AI.
+- There is no maximum group count on FREE/PRO/TEAM for manual collaboration.
 
-Primary actions:
+### AI billing owner
 
-1. 使用教學
-2. 查看紀錄
-3. 付款訂閱
-4. 意見回饋
+`owner_user_id` / billing ownership is specifically the user whose AI entitlement/balance is used for LINE AI-assisted group recording.
 
-The help flow must explain private/group AI recording, PWA manual recording, query links and record-edit links.
+- If no AI billing Owner is bound, manual group PWA functionality still works.
+- Before a LINE AI-assisted group action spends quota, the system must have a current eligible billing Owner and available AI balance.
+- `@AFTERTRACE 啟用` is the MVP action for a member to accept AI billing responsibility for that group when needed.
+- A claim must not overwrite a different active billing Owner accidentally.
+- If billing Owner leaves, new LINE AI activity pauses, but manual PWA group activity continues.
+- While the previous billing Owner is absent, another active member may run `@AFTERTRACE 啟用` and become the new billing Owner.
+- If nobody rebinds and the original billing Owner returns, the existing binding may resume.
 
-### OA friendship state
-
-Track at least LINE user id, display name when resolvable, OA friend status, first-added timestamp when known, friendship lifecycle timestamp, last interaction timestamp and updated timestamp.
-
-## Group ownership and AI billing
-
-### Owner binding
-
-- LINE Bot `join` webhooks do not reliably identify who invited the Bot.
-- Current MVP uses explicit `@AFTERTRACE 啟用` to bind the group Owner/subscription payer.
-- Persist stable `owner_user_id` and subscription billing ownership.
-- A claim must never overwrite a different Owner who is still active in the group.
-
-### Owner leaves the group
-
-Owner presence is required only for new LINE AI-assisted group recording/provider spend.
-
-- `memberLeft` marks the Owner inactive when available.
-- Owner absence does not remove historical/manual PWA access from other active group members.
-- A new LINE AI-assisted recording attempt is suspended before quota/provider spend.
-- Preferred reply:
-  `目前群組 Owner 已不在此 LINE 群組，AFTERTRACE 已暫停 AI 快速紀錄。請要負責此群組訂閱的人輸入「@AFTERTRACE 啟用」完成帳號綁定；既有紀錄仍可在網頁查看、手動新增與修改。`
-- While Owner is absent, an active member may run `@AFTERTRACE 啟用` and become the new Owner.
-- After successful rebind, the old Owner returning later does not automatically regain ownership.
-- If nobody rebinds and the original Owner later rejoins, the existing Owner binding remains theirs and LINE AI-assisted recording resumes when entitlement/quota permit.
+Preferred no-billing-owner / absent-owner AI reply should explain that AI fast recording is paused while PWA manual records remain usable.
 
 ### Group AI billing
 
-- Group AI usage is charged to the current bound Owner/subscriber, never silently to the acting member.
+- Group AI usage is charged to the current bound billing Owner/subscriber, never silently to the actor.
 - Retain actor user id and charged/billing user id.
-- Owner presence, active paid group entitlement and available AI allowance are checked before provider calls.
-
-### Group-count policy
-
-There is **no paid-plan maximum group count** in the current product model.
-
-Rationale:
-
-- AI allowance already bounds variable AI cost;
-- users may distribute that allowance across any number of groups;
-- limiting group count adds product friction without materially protecting AI cost;
-- manual PWA use remains free and should not be artificially constrained by group count.
-
-Therefore:
-
-- remove `maxGroupCount` from plan capabilities, Admin configuration, entitlement checks and customer-facing plan differences;
-- paid group collaboration is an on/off capability only;
-- any number of bound groups may use the Owner's shared AI allowance while the Owner/paid entitlement/quota checks pass;
-- FREE remains personal-only unless the product later changes the FREE group-collaboration rule.
+- AI capability/balance is checked before provider calls.
+- Group count itself is never an AI entitlement restriction.
 
 ### Member recording permission
 
-- Owner may enable/disable another member's ability to create new LINE AI-assisted records on behalf of that Owner.
-- This permission does not block historical read/edit or manual PWA record creation by active group members.
+Any Owner-level recording permission only governs spending the billing Owner's AI allowance through LINE AI-assisted recording. It must not block manual PWA read/create/edit for active group members.
 
 ## Data principles
 
-### Source of truth
-
 Always preserve original user-provided content/reference. AI output is derived metadata and may be corrected/regenerated.
 
-### Customer
-
-Keep fixed shape small: name/display name, optional phone/address and note.
-
-### Project
-
-Keep fixed shape small: customer, name, optional address, status and note.
-
-### Record
-
-Retain at least workspace/source, LINE message/quoted id when applicable, author user id, original raw input or attachment metadata/reference, normalized summary, category, customer/project links, input type, creation/edit timestamps and creation mode (`LINE_AI` / `PWA_MANUAL` or equivalent).
-
-Input types must support at least TEXT, AUDIO, IMAGE and FILE.
-
-### Finance
+A record retains at least workspace/source, LINE ids where applicable, author, original raw input/attachment metadata, normalized summary, category, customer/project links, input type, creation/edit timestamps, and creation mode such as `LINE_AI` / `PWA_MANUAL`.
 
 Amounts requiring arithmetic use deterministic numeric fields/tables; AI text is never accounting truth.
 
@@ -199,160 +139,102 @@ Amounts requiring arithmetic use deterministic numeric fields/tables; AI text is
 
 Subscription configuration is data-driven.
 
-### Initial launch plan matrix
+### FREE
 
-#### FREE
-
-- display name: `FREE`
 - price: NT$0
 - billing type: `ONE_TIME`
-- AI allowance: **500 units one time**
-- allowance has no calendar expiry and never refreshes; remaining units stay available until consumed
-- `privateOaRecording = true`
-- `groupCollaboration = false`
-- `aiTextRecording = true`
-- `aiMediaIngestion = true`
-- `export = false`
-- manual PWA read/create/edit: always available in authorized private scope
+- initial AI allowance: **500 units one time**
+- allowance has no calendar expiry and never refreshes
+- may add Bot to unlimited LINE groups
+- manual PWA personal/group read/create/edit: free
+- AI use is available while the user's one-time or purchased top-up AI balance remains
+- `export = false` initially
 
-#### PRO
+### PRO
 
-- display name: `PRO`
 - price: **NT$99/month**
 - billing type: `MONTHLY`
 - AI allowance: **500 units per successful monthly period**
-- `privateOaRecording = true`
-- `groupCollaboration = true`
-- no maximum group count
-- `aiTextRecording = true`
-- `aiMediaIngestion = true`
+- unlimited LINE groups
+- manual PWA read/create/edit: free baseline
 - `export = true`
-- manual PWA read/create/edit: always available in authorized private/group scopes
 
-#### TEAM
+### TEAM
 
-- display name: `TEAM`
 - price: **NT$299/month**
 - billing type: `MONTHLY`
 - AI allowance: **2500 units per successful monthly period**
-- `privateOaRecording = true`
-- `groupCollaboration = true`
-- no maximum group count
-- `aiTextRecording = true`
-- `aiMediaIngestion = true`
+- unlimited LINE groups
+- manual PWA read/create/edit: free baseline
 - `export = true`
-- manual PWA read/create/edit: always available in authorized private/group scopes
 
 Suggested ranks: FREE 0, PRO 10, TEAM 20.
 
-These AI allowances are launch defaults and must be rechecked with real Gemini usage/cost before production pricing is frozen.
+Do not use `groupCollaboration` or `maxGroupCount` to prohibit FREE/manual group collaboration. If a capability remains for group AI use, name/define it explicitly as an AI-assisted billing capability rather than generic collaboration.
 
 ## AI allowance sources
 
-A user's spendable AI balance may come from more than one source.
+A user's spendable AI balance may come from multiple sources.
 
-### Plan-period allowance
+### Included allowance
 
 - FREE one-time initial grant or paid MONTHLY period allowance.
-- Paid monthly allowance is refreshed only by confirmed successful renewal.
-- Unused paid monthly plan allowance does not roll into the next paid period.
+- Paid monthly included allowance refreshes only after confirmed successful renewal.
+- Unused paid monthly included allowance does not roll over.
 
 ### One-time AI top-up
 
-Users may purchase additional AI allowance as a separate one-time product.
+Users on any plan, including FREE, may purchase one-time AI top-up packs.
 
-Rules:
+- top-up is not a subscription plan;
+- purchased units do not auto-refresh or expire at monthly renewal merely because the calendar changes;
+- top-up purchases are separately auditable;
+- recommended spending order: current included allowance first, then oldest purchased top-up units;
+- pack sizes/prices remain configurable until Gemini cost measurements are finalized.
 
-- a top-up is not a subscription plan and does not change FREE/PRO/TEAM plan identity;
-- purchased top-up units do not auto-refresh;
-- purchased top-up units should not disappear merely because a monthly billing period ends;
-- top-up purchases must be separately auditable by purchase/payment id;
-- provider-success usage settlement may consume from the user's aggregate available AI balance according to a deterministic bucket order;
-- recommended bucket order is **current plan-period allowance first, then purchased top-up allowance**, so paid top-up units are preserved until needed;
-- top-up pricing/pack sizes remain configurable and should be finalized after real Gemini cost measurement.
-
-When a monthly subscriber exhausts their included AI allowance, product UX should offer both:
-
-- continue manually in PWA for free;
-- buy a one-time AI top-up to resume fast LINE AI recording immediately.
+When AI balance is exhausted, UX should offer both free PWA manual recording and AI top-up/paid-plan options.
 
 ## Billing type and renewal
 
-Initial billing types:
+Initial billing types are `ONE_TIME` and `MONTHLY`.
 
-- `ONE_TIME`: grant/purchase once; no calendar refresh.
-- `MONTHLY`: each confirmed successful renewal starts a new billing/quota period.
-
-Plan billing cadence is separate from one-time AI top-up products.
-
-Paid MONTHLY rules:
-
-- successful renewal creates exactly one next plan-period allowance;
-- reaching a calendar boundary alone creates no new paid quota;
-- unused monthly plan allowance does not roll over;
-- top-up balance is not erased by monthly period rollover;
-- plan-template changes do not mutate existing quota snapshots.
-
-### Recurring payment requirement
-
-Paid MONTHLY plans require provider-supported recurring authorization/token/mandate/MIT equivalent. Renewals/webhooks must be idempotent; failed renewal creates no new plan-period quota; cancellation stops future charges without deleting historical usage or purchased top-up balance. Never store raw card data.
+- FREE initial grant is ONE_TIME and never resets automatically.
+- Paid MONTHLY receives a fresh included allowance only after confirmed renewal success.
+- Calendar passage alone creates no new paid quota.
+- Purchased top-up balance is unaffected by monthly period rollover.
+- Recurring provider webhooks/renewals must be idempotent and raw card data is never stored.
 
 Payment provider remains undecided.
 
 ## AI quota and provider accounting
 
-- Quota reservation is preflight only; real provider usage must be recorded even when actual usage exceeds estimate.
-- Provider-success result must never be released merely because settlement is delayed/expired/over estimate.
+- Reservation is preflight only; real provider usage must be recorded even if actual exceeds estimate.
+- Provider-success results must not be erased due to settlement delay/expiry/overage.
 - Provider-dollar cost and customer-facing allowance units are distinct concepts.
-- Prompt modality subsets must not be double-counted.
-- Thinking/reasoning tokens must be included when billed by provider.
-- Usage events retain provider/model/pricing snapshot, actor, charged user, source/workspace/record references and timestamp.
-- Balance accounting must distinguish plan-period grants from one-time top-up grants so rollover/expiry semantics remain correct.
+- Thinking/modality usage is accounted exactly once.
+- Balance accounting distinguishes included grants from one-time purchased top-up grants.
 
 ## AI runtime
 
-Current production target remains the approved Gemini 3.5 model configured for AFTERTRACE. Do not add Gemini 2.5 compatibility branches unless a future model migration explicitly requires them.
+Current production target remains the approved Gemini 3.5 model. Gemini 2.5 compatibility is not MVP work.
 
-- Use Gemini 3.x thinking controls with a cost-conscious level suitable for structured extraction.
-- Include `usageMetadata.thoughtsTokenCount` in output/provider cost and quota accounting.
-- Reservation estimates should account for thinking policy while exact settlement remains authoritative.
-
-Admin AI pricing supports input, output/thinking, optional modality-specific prices and FX conversion. Historical usage cost is immutable.
+Use Gemini 3.x thinking controls, include reported thinking usage in accounting, and keep historical pricing snapshots immutable.
 
 ## Attachment/file scope
 
 MVP input targets: text, image, audio, PDF, common text-like files, XLSX/Excel and DOCX/Word.
 
-For DOCX/XLSX, prefer the simplest verified provider-native Files/File Search path supported by the selected Gemini model/API. Do not build custom ZIP/XML extraction unless provider-native ingestion fails the required one-shot LINE workflow or loses necessary information.
-
-At minimum enforce file-size/request-size limits, allowed MIME/extension checks, correct MIME, provider upload/import failure handling, no permanent raw Office binary storage unless approved, and real Gemini E2E verification.
+For DOCX/XLSX, prefer the simplest verified provider-native Files/File Search path supported by the selected Gemini API before building custom Office extraction. Enforce file/request-size limits, MIME allowlists, provider failure handling and real E2E verification.
 
 ## Export
 
-Export is MVP.
-
-- `export` remains a paid capability.
-- MVP may start with CSV usable by Excel/Google Sheets.
-- Export authorization is server-side.
-- Private export only includes the user's private scope.
-- Group export visibility follows group historical-access rules.
+Export is MVP and initially remains a paid capability. CSV first is acceptable. Export authorization is server-side and follows private/group data-access boundaries.
 
 ## Internal Admin
 
-Admin supports username/password + HMAC session, anomalies, feedback, users/groups/plans/quota, AI pricing, manual subscription changes and audit.
+Admin supports users/groups, AI billing-owner visibility, plans/billing cadence, included AI balance, top-up products/balances, AI pricing, anomalies, feedback, manual subscription changes and audit.
 
-Plan capabilities currently intended for Admin:
-
-- private OA AI-assisted recording
-- group AI-assisted collaboration
-- AI text recording
-- AI media ingestion
-- export
-- future real paid features only
-
-Do not re-add `maxGroupCount` or record editing as plan capabilities.
-
-Admin also needs management/reporting for one-time AI top-up products and purchased top-up balances.
+Do not expose `maxGroupCount`, generic paid `groupCollaboration`, or record editing as plan capabilities. Any future group-related paid capability must correspond to a real paid cost/feature.
 
 ## Platform and deployment
 
@@ -362,8 +244,4 @@ Deploy as three Workers: `aftertrace-api`, `aftertrace-web`, `aftertrace-admin`.
 
 ## Prelaunch database policy
 
-The product is not live yet and development/production databases may be destructively rebuilt while schema is finalized. Current repository schema/migration history is authoritative. Once real production user data exists, destructive resets stop and forward-only migration discipline becomes mandatory.
-
-## Feedback
-
-PWA exposes lightweight feedback for confusing flow, AI mistakes, missing features or general suggestions and should attach useful context when practical.
+Development/production databases are prelaunch and may be rebuilt while schema is finalized. Current repository migration history is authoritative. Once real production user data exists, switch to forward-only migrations.
