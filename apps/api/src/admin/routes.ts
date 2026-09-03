@@ -11,12 +11,12 @@ import {
   type AdminAccessEnv,
 } from './auth';
 import { ADMIN_CAPABILITY_DEFINITIONS, validateAdminCapabilities } from './capabilities';
+import { DrizzleGrantAdminRepository } from './grant-repository';
 import { presentAdminPayload } from './presentation';
-import {
-  DrizzleAdminRepository,
-  type AdminAiRuntimeInput,
-  type AdminPlanInput,
-  type AdminUserQuery,
+import type {
+  AdminAiRuntimeInput,
+  AdminPlanInput,
+  AdminUserQuery,
 } from './repository';
 
 export type AdminBindings = AdminAccessEnv & {
@@ -131,7 +131,7 @@ export function createAdminRoutes() {
     }
 
     const database = createDatabase(c.env.DATABASE_URL);
-    const adminRepository = new DrizzleAdminRepository(database);
+    const adminRepository = new DrizzleGrantAdminRepository(database);
     if (!(await adminRepository.userDetail(userId))) return c.json({ ok: false, error: 'USER_NOT_FOUND' }, 404);
     const service = new WorklogSubscriptionService(new DrizzleWorklogSubscriptionRepository(database));
     try {
@@ -222,7 +222,7 @@ export function createAdminRoutes() {
 }
 
 function repository(c: { env: AdminBindings }) {
-  return new DrizzleAdminRepository(createDatabase(c.env.DATABASE_URL));
+  return new DrizzleGrantAdminRepository(createDatabase(c.env.DATABASE_URL));
 }
 
 async function jsonBody(c: { req: { json(): Promise<unknown> } }): Promise<Record<string, unknown> | null> {
@@ -278,7 +278,6 @@ function planInput(codeRaw: string, body: Record<string, unknown>): AdminPlanInp
   const enabled = boolean(body.enabled, 'INVALID_PLAN_ENABLED');
   const aiAllowanceUnits = integer(body.aiAllowanceUnits, 'INVALID_AI_ALLOWANCE', 0, 2_000_000_000);
   const capabilities = validateAdminCapabilities(body.capabilities);
-  if (code === 'FREE') capabilities.groupCollaboration = false;
   return { code, displayName, priceTwd, rank, enabled, aiAllowanceUnits, capabilities };
 }
 
