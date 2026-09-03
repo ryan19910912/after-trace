@@ -26,6 +26,7 @@ export interface WorklogBootstrapRepository {
   reactivateBoundGroup(sourceId: number, at: Date): Promise<boolean>;
   upsertBoundGroupMember(sourceId: number, userId: number, isActive: boolean, at: Date): Promise<void>;
   markGroupInactive(lineGroupId: string, at: Date): Promise<void>;
+  /** Legacy fallback used only while old tests/storage are being removed. */
   promoteGroup(input: {
     lineGroupId: string;
     ownerUserId: number;
@@ -43,16 +44,28 @@ export interface WorklogInitialGrantPort {
   }): Promise<unknown>;
 }
 
+export interface WorklogAiResponsibilityClaimPort {
+  claim(input: {
+    sourceId: number;
+    actorUserId: number;
+    reason?: string;
+    at?: Date;
+  }): Promise<
+    | { status: 'BOUND' | 'ALREADY_BOUND'; sourceId: number; responsibleUserId: number }
+    | { status: 'CONFLICT'; sourceId: number }
+    | { status: 'GROUP_NOT_FOUND' | 'NOT_ACTIVE_MEMBER'; sourceId: number }
+  >;
+}
+
 export type PrivateBootstrapResult =
   | { status: 'READY'; userId: number; workspaceId: number; sourceId: number }
   | { status: 'NOT_OA_FRIEND'; userId: number };
 
 /**
  * GROUP Source existence is independent from AI funding. A group becomes a durable
- * Source as soon as a known member interacts; ownerUserId may remain null indefinitely.
- * Manual PWA access is authorized by Source membership elsewhere, not by this legacy
- * owner field. The field remains transitional only until the grant/responsible-user
- * schema replaces it.
+ * Source as soon as a known member interacts; ownerUserId is transitional legacy
+ * storage only and may remain null indefinitely. Manual PWA access is authorized by
+ * Source membership, never by this legacy field.
  */
 export type GroupBootstrapResult = {
   status: 'BOUND';
@@ -61,6 +74,7 @@ export type GroupBootstrapResult = {
   ownerUserId: number | null;
 };
 
+/** Public name kept temporarily for LINE runtime compatibility; semantically this is AI 額度負責人. */
 export type GroupOwnerBindResult =
   | { status: 'BOUND'; sourceId: number; ownerUserId: number }
   | { status: 'ALREADY_BOUND'; sourceId: number; ownerUserId: number }
@@ -70,6 +84,7 @@ export class WorklogBootstrapService {
   constructor(
     private readonly repository: WorklogBootstrapRepository,
     private readonly initialGrants?: WorklogInitialGrantPort,
+    private readonly aiResponsibility?: WorklogAiResponsibilityClaimPort,
   ) {}
 
   async handleOaFollow(input: {
@@ -157,8 +172,6 @@ export class WorklogBootstrapService {
       const reactivated = await this.repository.reactivateBoundGroup(group.sourceId, at);
       if (reactivated) group = { ...group, status: 'ACTIVE' };
       else {
-        // A newer lifecycle event may legitimately win. Re-read rather than treating
-        // an older delayed interaction as authority to reactivate the Source.
         const refreshed = await this.repository.findBoundGroupByLineId(lineGroupId);
         if (refreshed) group = refreshed;
       }
@@ -222,19 +235,39 @@ export class WorklogBootstrapService {
       at,
     });
 
-    const existing = await this.repository.findBoundGroupByLineId(lineGroupId);
-    if (existing?.ownerUserId === owner.userId) {
-      await this.repository.upsertBoundGroupMember(existing.sourceId, owner.userId, true, at);
-      return { status: 'ALREADY_BOUND', sourceId: existing.sourceId, ownerUserId: owner.userId };
-    }
-
-    // Ensure the data Source exists before assigning AI funding responsibility. This
-    // keeps manual group history available even when no responsible user is configured.
-    if (!existing) {
+    // Ensure the data Source exists and the claimant is an active member before
+    // touching AI funding responsibility. GROUP existence/manual access remains free.
+    let group = await this.repository.findBoundGroupByLineId(lineGroupId);
+    if (!group) {
       const storageWorkspaceId = await this.repository.ensureWorkspace(owner.userId, at);
-      await this.repository.ensureGroupSource(lineGroupId, storageWorkspaceId, at);
+      group = await this.repository.ensureGroupSource(lineGroupId, storageWorkspaceId, at);
+    }
+    await this.repository.upsertBoundGroupMember(group.sourceId, owner.userId, true, at);
+
+    if (this.aiResponsibility) {
+      const claimed = await this.aiResponsibility.claim({
+        sourceId: group.sourceId,
+        actorUserId: owner.userId,
+        reason: input.evidence,
+        at,
+      });
+      if (claimed.status === 'BOUND') {
+        return { status: 'BOUND', sourceId: group.sourceId, ownerUserId: owner.userId };
+      }
+      if (claimed.status === 'ALREADY_BOUND') {
+        return { status: 'ALREADY_BOUND', sourceId: group.sourceId, ownerUserId: owner.userId };
+      }
+      if (claimed.status === 'CONFLICT') {
+        return { status: 'OWNER_CONFLICT', sourceId: group.sourceId, ownerUserId: owner.userId };
+      }
+      throw new Error(`group AI responsibility claim failed: ${claimed.status}`);
     }
 
+    // Legacy fallback for old isolated unit tests/storage until the old owner columns
+    // and repository methods are deleted. Production runtime injects aiResponsibility.
+    if (group.ownerUserId === owner.userId) {
+      return { status: 'ALREADY_BOUND', sourceId: group.sourceId, ownerUserId: owner.userId };
+    }
     const workspaceId = await this.repository.ensureWorkspace(owner.userId, at);
     const promoted = await this.repository.promoteGroup({
       lineGroupId,
@@ -261,8 +294,6 @@ export class WorklogBootstrapService {
         ownerUserId: promoted.ownerUserId ?? owner.userId,
       };
     }
-
-    await this.repository.upsertBoundGroupMember(promoted.sourceId, owner.userId, true, at);
     return { status: 'BOUND', sourceId: promoted.sourceId, ownerUserId: owner.userId };
   }
 
