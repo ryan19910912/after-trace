@@ -69,7 +69,8 @@ export type RecordTypeCounts = {
   FILE: number;
 };
 
-// Transitional shape until aggregate subscription quota is replaced by the grant ledger.
+// Transitional PRIVATE summary until the remaining aggregate subscription reader is removed.
+// GROUP scopes use GroupFunding below and never read this shape.
 export type UserUsage = {
   userId: number;
   planCode: string;
@@ -81,6 +82,61 @@ export type UserUsage = {
   providerCostTwd: number;
   records: RecordTypeCounts;
 };
+
+export type GroupFundingGrant = {
+  id: number;
+  type: string;
+  status: string;
+  originalPoints: number;
+  remainingPoints: number;
+  effectiveAt: string;
+  expiresAt: string | null;
+  capPoints: number | null;
+  usedPoints: number;
+  reservedPoints: number;
+  enabled: boolean;
+  sourceAvailablePoints: number;
+};
+
+export type GroupFunding = {
+  sourceId: number;
+  responsibleUser: { id: number; displayName: string | null } | null;
+  responsibleUserActive: boolean;
+  availablePoints: number;
+  reservedPoints: number;
+  usedPoints: number;
+  platformSubsidizedPoints: number;
+  canManage: boolean;
+  grants: GroupFundingGrant[];
+};
+
+export type WorklogConfirmationCandidate = {
+  entityId: number;
+  name: string;
+  matchedVia: 'ENTITY' | 'ALIAS' | 'FUZZY';
+};
+
+export type WorklogConfirmation = {
+  id: number;
+  sourceId: number;
+  recordId: number;
+  confirmationType: 'ALIAS_MATCH' | 'RECORD_TITLE' | 'ENTITY_MATCH';
+  candidateEntityId: number | null;
+  candidateTitle: string | null;
+  proposedName: string | null;
+  reason: string | null;
+  occurredAt: string;
+  expectedRecordVersion: number;
+  candidates: WorklogConfirmationCandidate[];
+  recordRawText: string;
+  expiresAt: string | null;
+  createdAt: string;
+};
+
+export type WorklogConfirmationDecision =
+  | { action: 'USE_EXISTING'; entityId: number }
+  | { action: 'CREATE_TITLE'; title?: string }
+  | { action: 'REJECT' };
 
 export type WorklogSurfaces = {
   personal: { sourceId: number } | null;
@@ -296,6 +352,57 @@ export class WorklogApi {
     )).usage;
   }
 
+  async groupFunding(sessionToken: string, sourceId: number): Promise<GroupFunding> {
+    const body = await json<{ funding: Record<string, unknown> }>(
+      await this.request(sessionToken, `/api/v1/worklog/funding/group/${sourceId}`),
+      '群組 AI 點數載入失敗',
+    );
+    return fundingFromApi(body.funding);
+  }
+
+  async configureGroupGrant(
+    sessionToken: string,
+    sourceId: number,
+    grantId: number,
+    input: { enabled: boolean; capPoints: number | null },
+  ): Promise<GroupFunding> {
+    const body = await json<{ funding: Record<string, unknown> }>(
+      await this.request(
+        sessionToken,
+        `/api/v1/worklog/funding/group/${sourceId}/grants/${grantId}`,
+        this.body('PUT', input),
+      ),
+      '群組 AI 點數設定失敗',
+    );
+    return fundingFromApi(body.funding);
+  }
+
+  async pendingConfirmations(sessionToken: string, scope: RecordScope): Promise<WorklogConfirmation[]> {
+    const path = scope.type === 'PERSONAL'
+      ? '/api/v1/worklog/confirmations/personal'
+      : `/api/v1/worklog/confirmations/group/${scope.sourceId}`;
+    const body = await json<{ confirmations: Array<Record<string, unknown>> }>(
+      await this.request(sessionToken, path),
+      '待確認紀錄載入失敗',
+    );
+    return body.confirmations.map(confirmationFromApi);
+  }
+
+  async resolveConfirmation(
+    sessionToken: string,
+    scope: RecordScope,
+    confirmationId: number,
+    decision: WorklogConfirmationDecision,
+  ) {
+    const path = scope.type === 'PERSONAL'
+      ? `/api/v1/worklog/confirmations/personal/${confirmationId}/resolve`
+      : `/api/v1/worklog/confirmations/group/${scope.sourceId}/${confirmationId}/resolve`;
+    return json<{ resolution: Record<string, unknown> }>(
+      await this.request(sessionToken, path, this.body('POST', decision)),
+      '待確認紀錄處理失敗',
+    );
+  }
+
   async submitFeedback(
     sessionToken: string,
     text: string,
@@ -423,8 +530,83 @@ function revisionFromApi(raw: Record<string, unknown>): WorklogRecordRevision {
   };
 }
 
+function fundingFromApi(raw: Record<string, unknown>): GroupFunding {
+  const responsible = raw.responsibleUser;
+  const responsibleUser = responsible && typeof responsible === 'object' && !Array.isArray(responsible)
+    ? {
+        id: Number((responsible as Record<string, unknown>).id),
+        displayName: nullableString((responsible as Record<string, unknown>).displayName),
+      }
+    : null;
+  return {
+    sourceId: Number(raw.sourceId),
+    responsibleUser,
+    responsibleUserActive: Boolean(raw.responsibleUserActive),
+    availablePoints: nonNegativeNumber(raw.availablePoints),
+    reservedPoints: nonNegativeNumber(raw.reservedPoints),
+    usedPoints: nonNegativeNumber(raw.usedPoints),
+    platformSubsidizedPoints: nonNegativeNumber(raw.platformSubsidizedPoints),
+    canManage: Boolean(raw.canManage),
+    grants: Array.isArray(raw.grants)
+      ? raw.grants.map((value) => fundingGrantFromApi(value as Record<string, unknown>))
+      : [],
+  };
+}
+
+function fundingGrantFromApi(raw: Record<string, unknown>): GroupFundingGrant {
+  return {
+    id: Number(raw.id),
+    type: String(raw.type ?? ''),
+    status: String(raw.status ?? ''),
+    originalPoints: nonNegativeNumber(raw.original_points ?? raw.originalPoints),
+    remainingPoints: nonNegativeNumber(raw.remaining_points ?? raw.remainingPoints),
+    effectiveAt: String(raw.effective_at ?? raw.effectiveAt ?? ''),
+    expiresAt: nullableString(raw.expires_at ?? raw.expiresAt),
+    capPoints: nullableNumber(raw.cap_points ?? raw.capPoints),
+    usedPoints: nonNegativeNumber(raw.scope_used_points ?? raw.usedPoints),
+    reservedPoints: nonNegativeNumber(raw.scope_reserved_points ?? raw.reservedPoints),
+    enabled: Boolean(raw.scope_enabled ?? raw.enabled),
+    sourceAvailablePoints: nonNegativeNumber(raw.source_available_points ?? raw.sourceAvailablePoints),
+  };
+}
+
+function confirmationFromApi(raw: Record<string, unknown>): WorklogConfirmation {
+  return {
+    id: Number(raw.id),
+    sourceId: Number(raw.sourceId ?? raw.source_id),
+    recordId: Number(raw.recordId ?? raw.record_id),
+    confirmationType: String(raw.confirmationType ?? raw.confirmation_type) as WorklogConfirmation['confirmationType'],
+    candidateEntityId: nullableNumber(raw.candidateEntityId ?? raw.candidate_entity_id),
+    candidateTitle: nullableString(raw.candidateTitle ?? raw.candidate_title),
+    proposedName: nullableString(raw.proposedName ?? raw.proposed_name),
+    reason: nullableString(raw.reason),
+    occurredAt: String(raw.occurredAt ?? raw.occurred_at),
+    expectedRecordVersion: Number(raw.expectedRecordVersion ?? raw.expected_record_version),
+    candidates: Array.isArray(raw.candidates)
+      ? raw.candidates.map((value) => {
+          const candidate = value as Record<string, unknown>;
+          return {
+            entityId: Number(candidate.entityId ?? candidate.entity_id),
+            name: String(candidate.name ?? ''),
+            matchedVia: String(candidate.matchedVia ?? candidate.matched_via) as WorklogConfirmationCandidate['matchedVia'],
+          };
+        })
+      : [],
+    recordRawText: String(raw.recordRawText ?? raw.record_raw_text ?? ''),
+    expiresAt: nullableString(raw.expiresAt ?? raw.expires_at),
+    createdAt: String(raw.createdAt ?? raw.created_at),
+  };
+}
+
 function nullableNumber(value: unknown): number | null {
-  return value === null || value === undefined || value === '' ? null : Number(value);
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function nonNegativeNumber(value: unknown): number {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : 0;
 }
 
 function nullableString(value: unknown): string | null {
