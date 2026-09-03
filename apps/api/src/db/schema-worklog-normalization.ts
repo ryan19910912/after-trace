@@ -17,10 +17,10 @@ import { worklogAiQuotaReservations } from './schema-worklog-quota';
 /**
  * Durable orchestration state for post-persistence Worklog AI interpretation.
  *
- * The historical table name is retained while the current output is still being
- * migrated from legacy summary/category normalization to CREATE/EDIT/HISTORY title
- * and occurred-at interpretation. A single row per Record keeps provider execution
- * and settlement idempotent across LINE redelivery.
+ * The historical table name is retained for now, but the persisted result is no
+ * longer a summary/category normalization. It stores the bounded single-title and
+ * occurred-at interpretation used by LINE-created Records. A single row per Record
+ * keeps provider execution and settlement idempotent across LINE redelivery.
  */
 export const worklogRecordAiNormalizations = pgTable(
   'worklog_record_ai_normalizations',
