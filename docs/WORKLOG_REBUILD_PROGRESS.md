@@ -13,260 +13,265 @@ Read first every run:
 - `docs/WORKLOG_DEPLOYMENT.md`
 - this file
 
-## Current execution checkpoint — 2026-09-04 03:xx batch
+## Current execution checkpoint — 2026-09-04 04:xx batch
 
-This run continued from the completed single-title Record/manual-PWA foundation and the new title/time Gemini create interpreter. It did **not** redo Customer/Project/Finance removal, Record CRUD, or title/time interpretation. The goals were:
+This run continued from the completed single-title Record/manual-PWA foundation, title/time Gemini create interpreter, bounded LINE HISTORY routing, and GROUP Source/bootstrap separation. It did **not** redo those finished batches.
 
-1. prevent obvious LINE HISTORY/EDIT requests from being silently persisted as new Records;
-2. carry bounded history filters all the way into the authenticated PWA deep link and correct Source scope;
-3. remove the obsolete `PENDING_OWNER` group-data bootstrap so GROUP Source existence/manual history no longer depends on an AI funding user.
+Primary goals this run were:
+
+1. make durable AI title ambiguity actually resolvable without a second provider call;
+2. begin the user-owned grant/AI-point domain that will replace subscription/Owner aggregate quota;
+3. freeze executable point conversion/subsidy semantics and provision the one-time FREE grant idempotently.
 
 ### Scanned this run
 
 - all required product/entity/edit/AI-point/development/LINE-content/deployment/progress docs;
-- `command.ts` and command tests;
-- group/private LINE runtimes and webhook adapters;
-- secure bot-entry URL creation in `index.ts` / auth service;
-- Web/PWA bootstrap, entry exchange, scope selection and filter handling;
-- group bootstrap service/repository and lifecycle-ordering tests;
-- obsolete pending-group schema/export;
-- related runtime/webhook tests that depended on old QUERY/PENDING_OWNER result shapes.
+- current Record/Entity/Alias/confirmation schema;
+- text-normalization persistence/confirmation creation;
+- PWA manual authorization/routes and Web bootstrap;
+- Worker route mounting;
+- current provider-usage and legacy quota schemas;
+- OA/private bootstrap and current LINE runtime wiring.
 
-### Completed this run
+## Completed this run
 
-1. **Added a conservative pre-persistence LINE intent safety boundary.**
-   - Exact `@AFTERTRACE 查詢` remains deterministic unfiltered navigation.
-   - Strong history phrases such as `王大明這週做了什麼` and `這個群組今天發生什麼？` are now classified as HISTORY navigation instead of `RECORD_TEXT`.
-   - Ordinary facts containing time words, e.g. `王大明今天去晴空案換冷氣`, remain CREATE/Record input and are not mistaken for history merely because they contain `今天`.
-   - Obvious edit phrases such as `幫我改成 2800` are separated into `EDIT_REQUEST` before persistence, so they cannot accidentally create a new Record.
+### 1. Durable pending-confirmation resolution backend is implemented
 
-2. **Added deterministic history-filter construction without broad AI answering.**
-   - New `history-navigation.ts` converts bounded natural-language history phrases into PWA filters only.
-   - Supported deterministic Taiwan-time ranges currently include:
-     - today / yesterday;
-     - this week / last week;
-     - this month / last month;
-     - recent 7 days.
-   - Keyword stripping leaves terms such as `王大明` / `晴空案` as fuzzy `q` when no exact Entity resolution is available at this layer.
-   - This layer does **not** query historical Records itself and does not compose an AI answer.
+Added a deterministic confirmation domain/service plus authenticated PWA endpoints.
 
-3. **History filters now survive the secure LINE -> PWA entry flow.**
-   - Group/private runtime QUERY results now carry `entityId? / query? / from? / to?` filters.
-   - Webhook adapters pass those filters to the query-entry callback.
-   - Existing short-lived authenticated `t` entry token remains unchanged; deterministic filters are appended as normal URL query parameters.
-   - PWA now reads the URL filters on first load and applies them to the existing deterministic Record API.
+Supported stored decisions:
 
-4. **PWA deep links now open the correct Source rather than a remembered/default scope.**
-   - The entry-exchange `entryContext` is now consumed by `WorklogRoot`.
-   - A GROUP bot link selects the authorized Source matching its `lineGroupId`.
-   - A PRIVATE bot link selects the matching personal Source.
-   - Only when there is no valid entry context does PWA fall back to remembered/default scope.
-   - This fixes the previous case where a correct filtered LINE link could open the user's last-used unrelated group.
+- choose one allowed existing Entity/title;
+- create/use the proposed or explicitly entered title;
+- reject the pending decision.
 
-5. **LINE edit commands are now fail-safe instead of destructive while full Reply-AI edit is unfinished.**
-   - Obvious edit request without Reply returns `EDIT_TARGET_REQUIRED` and asks for deterministic Reply/PWA editing.
-   - Obvious edit request with Reply returns `EDIT_NOT_READY` instead of guessing or persisting a new Record.
-   - Actual AI mutation/version/revision application is **not claimed implemented yet**.
+Important invariants:
 
-6. **GROUP Source existence is now independent from AI funding responsibility in executable bootstrap code.**
-   - First known group interaction now creates a durable ACTIVE `worklog_sources` GROUP row immediately, with `owner_user_id = NULL` / no subscription owner.
-   - The speaking/observed user is recorded as a Source member immediately.
-   - Later members reuse the same Source.
-   - Group reactivation works on the Source directly and preserves lifecycle timestamp ordering.
-   - `@AFTERTRACE 啟用` can assign the transitional AI responsible user later without changing Source identity.
-   - Manual/history access can therefore proceed on an unowned GROUP Source; only AI-backed create/attachment paths continue to hit the transitional funding authorization.
+- resolving a stored confirmation never calls Gemini/AI again and consumes no new AI points;
+- PRIVATE access is private-Source owner scoped;
+- GROUP access is active-member scoped and never depends on subscription/legacy Owner/AI balance;
+- only PENDING, unexpired confirmations for the authenticated user/Source can mutate data;
+- the underlying Record must still be ACTIVE, unresolved (`entity_id IS NULL`) and at the expected version;
+- selected existing Entities must belong to the same Source and be allowed by the stored candidate decision;
+- Alias creation is Source-scoped and refuses conflicting canonical names/aliases;
+- stale/concurrent Record changes cannot leave behind an Alias because existing-title Record mutation is the prerequisite CTE for Alias insertion;
+- a newly-created title that loses a concurrent Record race is cleaned up when still unused;
+- repeat resolve/reject calls are terminal/idempotent where the durable state allows it.
 
-7. **Removed obsolete pending-group runtime/schema debt.**
-   - `GroupBootstrapResult` no longer has `PENDING_OWNER`.
-   - Runtime no longer rejects all group commands simply because no legacy Owner is bound.
-   - Removed `worklog_pending_groups` / `worklog_pending_group_members` TypeScript Drizzle schema file and schema export.
-   - Removed pending-group repository/interface usage and migration logic from executable bootstrap repository.
-   - Note: the stale consolidated SQL baseline/snapshot still contains old pending-group definitions until migration regeneration; see blocker below.
+Mounted endpoints under `/api/v1/worklog/confirmations` before the generic Worklog route:
 
-8. **Kept current legacy AI funding checks intentionally isolated.**
-   - `authorizeGroupAccess` remains the free/manual active-member path.
-   - `authorizeGroupRecord` is now invoked only for AI-backed create/attachment paths.
-   - An unowned Source can browse/history manually but an AI create still receives `OWNER_UNBOUND` from the transitional funding layer until the grant ledger replaces it.
-   - This matches the product invariant better than the previous all-or-nothing Owner gate without pretending the grant model is already complete.
+- `GET /personal`
+- `GET /group/:sourceId`
+- `POST /personal/:confirmationId/resolve`
+- `POST /group/:sourceId/:confirmationId/resolve`
 
-9. **Tests were updated/added for the new contracts.**
-   - command tests cover strong history detection, ordinary time-bearing CREATE text, and edit guards;
-   - new history-navigation tests cover Taipei today/week/month boundaries and keyword extraction;
-   - group/private runtime tests now include QUERY filters and edit non-persistence guards;
-   - group/private webhook tests carry filter metadata/query targets;
-   - bootstrap tests now verify immediate unowned Source creation, stable Source identity, later AI responsibility assignment and lifecycle reactivation;
-   - lifecycle-ordering test now uses direct GROUP Sources instead of pending-group state.
-   - Tests were authored/updated but **not executed**.
+The initial draft resolver was deleted after hardening so the branch does not retain two competing implementations. The active repository is `drizzle-confirmations-safe.ts`.
+
+PWA UI for these endpoints is still pending; backend resolution is now available and bounded.
+
+### 2. User-owned AI grant schema foundation is added
+
+Added explicit grant/accounting structures:
+
+- `worklog_ai_grants`
+  - `FREE_INITIAL`
+  - `SUBSCRIPTION_PERIOD`
+  - `TOP_UP`
+  - `ADMIN`
+  - independent original/remaining points, effective/expiry time and idempotent origin key;
+- `worklog_ai_grant_scopes`
+  - explicit Source permission;
+  - optional per-Source cap;
+  - no implicit fallback to unrelated Sources;
+- `worklog_source_ai_responsibility`
+  - current GROUP **AI 額度負責人** independent from GROUP data existence;
+- `worklog_source_ai_responsibility_history`
+  - transfer/recovery audit trail;
+- `worklog_ai_point_reservations`
+  - new grant-ledger provider preflight/settlement state;
+- `worklog_ai_point_reservation_funding`
+  - reservation funding attribution across grants/scopes;
+- `worklog_ai_usage_funding`
+  - immutable successful usage -> grant/scope charge attribution.
+
+The old aggregate quota schema remains temporarily exported/executable because the text/attachment provider pipeline has not yet switched to the new ledger. Do not delete it until the provider paths use the grant ledger.
+
+### 3. Provider usage schema now separates customer charge and platform subsidy
+
+`worklog_ai_usage_events` now has forward fields for:
+
+- AI operation;
+- `customer_points_charged`;
+- `platform_subsidized_points`;
+- `platform_subsidized_cost_usd`;
+- `platform_subsidized_cost_twd`.
+
+Immutable provider usage/pricing/cost facts remain separate. Transitional `ai_units_consumed` remains only until old callers are removed.
+
+### 4. Frozen AI-point conversion is executable
+
+Added `ai-points.ts` with the frozen customer unit:
+
+`1 AI point = 1 output-price-equivalent token`.
+
+Actual points are calculated from the full provider cost using the request's output-token reference price. The deterministic whole-point rule is now frozen as **round positive fractions upward (`ceil`)** so successful provider usage is never under-accounted by truncation.
+
+Also added customer settlement logic:
+
+- customer charge = min(actual points, eligible customer balance held for the request);
+- customer balance never becomes negative;
+- excess = platform-subsidized points.
+
+`WORKLOG_AI_POINT_POLICY.md` was updated to make the `ceil` rule durable rather than leaving rounding unspecified.
+
+### 5. FREE 400,000-point provisioning is implemented and wired into private bootstrap
+
+Added `WorklogAiGrantService` and Drizzle repository.
+
+Current FREE launch behavior:
+
+- origin key is idempotent per user, so repeated follow/private bootstrap does not create duplicate grants;
+- exact initial value is **400,000 AI points**;
+- no expiry;
+- existing grant is never resized by a later configuration/model/FX change;
+- initial FREE grant is explicitly allocated to the user's PRIVATE Source;
+- GROUP allocation is deliberately **not** implicit, preventing a user-owned grant from leaking to unrelated group Sources;
+- eligible balance respects grant remaining points, Source allocation, optional cap, enabled state, effective time and expiry.
+
+`WorklogBootstrapService` now accepts an optional initial-grant port and provisions the FREE grant after the private Source exists. Production LINE webhook wiring passes the real `WorklogAiGrantService`; existing unit fakes can still omit it.
+
+### 6. Tests were authored for the new contracts
+
+Added tests for:
+
+- deterministic confirmation service decisions;
+- frozen 400,000 FREE point constant;
+- provider-cost -> output-price-equivalent conversion;
+- upward whole-point rounding;
+- customer balance floor/platform subsidy;
+- FREE grant provisioning and PRIVATE scope;
+- positive scoped balance requirement before AI start.
+
+These tests were authored but **not executed** in this environment.
 
 ### Files changed this run
 
-- `apps/api/src/worklog/command.ts`
-- `apps/api/src/worklog/command.test.ts`
-- `apps/api/src/worklog/history-navigation.ts` (new)
-- `apps/api/src/worklog/history-navigation.test.ts` (new)
-- `apps/api/src/worklog/line-runtime.ts`
-- `apps/api/src/worklog/line-runtime.test.ts`
-- `apps/api/src/worklog/oa-runtime.ts`
-- `apps/api/src/worklog/oa-runtime.test.ts`
-- `apps/api/src/worklog/group-webhook.ts`
-- `apps/api/src/worklog/group-webhook.test.ts`
-- `apps/api/src/worklog/oa-webhook.ts`
-- `apps/api/src/worklog/oa-webhook.test.ts`
-- `apps/api/src/index.ts`
-- `apps/web/src/WorklogRoot.tsx`
-- `apps/api/src/worklog/bootstrap.ts`
-- `apps/api/src/worklog/drizzle-bootstrap.ts`
-- `apps/api/src/worklog/bootstrap.test.ts`
-- `apps/api/src/worklog/bootstrap-lifecycle-ordering.test.ts`
-- `apps/api/src/db/schema-worklog-bootstrap.ts` (deleted)
+- `apps/api/src/worklog/confirmations.ts` (new)
+- `apps/api/src/worklog/drizzle-confirmations-safe.ts` (new, active resolver)
+- `apps/api/src/worklog/confirmation-routes.ts` (new)
+- `apps/api/src/worklog/confirmations.test.ts` (new)
+- `apps/api/src/worklog/drizzle-confirmations.ts` (superseded draft deleted)
+- `apps/api/src/worker.ts`
+- `apps/api/src/db/schema-worklog-grants.ts` (new)
+- `apps/api/src/db/schema-worklog-ai-usage.ts`
 - `apps/api/src/db/schema-all.ts`
+- `apps/api/src/worklog/ai-points.ts` (new)
+- `apps/api/src/worklog/ai-points.test.ts` (new)
+- `apps/api/src/worklog/ai-grants.ts` (new)
+- `apps/api/src/worklog/drizzle-ai-grants.ts` (new)
+- `apps/api/src/worklog/ai-grants.test.ts` (new)
+- `apps/api/src/worklog/bootstrap.ts`
+- `apps/api/src/index.ts`
+- `docs/WORKLOG_AI_POINT_POLICY.md`
 - `docs/WORKLOG_REBUILD_PROGRESS.md`
 
-## Important transitional / blocking state after this run
+## Stable completed foundation from earlier batches
 
-### 1. Prelaunch migration baseline/snapshot are still stale — deployment remains blocked
+Do not redo these unless a regression is found:
 
-`drizzle/0000_worklog_baseline.sql` and `drizzle/meta/0000_snapshot.json` still describe substantial pre-refactor schema, including Customer/Project/Transaction/category/normalized-summary and now-obsolete pending-group structures. `_journal.json` still references only that baseline.
+- Customer/Project/Finance/category/normalized-summary removed from TypeScript/customer core;
+- Source + single Entity/title + Alias + Record + immutable Revision schema/runtime foundation;
+- free manual PWA create/edit/search/title move/batch move/soft delete/recycle/restore/revision history;
+- GROUP manual authorization uses active membership, not billing;
+- GROUP Source exists independently from AI funding user; obsolete pending-group TypeScript runtime/schema removed;
+- old Gemini summary/category/customer/project normalization replaced by single-title/`occurred_at` interpretation and durable ambiguity creation;
+- obvious LINE HISTORY requests no longer become Records and route to deterministic Source-correct filtered PWA links;
+- obvious LINE EDIT requests are fail-safe and cannot accidentally create a Record while Reply AI edit is unfinished;
+- LINE attachment provider/idempotency foundation remains retained.
 
-The available execution environment has not provided a reliable checked-out pnpm/project toolchain for regenerating Drizzle metadata and exercising a disposable PostgreSQL migration. Do **not** hand-fabricate a large Drizzle snapshot just to make files appear synchronized. Until consolidated baseline + snapshot/journal are regenerated and actually exercised, this branch is not migration/deployment-ready.
+## Important transitional / blocking state
 
-### 2. HISTORY safety routing is implemented, but this is not the final provider-backed intent interpreter
+### 1. New grant schema exists, but provider execution still uses legacy aggregate subscription quota
 
-The new history/edit classifier is deliberately conservative and deterministic. It fixes the dangerous current behavior (history/edit silently becoming CREATE) without adding an unaccounted pre-persistence Gemini call.
+Current text normalization and attachment execution still instantiate `WorklogSubscriptionService` / legacy quota reservation. Therefore the new grant balance is **not yet authoritative for provider calls**.
 
-A provider-backed CREATE/EDIT/HISTORY classifier should only be added once it can obey the frozen AI accounting invariant:
+Next batch must implement grant-ledger reservation/funding/settlement and then switch both text and attachment provider ports. Until that happens, do not claim the zero-balance/grant/subsidy production invariant is fully enforced.
 
-- positive eligible grant before provider start;
-- durable/idempotent provider accounting;
-- no provider call at zero balance;
-- provider cost/customer charge/platform subsidy retained exactly once.
+### 2. GROUP AI responsibility table exists, but `@AFTERTRACE 啟用` still writes legacy Owner columns
 
-Until the grant ledger exists, do not insert a new Gemini intent call before raw persistence that bypasses these invariants.
+The new role table/history is schema-ready, but runtime claim/transfer/recovery is not wired. Legacy `owner_user_id` / `subscription_owner_user_id` remain transitional inputs to current AI authorization.
 
-### 3. Actual LINE Reply edit mutation is still not implemented
+Do not remove them until group AI uses `worklog_source_ai_responsibility` + eligible grants.
 
-Target safety is now enforced, but the remaining edit work is:
+### 3. PWA confirmation backend exists, UI still pending
 
-- resolve Reply target to a deterministic AFTERTRACE Record id (not merely arbitrary quoted LINE content);
-- authorize Source/member/private access;
-- reserve eligible AI points;
-- interpret requested mutation;
-- apply content/title/time change through integer-version optimistic concurrency;
-- write immutable revision;
-- handle title ambiguity through existing durable confirmation state;
-- settle provider usage exactly once.
+The customer can be resolved safely through the authenticated API, but the normal PWA Records UI does not yet render a pending-confirmation card/choice flow.
 
-Current safe behavior is to refuse mutation and direct the user to PWA rather than risk changing the wrong Record.
+### 4. Actual LINE Reply AI edit is still not implemented
 
-### 4. Durable confirmation creation exists, but confirmation resolution does not
+Safety guard remains correct: Reply-targeted edits are recognized but refused rather than guessing. Remaining work requires deterministic replied Record mapping, grant preflight, provider edit interpretation, title ambiguity confirmation, version/revision mutation and one-time settlement.
 
-The title interpreter already persists ambiguity in `worklog_ai_confirmations`; no deterministic confirm/reject consumer is wired yet. Resolution must apply an existing candidate Entity or create the proposed same-Source title, optionally apply stored occurred time, and never re-call Gemini merely to finish a stored confirmation.
+### 5. Prelaunch migration baseline/snapshot remain stale — deployment is blocked
 
-### 5. GROUP data Source is now independent, but AI funding schema still uses legacy Owner columns
+`drizzle/0000_worklog_baseline.sql` and `drizzle/meta/0000_snapshot.json` still describe obsolete pre-refactor structures and do not include this run's grant/confirmation schema. `_journal.json` still points at the stale baseline.
 
-The data/bootstrap behavior is corrected, but these transitional fields/logic remain:
+Do **not** hand-fabricate a large Drizzle snapshot just to appear synchronized. Regenerate from the actual current TypeScript schema and exercise a fresh disposable PostgreSQL database once a checked-out pnpm/project toolchain is available.
 
-- `owner_user_id` / `subscription_owner_user_id` on Source;
-- `recording_enabled` legacy member flag;
-- owner subscription/capability/presence logic inside AI authorization;
-- explicit enable command still calls the legacy binding function internally.
-
-Next grant batch should replace this with explicit **AI 額度負責人** + eligible user-owned grants, then remove legacy Owner/funding columns and recording flag where no longer needed.
-
-### 6. AI accounting is still aggregate/subscription-based
-
-The create interpreter/attachment pipeline still use the old reservation port and transitional aggregate quota. The final grant batch must implement:
-
-- FREE 400,000-point one-time grant;
-- monthly subscription grants;
-- independent top-ups;
-- per-grant PRIVATE/GROUP scope and optional caps;
-- output-price-equivalent point conversion from real provider cost;
-- customer charge floors at remaining balance;
-- excess for an already-started request recorded as platform subsidy, never customer overdraw.
+The branch is not migration/deployment-ready until this is done.
 
 ## Next implementation batch — highest priority
 
 Continue from this exact checkpoint:
 
-1. **Implement deterministic pending-confirmation resolution.**
-   - Fetch current PENDING confirmation for actor/Source/Record.
-   - Confirm selected existing candidate or create proposed title in same Source.
-   - Apply stored occurred time where allowed by version/state guard.
-   - Reject/expire safely.
-   - Never issue a second provider call merely to resolve a stored decision.
+1. **Implement grant-ledger reservation/funding/settlement.**
+   - positive eligible scoped balance is sufficient to start AI;
+   - reserve customer points safely across eligible grants/scopes without negative balances or cap overrun;
+   - commit actual points from full provider cost using frozen `ceil` conversion;
+   - release unused reservation;
+   - actual > customer-held amount becomes platform subsidy;
+   - successful provider usage/funding remains exactly-once and resumable.
 
-2. **Begin user-owned grant/AI-point ledger and replace legacy AI funding authorization.**
-   - Grant identity/type/status/points.
-   - PRIVATE/GROUP scope allocation and optional caps.
-   - FREE 400,000-point one-time provisioning.
-   - Reservation/funding selection from eligible grants.
-   - Provider-cost -> output-price-equivalent points.
-   - customer-charged vs platform-subsidized settlement.
-   - explicit AI 額度負責人 binding independent from group data Source.
+2. **Switch text + attachment provider execution from legacy subscription quota to the grant ledger.**
+   - PRIVATE charges the user-owned eligible PRIVATE grants;
+   - GROUP resolves current AI 額度負責人 then only that user's grants explicitly allowed for the GROUP Source;
+   - zero eligible points means no provider call.
 
-3. **Use the grant/idempotent execution layer to finish provider-backed LINE EDIT and optional richer intent interpretation.**
-   - Reply target resolver.
-   - edit mutation plan.
-   - optimistic Record version/revision transaction.
-   - ambiguity routed to durable confirmation.
+3. **Wire GROUP AI 額度負責人 claim/transfer/recovery to the new responsibility table/history.**
+   - keep GROUP data/manual access completely independent;
+   - define deterministic active-member authorization for assignment/takeover;
+   - balances never transfer with the role.
 
-4. **Remove remaining legacy Owner/recording/quota schema/runtime once grant path owns AI authorization.**
+4. **Remove remaining legacy funding runtime/schema after new grant path is authoritative.**
+   - `owner_user_id` / `subscription_owner_user_id` funding semantics;
+   - legacy `recording_enabled` gate if no longer needed;
+   - aggregate quota balances/reservations and subscription-as-AI-entitlement assumptions;
+   - transitional `ai_units_consumed`.
 
-5. **Regenerate consolidated prelaunch migration baseline/snapshot when an executable local project toolchain is available, then run concentrated validation.**
+5. **Add PWA pending-confirmation UI.**
+   - show unresolved Record text/proposed title/candidates;
+   - choose candidate, create/enter title or reject;
+   - refresh Record/title list after resolution;
+   - no AI call on resolution.
 
-## Stable product contract
+6. **Finish Reply-targeted LINE AI edit on top of the new grant/idempotent layer.**
 
-- General-purpose work recording; no universal construction/finance/Customer/Project domain.
-- Core model: Source + single Entity/title + Alias + Record + Revision + pending AI confirmation.
-- PRIVATE/GROUP Sources are isolated data spaces.
-- Active GROUP members can manually browse/create/edit/delete/restore/move records without subscription, legacy Owner, or AI points.
-- GROUP Source existence is independent from the user funding AI.
-- PWA manual CRUD/search is free; only actual AI compute consumes AI points.
-- No group-count limit.
-- Customer-facing role is **AI 額度負責人**.
-- AI allowance is user-owned through independent FREE/subscription/top-up grants with scope allocation/caps.
-- FREE launch grant = **400,000 AI points once**, no calendar refresh/expiry.
-- `1 AI point = 1 output-price-equivalent token`; real provider cost is separately auditable.
-- Zero eligible points before AI start means no provider call. Positive-start overage floors customer balance at zero and records platform subsidy.
-- PWA search contract: title + fuzzy title/alias/content + `occurred_at` date range.
-- LINE history requests route to deterministic PWA filters; LINE is not a broad historical answering agent.
-- Persistent per-record AI summaries are not MVP.
-- PWA edits use immutable revisions and integer-version optimistic concurrency.
-- Delete is soft delete with recycle bin/restore.
-- Record title move and batch move are MVP; duplicate-title Merge/Undo is not.
-- PWA manual input is text-only. LINE binary attachments are converted to durable text then discarded.
-- Brand/product/LINE OA name is frozen as **AFTERTRACE**; current slogan direction is **隨筆落墨，AI 循跡。**
-- First deployment may use Cloudflare `workers.dev`; no purchased domain is required.
-- Payment provider remains not frozen; NewebPay is the current early-MVP preferred candidate, ECPay fallback, Oen only if a materially better negotiated quote appears.
+7. **Regenerate consolidated prelaunch migration baseline/snapshot and run concentrated validation when a real local project toolchain is available.**
 
-## Remaining major debt
+## Remaining later work
 
-1. **COMPLETE in TypeScript/customer runtime; DB baseline pending:** Customer/Project/Finance/category/normalized-summary core removal.
-2. **COMPLETE:** active-member GROUP manual authorization independent from billing.
-3. **COMPLETE:** GROUP Source bootstrap independent from AI responsible user; pending-group runtime/schema removed from TypeScript.
-4. **COMPLETE:** free manual PWA create/edit/title search/move/batch move/soft delete/recycle/restore/revisions.
-5. **COMPLETE in current text-create pipeline:** legacy Gemini summary/category/customer/project normalization replaced by single-title/time interpretation with durable ambiguity creation.
-6. **COMPLETE as bounded safe navigation:** obvious LINE HISTORY requests no longer create Records; deterministic filters/deep links open the correct Source.
-7. **COMPLETE as safety guard only:** obvious LINE EDIT requests do not create Records and require Reply; actual AI edit mutation remains pending.
-8. **BLOCKER:** consolidated prelaunch SQL baseline + Drizzle snapshot/journal regeneration and executed migration validation.
-9. pending AI confirmation resolution UX/commands.
-10. user-owned AI grant/scope/cap ledger and responsible-user transfer/recovery.
-11. provider-cost -> output-equivalent points + platform subsidy settlement.
-12. removal of legacy Source Owner/subscription-owner/recording aggregate funding fields and paths.
-13. FREE/PRO/TEAM billing types, FREE one-time grant and monthly/top-up independent grants.
-14. provider-backed Reply edit/idempotent mutation and optional richer intent layer after grant accounting exists.
-15. Admin pricing calculator, utilization/profitability/subsidy analytics.
-16. paid export after core validation.
-17. provider-native DOCX/XLSX ingestion validation/hardening.
-18. payment-provider lifecycle after merchant eligibility/fees are confirmed.
-19. Workers deployment/runtime validation.
+- Admin plan/grant/point allocation UI;
+- Admin pricing calculator, utilization/exhaustion/platform-subsidy/profitability analytics;
+- FREE/PRO/TEAM billing type + successful monthly renewal grant creation + independent top-up products;
+- paid export after core runtime validation;
+- provider-native DOCX/XLSX ingestion validation/hardening;
+- payment-provider lifecycle after merchant eligibility/fees are confirmed;
+- Cloudflare workers.dev deployment/runtime validation.
 
 ## Validation status
 
-This run made static code/schema/test/doc edits only. No build, typecheck, unit test, migration, browser, Worker, LINE, or Gemini runtime validation was executed in this environment. Tests were updated/added to encode the intended contract, but are **not claimed passing**.
+This run performed static repository edits only. No build, TypeScript typecheck, Vitest execution, migration, browser, Worker, LINE, Gemini or database runtime validation was executed here. New tests encode intended behavior but are **not claimed passing**.
 
-The branch is an active refactor checkpoint, **not deployment-ready** until migration consistency and concentrated executable validation are complete.
+The current branch is an active refactor checkpoint, **not deployment-ready** because the migration baseline/snapshot are stale and the provider paths still use legacy quota settlement.
 
 **GitHub Actions were not run, dispatched, rerun, enabled, modified, or otherwise triggered.**
 
@@ -274,12 +279,10 @@ The branch is an active refactor checkpoint, **not deployment-ready** until migr
 
 Planning-only estimate after this batch:
 
-- static product/domain contract: ~99% defined for core MVP;
-- Record/manual PWA foundation: materially implemented;
-- text CREATE title/time interpretation: materially implemented, pending executable validation;
-- bounded HISTORY navigation and Source-correct deep link: materially implemented, pending executable validation;
-- GROUP data Source bootstrap no longer depends on funding user;
-- remaining largest implementation work: confirmation resolution + grant/AI-point accounting + Reply edit, then migration/runtime validation;
-- expect roughly 2–3 substantial implementation batches before concentrated validation;
-- rough internal coding range before validation: ~6–14 focused hours, payment-provider integration separate;
-- reserve additional time for migration/build/browser/runtime fixes once a local executable project toolchain is available.
+- product/domain contract: ~99% defined for core MVP;
+- Record/manual PWA/HISTORY foundation: materially implemented;
+- deterministic pending-title resolution backend: materially implemented, pending executable validation/UI;
+- user-owned grant schema + FREE provisioning + point conversion policy: foundation implemented;
+- grant provider settlement/runtime replacement: major remaining core batch;
+- Reply edit/Admin analytics/migration/deploy remain after that;
+- rough expectation: **2–4 substantial implementation batches before concentrated migration/runtime validation**, then deployment-fix iterations as required.
