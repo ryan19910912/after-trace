@@ -47,13 +47,6 @@ export const ADMIN_CAPABILITY_DEFINITIONS: AdminCapabilityDefinition[] = [
     description: '允許 AI 處理語音、圖片與檔案附件。',
   },
   {
-    key: 'pwaEditing',
-    label: '網頁編輯',
-    type: 'boolean',
-    defaultValue: true,
-    description: '允許使用者在 Web/PWA 編輯工作紀錄。',
-  },
-  {
     key: 'export',
     label: '匯出功能',
     type: 'boolean',
