@@ -10,5 +10,11 @@ compatibility_flags = ["nodejs_compat"]
 # WEB_AUTH_SECRET and LINE_LOGIN_CHANNEL_SECRET stay in Cloudflare Worker secrets.
 LINE_LOGIN_CHANNEL_ID = "2011322889"
 
+[env.staging]
+workers_dev = true
+
+[env.staging.vars]
+LINE_LOGIN_CHANNEL_ID = "2011322889"
+
 [observability]
 enabled = true
