@@ -63,9 +63,10 @@ export const worklogUsers = pgTable(
 );
 
 /**
- * Transitional user container retained while bootstrap/auth and aggregate AI accounting
- * are being migrated. Universal Record semantics must not depend on Customer/Project/
- * finance concepts living under a workspace.
+ * Transitional storage container retained while bootstrap/auth still carry workspace_id.
+ * Universal Record semantics, GROUP authorization and AI funding must not depend on the
+ * workspace owner. The Source-centric rebuild can remove this storage parent in a later
+ * schema batch without changing customer authorization semantics.
  */
 export const worklogWorkspaces = pgTable(
   'worklog_workspaces',
@@ -81,6 +82,13 @@ export const worklogWorkspaces = pgTable(
   (table) => [uniqueIndex('worklog_workspace_owner_uq').on(table.ownerUserId)],
 );
 
+/**
+ * Durable PRIVATE/GROUP data boundary.
+ *
+ * GROUP data authorization is membership-based. GROUP AI funding responsibility lives
+ * in worklog_source_ai_responsibility and user-owned Grant scopes; Source rows do not
+ * carry an Owner/subscription-owner compatibility identity.
+ */
 export const worklogSources = pgTable(
   'worklog_sources',
   {
@@ -94,20 +102,6 @@ export const worklogSources = pgTable(
       onDelete: 'restrict',
     }),
     lineGroupId: varchar('line_group_id', { length: 64 }).unique('worklog_source_line_group_uq'),
-
-    // Transitional legacy ownership fields. Manual GROUP data authorization no longer
-    // depends on these. The AI grant batch will replace their billing meaning with the
-    // explicit customer-facing AI 額度負責人 domain.
-    ownerUserId: bigint('owner_user_id', { mode: 'number' }).references(() => worklogUsers.id, {
-      onDelete: 'restrict',
-    }),
-    ownerBindingMethod: varchar('owner_binding_method', { length: 64 }),
-    ownerBoundAt: timestamp('owner_bound_at', { withTimezone: true }),
-    subscriptionOwnerUserId: bigint('subscription_owner_user_id', { mode: 'number' }).references(
-      () => worklogUsers.id,
-      { onDelete: 'restrict' },
-    ),
-
     inactiveAt: timestamp('inactive_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -115,8 +109,6 @@ export const worklogSources = pgTable(
   (table) => [
     uniqueIndex('worklog_source_private_user_uq').on(table.privateUserId),
     index('worklog_source_workspace_type_idx').on(table.workspaceId, table.type),
-    index('worklog_source_owner_idx').on(table.ownerUserId),
-    index('worklog_source_subscription_owner_idx').on(table.subscriptionOwnerUserId),
   ],
 );
 
@@ -132,7 +124,7 @@ export const worklogSourceMembers = pgTable(
       .references(() => worklogUsers.id, { onDelete: 'restrict' }),
     isActive: boolean('is_active').default(true).notNull(),
 
-    // Transitional AI-path fields. Customer manual PWA authorization ignores them.
+    // Recording preference is an AI-path fact. Manual PWA authorization ignores it.
     recordingEnabled: boolean('recording_enabled').default(true).notNull(),
     recordingUpdatedByUserId: bigint('recording_updated_by_user_id', { mode: 'number' }).references(
       () => worklogUsers.id,
@@ -165,8 +157,8 @@ export const worklogSubscriptionPlans = pgTable(
     priceTwd: numeric('price_twd', { precision: 12, scale: 2 }).default('0').notNull(),
     rank: integer('rank').default(0).notNull(),
     enabled: boolean('enabled').default(true).notNull(),
-    // Transitional aggregate field. Independent AI grants replace this entitlement
-    // model in the dedicated grant/point batch.
+    // Plan-template included points frozen into each future SUBSCRIPTION_PERIOD Grant.
+    // This is not a live aggregate balance; the physical column name is transitional.
     aiAllowanceUnits: integer('ai_allowance_units').default(0).notNull(),
     capabilities: jsonb('capabilities').default({}).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
