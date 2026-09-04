@@ -8,20 +8,22 @@ import {
   type WorklogRecordListItem,
   type WorklogRecordReadRepository,
   type WorklogRecordWriteRepository,
+  type WorklogReplyEditTargetResolution,
 } from './records';
 
 function record(sourceId: number, id = 1): WorklogRecordListItem {
   return {
     id,
     sourceId,
+    entityId: null,
+    title: null,
     authorUserId: 1,
     inputType: 'TEXT',
-    category: 'NOTE',
     rawText: 'test',
-    normalizedSummary: null,
-    customerId: null,
-    projectId: null,
-    sourceTimestamp: '2026-09-02T00:00:00.000Z',
+    occurredAt: '2026-09-02T00:00:00.000Z',
+    status: 'ACTIVE',
+    version: 1,
+    deletedAt: null,
     createdAt: '2026-09-02T00:00:00.000Z',
     updatedAt: '2026-09-02T00:00:00.000Z',
   };
@@ -47,9 +49,15 @@ class FakeWriteRepository implements WorklogRecordWriteRepository {
     | { status: 'CREATED'; record: StoredTextRecordIdentity }
     | { status: 'EXISTING'; record: StoredTextRecordIdentity }
     | { status: 'SOURCE_NOT_FOUND' } = { status: 'SOURCE_NOT_FOUND' };
+  replyTarget: WorklogReplyEditTargetResolution = { status: 'NOT_FOUND' };
+  replyTargetCalls: Array<{ sourceId: number; quotedLineMessageId: string }> = [];
   cache = new Map<string, CachedLineText>();
 
   async insertTextRecord() { return this.result; }
+  async resolveReplyEditTarget(sourceId: number, quotedLineMessageId: string) {
+    this.replyTargetCalls.push({ sourceId, quotedLineMessageId });
+    return this.replyTarget;
+  }
   async upsert(input: CachedLineText) { this.cache.set(`${input.lineGroupId}:${input.lineMessageId}`, input); }
   async pruneGroup() {}
   async findActive(lineGroupId: string, lineMessageId: string, now: Date) {
@@ -78,6 +86,26 @@ describe('WorklogRecordWriteService', () => {
     repository.result = { status: 'EXISTING', record: { id: 10, sourceId: 20, authorUserId: 3, lineMessageId: 'command-1', quotedLineMessageId: 'quoted-1', rawText: '原始文字' } };
     const service = new WorklogRecordWriteService(repository);
     await expect(service.recordQuotedText({ sourceId: 20, authorUserId: 3, lineMessageId: 'command-1', quotedLineMessageId: 'quoted-1', text: '原始文字' })).resolves.toEqual({ status: 'ALREADY_RECORDED', recordId: 10 });
+  });
+
+  it('delegates a bounded same-source Reply edit target lookup', async () => {
+    const repository = new FakeWriteRepository();
+    repository.replyTarget = {
+      status: 'FOUND',
+      record: {
+        id: 10,
+        sourceId: 20,
+        authorUserId: 3,
+        entityId: 8,
+        rawText: '王先生二樓漏水已修復',
+        occurredAt: '2026-09-02T00:00:00.000Z',
+        version: 2,
+      },
+    };
+    const service = new WorklogRecordWriteService(repository);
+
+    await expect(service.resolveReplyEditTarget(20, ' quoted-1 ')).resolves.toEqual(repository.replyTarget);
+    expect(repository.replyTargetCalls).toEqual([{ sourceId: 20, quotedLineMessageId: 'quoted-1' }]);
   });
 
   it('enforces cache group isolation and expiry through the write service adapter', async () => {
