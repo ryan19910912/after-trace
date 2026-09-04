@@ -15,159 +15,140 @@ Read first every run, in this exact order:
 
 The latest documents above are the only product/development specification. Do not revive Customer/Project/Finance/Owner/aggregate-quota assumptions from legacy code, migrations, README history or old tests.
 
-## Current execution checkpoint — 2026-09-04 launch UX fixes + attachment title blocker audit
+## Current execution checkpoint — 2026-09-04 attachment title/time normalization source completion
 
-This run continued from the Admin pricing-calculator checkpoint and focused only on launch-facing gaps that could be proven from current source. It did not redo completed Source/Entity/Record/PWA CRUD/Grant accounting/Admin profitability/composite-FK work.
+This run re-read all eight required documents in exact order and continued from the launch-UX/attachment-blocker checkpoint. It did not redo completed Source/Entity/Record/PWA CRUD/Grant accounting/Admin profitability work.
 
 ## Scanned this run
 
-- all eight required durable documents in exact required order;
 - latest `revive/line-worklog` branch/checkpoint;
-- PWA shared API response/error handling and optimistic version-conflict behavior;
-- GROUP and PRIVATE LINE raw-first TEXT CREATE normalization result handling;
-- text-normalization result/state contract;
-- GROUP and PRIVATE attachment success path;
-- attachment provider output, durable Record persistence and Worker runtime wiring;
-- `DrizzleWorklogTextNormalizationRepository` eligibility/context loading;
-- current readiness provider/model contract;
-- GROUP/PRIVATE runtime test sources.
+- active attachment extraction/persistence/runtime wiring;
+- durable text normalization state machine and replay behavior;
+- GROUP/PRIVATE charged-user derivation;
+- point-ledger reserve/commit/release contract;
+- attachment duplicate/idempotent recovery;
+- usage-operation attribution for Admin profitability;
+- Worker runtime construction.
 
 ## Files changed this run
 
-Customer Web:
-
-- `apps/web/src/worklog-api.ts`
-
-LINE runtime:
-
-- `apps/api/src/worklog/line-runtime.ts`
-- `apps/api/src/worklog/oa-runtime.ts`
-- `apps/api/src/worklog/line-runtime.test.ts`
-- `apps/api/src/worklog/oa-runtime.test.ts`
-
-Durable handoff:
-
-- `docs/WORKLOG_REBUILD_PROGRESS.md`
+- `apps/api/src/worklog/drizzle-record-normalization-adapter.ts` — new;
+- `apps/api/src/worklog/record-normalization-ai-points.ts` — new;
+- `apps/api/src/worklog/attachment-title-normalization.ts` — new;
+- `apps/api/src/worklog/attachment-title-normalization.test.ts` — new source tests;
+- `apps/api/src/worklog/attachment-runtime.ts`;
+- `apps/api/src/worker.ts`;
+- this file.
 
 ## Completed / fixed this run
 
-### 1. PWA stale Record mutations now recover instead of leaving a stale editor
+### 1. Attachment Records now enter the existing title/time normalization pipeline
 
-The backend already correctly rejects stale edit/move/delete/restore/batch mutations with `RECORD_VERSION_CONFLICT`, but the PWA previously surfaced the raw error while leaving stale UI state in place.
+The previous production path stopped after:
 
-The shared customer API response parser now handles only the exact HTTP 409 `RECORD_VERSION_CONFLICT` case by:
+`LINE binary -> Gemini durable text -> Record(entity_id = NULL)`
 
-- telling the user another update already won;
-- reloading the current page so the latest Record/list/version is fetched;
-- preserving the backend's fail-closed optimistic-concurrency rule.
+AUDIO / IMAGE / FILE Records therefore remained permanently `待確認` unless manually moved.
 
-This applies consistently to edit, move, delete, restore and batch move without duplicating recovery logic across the large PWA component.
+Production Worker wiring now wraps `WorklogAttachmentIngestionService` with `WorklogAttachmentTitleNormalizationService`.
 
-401 Web-session recovery remains separate; 403 authorization errors and unrelated 409/5xx responses do not trigger this reload behavior.
+After durable attachment ingestion returns a Record, the wrapper re-enters the existing `WorklogTextNormalizationService` so attachment Records receive the same:
 
-### 2. PRIVATE LINE TEXT CREATE no longer claims full organization when title normalization is incomplete
+- single title selection;
+- Source-scoped Entity/Alias matching;
+- fuzzy ambiguity detection;
+- durable Pending Confirmation;
+- `occurred_at` resolution;
+- version/entity safety checks;
+- Grant-backed provider accounting.
 
-PRIVATE raw-first CREATE still persists the user's original text before AI title/time interpretation.
+No second Entity resolver was introduced.
 
-The runtime now consumes the actual `WorklogTextNormalizationResult` instead of discarding it:
+### 2. Attachment eligibility is added without rewriting the large established repository
 
-- `NORMALIZED` / `ALREADY_NORMALIZED` -> ordinary success reply;
-- `PENDING_CONFIRMATION` -> says raw text is saved and asks the user to finish title confirmation in AFTERTRACE;
-- `IN_PROGRESS` -> says raw text is saved and title processing is still running;
-- `DEFERRED`, `FAILED`, `NOT_ELIGIBLE`, skipped/exception/no normalizer -> says raw text is saved but the AI title is not finished and manual PWA organization remains available.
+`DrizzleWorklogRecordNormalizationRepository` is an adapter around the existing `DrizzleWorklogTextNormalizationRepository`.
 
-No provider, reservation, settlement or Record persistence state machine was changed.
+- TEXT continues through the original repository unchanged.
+- AUDIO / IMAGE / FILE get the same normalization claim/state behavior with attachment-specific context loading.
+- Entity/Alias resolution, confirmation creation, apply-result logic and persisted provider-result parsing remain delegated to the established repository.
 
-### 3. GROUP LINE TEXT CREATE and cached Reply-to-TEXT use the same truthful normalization reply contract
+GROUP attachment normalization resolves the current AI 額度負責人 and requires that responsible user to remain an active member. PRIVATE attachment normalization charges the PRIVATE user. Final provider execution still requires a real Grant-ledger reservation.
 
-GROUP direct CREATE and GROUP cached Reply-to-TEXT now use the same result-aware reply behavior as PRIVATE.
+### 3. Durable replay remains fail-closed and idempotent
 
-A Record that is durable but still has unresolved title interpretation is no longer presented to the LINE user as though title organization definitely completed.
+Attachment normalization retries do not blindly issue another provider call.
 
-Focused source tests now cover deferred-normalization user messaging for both PRIVATE and GROUP. These tests were authored/updated but were not executed in this environment.
+The adapter handles only attachment first-claim / `PENDING` eligibility itself. Existing `PROCESSING`, `PROVIDER_SUCCEEDED`, `USAGE_COMMITTED`, `SUCCEEDED` and `FAILED` states are handed back to the established repository's durable replay parser/state machine.
 
-## New P0 source blocker discovered — attachment Records never enter title/time normalization
+`WorklogAttachmentTitleNormalizationService` also re-enters normalization when attachment ingestion returns an idempotent duplicate. This is intentional: if a Worker died after durable attachment extraction but before title normalization started, a retry can resume the title stage. An already-completed normalization returns `ALREADY_NORMALIZED` and does not re-run provider AI.
 
-This run traced the complete active attachment path and found a real functional gap:
+### 4. Attachment title-normalization cost is no longer misclassified as TEXT Record creation
 
-1. `GeminiWorklogAttachmentNormalizer` returns durable extracted/transcribed `raw_text` plus input-type metadata only.
-2. `DrizzleWorklogAttachmentRepository.persistRecordCreated()` creates the attachment Record with `entity_id = NULL` and the command/source timestamp.
-3. `WorklogAttachmentIngestionService` settles the attachment provider call and returns `RECORDED`.
-4. GROUP/OA attachment branches return that result directly.
-5. No post-attachment title/time normalization is invoked.
+The existing normalization service internally labels its usage `TEXT_RECORD_CREATE`.
 
-Therefore a newly created AUDIO / IMAGE / PDF / text-file Record currently remains permanently `待確認` unless the user manually moves it to a title.
+For attachment Records, both:
 
-The accepted product contract says AI-assisted attachment ingestion may determine the same single Record title and `occurred_at` under the normal title parsing rules, so this is a launch-facing functional blocker rather than optional polish.
+- durable provider-result usage persisted by the adapter; and
+- immediate Grant-ledger commit through `RecordNormalizationAiPointPort`
 
-### Safe reuse path identified
+rewrite the operation to:
 
-The existing title/time normalization repository already has the correct:
+`RECORD_TITLE_NORMALIZATION`
 
-- Source-scoped title/Alias matching;
-- fuzzy ambiguity confirmation;
-- durable confirmation flow;
-- GROUP AI responsible-user lookup;
-- PRIVATE charged-user lookup;
-- provider usage/point settlement;
-- version/entity safety checks.
+This keeps the first provider call (`AUDIO_RECORD_CREATE`, `IMAGE_RECORD_CREATE`, `FILE_RECORD_CREATE`) separate from the second title/time call in Admin accounting.
 
-The only explicit eligibility blocker found is currently:
+### 5. The attachment path intentionally remains two auditable provider calls for now
 
-`record.input_type = 'TEXT'`
+Current initial implementation is:
 
-in `DrizzleWorklogTextNormalizationRepository.loadContext()`.
+1. binary -> durable textual Record;
+2. durable text -> title / event time.
 
-A follow-up source patch should generalize that eligibility to the durable Record input types (`TEXT`, `AUDIO`, `IMAGE`, `FILE`) and invoke the existing title/time normalization after successful **new** attachment persistence. The normalization usage operation should also be renamed from the misleading hard-coded `TEXT_RECORD_CREATE` to a neutral title-normalization operation so attachment follow-up cost is not misclassified.
+Each call keeps its own provider usage/cost and customer-point settlement. This is more expensive than a future combined structured-output attachment call, but it preserves existing title/Alias/Pending Confirmation and accounting invariants. Do not combine the calls without explicit equivalent usage/idempotency/accounting tests.
 
-Do not create a second title/Alias resolver or bypass Pending Confirmation merely for attachments.
+If title normalization fails after durable attachment text was already stored, the wrapper does not delete the Record or refetch the binary. The Record remains available in PWA for manual organization.
 
-The likely initial implementation uses two provider calls for an attachment:
+### 6. Focused attachment chaining tests were authored
 
-- provider call 1: binary -> durable textual Record;
-- provider call 2: durable text -> single title / event time.
+Source tests cover:
 
-Each call must retain its own actual provider usage and Grant-ledger settlement. This is more expensive than a future combined provider call but preserves the current auditable accounting and title-resolution invariants. A later optimization may combine the calls only with explicit equivalent usage/accounting tests.
+- new attachment -> title normalization;
+- duplicate attachment retry -> idempotent normalization re-entry;
+- no normalization before attachment persistence reaches `RECORDED`;
+- durable attachment success survives a title-normalization exception.
 
-This repository change was **not** attempted through a risky whole-file GitHub contents rewrite in this environment because the DB repository is large and no local typecheck/runtime checkout is available.
+These tests were not executed in this environment.
 
 ## Stable completed foundation — do not redo without a concrete regression
 
 - Source + single Entity/title + Alias + Record + immutable Revision + durable Pending Confirmation;
-- DB-level Source identity and declared cross-Source protection;
-- free PWA manual CRUD/search/filter/title move/batch move/delete/recycle/restore/revision history;
+- free PWA manual CRUD/search/filter/title move/batch move/delete/recycle/restore/history;
 - GROUP manual authorization = active membership only;
-- optimistic Record version checks plus PWA stale-conflict recovery and stale Source/filter generation guard;
-- deterministic LINE HISTORY -> filtered PWA deep links;
-- deterministic Reply-targeted PRIVATE/GROUP LINE AI EDIT;
-- truthful raw-first TEXT normalization status replies;
-- FREE 400,000 one-time user Grant;
+- optimistic Record version checks + PWA stale-conflict recovery;
+- stale Source/filter async response protection;
+- deterministic LINE HISTORY -> filtered PWA;
+- Reply-targeted PRIVATE/GROUP LINE AI EDIT;
+- truthful raw-first TEXT normalization replies;
+- attachment extract -> durable text -> title/time normalization source wiring;
+- FREE 400,000 one-time Grant;
 - user-owned Grant scopes/caps + separate GROUP AI 額度負責人;
 - positive-balance preflight + final atomic reservation;
 - provider actual cost -> output-price-equivalent points + platform subsidy;
 - immutable/idempotent subscription-period Grants;
-- retired aggregate quota / `ai_units_consumed` / `actualUnits` removed from active accounting;
-- Admin factual profitability base report;
-- Admin separate audio/image pricing, FREE shell invariants, missing-TWD coverage, strong session/password handling;
-- Admin/runtime/readiness agree on currently shipped `GOOGLE + gemini-3.5-flash` contract;
-- Admin pricing recommendation calculator;
-- stale AI plan capability gates removed;
-- customer Help and README use the current Source/Grant/AI-responsibility model;
-- bounded LINE attachment streaming/no permanent binaries;
-- payment-disabled checkout fail-closed;
-- Export capability fail-closed until implemented;
-- safe baseline regeneration/guard scripts;
-- release preflight + liveness/readiness split + first-fresh-DB bootstrap mode;
-- explicit production migration database URL;
-- Web/Admin Static Assets SPA fallback/deep-link deployment checks.
+- retired aggregate quota / `ai_units_consumed` / `actualUnits` removed;
+- factual Admin profitability + pricing calculator;
+- Admin modality pricing/FREE invariants/missing-TWD coverage/session hardening;
+- Admin/runtime/readiness agree on `GOOGLE + gemini-3.5-flash`;
+- payment-disabled checkout and unshipped Export fail closed;
+- bounded attachment streaming / no permanent binaries;
+- safe baseline regeneration/guard + release preflight;
+- explicit production migration DB URL;
+- liveness/readiness + first-fresh-DB bootstrap mode;
+- Web/Admin Workers SPA fallback/deep-link checks.
 
 ## P0 — blocks free/manual + AI-recording production launch
 
-### 1. Complete attachment Record title/time normalization — newly confirmed source blocker
-
-Generalize the existing normalization pipeline to AUDIO/IMAGE/FILE durable text and invoke it after successful new attachment ingestion. Preserve the two-call cost/accounting facts until a separately validated one-call optimization exists.
-
-### 2. Regenerate Drizzle baseline/snapshot/journal
+### 1. Regenerate Drizzle baseline/snapshot/journal — now the first decisive blocker
 
 The checked-in `drizzle/0000_worklog_baseline.sql` is still from the retired pre-rebuild world and MUST NOT be applied.
 
@@ -177,12 +158,12 @@ From a real current checkout:
 2. verify pinned `pnpm --version`
 3. `pnpm db:baseline:regenerate --confirm-prelaunch-reset`
 4. inspect generated SQL/snapshot/journal
-5. fix actual TypeScript/Drizzle errors exposed by current composite FK/check declarations
+5. fix actual TypeScript/Drizzle errors exposed by current declarations
 6. `pnpm db:baseline:guard` until green
 
 Do not hand-fabricate Drizzle metadata.
 
-### 3. Fresh PostgreSQL migration/integrity validation
+### 2. Fresh PostgreSQL migration/integrity validation
 
 Validate at minimum:
 
@@ -192,73 +173,75 @@ Validate at minimum:
 - PRIVATE Web-entry Source mismatch rejection;
 - Grant/grant-scope attribution mismatch rejection;
 - reservation/usage funding mismatch rejection;
-- normal CRUD/revision/confirmation paths under constraints;
-- Grant reserve/commit/release/expire/subsidy/concurrency state;
-- attachment extract -> title-normalization sequence and accounting;
-- customer/Admin final-held-point reserved reporting.
+- normal CRUD/revision/confirmation paths;
+- Grant reserve/commit/release/expire/subsidy/concurrency;
+- attachment extract -> title-normalization sequence;
+- attachment second-stage `RECORD_TITLE_NORMALIZATION` persisted + committed usage;
+- duplicate attachment retry does not produce uncontrolled repeat provider calls;
+- customer/Admin final-held-point reporting.
 
-### 4. Entity/Alias case-insensitive collision behavior
+### 3. Entity/Alias case-insensitive collision behavior
 
-Runtime matching uses case-insensitive matching while current declared uniqueness is case-sensitive. Reproduce on real PostgreSQL before choosing expression-index/normalization/collation behavior.
+Runtime matching is case-insensitive while current database uniqueness is case-sensitive. Reproduce on real PostgreSQL before choosing expression-index/normalization/collation behavior.
 
-### 5. Run actual release validation
+### 4. Run actual release validation
 
 After fresh PostgreSQL is green:
 
 - `pnpm release:preflight`;
-- TypeScript typecheck, ESLint, Vitest, API/Web/Admin builds and Worker dry-run through that gate;
-- PWA CRUD/version/group membership/Source-switch/session browser smoke;
-- Admin plans/pricing calculator/AI pricing/Overview/Profitability/session browser smoke;
-- LINE Login/one-time entry;
+- TypeScript typecheck;
+- ESLint;
+- Vitest;
+- API/Web/Admin production builds and Worker dry-run;
+- PWA CRUD/version/group-membership/Source-switch/session browser smoke;
+- Admin plans/pricing/Overview/Profitability/session browser smoke;
+- LINE Login + one-time entry;
 - PRIVATE/GROUP TEXT CREATE/HISTORY/Reply EDIT/confirmations;
-- attachment image/audio/PDF/text-file extraction + title/time resolution + expiry/202/size flows;
+- image/audio/PDF/text-file extraction + automatic title/time resolution;
+- attachment expiry/202/size/duplicate flows;
 - real Gemini pricing/usage/point settlement;
-- Worker `/health` + `/health/ready`.
+- `/health` + `/health/ready`.
 
 ## P1 — useful polish after P0
 
-### 1. Customer AI usage percentage/progress UI
+- Customer AI usage percentage/progress UI still needs a denominator that does not mix expired/capped/lifetime facts.
+- Admin main navigation can add shortcuts to `/profitability` and `/pricing-calculator`.
+- Attachment LINE success text can later expose title-normalization pending/confirmation state more explicitly; durable data and automatic title processing are now wired.
 
-Policy asks for used/remaining/total plus usage/remaining percentage/progress indicator. Current PWA shows point numbers and Grant rows but not a fully correct progress representation. Scope caps, expired Grants and lifetime usage must not be mixed into a misleading denominator.
+## P2 — full paid MVP remains separate
 
-### 2. Admin main navigation shortcuts
-
-Standalone `/profitability` and `/pricing-calculator` routes exist. Main Admin navigation can still add convenient direct shortcuts; this is UX polish, not accounting or authorization debt.
-
-## P2 — full paid MVP, separate from free/manual + AI-recording beta
-
-1. Payment provider is intentionally not implemented yet.
-2. Successful-payment durable facts / recurring renewal success/failure / idempotent payment webhooks remain unimplemented.
-3. TOP_UP purchase/refund lifecycle remains unimplemented.
-4. Paid Export remains `shipped:false`; no customer export endpoint/UI exists yet.
-5. Proration / mid-period paid-plan change remains intentionally undefined and fail-closed.
-6. Advanced profitability still lacks subscriber monthly average/median distribution, FREE->paid conversion and average real FREE subsidy/user; realized revenue/margin remains unavailable until a successful-payment ledger exists.
+- payment provider;
+- successful-payment durable ledger;
+- recurring renewal success/failure + idempotent webhooks;
+- TOP_UP purchase/refund lifecycle;
+- paid Export endpoint/UI;
+- proration/mid-period paid-plan change policy;
+- advanced subscriber profitability/conversion analytics requiring payment facts.
 
 ## Attachment coverage limitation
 
-Active provider path supports image, audio, PDF and text-like files with bounded input/output handling. DOCX/XLSX/legacy Office MIME types remain explicitly `ATTACHMENT_UNSUPPORTED`; this is a clear fail-closed limitation, not silent data corruption.
+Image, audio, PDF and text-like files are active. DOCX/XLSX/legacy Office MIME types remain explicitly `ATTACHMENT_UNSUPPORTED`; this is a clear fail-closed limitation, not silent corruption.
 
 ## Next implementation target
 
-Highest priority next run:
+If a real latest checkout/toolchain is available, stop broad static work and immediately:
 
-1. finish attachment title/time normalization reuse;
-2. obtain/use a real latest checkout with pinned pnpm/Drizzle;
-3. regenerate baseline immediately;
-4. fix actual TypeScript/Drizzle errors from the current schema;
-5. pass baseline guard;
-6. apply to fresh PostgreSQL and execute integrity/concurrency probes;
-7. initialize AI runtime config + FREE plan;
-8. run `pnpm release:preflight`;
-9. run customer/Admin/LINE/Gemini/Worker smoke.
+1. regenerate baseline;
+2. fix actual TypeScript/Drizzle errors, including any adapter/wrapper type errors;
+3. pass baseline guard;
+4. apply to fresh PostgreSQL;
+5. run attachment two-stage integrity/accounting probes;
+6. initialize AI runtime config + FREE plan;
+7. run `pnpm release:preflight`;
+8. run browser/LINE/Gemini/Worker smoke.
 
-Do not broaden into speculative redesign before these launch blockers are closed.
+If local execution remains unavailable, only fix concrete source-level launch regressions; do not broaden into speculative redesign.
 
 ## Validation status
 
-This run performed document/source audit plus direct GitHub source edits only.
+This run performed source/document audit and direct GitHub source edits only.
 
-No usable current local checkout/toolchain became available in this environment.
+No usable checked-out local project/toolchain was available.
 
 Not executed:
 
@@ -276,7 +259,7 @@ Not executed:
 - LINE runtime;
 - Gemini runtime.
 
-Updated runtime tests are source contracts only until actually executed. No test/build/migration/runtime result is claimed as passing.
+New/updated tests are source contracts only until executed. No test/build/migration/runtime result is claimed as passing.
 
 No GitHub Actions workflow was executed, dispatched, rerun, enabled, modified, triggered or used as validation.
 
@@ -284,14 +267,4 @@ No GitHub Actions workflow was executed, dispatched, rerun, enabled, modified, t
 
 **NOT READY yet.**
 
-The source-level launch blocker list is now small and explicit: attachment title/time normalization, regenerated migration artifacts, fresh PostgreSQL validation, Entity/Alias collision decision, then real release/runtime smoke.
-
-## Rough remaining work
-
-Assuming a current checkout/toolchain and disposable PostgreSQL become available:
-
-- attachment title/time normalization reuse + focused tests: **1 smaller source batch**;
-- baseline regeneration + generated-schema/type fixes: **1 substantial batch**;
-- fresh PostgreSQL/integrity/concurrency validation: **1 batch**;
-- release preflight + customer/Admin/LINE/Gemini/Workers smoke: **1 validation batch**;
-- Payment/TOP_UP/Export/full paid lifecycle: **separate product/payment batches**.
+The previously confirmed attachment source blocker is now implemented. The decisive remaining free/manual + AI-recording blockers are migration regeneration, fresh PostgreSQL, Entity/Alias collision decision, real preflight and runtime smoke.
