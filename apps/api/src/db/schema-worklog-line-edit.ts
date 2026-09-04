@@ -57,6 +57,7 @@ export const worklogLineAiEdits = pgTable(
     latencyMs: integer('latency_ms'),
     confirmationId: bigint('confirmation_id', { mode: 'number' }),
     appliedRecordVersion: integer('applied_record_version'),
+    appliedEntityId: bigint('applied_entity_id', { mode: 'number' }),
     lastErrorCode: varchar('last_error_code', { length: 128 }),
     lastErrorDetail: text('last_error_detail'),
     startedAt: timestamp('started_at', { withTimezone: true }).defaultNow().notNull(),
