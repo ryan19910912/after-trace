@@ -62,28 +62,7 @@ export type RecordFilters = {
   offset?: number;
 };
 
-export type RecordTypeCounts = {
-  TEXT: number;
-  AUDIO: number;
-  IMAGE: number;
-  FILE: number;
-};
-
-// Transitional PRIVATE summary until the remaining aggregate subscription reader is removed.
-// GROUP scopes use GroupFunding below and never read this shape.
-export type UserUsage = {
-  userId: number;
-  planCode: string;
-  aiAllowanceUnits: number;
-  aiUsedUnits: number;
-  aiReservedUnits: number;
-  aiRemainingUnits: number;
-  providerCostUsd: number;
-  providerCostTwd: number;
-  records: RecordTypeCounts;
-};
-
-export type GroupFundingGrant = {
+export type FundingGrant = {
   id: number;
   type: string;
   status: string;
@@ -98,6 +77,16 @@ export type GroupFundingGrant = {
   sourceAvailablePoints: number;
 };
 
+export type PersonalFunding = {
+  sourceId: number;
+  userId: number;
+  availablePoints: number;
+  reservedPoints: number;
+  usedPoints: number;
+  platformSubsidizedPoints: number;
+  grants: FundingGrant[];
+};
+
 export type GroupFunding = {
   sourceId: number;
   responsibleUser: { id: number; displayName: string | null } | null;
@@ -107,7 +96,7 @@ export type GroupFunding = {
   usedPoints: number;
   platformSubsidizedPoints: number;
   canManage: boolean;
-  grants: GroupFundingGrant[];
+  grants: FundingGrant[];
 };
 
 export type WorklogConfirmationCandidate = {
@@ -125,7 +114,10 @@ export type WorklogConfirmation = {
   candidateTitle: string | null;
   proposedName: string | null;
   reason: string | null;
+  operation: 'CREATE_TITLE' | 'LINE_AI_EDIT';
+  proposedRawText: string | null;
   occurredAt: string;
+  recordOccurredAt: string;
   expectedRecordVersion: number;
   candidates: WorklogConfirmationCandidate[];
   recordRawText: string;
@@ -345,11 +337,12 @@ export class WorklogApi {
     return body.revisions.map(revisionFromApi);
   }
 
-  async myUsage(sessionToken: string) {
-    return (await json<{ usage: UserUsage }>(
-      await this.request(sessionToken, '/api/v1/worklog/usage/me'),
-      'AI 額度載入失敗',
-    )).usage;
+  async personalFunding(sessionToken: string): Promise<PersonalFunding> {
+    const body = await json<{ funding: Record<string, unknown> }>(
+      await this.request(sessionToken, '/api/v1/worklog/funding/personal'),
+      '個人 AI 點數載入失敗',
+    );
+    return personalFundingFromApi(body.funding);
   }
 
   async groupFunding(sessionToken: string, sourceId: number): Promise<GroupFunding> {
@@ -357,7 +350,7 @@ export class WorklogApi {
       await this.request(sessionToken, `/api/v1/worklog/funding/group/${sourceId}`),
       '群組 AI 點數載入失敗',
     );
-    return fundingFromApi(body.funding);
+    return groupFundingFromApi(body.funding);
   }
 
   async configureGroupGrant(
@@ -374,7 +367,7 @@ export class WorklogApi {
       ),
       '群組 AI 點數設定失敗',
     );
-    return fundingFromApi(body.funding);
+    return groupFundingFromApi(body.funding);
   }
 
   async pendingConfirmations(sessionToken: string, scope: RecordScope): Promise<WorklogConfirmation[]> {
@@ -530,7 +523,21 @@ function revisionFromApi(raw: Record<string, unknown>): WorklogRecordRevision {
   };
 }
 
-function fundingFromApi(raw: Record<string, unknown>): GroupFunding {
+function personalFundingFromApi(raw: Record<string, unknown>): PersonalFunding {
+  return {
+    sourceId: Number(raw.sourceId),
+    userId: Number(raw.userId),
+    availablePoints: nonNegativeNumber(raw.availablePoints),
+    reservedPoints: nonNegativeNumber(raw.reservedPoints),
+    usedPoints: nonNegativeNumber(raw.usedPoints),
+    platformSubsidizedPoints: nonNegativeNumber(raw.platformSubsidizedPoints),
+    grants: Array.isArray(raw.grants)
+      ? raw.grants.map((value) => fundingGrantFromApi(value as Record<string, unknown>))
+      : [],
+  };
+}
+
+function groupFundingFromApi(raw: Record<string, unknown>): GroupFunding {
   const responsible = raw.responsibleUser;
   const responsibleUser = responsible && typeof responsible === 'object' && !Array.isArray(responsible)
     ? {
@@ -553,7 +560,7 @@ function fundingFromApi(raw: Record<string, unknown>): GroupFunding {
   };
 }
 
-function fundingGrantFromApi(raw: Record<string, unknown>): GroupFundingGrant {
+function fundingGrantFromApi(raw: Record<string, unknown>): FundingGrant {
   return {
     id: Number(raw.id),
     type: String(raw.type ?? ''),
@@ -571,6 +578,7 @@ function fundingGrantFromApi(raw: Record<string, unknown>): GroupFundingGrant {
 }
 
 function confirmationFromApi(raw: Record<string, unknown>): WorklogConfirmation {
+  const operation = String(raw.operation ?? 'CREATE_TITLE') === 'LINE_AI_EDIT' ? 'LINE_AI_EDIT' : 'CREATE_TITLE';
   return {
     id: Number(raw.id),
     sourceId: Number(raw.sourceId ?? raw.source_id),
@@ -580,7 +588,10 @@ function confirmationFromApi(raw: Record<string, unknown>): WorklogConfirmation 
     candidateTitle: nullableString(raw.candidateTitle ?? raw.candidate_title),
     proposedName: nullableString(raw.proposedName ?? raw.proposed_name),
     reason: nullableString(raw.reason),
+    operation,
+    proposedRawText: operation === 'LINE_AI_EDIT' ? nullableString(raw.proposedRawText ?? raw.proposed_raw_text) : null,
     occurredAt: String(raw.occurredAt ?? raw.occurred_at),
+    recordOccurredAt: String(raw.recordOccurredAt ?? raw.record_occurred_at ?? raw.occurredAt ?? raw.occurred_at),
     expectedRecordVersion: Number(raw.expectedRecordVersion ?? raw.expected_record_version),
     candidates: Array.isArray(raw.candidates)
       ? raw.candidates.map((value) => {
