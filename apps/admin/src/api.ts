@@ -21,6 +21,7 @@ export type AdminProfitabilityPeriod = 'TODAY' | '7D' | '30D' | 'BILLING_MONTH';
 export type AdminProfitabilityBreakdownRow = {
   key: string;
   requests: number;
+  activeUsers: number;
   chargedUsers: number;
   customerPointsCharged: number;
   platformSubsidizedPoints: number;
@@ -35,6 +36,7 @@ export type AdminProfitabilityReport = {
     from: string;
     to: string;
     requests: number;
+    activeUsers: number;
     chargedUsers: number;
     customerPointsCharged: number;
     platformSubsidizedPoints: number;
@@ -45,9 +47,12 @@ export type AdminProfitabilityReport = {
     missingProviderCostTwdRequests: number;
     missingSubsidyCostTwdRequests: number;
     averagePointsPerRequest: number;
-    averageProviderCostTwdPerRequest: string;
+    averageProviderCostUsdPerRequest: string;
+    averageProviderCostTwdPerRequest: string | null;
+    averagePointsPerActiveUser: number;
+    averageProviderCostUsdPerActiveUser: string;
+    averageProviderCostTwdPerActiveUser: string | null;
     averagePointsPerChargedUser: number;
-    averageProviderCostTwdPerChargedUser: string;
     revenueTwd: null;
     realizedAiCostRatio: null;
     realizedGrossMargin: null;
@@ -57,12 +62,15 @@ export type AdminProfitabilityReport = {
   byOperation: AdminProfitabilityBreakdownRow[];
   bySourceType: AdminProfitabilityBreakdownRow[];
   byGrantType: Array<{ grantType: string; requests: number; pointsCharged: number }>;
+  byPlan: Array<{ planCode: string; requests: number; pointsCharged: number }>;
   grantInventory: Array<{
     grantType: string;
     grants: number;
     exhaustedGrants: number;
     originalPoints: number;
     remainingPoints: number;
+    utilizationPercent: number;
+    exhaustionPercent: number;
   }>;
 };
 
@@ -245,7 +253,7 @@ export class AdminApi {
   }
 
   async audit(): Promise<Row[]> {
-    return applyServerLabels((await this.request<{ audit: Row[] }>('/audit')).audit);
+    return applyServerLabels((await this.request<{ audit: Row[] }>('/audit')).audit;
   }
 
   private async request<T>(path: string, init?: RequestInit, authenticated = true): Promise<T> {
