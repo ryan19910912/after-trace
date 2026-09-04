@@ -8,6 +8,8 @@ import type {
   WorklogRecordListItem,
   WorklogRecordReadRepository,
   WorklogRecordWriteRepository,
+  WorklogReplyEditTarget,
+  WorklogReplyEditTargetResolution,
 } from './records';
 
 type RecordRow = {
@@ -34,6 +36,17 @@ type TextWriteRow = {
   quoted_line_message_id: string | null;
   raw_text: string;
   inserted: boolean;
+};
+
+type ReplyEditTargetRow = {
+  id: string;
+  source_id: string;
+  author_user_id: string | null;
+  entity_id: string | null;
+  raw_text: string;
+  occurred_at: Date | string;
+  status: 'ACTIVE' | 'DELETED';
+  version: number;
 };
 
 export class DrizzleWorklogRecordWriteRepository implements WorklogRecordWriteRepository {
@@ -108,6 +121,36 @@ export class DrizzleWorklogRecordWriteRepository implements WorklogRecordWriteRe
     const replayRow = replay.rows[0] as TextWriteRow | undefined;
     if (replayRow) return { status: 'EXISTING', record: textRecordIdentity(replayRow) };
     return { status: 'SOURCE_NOT_FOUND' };
+  }
+
+  async resolveReplyEditTarget(
+    sourceId: number,
+    quotedLineMessageId: string,
+  ): Promise<WorklogReplyEditTargetResolution> {
+    const result = await this.db.execute(sql`
+      SELECT record.id::text AS id,
+             record.source_id::text AS source_id,
+             record.author_user_id::text AS author_user_id,
+             record.entity_id::text AS entity_id,
+             record.raw_text,
+             record.occurred_at,
+             record.status,
+             record.version
+      FROM worklog_records AS record
+      WHERE record.source_id = ${sourceId}
+        AND (
+          record.line_message_id = ${quotedLineMessageId}
+          OR record.quoted_line_message_id = ${quotedLineMessageId}
+        )
+      ORDER BY CASE WHEN record.status = 'ACTIVE' THEN 0 ELSE 1 END, record.id DESC
+      LIMIT 3
+    `);
+
+    const rows = result.rows as ReplyEditTargetRow[];
+    const activeRows = rows.filter((row) => row.status === 'ACTIVE');
+    if (activeRows.length > 1) return { status: 'AMBIGUOUS' };
+    if (activeRows.length === 1) return { status: 'FOUND', record: replyEditTarget(activeRows[0]) };
+    return rows.length > 0 ? { status: 'DELETED' } : { status: 'NOT_FOUND' };
   }
 }
 
@@ -211,6 +254,18 @@ function textRecordIdentity(row: TextWriteRow): StoredTextRecordIdentity {
     lineMessageId: row.line_message_id,
     quotedLineMessageId: row.quoted_line_message_id,
     rawText: row.raw_text,
+  };
+}
+
+function replyEditTarget(row: ReplyEditTargetRow): WorklogReplyEditTarget {
+  return {
+    id: Number(row.id),
+    sourceId: Number(row.source_id),
+    authorUserId: nullableNumber(row.author_user_id),
+    entityId: nullableNumber(row.entity_id),
+    rawText: row.raw_text,
+    occurredAt: new Date(row.occurred_at).toISOString(),
+    version: Number(row.version),
   };
 }
 
