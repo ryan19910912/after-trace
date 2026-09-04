@@ -95,6 +95,21 @@ Only Admin login is unauthenticated; all other Admin APIs require the HMAC beare
 - Web/Admin receive public build-time config only, mainly `VITE_API_BASE_URL`.
 - Customer/Project/Finance must not reappear as universal Worklog domain requirements.
 
+## Database integrity rules for launch
+
+The fresh prelaunch baseline must encode the accepted Source/Grant boundaries as database constraints, not merely application conventions:
+
+- a `PRIVATE` Source has `private_user_id` and no `line_group_id`; a `GROUP` Source has `line_group_id` and no `private_user_id`;
+- PRIVATE Web-entry nonce `(user_id, source_id)` must resolve to that user's PRIVATE Source;
+- Entity Alias, Record title Entity, Pending Confirmation Record/candidate Entity, LINE AI edit Record/confirmation/applied Entity and attachment-created Record cannot cross Source boundaries;
+- LINE AI edit and attachment reservation tokens must belong to the same Source as their orchestration row;
+- reservation/usage funding cannot pair a Grant with a `grant_scope_id` owned by another Grant;
+- attachment ingestion uses `worklog_ai_point_reservations`; the retired aggregate-quota schema/reservation must never return.
+
+`scripts/check-worklog-baseline.mjs` must require these constraints by name in both regenerated SQL and Drizzle snapshot. A missing constraint is launch-blocking even when application code currently performs an equivalent check.
+
+The historical `worklog_workspaces.owner_user_id` remains a transitional storage parent only. It is not GROUP manual authorization and not AI funding responsibility.
+
 ## workers.dev launch direction
 
 A purchased custom domain is not required for the first deployment. The current launch/dev direction is to use Cloudflare-provided `workers.dev` hosts for all three Workers until a later explicit domain purchase decision.
@@ -161,7 +176,7 @@ Do not bypass these checks by manually deleting unexpected migrations. Unexpecte
 Before any migration or API Worker deployment:
 
 1. Regenerate `0000_worklog_baseline.sql`, `meta/0000_snapshot.json`, and `_journal.json` together using the safe command above.
-2. Inspect the generated diff and run `pnpm db:baseline:guard` again. The guard must see exactly one coherent prelaunch baseline and no retired Customer/Project/Transaction/category/aggregate-quota/recording markers.
+2. Inspect the generated diff and run `pnpm db:baseline:guard` again. The guard must see exactly one coherent prelaunch baseline, all launch integrity constraints listed above, and no retired Customer/Project/Transaction/category/aggregate-quota/recording markers.
 3. If the regeneration command stopped on a guard failure, inspect and fix the **kept generated artifacts/schema mismatch**, regenerate again, and do not continue to database apply until the guard passes.
 4. Configure `DATABASE_URL` for a **fresh disposable PostgreSQL database** and apply the regenerated baseline.
 5. Run schema drift / SQL validation and exercise the Grant reservation/settlement plus Record revision/confirmation paths against PostgreSQL.
@@ -186,7 +201,9 @@ pnpm install --frozen-lockfile
 pnpm release:preflight
 ```
 
-`pnpm release:preflight` is intentionally non-deploying/non-migrating. It must fail fast if any of these do not pass locally/runtime:
+`pnpm release:preflight` first parses the root `packageManager` pin and compares it with `pnpm --version`. A missing pin or different executable version fails before validation, so a release cannot silently run with a different pnpm than the lockfile contract.
+
+The command is intentionally non-deploying/non-migrating. It must fail fast if any of these do not pass locally/runtime:
 
 1. Worklog baseline/snapshot/journal guard;
 2. API/Web/Admin TypeScript typecheck;
@@ -205,6 +222,8 @@ The API exposes two operational checks:
 
 - `GET /health` → Worker process/liveness only. It may return `ok` even if launch secrets or the database schema are missing.
 - `GET /health/ready` → launch readiness. It verifies required production bindings/origins/secrets and queries the rebuilt `worklog_users` table. Missing config, unreachable DB, or unapplied/stale Worklog schema returns HTTP 503.
+
+Production-facing origin bindings must be exact HTTPS origins: no credentials, path, query or hash. `WEB_APP_URL` and `WEB_APP_ORIGIN` must resolve to the same origin, otherwise readiness fails before database access.
 
 The API production deployment helper must require **both** liveness and readiness after deployment. A Worker that deployed successfully but fails `/health/ready` is not considered launched.
 
@@ -236,10 +255,12 @@ These checks exist to catch broken Static Assets SPA fallback/deep links. They d
 
 Validate locally/runtime, not through GitHub Actions unless explicitly requested:
 
-- `pnpm release:preflight`;
+- `pnpm release:preflight` with the exact pinned pnpm version;
 - `pnpm db:baseline:guard` against the regenerated migration artifacts;
 - fresh database migration from current repository journal;
-- schema drift;
+- schema drift plus explicit Source/Grant integrity constraint inspection;
+- attempt representative invalid cross-Source Record/Entity/confirmation/attachment/LINE-edit writes and confirm PostgreSQL rejects them;
+- attempt mismatched Grant/grant-scope and Source/reservation attribution and confirm PostgreSQL rejects them;
 - `/health` and `/health/ready` after API deploy;
 - Admin authentication/CORS;
 - Web deep links and scoped Record-edit links;
