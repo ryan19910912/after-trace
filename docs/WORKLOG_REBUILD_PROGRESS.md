@@ -15,345 +15,250 @@ Read first every run, in this order:
 
 The latest product/development documents above are the only product specification. Do not revive old Customer/Project/Finance/Owner/aggregate-quota assumptions from older code.
 
-## Current execution checkpoint — 2026-09-04 10:30 batch
+## Current execution checkpoint — 2026-09-04 11:30 batch
 
-This run first re-read all required documents and the previous checkpoint, then inspected the actual branch before changing anything.
+This run re-read all required documents, reconciled the previous checkpoint, and continued from the existing Reply-targeted LINE AI edit / Grant-backed funding foundation. It did not reimplement completed provider/edit logic.
 
-A branch/checkpoint drift was found: the previous progress document still said Reply-targeted LINE AI edit stopped at deterministic target resolution, while the branch already contained an uncheckpointed durable edit foundation (`schema-worklog-line-edit.ts`, `line-record-edit.ts`, `drizzle-line-record-edit.ts`, `gemini-line-record-editor.ts`, and bot-reply target mapping). This run did **not** reimplement those files. It audited that foundation and connected/fixed the missing runtime and confirmation pieces.
-
-The main completed batch is now: **GROUP and PRIVATE Reply-targeted LINE AI edit are wired to the existing grant-backed provider pipeline, and ambiguous title edits can be resolved later without another provider call or another AI-point charge.**
+The completed batch is: **PWA can now safely present already-paid LINE AI edit confirmations as current-vs-proposed edits, and PRIVATE customer AI balance has moved off the legacy aggregate quota reader onto the same Source-scoped Grant ledger already used by GROUP.**
 
 ## Scanned this run
 
 - all required durable product/development/deployment docs;
-- current branch head/history to reconcile checkpoint drift;
-- `records.ts` / `drizzle-records.ts` Reply target identity and bot-message mapping;
-- `schema-worklog-line-reply.ts` and `schema-worklog-line-edit.ts`;
-- `line-record-edit.ts`, `drizzle-line-record-edit.ts`, and `gemini-line-record-editor.ts`;
-- GROUP `line-runtime.ts` and `group-webhook.ts`;
-- PRIVATE `oa-runtime.ts` and `oa-webhook.ts`;
-- production construction in `index.ts`;
-- confirmation service/repository/routes;
-- Record core revision/confirmation schema;
-- current PWA confirmation client/panel and transitional PRIVATE `/usage/me` call;
-- Workers route wiring and existing grant-backed collaboration adapter.
+- latest `WORKLOG_REBUILD_PROGRESS.md` checkpoint;
+- PWA API client and `WorklogRoot` confirmation/funding UI;
+- confirmation service, route serialization, and safe PostgreSQL resolver;
+- GROUP funding routes and grant-scope visibility rules;
+- main manual PWA `worklog/routes.ts` transitional `/usage/me` reader;
+- subscription service/repositories/routes and Admin subscription assignment path;
+- Grant service/repository and current AI-point policy;
+- production webhook `index.ts` to verify AI execution is already Grant-ledger backed.
+
+## Files changed this run
+
+- `apps/api/src/worklog/confirmations.ts`
+- `apps/api/src/worklog/confirmation-routes.ts`
+- `apps/api/src/worklog/drizzle-confirmations-safe.ts`
+- `apps/api/src/worklog/funding-routes.ts`
+- `apps/api/src/worklog/routes.ts`
+- `apps/web/src/worklog-api.ts`
+- `apps/web/src/WorklogRoot.tsx`
+- `docs/WORKLOG_REBUILD_PROGRESS.md`
 
 ## Completed this run
 
-### 1. Production webhook runtime now actually executes durable Reply-targeted AI edits
+### 1. LINE_AI_EDIT Pending Confirmation now exposes both current and proposed durable state
 
-The durable edit service/repository/provider already existed on the branch but production runtimes still returned `EDIT_NOT_READY` and `index.ts` never constructed the service.
+`WorklogPendingConfirmation` now includes `recordOccurredAt` in addition to the already-durable proposed `occurredAt` and `proposedRawText`.
 
-This run wired:
+The safe repository reads the current Record `occurred_at` from PostgreSQL and the confirmation route serializes it. This is presentation-only data; the existing version/entity/edit-state guards remain authoritative when a confirmation is actually applied.
 
-- `DrizzleWorklogLineRecordEditRepository`;
-- `WorklogLineRecordEditService`;
-- `GeminiWorklogLineRecordEditor`;
-- the existing `WorklogAiPointLedgerService`;
-- GROUP `WorklogLineRuntime`;
-- PRIVATE `WorklogOaRuntime`.
+### 2. PWA Pending Confirmation UI is operation-aware
 
-The existing provider pipeline is intentionally reused rather than duplicated. It already provides:
+The web client now types/parses:
 
-- strict structured output limited to complete `raw_text`, optional `occurred_at`, optional one title, and a title-confirmation flag;
-- no Customer/Project/Transaction/category/summary fields;
-- durable provider-success state before settlement/mutation;
-- positive grant-backed AI-point reservation immediately before provider execution;
-- actual provider-cost -> output-price-equivalent AI-point settlement;
-- idempotent reservation settlement/replay handling;
-- optimistic Record version checking;
-- immutable `LINE_AI_EDIT` Revision on successful mutation;
-- durable Pending Confirmation instead of guessing ambiguous title/entity changes.
+- `operation`: `CREATE_TITLE` or `LINE_AI_EDIT`;
+- `proposedRawText`;
+- `recordOccurredAt`;
+- existing proposed `occurredAt` and expected Record version.
 
-### 2. GROUP edit funding is resolved only after safe target selection
+For `LINE_AI_EDIT`, PWA now shows:
 
-GROUP EDIT now follows this order:
+- current Record text and current occurrence time;
+- AI-proposed replacement text and proposed occurrence time;
+- existing-title candidates or a new/correct title input;
+- explicit wording that the provider result is already durable/accounted and confirmation does **not** call AI or consume points again;
+- edit-specific apply/reject copy.
 
-1. require a Reply target;
-2. require ordinary active GROUP membership (free/manual access rule);
-3. resolve the Reply only inside the exact current Source;
-4. only after a unique active Record is found, resolve the current GROUP AI 額度負責人 through the grant-backed responsibility adapter;
-5. call the edit service, whose point ledger performs the positive scoped Grant reservation before Gemini.
+Rejecting an edit is presented as keeping the original Record unchanged. Confirming is presented as applying the already-paid proposal while preserving revision history. Backend version guards still reject stale proposals.
 
-Missing/ambiguous/deleted targets therefore do not touch AI funding or Gemini.
+The original CREATE-title confirmation UX is preserved.
 
-The charged user for GROUP edit is the current grant-backed AI responsible user, not legacy `owner_user_id` / `subscription_owner_user_id`.
+### 3. PRIVATE AI balance is now Source-scoped and Grant-ledger backed
 
-### 3. PRIVATE edit uses the user's personal Source and the user's own Grants
+Added authenticated `GET /api/v1/worklog/funding/personal`.
 
-PRIVATE EDIT resolves the Reply only inside the bootstrapped personal Source. A unique target is passed to the same durable edit service with actor = charged user = the current user.
+It resolves only the signed-in user's ACTIVE PRIVATE Source, then reports customer-facing facts from:
 
-If there is no positive eligible scoped Grant balance, the point ledger refuses before the provider call.
+- user-owned `worklog_ai_grants`;
+- enabled scope for that PRIVATE Source in `worklog_ai_grant_scopes`;
+- per-scope used/reserved points;
+- `worklog_ai_usage_events.customer_points_charged`;
+- `worklog_ai_usage_events.platform_subsidized_points`.
 
-### 4. Runtime responses now distinguish edit lifecycle states safely
+It does not read `worklog_ai_quota_balances`, subscription aggregate usage, another user's grants, or provider USD pricing.
 
-GROUP and PRIVATE runtimes now distinguish:
+The personal Grant inventory returned by this endpoint is restricted to the authenticated owner and shows only how each owned Grant applies to the current PRIVATE Source. GROUP scope allocation remains explicit and separate.
 
-- successful edit;
-- title confirmation pending;
-- already-processing/idempotent replay;
-- AI points exhausted;
-- Record changed/deleted while the provider was in flight;
-- LINE command idempotency conflict;
-- provider/edit failure.
+### 4. PRIVATE PWA no longer depends on `/usage/me`
 
-A stale Record is never overwritten. A redelivered command that is already processing does not intentionally call Gemini a second time.
+`WorklogRoot` now loads `personalFunding()` for PRIVATE and `groupFunding()` for GROUP. The old `myUsage()`/aggregate `UserUsage` client contract has been removed.
 
-The edit service remains optional at the runtime constructor boundary so existing isolated callers/tests without production wiring continue to fail closed with `EDIT_NOT_READY` rather than accidentally invoking a partial implementation.
+The PRIVATE top panel now shows Grant-backed:
 
-### 5. Reply to the bot's successful edit acknowledgement can target the same Record again
+- available points;
+- active reservations;
+- historical customer-charged points;
+- platform-subsidized points;
+- the user's own Grant rows as scoped to the personal Source.
 
-LINE reply handling already extracts successful `sentMessages[].id` without coercing LINE's large message IDs through JavaScript `Number`.
+The UI explicitly states that manual create/edit/search remains free and does not consume AI points.
 
-This run extended the existing bounded bot-message-id -> Record persistence from `RECORDED` acknowledgements to successful `EDITED` acknowledgements for both GROUP and PRIVATE flows.
+### 5. Transitional `/api/v1/worklog/usage/me` aggregate reader was removed
 
-Therefore users can Reply to either the original durable Record message identity or a later bot success acknowledgement, while resolution remains Source-scoped and deterministic. No content/author/latest-record guessing was added.
+`apps/api/src/worklog/routes.ts` no longer imports or constructs `DrizzleWorklogUsageRepository` / `WorklogUsageService`, and the compatibility `/usage/me` endpoint has been deleted.
 
-### 6. Fixed a critical Pending Confirmation bug for LINE AI edits
+The ordinary PWA route module is again data-only: manual Record access depends only on PRIVATE ownership or active GROUP membership, not subscription/quota state.
 
-The existing safe confirmation resolver still assumed every pending confirmation belonged to an AI-created Record whose `entity_id` was `NULL`.
+### 6. Subscription collapse was audited but not guessed
 
-That assumption is invalid for Reply AI edit: an existing Record normally already has a title. As a result, a paid/settled LINE edit that produced an ambiguous title could become `PENDING_CONFIRMATION` but could never be resolved and could be expired as if the Record were invalid.
+The remaining legacy aggregate quota is now isolated primarily in subscription lifecycle code:
 
-The confirmation repository now distinguishes two durable operations:
+- `subscription.ts` still defines old subscription entitlement and quota reservation contracts;
+- `drizzle-subscription.ts` still creates/reads `worklog_ai_quota_balances` and `worklog_ai_quota_reservations`;
+- `drizzle-subscription-safe.ts` still contains legacy settlement guards;
+- Admin manual plan assignment still constructs `WorklogSubscriptionService(new DrizzleWorklogSubscriptionRepository(...))`;
+- subscription plan/API field name `ai_allowance_units` remains transitional.
 
-- `CREATE_TITLE`: original unresolved AI-create title behavior;
-- `LINE_AI_EDIT`: already-paid Reply edit proposal.
+Provider execution itself is already Grant-only; these old paths are no longer the authority for text Gemini, attachment Gemini, GROUP funding, PRIVATE funding, or Reply AI edit.
 
-For `LINE_AI_EDIT`, eligibility requires:
-
-- same Source and Record;
-- Record still ACTIVE;
-- exact captured Record version;
-- current entity still equals the pre-provider `previousEntityId` snapshot;
-- linked `worklog_line_ai_edits` row is still `PENDING_CONFIRMATION` and points to this confirmation.
-
-### 7. Resolving a LINE AI edit confirmation applies the complete already-paid edit atomically
-
-When the user chooses an allowed existing title or confirms/creates a new title, the backend now applies the already-durable provider proposal without AI:
-
-- complete proposed Record text;
-- proposed `occurred_at`;
-- selected/new single Entity/title;
-- next Record version when fields actually change;
-- immutable `worklog_record_revisions` row with channel `LINE_AI_EDIT`;
-- optional confirmed Alias when applicable;
-- confirmation -> `CONFIRMED`;
-- linked line edit -> `SUCCEEDED` with applied version/entity.
-
-The Record, confirmation and line-edit rows are guarded together with PostgreSQL row locks/CTEs. If the Record changed before confirmation, the mutation is refused instead of overwriting newer manual/PWA work.
-
-A logically no-op confirmed edit does not manufacture a fake Record revision; it only terminalizes the already-paid edit state.
-
-### 8. Reject/expiry now terminalizes linked LINE edit state
-
-Rejecting a `LINE_AI_EDIT` confirmation leaves the Record unchanged and marks the linked edit terminal (`FAILED` with a confirmation-rejected reason). It does not refund/re-run the already-completed provider work and does not consume another AI point.
-
-When a LINE edit confirmation expires or becomes stale because the underlying Record changed, the confirmation is expired and the linked edit is also terminalized. This prevents an edit from remaining permanently `PENDING_CONFIRMATION` after its confirmation can no longer be applied.
-
-### 9. Confirmation API now exposes enough operation context for PWA follow-up
-
-Pending confirmation serialization now includes:
-
-- `operation` (`CREATE_TITLE` or `LINE_AI_EDIT`);
-- `proposedRawText` for a LINE edit proposal.
-
-The current PWA client safely ignores these extra fields, so backend behavior is complete, but the UI has not yet been enhanced to show an explicit current-vs-proposed content preview. That is a small remaining UX task, not a backend blocker.
-
-### Files changed this run
-
-- `apps/api/src/worklog/line-runtime.ts`
-- `apps/api/src/worklog/oa-runtime.ts`
-- `apps/api/src/index.ts`
-- `apps/api/src/worklog/confirmations.ts`
-- `apps/api/src/worklog/drizzle-confirmations-safe.ts`
-- `apps/api/src/worklog/confirmation-routes.ts`
-- `apps/api/src/worklog/group-webhook.ts`
-- `apps/api/src/worklog/oa-webhook.ts`
-- `docs/WORKLOG_REBUILD_PROGRESS.md`
+This run did **not** guess upgrade/downgrade/proration semantics while converting Admin plan assignment into `SUBSCRIPTION_PERIOD` Grants. Before collapsing that lifecycle, the implementation must preserve the accepted rule that each successful paid period creates an immutable/idempotent user-owned Grant, PRIVATE scope may be automatic, GROUP scopes stay explicit, and historical Grant amounts are never silently resized when plan pricing/config changes.
 
 ## Stable completed foundation from earlier batches
 
-Do not redo these unless an actual regression is found:
+Do not redo unless an actual regression is found:
 
-- Source + single Entity/title + Alias + Record + immutable Revision foundation;
-- old Customer/Project/Finance/Transaction/category/normalized-summary removed from customer Record core/UI/API;
+- Source + single Entity/title + Alias + Record + immutable Revision core;
+- Customer/Project/Finance/Transaction/category/normalized-summary removed from customer Record core/UI/API;
 - free manual PWA create/edit/search/title move/batch move/soft delete/recycle/restore/revision history;
-- GROUP manual authorization = active membership, not subscription or AI points;
-- GROUP Source exists independently from AI funding responsibility;
+- GROUP manual authorization = active membership, independent from subscription/AI points;
+- GROUP Source independent from AI funding responsibility;
 - old pending-group runtime/schema removed;
-- single-title/`occurred_at` Gemini create interpretation;
-- durable create Pending Confirmation and PWA resolution;
+- single-title/`occurred_at` Gemini CREATE interpretation;
+- durable CREATE Pending Confirmation and safe PWA resolution;
 - deterministic HISTORY -> Source-correct filtered PWA links;
-- obvious EDIT commands intercepted before Record creation;
-- deterministic same-Source Reply target resolver for Record LINE IDs and bounded bot-reply mappings;
+- deterministic same-Source Reply target resolution;
+- durable GROUP/PRIVATE Reply-targeted LINE AI EDIT provider pipeline;
+- LINE_AI_EDIT durable proposal, optimistic Record version guard and immutable Revision;
+- LINE_AI_EDIT Pending Confirmation choose-existing/create-title/reject/expiry/stale handling without second AI charge;
+- bot success-message -> Record Reply mapping;
 - FREE initial Grant = exactly 400,000 AI points once, idempotent, no refresh/expiry;
 - text and attachment provider execution use user-owned Grants/scopes/caps;
-- provider cost converts to customer points through the frozen output-price-equivalent rule;
-- customer balance never goes negative; overage becomes platform subsidy;
-- GROUP charged-user resolution uses `worklog_source_ai_responsibility`;
+- full provider cost -> frozen output-price-equivalent AI points;
+- customer balance floors at zero; provider overrun becomes platform subsidy;
+- GROUP charged-user resolution via `worklog_source_ai_responsibility`;
 - grant-backed GROUP funding/allocation PWA;
-- Admin customer/group usage reporting moved to grants/responsibility/provider-cost facts;
-- normalization reservation FK points to the grant-backed point reservation table;
-- Reply AI edit durable provider/settlement/mutation foundation and production runtime wiring.
+- grant-backed PRIVATE funding PWA;
+- Admin customer/group usage reporting based on grants/responsibility/provider-cost facts;
+- normalization reservation FK points to grant-backed point reservations.
 
-## Important transitional / blocking state
+## Remaining / blocking work
 
-### 1. PWA LINE-edit confirmation preview is not yet differentiated
+### 1. Collapse subscription aggregate quota into Grant lifecycle
 
-The API now returns `operation` and `proposedRawText`, but `apps/web/src/worklog-api.ts` / `WorklogRoot.tsx` still present every pending confirmation as a generic "AI needs a title" card showing only the current Record text.
+Highest-priority next implementation batch.
 
-Next UI pass should show, for `LINE_AI_EDIT`:
+Target behavior already defined by product policy:
 
-- current Record text;
-- proposed replacement text;
-- proposed occurred time;
-- proposed/new title choice;
-- clear wording that the provider call is already paid/durable and the confirmation will not call AI or charge again.
+- subscription is billing/lifecycle metadata, not an AI-balance table;
+- a successful paid subscription period creates one immutable/idempotent `SUBSCRIPTION_PERIOD` Grant with the Admin-confirmed included point count;
+- historical Grant point amounts are not resized if plan price/FX/model/margin configuration later changes;
+- PRIVATE scope may be provisioned automatically for the Grant owner;
+- GROUP scope is never implicitly granted and remains explicit through funding allocation;
+- provider eligibility/reservation/settlement remains entirely on `worklog_ai_point_reservations` + Grant scopes.
 
-Reject should be phrased as rejecting this AI edit proposal, not merely "skipping a title suggestion".
+Once all callers are migrated, remove:
 
-### 2. PRIVATE `/usage/me` remains an aggregate-quota compatibility reader
-
-`WorklogRoot.bootstrap()` still fetches `/api/v1/worklog/usage/me`, and `routes.ts` still imports `DrizzleWorklogUsageRepository` / `WorklogUsageService` for the transitional PRIVATE top summary.
-
-GROUP uses the new Source-scoped `GroupFunding` path and does not rely on this aggregate balance.
-
-Replace PRIVATE usage with a Grant-ledger customer summary/history before deleting the remaining aggregate usage reader.
-
-### 3. Legacy subscription aggregate quota implementation still exists
-
-Provider execution, Reply edit, GROUP funding PWA and Admin live customer usage no longer need it, but subscription/Admin plan lifecycle still contains old quota structures and methods.
-
-Remaining old structures include:
-
-- `schema-worklog-quota.ts`;
 - `worklog_ai_quota_balances`;
 - `worklog_ai_quota_reservations`;
-- old subscription reserve/commit/release interfaces;
-- compatibility usage fields/readers.
+- old subscription reserve/commit/release methods/types;
+- old aggregate usage service/repository if no non-legacy caller remains;
+- old Owner/quota compatibility enum names that can reintroduce the obsolete model.
 
-Subscription must become billing/lifecycle metadata only. A successful paid period should create an immutable idempotent `SUBSCRIPTION_PERIOD` Grant; provider eligibility must remain Grant-only.
+Do not invent upgrade/downgrade/proration/refund behavior that is not defined in product docs. Keep that separate from the straightforward "successful billing period -> immutable Grant" event.
 
-### 4. SUBSCRIPTION_PERIOD and TOP_UP provisioning are not fully wired
+### 2. TOP_UP Grant lifecycle remains unwired
 
-The Grant model supports them, but payment/subscription lifecycle still needs idempotent origin keys and actual provisioning. FREE is the only fully wired lifecycle Grant creator.
+The Grant model supports `TOP_UP`, but real payment/provider lifecycle is not yet enabled. When payment is wired, each successful purchase needs an idempotent external-origin key and immutable purchased-point Grant. Do not simulate a payment provider merely to complete schema work.
 
-PRIVATE scope may be provisioned automatically for the Grant owner. GROUP scopes must stay explicit and must never silently receive every user Grant.
+### 3. Plan billing representation remains transitional
 
-### 5. Plan billing type is still transitional
+Accepted commercial model:
 
-Product contract:
+- FREE = one-time launch grant;
+- PRO/TEAM = monthly subscription;
+- included paid points are explicitly persisted/confirmed by Admin.
 
-- FREE = `ONE_TIME`;
-- PRO/TEAM = `MONTHLY`.
+Schema/API still uses legacy `ai_allowance_units` naming and lacks a clean explicit billing-type representation. Clean this during subscription collapse without silently changing configured point values.
 
-The subscription plan schema still needs an explicit billing-type representation while aggregate quota is collapsed.
+### 4. Admin pricing/profitability analytics remain incomplete
 
-### 6. Some compatibility names remain in runtime contracts
+Still needed:
 
-The grant-backed collaboration adapter still maps new responsibility/grant failures into old enum names such as `OWNER_UNBOUND`, `OWNER_ABSENT`, and `AI_QUOTA_EXHAUSTED`, and exposes compatibility capability fields.
-
-These are no longer authoritative funding sources, but should be renamed/removed after subscription/quota collapse so old terminology cannot re-enter product logic.
-
-`line-record-edit.ts` also imports `WorklogAiUsageCommit` as a type from `subscription.ts`; move that neutral accounting type out of the subscription module during the same cleanup.
-
-### 7. Admin pricing/profitability analytics remain incomplete
-
-Provider cost, customer points and platform subsidy facts exist. Still needed:
-
-- display existing overview charged/subsidized metrics in Admin UI;
-- selectable-period average/median usage/cost;
-- utilization/exhaustion;
+- surface current overview charged/subsidized facts in Admin UI;
+- selectable today / 7d / 30d / current-billing-month periods;
+- average/median request/user/subscriber usage and provider cost;
+- allowance utilization/exhaustion;
 - FREE subsidy/conversion;
-- realized gross margin;
-- pricing recommendation calculator with explicit Admin-confirmed persisted points.
+- realized AI cost ratio/gross margin;
+- pricing recommendation calculator with explicit Admin-confirmed persisted included points;
+- breakdowns by plan, Grant source, model, operation/input type and PRIVATE/GROUP.
 
-### 8. Attachment operation classification remains generic
+### 5. Attachment operation classification remains generic
 
-Attachment settlement is Grant-correct, but stable per-operation tags still need cleanup before relying on operation-level profitability analytics.
+Attachment settlement is Grant-correct, but stable operation tags still need cleanup before operation-level profitability reporting is trustworthy.
 
-### 9. Drizzle baseline/snapshot are stale — deployment remains blocked
+### 6. Drizzle baseline/snapshot are stale — deployment remains blocked
 
 `drizzle/0000_worklog_baseline.sql`, `drizzle/meta/0000_snapshot.json`, and journal still describe obsolete pre-refactor structures and do not reliably represent the current Record/Grant/Reply-edit schema.
 
-Do **not** hand-fabricate the large Drizzle snapshot. Regenerate it from the actual TypeScript schema with a checked-out project toolchain, then run it against a fresh disposable PostgreSQL database.
+Do **not** hand-fabricate the large Drizzle snapshot. Regenerate from the actual TypeScript schema with a checked-out project toolchain, then apply against a fresh disposable PostgreSQL database.
 
-### 10. New PostgreSQL edit/confirmation SQL has not been runtime validated
+### 7. New PostgreSQL/Workers paths still need real runtime validation
 
-The new paths use PostgreSQL CTEs, row locks, optimistic version guards, grant reservations and exactly-once settlement. Static review is not runtime proof.
+Before deployment, execute locally/runtime (not GitHub Actions):
 
-Before any Workers deployment, explicitly validate:
+- TypeScript typecheck/build;
+- Vitest suites;
+- fresh disposable PostgreSQL migration;
+- Grant reservation/settlement/subsidy and concurrency tests;
+- manual CRUD/version/revision/delete/restore tests;
+- CREATE/HISTORY/Reply EDIT and both confirmation operation tests;
+- PRIVATE/GROUP funding authorization tests;
+- browser/PWA smoke;
+- LINE/Gemini runtime smoke as available;
+- then Workers deployment readiness checks from `WORKLOG_DEPLOYMENT.md`.
 
-- line edit begin/replay/idempotency;
-- provider-success durable state;
-- reservation commit/release/subsidy;
-- direct edit atomic Revision;
-- pending LINE edit confirmation choose-existing/create-title/reject/expiry/stale-record behavior;
-- bot-success Reply mapping;
-- concurrency around Record version and Grant scopes.
+## Next implementation target
 
-## Next implementation batch — highest priority
+Continue from this exact checkpoint and **do not redo PWA funding or LINE edit confirmation UX**.
 
-Continue from this exact checkpoint; do not reimplement the Reply edit provider pipeline.
-
-1. **Finish the small PWA confirmation UX gap.**
-   - type/parse `operation` and `proposedRawText`;
-   - show current vs proposed content/time for `LINE_AI_EDIT`;
-   - use edit-specific confirm/reject wording.
-
-2. **Replace PRIVATE `/usage/me` aggregate summary with Grant-ledger usage.**
-   - customer-visible PRIVATE available/reserved/used points from eligible owned Grants/scopes;
-   - preserve provider cost/usage history only where it is useful to the customer;
-   - stop bootstrap from depending on old quota balances.
-
-3. **Collapse subscription quota into Grant lifecycle.**
-   - add explicit billing type;
-   - paid period -> idempotent immutable `SUBSCRIPTION_PERIOD` Grant;
-   - remove aggregate reserve/commit/release paths and old quota schema/readers after callers are migrated;
-   - move neutral AI usage accounting types out of `subscription.ts`;
-   - rename remaining Owner/quota compatibility contract names after no caller needs them.
-
-4. **Wire TOP_UP Grant creation when the payment lifecycle is ready.**
-
-5. **Finish Admin pricing/profitability analytics.**
-
-6. **Regenerate migration baseline/snapshot and perform concentrated local/runtime validation.**
-   - typecheck/build/Vitest;
-   - disposable PostgreSQL migration and SQL/concurrency tests;
-   - browser/PWA flows;
-   - LINE Reply/create/edit/history smoke;
-   - Gemini runtime smoke;
-   - only then deploy to `workers.dev` according to deployment policy.
-
-## Rough remaining work
-
-Planning-only estimate from the current branch state:
-
-- core product/domain contract: essentially defined;
-- Reply-targeted provider edit: major implementation is now wired, with a small PWA confirmation-preview UX gap and unexecuted tests remaining;
-- major non-payment implementation before concentrated validation: roughly **2 substantial batches** (PRIVATE usage/grant cleanup, then subscription aggregate-quota collapse/terminology cleanup);
-- Admin analytics and payment/top-up are additional product/payment batches;
-- migration regeneration + real validation remains mandatory before deployment.
+1. Trace every remaining `WorklogSubscriptionService` / `DrizzleWorklogSubscriptionRepository` / old quota-table caller on this branch.
+2. Split subscription lifecycle from AI balance accounting.
+3. Implement only the deterministic successful-period -> immutable `SUBSCRIPTION_PERIOD` Grant path with a stable origin key and PRIVATE scope; keep GROUP scope explicit.
+4. Migrate Admin/manual plan-period assignment onto that lifecycle only where semantics are unambiguous.
+5. Remove old quota reserve/commit/release/schema once no runtime caller remains.
+6. Move neutral provider-usage accounting types out of `subscription.ts` if still referenced by LINE edit or other Grant-backed services.
+7. Then wire TOP_UP lifecycle if/when a real payment success boundary exists, finish Admin analytics, regenerate Drizzle baseline/snapshot and perform concentrated runtime validation.
 
 ## Validation status
 
-This run performed GitHub repository reads/writes and static cross-file review only.
+This run performed only static branch/document cross-file audit and GitHub source edits.
 
-No checked-out AFTERTRACE project/toolchain was available in the execution runtime. A direct local repository checkout was not available, so this run did **not** execute:
+**Not executed this run:** TypeScript typecheck, build, Vitest, PostgreSQL, Drizzle migration generation/apply, browser/PWA runtime, Cloudflare Worker runtime, LINE runtime, Gemini runtime, or deployment.
 
-- TypeScript typecheck;
-- build;
-- Vitest;
-- Drizzle generation/migration;
-- PostgreSQL SQL/concurrency validation;
-- browser/PWA runtime;
-- Cloudflare Worker runtime;
-- LINE webhook runtime;
-- Gemini runtime.
+Therefore no test/build/runtime result is claimed as passing.
 
-Therefore none of the new tests/code paths are claimed as passing yet.
+No GitHub Actions workflow was executed, dispatched, rerun, enabled, modified, or used as validation.
 
-No GitHub Actions were run, dispatched, rerun, enabled, modified, or otherwise triggered.
+## Deployment status
 
-The branch is an active refactor checkpoint and is **not deployment-ready** until the migration baseline/snapshot are regenerated and the current Grant/Reply-edit/confirmation SQL has been executed against disposable PostgreSQL with concentrated local/runtime validation.
+**NOT READY.** The main blockers are stale Drizzle baseline/snapshot and unvalidated PostgreSQL/Grant/edit SQL. Subscription aggregate-quota cleanup is also still incomplete.
+
+## Rough remaining work
+
+Planning-only estimate from current branch state:
+
+- core domain/manual PWA/LINE CREATE-HISTORY-EDIT/Grant funding behavior: largely implemented;
+- major non-payment implementation before concentrated validation: roughly **1–2 substantial batches**, dominated by subscription aggregate-quota collapse/terminology cleanup;
+- Admin profitability and real payment/TOP_UP remain additional batches;
+- migration regeneration plus real local/runtime validation is mandatory before deployment.
