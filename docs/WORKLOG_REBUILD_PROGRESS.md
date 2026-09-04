@@ -15,9 +15,9 @@ Read first every run, in this exact order:
 
 The latest documents above are the only product/development specification. Do not revive Customer/Project/Finance/Owner/aggregate-quota assumptions from legacy code, migrations, README history or old tests.
 
-## Current execution checkpoint — 2026-09-04 local validation green, runtime smoke pending
+## Current execution checkpoint — 2026-09-05 production Worker runtime smoke pending
 
-The prelaunch baseline rebuild, fresh PostgreSQL integrity stage, and complete local static/test/build validation are now green.
+The prelaunch baseline rebuild, fresh PostgreSQL integrity stage, and complete local static/test/build validation are green. The deployment path is now intentionally simplified to one production database variable: `DATABASE_URL` is used both as the Cloudflare Worker runtime database binding and by `worker-deploy.ps1` for deployment migration. `AFTERTRACE_PROD_DATABASE_URL` is retired. The deploy helper does not load repository `.env.local` itself; the operator must load the intended production environment before deployment.
 
 ## 已完成 / 已實際驗證
 
@@ -126,7 +126,8 @@ Do not mark the `release:preflight` wrapper itself as PASS until a real deployed
 - fresh PostgreSQL migration + Source/Grant integrity validation;
 - Source-scoped case-insensitive Entity/Alias uniqueness;
 - liveness/readiness + first-fresh-DB bootstrap mode;
-- Web/Admin Workers SPA fallback/deep-link checks.
+- Web/Admin Workers SPA fallback/deep-link checks;
+- deployment database environment simplified to a single `DATABASE_URL`.
 
 ## Remaining P0 before free/manual + AI-recording launch
 
