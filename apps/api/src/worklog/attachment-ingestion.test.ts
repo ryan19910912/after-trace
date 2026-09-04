@@ -147,6 +147,7 @@ describe('WorklogAttachmentIngestionService', () => {
     await expect(service.ingest(input)).resolves.toEqual({ status: 'RECORDED', recordId: 33, duplicate: false });
     expect(resolver.calls).toBe(1); expect(provider.calls).toBe(1); expect(aiPoints.reserveCalls).toBe(1); expect(aiPoints.commitCalls).toBe(1);
     expect(repo.saved?.usage.recordId).toBe(33);
+    expect(repo.saved?.usage.operation).toBe('IMAGE_RECORD_CREATE');
     expect(aiPoints.committedActualUnits).toEqual([75]);
   });
 
