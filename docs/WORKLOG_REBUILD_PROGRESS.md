@@ -15,140 +15,175 @@ Read first every run, in this order:
 
 The latest product/development documents above are the only product specification. Do not revive old Customer/Project/Finance/Owner/aggregate-quota assumptions from older code, migrations, or tests.
 
-## Current execution checkpoint — 2026-09-04 Admin profitability reporting batch
+## Current execution checkpoint — 2026-09-04 final stale-contract + migration fail-closed batch
 
-This interactive batch continued immediately from the provider-cost AI-point accounting checkpoint. It did not redo the already-completed Source/Record/PWA/LINE/Grant/subscription-period rebuild.
+This batch continued from the completed Admin profitability checkpoint. It did not redo the Source/Record/PWA/LINE CREATE-HISTORY-EDIT/Grant/subscription-period/profitability implementations.
 
-The main new result is the first end-to-end **factual Admin AI profitability/cost reporting workflow**:
+The main result is that the remaining known provider naming and concrete prelaunch stale-contract debt was removed from the execution paths that were traced, and migration/deployment is now explicitly fail-closed while the checked-in Drizzle baseline is stale.
 
-- selectable `TODAY`, `7D`, `30D`, and `BILLING_MONTH` periods;
-- total AI request count and distinct charged users;
-- customer-charged AI points and platform-subsidized points;
-- immutable provider cost in USD and TWD where the historical pricing snapshot contained a TWD conversion;
-- platform-subsidy provider cost in USD/TWD;
-- average points and provider cost per request / charged user;
-- breakdowns by model, AI operation, and PRIVATE/GROUP Source type;
-- exact charged-point attribution by Grant type through `worklog_ai_usage_funding`;
-- current Grant inventory/exhaustion by Grant type;
-- explicit missing-TWD-cost request counts so unavailable historical FX conversion is not silently presented as zero cost;
-- realized revenue, AI cost ratio, and gross margin remain `null` because AFTERTRACE does not yet have a durable successful-payment revenue ledger. Plan list price and checkout intent status are deliberately not treated as realized revenue.
+Key changes:
 
-The report is Admin-only, protected by the existing Admin session/origin boundary, and is mounted under `/api/v1/admin/profitability` before the general Admin route catch-all.
-
-An Admin Web page is also implemented at `/profitability`. It reuses the existing `aftertrace.admin.session`, provides the four period choices, surfaces summary metrics and breakdown tables, warns when TWD cost coverage is incomplete, and states clearly that revenue/margin are unavailable until a real successful-payment ledger exists.
+- TEXT, attachment and Reply-targeted LINE AI EDIT provider contracts now call the conservative customer hold estimate `reservationPoints(...)`, not `reservationUnits(...)`;
+- factual provider modality measurements `audioInputUnits` / `imageInputUnits` remain unchanged because they are provider usage facts, not customer AI points;
+- the remaining LINE EDIT repository `WorklogAiUsageCommit` import now comes directly from `ai-provider-usage.ts`; `subscription.ts` no longer re-exports provider usage accounting;
+- a stale webhook branch that still checked the retired `OWNER_BOUND` status was fixed to `AI_RESPONSIBILITY_BOUND`, and its counter is now `worklogAiResponsibilityClaims`;
+- `worklog_source_members.recording_enabled` / recording updater timestamps/index were removed after tracing current manual GROUP authorization, LINE command handling, AI responsibility authorization, Grant authorization and Admin reporting and finding no accepted product behavior that reads them;
+- `drizzle.config.ts` now uses `apps/api/src/db/schema-all.ts` as the single authoritative schema export instead of listing deleted/partial legacy schema modules;
+- the checked-in `0000_worklog_baseline.sql` was confirmed to be concretely obsolete: it still contains Customer/Project/category/Transaction/pre-Grant reservation/`ai_units_consumed` structures;
+- a new `pnpm db:baseline:guard` checks the baseline SQL, Drizzle snapshot and journal together and blocks known legacy markers or missing accepted core tables/accounting facts;
+- `worker-deploy.ps1` runs the baseline guard before schema checks/migration, so the currently stale migration set cannot be silently applied through the production helper;
+- API/Web/Admin deployment helpers no longer hard-code one `workers.dev` account subdomain; they require `AFTERTRACE_API_URL` or an explicit URL argument;
+- deployment documentation now states that the current checked-in baseline/snapshot are known stale and MUST NOT be applied until regenerated from `schema-all.ts` with the real toolchain.
 
 ## Scanned this run
 
-- all required durable product/development/deployment documents;
-- latest progress checkpoint and current `revive/line-worklog` branch;
-- provider-cost/AI-point usage contract and durable replay paths from the prior checkpoint;
-- `apps/api/src/admin/repository.ts` and `grant-repository.ts`;
-- AI usage / Grant / checkout / Source Drizzle schemas;
-- Admin auth/presentation/routes and Worker route dispatch;
-- Admin Web API client and application entrypoint;
-- current payment/checkout state to verify that no durable successful-payment revenue fact exists yet.
+- all eight required durable product/development/deployment/progress documents;
+- current `revive/line-worklog` branch state;
+- TEXT normalization provider interface/service, Gemini implementation and related tests;
+- attachment provider interface/service, Gemini implementation and ingestion tests;
+- Reply-targeted LINE AI EDIT provider/service/repository imports and durable replay path;
+- AI point ledger and Drizzle ledger imports;
+- transitional `subscription.ts` compatibility barrel and usage domain;
+- GROUP collaboration/manual membership authorization;
+- bootstrap Source/member lifecycle;
+- GROUP AI responsibility service + Drizzle authorization;
+- LINE runtime and group webhook result/counter handling;
+- customer Worklog routes for recording-state use;
+- Admin base/grant repositories for recording-state use;
+- Source/member and Record-core Drizzle schemas;
+- `schema-all.ts` authoritative export surface and `drizzle.config.ts`;
+- current `0000_worklog_baseline.sql`, `0000_snapshot.json` and journal metadata;
+- API/Web/Admin deployment helpers and root package scripts/config example.
 
-The scan reconfirmed that `worklog_checkout_intents` is an intent/provider-handoff table, not an accounting revenue ledger. Therefore profitability reporting must not infer revenue from `COMPLETED`, plan price, or current subscription rows until payment success facts and amounts are durably persisted under an approved payment lifecycle.
+The targeted recording-state audit confirmed current behavior is driven by explicit Worklog command/Reply intent plus Source membership, AI responsibility and eligible Grants. The removed recording preference was not part of free manual PWA authorization and was not read by the traced AI responsibility/runtime/Admin paths.
 
 ## Files changed this run
 
-Provider-cost point cleanup carried into this same interactive run:
+Provider/accounting naming and direct-import cleanup:
 
-- `apps/api/src/worklog/ai-provider-usage.ts`
-- `apps/api/src/worklog/ai-point-ledger.ts`
 - `apps/api/src/worklog/text-normalization.ts`
+- `apps/api/src/worklog/gemini-text-normalizer.ts`
 - `apps/api/src/worklog/attachment-ingestion.ts`
+- `apps/api/src/worklog/gemini-attachment-normalizer.ts`
 - `apps/api/src/worklog/line-record-edit.ts`
-- `apps/api/src/worklog/drizzle-text-normalization.ts`
-- `apps/api/src/worklog/drizzle-attachment-ingestion.ts`
-- `apps/api/src/worklog/ai-point-ledger.test.ts`
+- `apps/api/src/worklog/gemini-line-record-editor.ts`
+- `apps/api/src/worklog/drizzle-line-record-edit.ts`
 - `apps/api/src/worklog/text-normalization.test.ts`
-- `apps/api/src/worklog/attachment-ingestion.test.ts`
 - `apps/api/src/worklog/text-normalization-persistence.test.ts`
+- `apps/api/src/worklog/attachment-ingestion.test.ts`
+- `apps/api/src/worklog/subscription.ts`
 
-Admin profitability batch:
+Stale Owner/recording cleanup:
 
-- `apps/api/src/admin/profitability.ts` — new factual reporting repository/window contract
-- `apps/api/src/admin/profitability.test.ts` — period/window tests
-- `apps/api/src/admin/profitability-routes.ts` — new read-only authenticated Admin endpoint
-- `apps/api/src/admin/profitability-routes.test.ts` — auth/origin/period validation tests
-- `apps/api/src/worker.ts` — mounts profitability route before general Admin route
-- `apps/admin/src/api.ts` — profitability API types/client
-- `apps/admin/src/profitability-api.test.ts` — client URL/bearer/response contract
-- `apps/admin/src/ProfitabilityPage.tsx` — selectable factual report UI
-- `apps/admin/src/main.tsx` — routes `/profitability` to the report page
+- `apps/api/src/worklog/group-webhook.ts`
+- `apps/api/src/worklog/group-webhook-ai-responsibility.test.ts` — new focused source test
+- `apps/api/src/worklog/drizzle-bootstrap.ts`
+- `apps/api/src/db/schema-worklog.ts`
+
+Migration/deployment readiness guard:
+
+- `drizzle.config.ts`
+- `scripts/check-worklog-baseline.mjs` — new
+- `package.json`
+- `worker-deploy.ps1`
+- `web-worker-deploy.ps1`
+- `admin-worker-deploy.ps1`
+- `.env.example`
+- `docs/WORKLOG_DEPLOYMENT.md`
 - `docs/WORKLOG_REBUILD_PROGRESS.md`
 
 ## Completed / confirmed this run
 
-### 1. Provider usage and customer point accounting remain one coherent contract
+### 1. Provider preflight naming now matches the customer accounting domain
 
-The preceding sub-batch in this same interactive run completed:
+The traced TEXT, attachment and LINE EDIT provider contracts/implementations now expose `reservationPoints(...)`.
 
-- `WorklogAiUsageCommit.actualUnits` removal;
-- `requestedUnits -> requestedPoints` on the Grant-backed point hold API;
-- TEXT CREATE / attachment / LINE EDIT new provider-result JSON no longer writes `actualUnits`;
-- TEXT and attachment replay no longer require `actualUnits`;
-- customer charge remains authoritative only as `worklog_ai_usage_events.customer_points_charged`;
-- provider overrun remains separate `platform_subsidized_points`/cost;
-- provider modality measurements `audioInputUnits` / `imageInputUnits` remain factual provider usage and are intentionally not renamed as customer points.
+This value is only a conservative preflight hold estimate. Actual successful customer consumption remains derived from the immutable provider-cost/pricing snapshot and settled into `customer_points_charged`; provider overrun remains platform subsidy.
 
-Do not reintroduce an aggregate or duplicated "AI units consumed" fact.
+Do not rename `audioInputUnits` or `imageInputUnits` to points. Those fields are provider modality usage subsets and are deliberately separate from customer accounting.
 
-### 2. Factual period reporting is implemented
+The old text reservation token-upper-bound helper remains named in token/upper-bound vocabulary because it describes provider/request estimation internals, not customer balance.
 
-`DrizzleAdminProfitabilityRepository` supports:
+### 2. Provider usage no longer belongs to the subscription compatibility barrel
 
-- `TODAY`: current Asia/Taipei calendar day;
-- `7D`: trailing 7 × 24 hours;
-- `30D`: trailing 30 × 24 hours;
-- `BILLING_MONTH`: platform-level current Asia/Taipei calendar month for this aggregate report.
+`subscription.ts` now exposes subscription-period lifecycle only. `WorklogAiUsageCommit` is imported directly from `ai-provider-usage.ts` in the traced execution/replay repositories, including LINE EDIT.
 
-The platform report cannot use one user's subscription anniversary as a global period. If a future per-subscriber cohort report needs subscription-period boundaries, implement that as a separate cohort view rather than silently changing this aggregate period.
+Do not add quota, provider usage, group collaboration or point reservation semantics back into `subscription.ts`.
 
-### 3. Revenue is deliberately not synthesized
+### 3. Stale `OWNER_BOUND` webhook behavior was fixed
 
-The report returns:
+`line-runtime.ts` already returned `AI_RESPONSIBILITY_BOUND`, but `group-webhook.ts` still checked the retired `OWNER_BOUND` result and counted `worklogOwnerClaims`.
 
-- `revenueTwd = null`;
-- `realizedAiCostRatio = null`;
-- `realizedGrossMargin = null`;
-- `revenueStatus = UNAVAILABLE_NO_SUCCESSFUL_PAYMENT_FACT`.
+The webhook now handles `AI_RESPONSIBILITY_BOUND` and increments `worklogAiResponsibilityClaims`. A focused test source was added for this contract.
 
-This is intentional and required by the pricing policy. Current tables do not contain a trustworthy successful-payment amount ledger. Do not multiply subscriber counts by plan price and call it revenue.
+This was a concrete stale runtime contract, not merely terminology cleanup.
 
-When a payment provider is implemented, successful charge/renewal/top-up payment events should persist immutable external payment identity, successful amount/currency, provider/fee facts where available, timestamps, refund state and idempotency identity. Only then should this report calculate realized revenue/margin.
+### 4. Retired GROUP recording preference was removed after tracing runtime use
 
-### 4. TWD cost completeness is explicit
+The following member fields/index were removed from the current TypeScript schema:
 
-`provider_cost_twd` and subsidy TWD cost may be NULL for historical events without a stored USD/TWD rate. The report therefore exposes:
+- `recording_enabled`;
+- `recording_updated_by_user_id`;
+- `recording_updated_at`;
+- the recording-oriented member index.
 
-- `missingProviderCostTwdRequests`;
-- `missingSubsidyCostTwdRequests`;
-- per-breakdown `missingProviderCostTwdRequests`.
+Bootstrap no longer writes a default `recording_enabled = TRUE` value.
 
-The Admin page warns when these values are non-zero. USD provider cost remains the primary complete provider-cost fact. Do not interpret a missing TWD conversion as known zero cost.
+Current accepted boundaries remain:
 
-### 5. Report is Admin-only and read-only
+- manual GROUP data access = active Source membership;
+- LINE AI work = explicit Worklog command/Reply flow;
+- GROUP AI funding = current AI 額度負責人 + active membership + eligible user-owned Grant/scope;
+- no legacy Owner/recording toggle is a data-access or AI-funding authority.
 
-The new route:
+### 5. Drizzle generation source was corrected before baseline regeneration
 
-`GET /api/v1/admin/profitability?period=TODAY|7D|30D|BILLING_MONTH`
+The old `drizzle.config.ts` listed stale/deleted `schema-worklog-quota.ts` / `schema-worklog-bootstrap.ts` paths and omitted current split Record/Grant/LINE schema modules.
 
-uses the existing Admin HMAC bearer session and Admin Web origin restriction. Unsupported periods fail before persistence access. The route has no mutation surface and does not expose provider cost to normal customer PWA APIs.
+It now points only to:
 
-### 6. Admin Web report surface is implemented
+`apps/api/src/db/schema-all.ts`
 
-`/profitability`:
+This must remain the authoritative Drizzle export surface so future schema splits cannot silently disappear from generated migrations.
 
-- reuses the existing Admin session stored in `sessionStorage`;
-- checks `/session` before report loading;
-- allows period switching;
-- displays request/point/cost/user averages;
-- displays model / operation / PRIVATE-GROUP breakdown tables;
-- displays Grant-type charged points and Grant inventory;
-- warns about incomplete TWD conversion coverage;
-- explicitly explains that revenue/margin are unavailable until successful-payment facts exist.
+### 6. The current baseline is explicitly known stale, not merely suspected stale
+
+The checked-in `drizzle/0000_worklog_baseline.sql` still contains concrete retired structures including:
+
+- `worklog_customers`;
+- `worklog_projects` / project enum;
+- `worklog_record_category`;
+- Transaction enum/table assumptions;
+- old `worklog_ai_reservation_status`;
+- `worklog_ai_usage_events.ai_units_consumed`;
+- legacy Record Customer/Project/workspace-shaped columns.
+
+It therefore MUST NOT be applied to a database for the rebuilt product.
+
+Do not hand-edit the SQL/snapshot to fake convergence. Regenerate all baseline metadata together from the final TypeScript schema with the real Drizzle toolchain.
+
+### 7. Migration/deployment is fail-closed while artifacts are stale
+
+New root command:
+
+`pnpm db:baseline:guard`
+
+checks both:
+
+- `drizzle/0000_worklog_baseline.sql`;
+- `drizzle/meta/0000_snapshot.json`;
+
+for forbidden legacy markers and required accepted schema markers, and checks the prelaunch journal shape/tag as well.
+
+The API deployment helper runs this guard before the migration command. The current stale baseline is expected to be rejected until proper regeneration occurs.
+
+The guard itself was authored/reviewed statically in this environment; it has not been executed here.
+
+### 8. Deployment URLs no longer embed an old Cloudflare account
+
+`worker-deploy.ps1`, `web-worker-deploy.ps1` and `admin-worker-deploy.ps1` now require the actual API Worker origin through `AFTERTRACE_API_URL` or explicit script arguments rather than defaulting to one historical `workers.dev` account hostname.
+
+`.env.example` and `WORKLOG_DEPLOYMENT.md` document this deployment-time input.
 
 ## Stable completed foundation from earlier batches
 
@@ -180,111 +215,119 @@ Do not redo unless an actual regression is found:
 - persisted `worklog_ai_usage_events.ai_units_consumed` removed from current source and executable settlement SQL;
 - provider durable usage JSON no longer contains/requires `actualUnits`;
 - Admin user/group reporting based on Grants/responsibility/provider-cost facts;
+- factual Admin profitability API/client/page for TODAY/7D/30D/BILLING_MONTH without synthetic revenue;
 - attachment operations use deterministic `AUDIO_RECORD_CREATE` / `IMAGE_RECORD_CREATE` / `FILE_RECORD_CREATE`;
 - retired `groupCollaboration`, `maxGroupCount`, aggregate entitlement/quota helper contracts removed from current entitlement/collaboration paths.
 
 ## Remaining / blocking work
 
-### 1. Small provider naming/direct-import cleanup
+### 1. Regenerate the final prelaunch Drizzle baseline/snapshot/journal — primary blocker
 
-Provider interfaces/implementations still use the internal method name `reservationUnits(...)` although they already return an AI-point hold estimate. This is naming-only, not an alternate accounting path.
+Use a real checked-out copy of the latest branch and the project-pinned pnpm/Drizzle toolchain.
 
-When cleaning it, rename coherently across TEXT, attachment and LINE EDIT provider interfaces/implementations/tests, e.g. `reservationPoints(...)` or another clearly point-specific name. Do not rename `audioInputUnits` / `imageInputUnits`.
+Required outcome:
 
-Also remove remaining `WorklogAiUsageCommit` imports through the transitional `subscription.ts` compatibility barrel when a touched file can safely import `ai-provider-usage.ts` directly.
+- destructively replace the stale prelaunch baseline/snapshot/journal with artifacts generated from `apps/api/src/db/schema-all.ts`;
+- keep one coherent prelaunch baseline entry;
+- `pnpm db:baseline:guard` passes;
+- no Customer/Project/Transaction/category/aggregate-quota/recording compatibility is reintroduced merely to preserve empty databases.
 
-### 2. Focused stale-contract audit before schema regeneration
+Do not manufacture the large snapshot by hand.
 
-Continue checking peripheral files/tests for concrete remnants of:
+### 2. Apply to a fresh disposable PostgreSQL database and fix real SQL/schema mismatches
 
-- Source Owner / owner binding as product authority;
-- `subscription_owner_user_id`;
-- aggregate quota/allowance as live customer balance;
-- `groupCollaboration` / `maxGroupCount`;
-- old Owner-controlled group recording authorization;
-- Customer/Project/Transaction/category/normalized-summary Record assumptions;
-- stale aggregate quota reservation fixtures.
+After regeneration:
 
-Do not remove generic anomaly/audit `category` or `summary` fields; those are unrelated.
+- apply the migration from an empty database;
+- compare generated/exported schema to the TypeScript schema;
+- fix actual FK/type/index/check/name mismatches;
+- exercise Grant reservation/settlement/concurrency SQL and Record revision/confirmation SQL against PostgreSQL.
 
-`worklog_workspaces.owner_user_id` remains a technical storage/bootstrap parent only. Do not treat it as product Owner/payment responsibility/AI 額度負責人. Removing the workspace parent is a coordinated later schema migration, not required to preserve current Source/member/Grant semantics.
+Only database execution can validate these SQL paths.
 
-`worklog_source_members.recording_enabled` still exists as an AI-path member preference. It is not used for free manual PWA authorization. Trace its runtime use before deciding whether it is obsolete; do not delete it by assumption.
+### 3. Real TypeScript/test/build/runtime validation remains mandatory
 
-### 3. Profitability reporting follow-ups that need additional factual domains
+Run locally/runtime, not GitHub Actions:
 
-The new report covers current immutable AI usage/Grant facts. The following policy metrics cannot be completed truthfully yet without additional durable facts or an approved definition:
-
-- realized revenue / gross margin / payment fee cost;
-- FREE-to-paid conversion based on successful payment, not subscription/admin assignment alone;
-- top-up realized margin;
-- refunds/proration impact;
-- cohort monthly median per subscriber tied to actual successful billing periods.
-
-Do not invent these from plan price or current subscription state.
-
-### 4. TOP_UP/payment lifecycle remains separate/unwired
-
-The Grant model supports `TOP_UP`, but no successful payment-provider boundary exists yet. A future successful purchase must create one immutable/idempotent TOP_UP Grant keyed by external purchase identity.
-
-Undefined mid-period upgrade/downgrade/refund/proration behavior continues to fail closed until product policy explicitly defines it.
-
-### 5. Drizzle baseline/snapshot are stale — deployment remains blocked
-
-`drizzle/0000_worklog_baseline.sql`, `drizzle/meta/0000_snapshot.json`, and `_journal.json` do not represent the current TypeScript schema. The obsolete baseline still contains legacy domain/accounting structures from before the rebuild.
-
-Do not hand-fabricate the large Drizzle snapshot. Regenerate from a checked-out current branch with the actual project toolchain, then apply the resulting baseline to a fresh disposable PostgreSQL database.
-
-### 6. Real runtime validation is mandatory
-
-Before deployment execute locally/runtime, not GitHub Actions:
-
-- TypeScript typecheck/build for API/Web/Admin;
-- Vitest for point ledger, text normalization/replay uncertainty, attachment ingestion, LINE EDIT, manual Record domain, subscription-period Grants, Admin profitability periods/routes/client;
-- fresh disposable PostgreSQL migration and schema drift check;
-- Grant reservation/settlement/subsidy/concurrency tests;
-- manual CRUD/version/revision/delete/restore tests;
-- CREATE/HISTORY/Reply EDIT and both confirmation-operation tests;
-- PRIVATE/GROUP funding authorization tests;
+- API/Web/Admin TypeScript typecheck;
+- lint/build;
+- Vitest, including point ledger, text normalization/replay uncertainty, attachment ingestion, LINE EDIT, group webhook AI-responsibility counter, subscription-period Grants and Admin profitability;
+- customer PWA CRUD/version/revision/delete/restore and GROUP membership authorization;
+- PRIVATE/GROUP Grant funding flows;
 - Admin `/profitability` browser smoke;
-- customer PWA browser smoke;
-- LINE/Gemini runtime smoke as available;
-- Workers deployment-readiness checks from `WORKLOG_DEPLOYMENT.md`.
+- LINE CREATE/HISTORY/Reply EDIT + confirmation flows;
+- Gemini/provider usage/pricing snapshots;
+- Cloudflare Worker dry-run/runtime readiness.
+
+### 4. Peripheral stale-contract audit becomes validation-driven
+
+The major known provider/Owner/recording/migration-config remnants found by static tracing are now cleaned.
+
+Do not spend another broad speculative pass deleting fields by name. Let TypeScript, generated schema, PostgreSQL and targeted runtime tests expose concrete remaining references. If a real stale contract appears, remove it then.
+
+`worklog_workspaces.owner_user_id` intentionally remains a technical storage/bootstrap parent while `workspace_id` still exists in audit/provider/bootstrap structures. It is not GROUP authorization, payment responsibility or AI 額度負責人 authority. Removing it requires a coordinated later storage-schema migration and is not a launch blocker for current Source/member/Grant semantics.
+
+### 5. Payment/TOP_UP lifecycle remains separate and undefined where product policy is not approved
+
+The Grant model supports `TOP_UP`, but there is still no successful payment-provider accounting boundary.
+
+Do not synthesize realized revenue, payment fees, refunds, proration, upgrade/downgrade rules or top-up margin from plan list price/current subscription state. These remain separate payment/product work unless launch scope explicitly requires them.
 
 ## Next implementation target
 
-Continue from this exact checkpoint. Do not redo the Admin profitability repository/route/client/page, `actualUnits` removal, `requestedPoints` conversion, subscription-period Grant creation, PWA funding, or LINE edit confirmation UX.
+Continue from this exact checkpoint. Do not redo provider naming, recording-state deletion, Owner webhook status cleanup, Admin profitability, point accounting, PWA funding or completed Record/LINE behavior.
 
-1. Do one final focused provider/stale-contract cleanup (`reservationUnits` naming + safe direct imports + concrete obsolete remnants only).
-2. Obtain/use a real checked-out project toolchain; regenerate the prelaunch Drizzle baseline/snapshot/journal from the final TypeScript schema.
-3. Apply to a fresh disposable PostgreSQL database and fix every real schema/SQL mismatch found.
-4. Run API/Web/Admin typecheck/build and targeted/full Vitest locally/runtime.
-5. Run browser/Worker/LINE/Gemini smoke as available. Only after these checks should workers.dev deployment readiness be reconsidered.
+1. Obtain/use a real checked-out latest branch with the pinned project toolchain.
+2. Regenerate `drizzle/0000_worklog_baseline.sql`, `drizzle/meta/0000_snapshot.json`, and `_journal.json` together from `schema-all.ts`.
+3. Run `pnpm db:baseline:guard` and fix regeneration/config issues until it passes.
+4. Apply the baseline to a fresh disposable PostgreSQL database; fix every real schema/SQL mismatch.
+5. Run API/Web/Admin typecheck, lint/build and targeted/full Vitest locally/runtime.
+6. Run browser/Worker/LINE/Gemini smoke as available. Only after these checks should workers.dev deployment readiness be reconsidered.
 
 ## Validation status
 
-This batch performed static branch/document cross-file audit and GitHub source edits only.
+This batch performed static branch/document cross-file audit and direct GitHub source edits only.
 
-Test files were authored/updated, but **none were executed** in this environment.
+Test source was added/updated, but **no test was executed in this environment**.
 
-**Not executed:** TypeScript typecheck, build, Vitest, PostgreSQL, Drizzle generation/apply, browser/PWA/Admin runtime, Cloudflare Worker runtime, LINE runtime, Gemini runtime, or deployment.
+A direct local Git checkout/clone attempt could not resolve `github.com`, so a real checked-out project/toolchain was unavailable for this run. That prevented honest execution of pnpm, TypeScript, Vitest, Drizzle generation, PostgreSQL migration and Worker/browser runtime checks.
 
-Therefore no test/build/runtime result is claimed as passing.
+**Not executed:**
 
-A local checked-out project/toolchain is still unavailable in this execution environment; earlier direct GitHub clone/network resolution failed. This limitation was not substituted with GitHub Actions.
+- `pnpm db:baseline:guard`;
+- TypeScript typecheck;
+- lint/build;
+- Vitest;
+- Drizzle generation/export/migrate;
+- PostgreSQL;
+- browser/PWA/Admin runtime;
+- Cloudflare Worker runtime/deploy;
+- LINE runtime;
+- Gemini runtime.
+
+Therefore no test/build/migration/runtime result is claimed as passing.
 
 No GitHub Actions workflow was executed, dispatched, rerun, enabled, modified, or used as validation.
 
 ## Deployment status
 
-**NOT READY.** Product/domain/manual PWA/LINE AI/Grant/subscription-period and the first factual Admin profitability surface are largely implemented. Main blockers are now the stale Drizzle baseline/snapshot and lack of actual PostgreSQL/typecheck/Vitest/runtime validation, plus one small stale-contract/provider naming cleanup pass before regeneration.
+**NOT READY.**
+
+Core non-payment product implementation and the first factual Admin profitability surface are largely implemented, and the previously known small provider/stale-contract cleanup is now substantially closed.
+
+The primary blockers are now explicit and operational:
+
+1. regenerate the known-stale Drizzle baseline/snapshot/journal from the authoritative schema;
+2. apply/validate on fresh PostgreSQL;
+3. run real typecheck/test/build/browser/Worker/LINE/Gemini validation.
+
+The production API helper now intentionally fails closed on a stale/inconsistent baseline instead of applying it.
 
 ## Rough remaining work
 
-Planning-only estimate from the current branch state:
+Planning-only estimate from current branch state:
 
-- core non-payment product implementation: largely implemented;
-- provider naming + final stale-contract cleanup: **small focused batch**;
-- Drizzle regeneration + disposable PostgreSQL fixes: **1 mandatory schema batch**;
-- API/Web/Admin typecheck/Vitest/browser/Worker/LINE/Gemini validation: **1 mandatory validation batch**;
-- real payment/TOP_UP plus undefined proration/refund policy remain separate payment/product work unless launch scope explicitly requires them.
+- core non-payment product/source cleanup: **largely implemented; major known stale-contract cleanup completed**;
+- Drizzle regeneration + disposable PostgreSQL mismatch fixes: **1 mandatory schema/database batch**;
+- API/Web/Admin typecheck/Vitest/browser/Worker/LINE/Gemini validation and fixes found there: **1 mandatory validation batch, possibly more if runtime exposes defects**;
+- real payment/TOP_UP plus undefined proration/refund/payment accounting policy: **separate product/payment work** unless launch scope explicitly requires it.
