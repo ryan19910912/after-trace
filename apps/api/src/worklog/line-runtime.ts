@@ -12,7 +12,7 @@ import type {
   WorklogReplyEditTargetResolution,
   WorklogTextRecordWriteResult,
 } from './records';
-import type { WorklogTextNormalizationService } from './text-normalization';
+import type { WorklogTextNormalizationResult, WorklogTextNormalizationService } from './text-normalization';
 
 export interface WorklogLineBootstrapPort {
   bootstrapGroupInteraction(input: {
@@ -228,9 +228,6 @@ export class WorklogLineRuntime {
         };
       }
 
-      // Resolve the deterministic same-Source target before checking AI funding.
-      // The edit service then performs its own positive Grant reservation immediately
-      // before provider execution so no provider call can start on a zero balance.
       const funding = await this.collaboration.authorizeGroupAi({
         sourceId: group.sourceId,
         actorUserId: group.userId,
@@ -250,9 +247,6 @@ export class WorklogLineRuntime {
       return lineEditResult(target.record.id, edited);
     }
 
-    // CREATE / attachment are AI-assisted LINE operations. Manual PWA CRUD/history
-    // never passes through this check. Positive eligible scoped Grant balance is the
-    // only customer AI allowance gate at this layer.
     const authorization = await this.collaboration.authorizeGroupAi({
       sourceId: group.sourceId,
       actorUserId: group.userId,
@@ -328,21 +322,21 @@ export class WorklogLineRuntime {
     createdReplyText: string,
   ): Promise<WorklogLineRuntimeResult> {
     if (write.status === 'CREATED') {
-      await this.normalizeBestEffort(write.recordId, message);
+      const normalization = await this.normalizeBestEffort(write.recordId, message);
       return {
         status: 'RECORDED',
         recordId: write.recordId,
         duplicate: false,
-        replyText: createdReplyText,
+        replyText: normalizationReplyText(normalization, createdReplyText),
       };
     }
     if (write.status === 'ALREADY_RECORDED') {
-      await this.normalizeBestEffort(write.recordId, message);
+      const normalization = await this.normalizeBestEffort(write.recordId, message);
       return {
         status: 'RECORDED',
         recordId: write.recordId,
         duplicate: true,
-        replyText: '這則訊息已經記錄過了。',
+        replyText: normalizationReplyText(normalization, '這則訊息已經記錄過了。'),
       };
     }
     if (write.status === 'IDEMPOTENCY_CONFLICT') {
@@ -379,10 +373,13 @@ export class WorklogLineRuntime {
     }
   }
 
-  private async normalizeBestEffort(recordId: number, message: BufferedGroupMessage): Promise<void> {
-    if (!this.textNormalization) return;
+  private async normalizeBestEffort(
+    recordId: number,
+    message: BufferedGroupMessage,
+  ): Promise<WorklogTextNormalizationResult | null> {
+    if (!this.textNormalization) return null;
     try {
-      await this.textNormalization.normalizeText(recordId);
+      return await this.textNormalization.normalizeText(recordId);
     } catch (error) {
       console.error(JSON.stringify({
         event: 'worklog_text_normalization_failed_after_persist',
@@ -392,8 +389,23 @@ export class WorklogLineRuntime {
         lineMessageId: message.lineMessageId,
         message: error instanceof Error ? error.message : 'unknown error',
       }));
+      return null;
     }
   }
+}
+
+function normalizationReplyText(
+  result: WorklogTextNormalizationResult | null,
+  successText: string,
+): string {
+  if (result?.status === 'NORMALIZED' || result?.status === 'ALREADY_NORMALIZED') return successText;
+  if (result?.status === 'PENDING_CONFIRMATION') {
+    return '原文已保存，AI 需要你確認紀錄標題。請到 AFTERTRACE 完成確認；不會再扣第二次 AI 點數。';
+  }
+  if (result?.status === 'IN_PROGRESS') {
+    return '原文已保存，AI 標題正在安全處理中，請稍後到 AFTERTRACE 查看。';
+  }
+  return '原文已保存，但 AI 標題目前尚未完成。請到 AFTERTRACE 查看或手動整理；原始紀錄不會遺失。';
 }
 
 function replyEditTargetFailure(
