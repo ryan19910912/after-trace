@@ -53,6 +53,8 @@ const required = [
   ['worklog_line_ai_edit_source_record_fk', 'LINE AI edit target Record must belong to the same Source'],
   ['worklog_line_ai_edit_source_confirmation_fk', 'LINE AI edit confirmation must belong to the same Source'],
   ['worklog_line_ai_edit_source_entity_fk', 'LINE AI edit applied Entity must belong to the same Source'],
+  ['worklog_ai_point_reservation_funding_grant_scope_fk', 'reservation funding scope must belong to the same Grant'],
+  ['worklog_ai_usage_funding_grant_scope_fk', 'usage funding scope must belong to the same Grant'],
 ];
 
 for (const [sourceName, source] of sources) {
