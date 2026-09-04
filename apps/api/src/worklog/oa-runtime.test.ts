@@ -8,6 +8,7 @@ import {
   type WorklogOaRecordWritePort,
 } from './oa-runtime';
 import type { WorklogReplyEditTargetResolution, WorklogTextRecordWriteResult } from './records';
+import type { WorklogTextNormalizationResult } from './text-normalization';
 
 function privateMessage(textContent: string, quotedLineMessageId: string | null = null): BufferedPrivateMessage {
   return {
@@ -105,12 +106,27 @@ class FakeAiGrants implements WorklogOaAiGrantPort {
   }
 }
 
+class FakeNormalizer {
+  public calls: number[] = [];
+  public result: WorklogTextNormalizationResult = {
+    status: 'NORMALIZED',
+    entityId: 20,
+    createdEntity: false,
+  };
+
+  async normalizeText(recordId: number): Promise<WorklogTextNormalizationResult> {
+    this.calls.push(recordId);
+    return this.result;
+  }
+}
+
 function runtime(
   bootstrap = new FakeBootstrap(),
   records = new FakeRecords(),
   aiGrants: WorklogOaAiGrantPort = new FakeAiGrants(true),
+  normalizer = new FakeNormalizer(),
 ) {
-  return new WorklogOaRuntime(bootstrap, records, undefined, undefined, aiGrants);
+  return new WorklogOaRuntime(bootstrap, records, normalizer, undefined, aiGrants);
 }
 
 describe('WorklogOaRuntime', () => {
@@ -150,6 +166,20 @@ describe('WorklogOaRuntime', () => {
         sourceTimestamp: new Date('2026-09-02T07:30:00+08:00'),
       },
     ]);
+  });
+
+  it('tells the user when raw private text is saved but title normalization is deferred', async () => {
+    const normalizer = new FakeNormalizer();
+    normalizer.result = { status: 'DEFERRED', reason: 'AI_POINTS_EXHAUSTED' };
+    const subject = runtime(new FakeBootstrap(), new FakeRecords(), new FakeAiGrants(true), normalizer);
+
+    await expect(subject.handleMessage(privateMessage('@AFTERTRACE 王先生今天收五千'))).resolves.toMatchObject({
+      status: 'RECORDED',
+      recordId: 101,
+      duplicate: false,
+      replyText: '原文已保存，但 AI 標題目前尚未完成。請到 AFTERTRACE 查看或手動整理；原始紀錄不會遺失。',
+    });
+    expect(normalizer.calls).toEqual([101]);
   });
 
   it('does not persist private AI CREATE when eligible points are zero at request start', async () => {
