@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { DrizzleWebAuthRepository } from './auth/repository';
 import { createWebAuthRoutes } from './auth/routes';
@@ -52,6 +53,35 @@ const app = new Hono<{ Bindings: Bindings }>();
 app.route('/api/v1/auth', createWebAuthRoutes());
 
 app.get('/health', (c) => c.json({ service: 'after-trace-api', product: 'worklog', status: 'ok' }));
+
+app.get('/health/ready', async (c) => {
+  const missing = launchConfigErrors(c.env);
+  if (missing.length > 0) {
+    return c.json({
+      service: 'after-trace-api',
+      product: 'worklog',
+      status: 'not_ready',
+      error: 'RUNTIME_CONFIG_INCOMPLETE',
+      missing,
+    }, 503);
+  }
+
+  try {
+    // This deliberately touches an accepted rebuilt core table, not merely SELECT 1.
+    // A Worker with reachable PostgreSQL but an unapplied/stale schema must not be
+    // reported ready for launch.
+    await createDatabase(c.env.DATABASE_URL).execute(sql`SELECT id FROM worklog_users LIMIT 1`);
+  } catch {
+    return c.json({
+      service: 'after-trace-api',
+      product: 'worklog',
+      status: 'not_ready',
+      error: 'WORKLOG_DATABASE_OR_SCHEMA_UNAVAILABLE',
+    }, 503);
+  }
+
+  return c.json({ service: 'after-trace-api', product: 'worklog', status: 'ready' });
+});
 
 app.post('/webhooks/line', async (c) => {
   const rawBody = await c.req.text();
@@ -184,6 +214,42 @@ app.post('/webhooks/line', async (c) => {
 
   return c.json({ ok: true, ...groupCounters, ...oaCounters });
 });
+
+function launchConfigErrors(env: Bindings): string[] {
+  const missing: string[] = [];
+  required(env.DATABASE_URL) || missing.push('DATABASE_URL');
+  required(env.LINE_CHANNEL_SECRET) || missing.push('LINE_CHANNEL_SECRET');
+  required(env.LINE_CHANNEL_ACCESS_TOKEN) || missing.push('LINE_CHANNEL_ACCESS_TOKEN');
+  required(env.GEMINI_API_KEY) || missing.push('GEMINI_API_KEY');
+  httpsUrl(env.WEB_APP_URL) || missing.push('WEB_APP_URL');
+  httpsUrl(env.WEB_APP_ORIGIN) || missing.push('WEB_APP_ORIGIN');
+  secret(env.WEB_AUTH_SECRET) || missing.push('WEB_AUTH_SECRET');
+  required(env.LINE_LOGIN_CHANNEL_ID) || missing.push('LINE_LOGIN_CHANNEL_ID');
+  required(env.LINE_LOGIN_CHANNEL_SECRET) || missing.push('LINE_LOGIN_CHANNEL_SECRET');
+  required(env.ADMIN_USERNAME) || missing.push('ADMIN_USERNAME');
+  required(env.ADMIN_PASSWORD) || missing.push('ADMIN_PASSWORD');
+  secret(env.ADMIN_SESSION_SECRET) || missing.push('ADMIN_SESSION_SECRET');
+  httpsUrl(env.ADMIN_WEB_ORIGIN) || missing.push('ADMIN_WEB_ORIGIN');
+  return missing;
+}
+
+function required(value: string | undefined): boolean {
+  return Boolean(value?.trim());
+}
+
+function secret(value: string | undefined): boolean {
+  return Boolean(value?.trim() && value.trim().length >= 32);
+}
+
+function httpsUrl(value: string | undefined): boolean {
+  if (!value?.trim()) return false;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === 'https:' && Boolean(url.host) && url.pathname === '/';
+  } catch {
+    return false;
+  }
+}
 
 function appendHistoryFilters(url: string | null, filters: WorklogHistoryFilters): string | null {
   if (!url) return null;
