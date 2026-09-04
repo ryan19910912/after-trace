@@ -217,6 +217,7 @@ function serializeConfirmations(values: Awaited<ReturnType<WorklogConfirmationSe
     operation: value.operation,
     proposedRawText: value.proposedRawText,
     occurredAt: value.occurredAt.toISOString(),
+    recordOccurredAt: value.recordOccurredAt.toISOString(),
     expectedRecordVersion: value.expectedRecordVersion,
     candidates: value.candidates,
     recordRawText: value.recordRawText,
