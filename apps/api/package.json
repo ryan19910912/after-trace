@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "lint": "eslint src --max-warnings=0",
-    "db:deploy:migrate": "drizzle-kit migrate --config=../../drizzle.config.ts"
+    "db:deploy:migrate": "node scripts/migrate.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.1",
