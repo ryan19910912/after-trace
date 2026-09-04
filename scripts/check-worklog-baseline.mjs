@@ -29,6 +29,7 @@ const forbidden = [
   ['worklog_transactions', 'legacy Transaction table'],
   ['ai_units_consumed', 'retired aggregate AI usage column'],
   ['worklog_ai_reservation_status', 'retired pre-Grant reservation enum'],
+  ['worklog_ai_quota', 'retired aggregate AI quota schema/table marker'],
   ['subscription_owner_user_id', 'retired subscription Owner binding'],
   ['recording_enabled', 'retired GROUP recording preference'],
 ];
@@ -53,6 +54,7 @@ const required = [
   ['worklog_line_ai_edit_source_record_fk', 'LINE AI edit target Record must belong to the same Source'],
   ['worklog_line_ai_edit_source_confirmation_fk', 'LINE AI edit confirmation must belong to the same Source'],
   ['worklog_line_ai_edit_source_entity_fk', 'LINE AI edit applied Entity must belong to the same Source'],
+  ['worklog_attachment_ingestion_source_record_fk', 'attachment ingestion Record must belong to the same Source'],
   ['worklog_ai_point_reservation_funding_grant_scope_fk', 'reservation funding scope must belong to the same Grant'],
   ['worklog_ai_usage_funding_grant_scope_fk', 'usage funding scope must belong to the same Grant'],
 ];
