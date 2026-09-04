@@ -13,82 +13,94 @@ Read first every run:
 - `docs/WORKLOG_DEPLOYMENT.md`
 - this file
 
-## Current execution checkpoint — 2026-09-04 07:29 batch
+## Current execution checkpoint — 2026-09-04 08:26 batch
 
-This run continued from the completed single-title Record/manual-PWA foundation, durable confirmation backend, FREE 400,000-point provisioning, GROUP AI responsibility separation, grant-backed provider settlement and grant-aware Admin reporting. It did not redo those batches.
+This run continued from the completed single-title Record/manual-PWA foundation, durable confirmation backend/UI, FREE 400,000-point provisioning, GROUP AI responsibility separation, grant-backed provider settlement, GROUP funding UI and grant-aware Admin reporting. It did not redo those batches.
+
+The highest-priority work this run was the first safety-critical half of Reply-targeted LINE AI edit: deterministic same-Source Reply-to-Record resolution. Provider-backed edit interpretation/mutation remains intentionally disabled until its own durable idempotent pipeline is wired.
 
 ### Scanned this run
 
 - all required durable product/development/deployment docs;
-- customer Web/PWA `WorklogRoot.tsx` and `worklog-api.ts`;
-- GROUP funding customer API and its Source/privacy boundaries;
-- pending-confirmation customer API and deterministic resolver contract;
-- Worker route mounting for funding/confirmation APIs;
-- text-AI durable normalization schema/repository;
-- grant/point reservation schema;
-- remaining Admin subscription assignment and old aggregate-quota repository boundary.
+- `records.ts` and `drizzle-records.ts` LINE identity fields and current single-title/version state;
+- GROUP `line-runtime.ts` edit interception and active-member authorization boundary;
+- PRIVATE `oa-runtime.ts` edit interception and personal Source boundary;
+- current command parser EDIT/HISTORY separation;
+- existing runtime/service tests around LINE edit safety;
+- the remaining legacy collaboration/subscription boundary to ensure this batch did not accidentally route manual Reply target lookup through billing.
 
 ## Completed this run
 
-### 1. Customer PWA GROUP funding surface is now wired
+### 1. Deterministic same-Source Reply edit target resolution now exists
 
-`apps/web/src/worklog-api.ts` and `apps/web/src/WorklogRoot.tsx` now consume the existing grant-backed GROUP funding API.
+`WorklogRecordWriteService` now exposes a bounded `resolveReplyEditTarget(sourceId, quotedLineMessageId)` contract.
 
-When the active PWA scope is GROUP, the page now shows only that GROUP's:
+The PostgreSQL repository resolves a Reply only against Records in the exact current Source and only through durable LINE identity already stored on the Record:
 
-- current **AI 額度負責人**;
-- whether that responsible user is still active in the group;
-- currently available points;
-- points reserved by in-flight provider work;
-- historical customer points charged to this GROUP;
-- historical platform-subsidized points.
+- `record.line_message_id = quotedLineMessageId`; or
+- `record.quoted_line_message_id = quotedLineMessageId`.
 
-Manual PWA remains explicitly available when there is no AI 額度負責人 or the responsible user has left the group.
+This covers Reply to a directly recorded LINE message and Reply to original content that was recorded through the existing Reply-recording path.
 
-Only the current AI 額度負責人 receives the `grants` inventory from the backend and sees allocation controls. Ordinary members do not receive or display unrelated PRIVATE/other-GROUP balances.
+The resolver never performs a global LINE-message lookup and therefore cannot cross PRIVATE/GROUP Sources or cross two different GROUP Sources.
 
-### 2. Responsible user can allocate only their own grants to the active GROUP
+Resolution is conservative:
 
-The PWA now exposes bounded controls backed by:
+- exactly one matching ACTIVE Record -> `FOUND` with the current `recordId`, `entityId`, `rawText`, `occurredAt` and optimistic `version` snapshot;
+- more than one matching ACTIVE Record -> `AMBIGUOUS`;
+- no ACTIVE match but one or more deleted matches -> `DELETED`;
+- no same-Source match -> `NOT_FOUND`.
 
-- `GET /api/v1/worklog/funding/group/:sourceId`;
-- `PUT /api/v1/worklog/funding/group/:sourceId/grants/:grantId`.
+The query orders ACTIVE rows first and reads at most three candidates, which is enough to distinguish a unique active target from an ambiguous one without loading unbounded history.
 
-For each of the responsible user's grants the UI can:
+### 2. GROUP LINE edit now checks membership and target identity before any future AI work
 
-- enable/disable that grant for this GROUP;
-- set an optional non-negative per-GROUP cap;
-- leave cap blank to permit the grant's remaining eligible balance;
-- display grant remaining points, GROUP-used points, in-flight reserved points and current Source-available points.
+For an obvious `EDIT_REQUEST` with a Reply target, GROUP runtime now:
 
-The backend remains authoritative for ownership, active-reservation and cap-below-usage conflicts.
+1. boots/touches the current GROUP Source as before;
+2. requires free/manual active-member authorization;
+3. resolves the Reply target only inside that exact Source;
+4. returns explicit safe failures for missing, ambiguous or deleted targets.
 
-### 3. PWA pending-confirmation UI is now implemented
+It does **not** call the legacy group funding authorization or any Gemini/provider path for these unresolved edit cases.
 
-The Records surface now loads the current user's pending title confirmations for the active Source and supports deterministic resolution without another provider call or point charge.
+A uniquely resolved active target is still returned as `EDIT_NOT_READY`; no Record mutation occurs yet. This is deliberate: reliable targeting is now established, while the provider edit + grant settlement + version/revision transaction remains a separate next batch.
 
-The UI can:
+### 3. PRIVATE LINE edit now resolves only inside the user's personal Source
 
-- choose one of the stored existing Entity/title candidates;
-- choose the stored single candidate when it was not duplicated in the candidate array;
-- create/adopt a new title;
-- reject/skip the AI title suggestion.
+After OA-friend/private Source bootstrap succeeds, a private EDIT request with Reply now uses the same deterministic resolver with `personal.sourceId`.
 
-The already-durable Record text/time is shown while deciding. After resolution, Records, Entities and the pending-confirmation list are refreshed.
+Missing, ambiguous and deleted private targets are rejected explicitly. A unique active target is still not mutated until the AI edit pipeline is wired.
 
-### 4. Found and fixed a critical old-quota foreign-key mismatch
+### 4. Reply edit target contract carries the optimistic version snapshot needed by the next mutation stage
 
-`schema-worklog-normalization.ts` still declared `reservation_token` as a foreign key to the obsolete `worklog_ai_quota_reservations` table, even though the text provider runtime now creates `worklog_ai_point_reservations` tokens.
+The resolved target contains:
 
-That mismatch would make a successful grant-backed Gemini result fail when persisting the durable provider result.
+- Record ID;
+- Source ID;
+- author user ID;
+- current single Entity ID;
+- durable raw content;
+- durable `occurred_at`;
+- current integer `version`.
 
-The normalization state now correctly references `worklog_ai_point_reservations.token`, matching the already grant-backed `getReservationStatus()` and settlement path.
+This lets the next provider-backed edit stage capture the exact pre-provider target state and later refuse mutation if manual/PWA editing changed the version while Gemini was running.
+
+### 5. Fixed a stale Record test model left by the old Customer/Project/category refactor
+
+`records.test.ts` was still constructing `WorklogRecordListItem` with removed fields such as `category`, `normalizedSummary`, `customerId`, `projectId` and `sourceTimestamp`.
+
+The fixture now matches the current single-title Record contract (`entityId`, `title`, `occurredAt`, `status`, `version`, `deletedAt`). Reply-target service/runtime test doubles were also updated to the new bounded resolver contract.
 
 ### Files changed this run
 
-- `apps/web/src/worklog-api.ts`
-- `apps/web/src/WorklogRoot.tsx`
-- `apps/api/src/db/schema-worklog-normalization.ts`
+- `apps/api/src/worklog/records.ts`
+- `apps/api/src/worklog/drizzle-records.ts`
+- `apps/api/src/worklog/line-runtime.ts`
+- `apps/api/src/worklog/oa-runtime.ts`
+- `apps/api/src/worklog/records.test.ts`
+- `apps/api/src/worklog/line-runtime.test.ts`
+- `apps/api/src/worklog/oa-runtime.test.ts`
 - `docs/WORKLOG_REBUILD_PROGRESS.md`
 
 ## Stable completed foundation from earlier batches
@@ -104,7 +116,8 @@ Do not redo these unless a regression is found:
 - durable pending-confirmation creation and deterministic backend resolution;
 - PWA pending-confirmation resolution surface;
 - obvious LINE HISTORY requests route to deterministic Source-correct filtered PWA links;
-- obvious LINE EDIT requests cannot accidentally become new Records while Reply AI edit is unfinished;
+- obvious LINE EDIT requests cannot accidentally become new Records;
+- deterministic same-Source Reply-to-Record resolution now exists for existing durable Record LINE IDs and refuses missing/ambiguous/deleted targets;
 - FREE initial grant is exactly 400,000 AI points once, no expiry/refresh, idempotently provisioned to the user's PRIVATE Source;
 - text and attachment provider execution use the user-owned grant ledger;
 - actual provider cost converts to customer points through the frozen output-price-equivalent rule;
@@ -114,29 +127,33 @@ Do not redo these unless a regression is found:
 - customer usage backend is Source/grant based;
 - GROUP customer funding/allocation UI is Source-scoped and grant-backed;
 - Admin user/group reporting is grant/responsibility based and the old Admin aggregate-quota reporting SQL has been removed;
-- normalization durable reservation FK now points to the grant-backed point reservation table.
+- normalization durable reservation FK points to the grant-backed point reservation table.
 
 ## Important transitional / blocking state
 
-### 1. PRIVATE PWA top usage summary is still transitional
+### 1. Reply-targeted LINE AI edit is only half complete
 
-GROUP scopes now use `GroupFunding` and no longer display `/usage/me` aggregate quota data.
-
-The PRIVATE top usage bar still consumes the old compatibility `/usage/me` shape. Replace it with a PRIVATE grant-ledger summary/history surface before deleting the remaining aggregate usage reader.
-
-### 2. Actual LINE Reply AI edit is still pending
-
-Safety behavior remains correct: obvious edit requests cannot become new Records and a missing Reply target is refused.
+Safety behavior is now stronger: obvious edit requests cannot become new Records, GROUP membership/private Source is checked first, and durable Reply IDs resolve only inside the exact Source.
 
 Remaining implementation needs:
 
-- deterministic `quotedLineMessageId` -> Record mapping inside the same Source;
-- reliable target rejection when no unique active Record exists;
+- persist/resolve a bounded mapping for Reply to a bot success/result message when LINE gives a bot-message Reply ID that is not the original Record LINE ID;
 - positive grant point preflight before provider edit interpretation;
-- bounded AI edit output for content/occurred-at/title change;
+- bounded provider output for content/`occurred_at`/single-title change only;
+- durable edit-specific provider state so LINE redelivery cannot double-call Gemini after provider success is uncertain;
 - normal Entity/Alias/pending-confirmation behavior when title changes;
-- optimistic `version` + immutable Revision mutation;
-- provider result / point settlement idempotency so LINE redelivery cannot double-call or double-charge.
+- optimistic `version` check against the captured target version;
+- immutable Revision + Record mutation in one transaction;
+- idempotent point settlement so redelivery cannot double-charge;
+- safe user-facing response when the target changed while the provider call was in flight.
+
+Do not weaken the new resolver by guessing from content, author, latest Record or nearest timestamp.
+
+### 2. PRIVATE PWA top usage summary is still transitional
+
+GROUP scopes use `GroupFunding` and no longer display `/usage/me` aggregate quota data.
+
+The PRIVATE top usage bar still consumes the old compatibility `/usage/me` shape. Replace it with a PRIVATE grant-ledger summary/history surface before deleting the remaining aggregate usage reader.
 
 ### 3. Legacy subscription aggregate quota implementation still exists
 
@@ -192,18 +209,25 @@ Attachment accounting is grant-correct, but operation may still fall back to `UN
 
 Do not hand-fabricate the large Drizzle snapshot. Regenerate it from the actual TypeScript schema and run a fresh disposable PostgreSQL migration when a checked-out pnpm/project toolchain is available.
 
-### 9. New grant/funding SQL is still not runtime-validated
+### 9. New grant/funding and Reply-target SQL is still not runtime-validated
 
-The grant ledger and funding configuration use PostgreSQL row locks, CTEs, cap/reservation invariants and exactly-once settlement. Static edits are not production proof; real disposable PostgreSQL validation is required before Workers deployment.
+The grant ledger/funding configuration use PostgreSQL row locks, CTEs, cap/reservation invariants and exactly-once settlement. The new Reply-target resolver also relies on the current Record LINE identity columns and PostgreSQL query behavior.
+
+Static edits are not production proof; real disposable PostgreSQL validation is required before Workers deployment.
 
 ## Next implementation batch — highest priority
 
 Continue from this exact checkpoint:
 
-1. **Finish Reply-targeted LINE AI edit on the grant/idempotent layer.**
-   - start with deterministic same-Source Reply-to-Record resolution;
-   - refuse ambiguous/missing/deleted/stale targets;
-   - then wire bounded provider edit interpretation + point settlement + version/revision mutation.
+1. **Finish provider-backed Reply-targeted LINE AI edit on top of the new resolver.**
+   - first inspect/persist bot-success Reply mapping if the LINE outbound path exposes the sent message ID needed by product policy;
+   - capture target `version` before provider call;
+   - require a positive eligible grant balance before provider call;
+   - add bounded edit provider output for `rawText`/`occurredAt`/single title only;
+   - persist provider-success state before settlement/mutation so redelivery cannot double-call;
+   - settle actual provider cost through the grant ledger;
+   - apply optimistic version + immutable Revision transaction;
+   - route ambiguous changed titles through durable Pending Confirmation rather than guessing.
 
 2. **Replace PRIVATE `/usage/me` aggregate summary with grant-ledger customer usage.**
 
@@ -221,6 +245,7 @@ Continue from this exact checkpoint:
 6. **Regenerate prelaunch Drizzle baseline/snapshot and run concentrated validation when a real local project toolchain is available.**
    - typecheck/build/Vitest;
    - disposable PostgreSQL migration;
+   - Reply-target and edit idempotency tests;
    - point-ledger/funding concurrency tests;
    - browser/PWA flows;
    - LINE/Gemini/runtime smoke;
@@ -232,14 +257,16 @@ Planning-only estimate from the current branch state:
 
 - core product/domain contract: essentially defined;
 - major non-payment runtime work before concentrated validation: roughly 2–3 substantial batches;
-- Reply AI edit and final subscription/quota collapse are now the largest core implementation items;
+- the unsafe target-selection part of Reply AI edit is now addressed; provider-backed edit mutation and final subscription/quota collapse remain the largest core implementation items;
 - payment provider integration remains a separate later batch;
 - deployment should not start until migration regeneration and runtime validation succeed.
 
 ## Validation status
 
-This run performed static GitHub repository edits and static cross-file review only. No local build, TypeScript typecheck, Vitest execution, migration, browser, Worker, LINE, Gemini or PostgreSQL runtime validation was executed here.
+This run performed static GitHub repository edits and static cross-file review only. The current execution environment has no checked-out AFTERTRACE project/toolchain, so no local build, TypeScript typecheck, Vitest execution, migration, browser, Worker, LINE, Gemini or PostgreSQL runtime validation was executed here.
+
+The tests changed this run are authored/updated specifications only; they are **not claimed as passing**.
 
 No GitHub Actions were run, dispatched, rerun, enabled, modified, or otherwise triggered.
 
-The branch remains an active refactor checkpoint and is **not deployment-ready** because the migration baseline/snapshot are stale and the new grant/funding SQL has not yet run against disposable PostgreSQL.
+The branch remains an active refactor checkpoint and is **not deployment-ready** because the migration baseline/snapshot are stale and the new grant/funding/Reply-target SQL has not yet run against disposable PostgreSQL.
