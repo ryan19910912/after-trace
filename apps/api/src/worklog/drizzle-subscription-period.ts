@@ -12,7 +12,7 @@ type PlanRow = {
   display_name: string;
   enabled: boolean;
   price_twd: string | number;
-  ai_allowance_units: string | number;
+  subscription_period_points: string | number;
 };
 
 type SubscriptionRow = {
@@ -47,16 +47,16 @@ type AssignmentRow = SubscriptionRow & {
 /**
  * Subscription lifecycle + paid-period grant creation in one PostgreSQL statement.
  *
- * The historical plan template remains stored in ai_allowance_units until the schema
- * rename batch, but this repository treats it only as the number of points frozen into
- * a newly-created SUBSCRIPTION_PERIOD grant. It never reads or writes aggregate quota.
+ * subscription_period_points is only the plan-template point count frozen into a
+ * newly-created SUBSCRIPTION_PERIOD grant. It is never a live aggregate balance and
+ * this repository never reads or writes aggregate quota.
  */
 export class DrizzleWorklogSubscriptionPeriodRepository implements WorklogSubscriptionPeriodRepository {
   constructor(private readonly db: Database) {}
 
   async getPlan(planCode: string): Promise<WorklogSubscriptionPlanTemplate | null> {
     const result = await this.db.execute(sql`
-      SELECT code, display_name, enabled, price_twd::text AS price_twd, ai_allowance_units
+      SELECT code, display_name, enabled, price_twd::text AS price_twd, subscription_period_points
       FROM worklog_subscription_plans
       WHERE code = ${planCode}
       LIMIT 1
@@ -363,7 +363,7 @@ function planFromRow(row: PlanRow): WorklogSubscriptionPlanTemplate {
     displayName: requiredText(row.display_name, 'plan display name'),
     enabled: Boolean(row.enabled),
     priceTwd: nonNegativeFinite(row.price_twd, 'plan price'),
-    subscriptionPeriodPoints: nonNegativeInteger(row.ai_allowance_units, 'subscription period points'),
+    subscriptionPeriodPoints: nonNegativeInteger(row.subscription_period_points, 'subscription period points'),
   };
 }
 
