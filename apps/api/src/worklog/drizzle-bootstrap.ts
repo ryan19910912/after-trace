@@ -16,7 +16,6 @@ type BoundGroupRow = {
   id: string;
   line_group_id: string;
   workspace_id: string;
-  owner_user_id: string | null;
   status: 'ACTIVE' | 'INACTIVE';
 };
 
@@ -134,7 +133,6 @@ export class DrizzleWorklogBootstrapRepository implements WorklogBootstrapReposi
         id::text,
         line_group_id,
         workspace_id::text,
-        owner_user_id::text,
         status
       FROM worklog_sources
       WHERE type = 'GROUP'
@@ -152,8 +150,6 @@ export class DrizzleWorklogBootstrapRepository implements WorklogBootstrapReposi
         type,
         status,
         line_group_id,
-        owner_user_id,
-        subscription_owner_user_id,
         created_at,
         updated_at
       )
@@ -162,8 +158,6 @@ export class DrizzleWorklogBootstrapRepository implements WorklogBootstrapReposi
         'GROUP',
         'ACTIVE',
         ${lineGroupId},
-        NULL,
-        NULL,
         ${at},
         ${at}
       )
@@ -182,7 +176,6 @@ export class DrizzleWorklogBootstrapRepository implements WorklogBootstrapReposi
         id::text,
         line_group_id,
         workspace_id::text,
-        owner_user_id::text,
         status
     `);
     const row = result.rows[0] as BoundGroupRow | undefined;
@@ -247,96 +240,6 @@ export class DrizzleWorklogBootstrapRepository implements WorklogBootstrapReposi
         AND last_seen_at <= ${at}
     `);
   }
-
-  async promoteGroup(input: {
-    lineGroupId: string;
-    ownerUserId: number;
-    workspaceId: number;
-    bindingMethod: string;
-    at: Date;
-  }): Promise<WorklogBoundGroup | null> {
-    const result = await this.db.execute(sql`
-      WITH candidate AS (
-        INSERT INTO worklog_sources (
-          workspace_id,
-          type,
-          status,
-          line_group_id,
-          owner_user_id,
-          owner_binding_method,
-          owner_bound_at,
-          subscription_owner_user_id,
-          created_at,
-          updated_at
-        )
-        VALUES (
-          ${input.workspaceId},
-          'GROUP',
-          'ACTIVE',
-          ${input.lineGroupId},
-          ${input.ownerUserId},
-          ${input.bindingMethod},
-          ${input.at},
-          ${input.ownerUserId},
-          ${input.at},
-          ${input.at}
-        )
-        ON CONFLICT (line_group_id) DO NOTHING
-        RETURNING id
-      ),
-      chosen AS (
-        SELECT id FROM candidate
-        UNION ALL
-        SELECT id
-        FROM worklog_sources
-        WHERE type = 'GROUP'
-          AND line_group_id = ${input.lineGroupId}
-        LIMIT 1
-      ),
-      activated AS (
-        UPDATE worklog_sources AS source
-        SET
-          workspace_id = ${input.workspaceId},
-          status = CASE WHEN source.updated_at <= ${input.at} THEN 'ACTIVE'::worklog_source_status ELSE source.status END,
-          inactive_at = CASE WHEN source.updated_at <= ${input.at} THEN NULL ELSE source.inactive_at END,
-          owner_user_id = ${input.ownerUserId},
-          subscription_owner_user_id = ${input.ownerUserId},
-          owner_binding_method = CASE
-            WHEN source.owner_user_id IS DISTINCT FROM ${input.ownerUserId} THEN ${input.bindingMethod}
-            ELSE COALESCE(source.owner_binding_method, ${input.bindingMethod})
-          END,
-          owner_bound_at = CASE
-            WHEN source.owner_user_id IS DISTINCT FROM ${input.ownerUserId} THEN ${input.at}
-            ELSE COALESCE(source.owner_bound_at, ${input.at})
-          END,
-          updated_at = GREATEST(source.updated_at, ${input.at})
-        WHERE source.id = (SELECT id FROM chosen)
-          AND (
-            source.owner_user_id IS NULL
-            OR source.owner_user_id = ${input.ownerUserId}
-            OR NOT EXISTS (
-              SELECT 1
-              FROM worklog_source_members AS current_owner_member
-              WHERE current_owner_member.source_id = source.id
-                AND current_owner_member.user_id = source.owner_user_id
-                AND current_owner_member.is_active = TRUE
-            )
-          )
-        RETURNING source.id, source.line_group_id, source.workspace_id, source.owner_user_id, source.status
-      )
-      SELECT
-        activated.id::text,
-        activated.line_group_id,
-        activated.workspace_id::text,
-        activated.owner_user_id::text,
-        activated.status
-      FROM activated
-      LIMIT 1
-    `);
-
-    const row = result.rows[0] as BoundGroupRow | undefined;
-    return row ? mapBoundGroup(row) : null;
-  }
 }
 
 function mapBoundGroup(row: BoundGroupRow): WorklogBoundGroup {
@@ -344,11 +247,6 @@ function mapBoundGroup(row: BoundGroupRow): WorklogBoundGroup {
     sourceId: Number(row.id),
     lineGroupId: row.line_group_id,
     workspaceId: Number(row.workspace_id),
-    ownerUserId: nullableNumber(row.owner_user_id),
     status: row.status,
   };
-}
-
-function nullableNumber(value: string | null): number | null {
-  return value === null ? null : Number(value);
 }
