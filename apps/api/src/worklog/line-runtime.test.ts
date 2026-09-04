@@ -9,6 +9,7 @@ import type { WorklogLineRecordEditResult } from './line-record-edit';
 import type { CachedLineText } from './line-text-cache';
 import { WorklogLineRuntime } from './line-runtime';
 import type { WorklogReplyEditTargetResolution, WorklogTextRecordWriteResult } from './records';
+import type { WorklogTextNormalizationResult } from './text-normalization';
 
 function message(textContent: string, overrides: Partial<BufferedGroupMessage> = {}): BufferedGroupMessage {
   return {
@@ -118,9 +119,11 @@ class FakeRecords {
 
 class FakeNormalizer {
   calls: number[] = [];
-  async normalizeText(recordId: number) {
+  result: WorklogTextNormalizationResult = { status: 'NORMALIZED', entityId: 71, createdEntity: false };
+
+  async normalizeText(recordId: number): Promise<WorklogTextNormalizationResult> {
     this.calls.push(recordId);
-    return { status: 'NORMALIZED' as const, entityId: 71, createdEntity: false };
+    return this.result;
   }
 }
 
@@ -246,8 +249,24 @@ describe('WorklogLineRuntime', () => {
       status: 'RECORDED',
       recordId: 99,
       duplicate: false,
+      replyText: '已記錄。',
     });
     expect(records.calls).toBe(1);
+    expect(normalizer.calls).toEqual([99]);
+  });
+
+  it('tells the group when raw text is saved but title normalization is deferred', async () => {
+    const records = new FakeRecords();
+    const normalizer = new FakeNormalizer();
+    normalizer.result = { status: 'DEFERRED', reason: 'AI_POINTS_EXHAUSTED' };
+    const runtime = new WorklogLineRuntime(new FakeBootstrap(), new FakeCollaboration(), records, normalizer);
+
+    await expect(runtime.handle(message('@AFTERTRACE 王先生二樓漏水已修復'))).resolves.toMatchObject({
+      status: 'RECORDED',
+      recordId: 99,
+      duplicate: false,
+      replyText: '原文已保存，但 AI 標題目前尚未完成。請到 AFTERTRACE 查看或手動整理；原始紀錄不會遺失。',
+    });
     expect(normalizer.calls).toEqual([99]);
   });
 
