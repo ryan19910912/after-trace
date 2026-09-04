@@ -47,6 +47,8 @@ const required = [
   ['customer_points_charged', 'customer point charge fact'],
   ['platform_subsidized_points', 'platform subsidy fact'],
   ['worklog_line_ai_edits', 'durable Reply-targeted LINE edit state'],
+  ['worklog_source_identity_shape_ck', 'PRIVATE/GROUP Source identity shape is enforced'],
+  ['worklog_private_web_entry_user_source_fk', 'PRIVATE Web entry user and Source must match'],
   ['worklog_entity_alias_source_entity_fk', 'Alias cannot point at an Entity from another Source'],
   ['worklog_record_source_entity_fk', 'Record title Entity must belong to the same Source'],
   ['worklog_ai_confirmation_source_record_fk', 'Pending Confirmation Record must belong to the same Source'],
