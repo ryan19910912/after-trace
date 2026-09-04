@@ -298,15 +298,21 @@ function planInput(codeRaw: string, body: Record<string, unknown>): AdminPlanInp
     2_000_000_000,
   );
   const capabilities = validateAdminCapabilities(body.capabilities);
+  if (code === 'FREE') {
+    if (Number(priceTwd) !== 0) throw new Error('FREE_PLAN_REQUIRES_ZERO_PRICE');
+    if (subscriptionPeriodPoints !== 0) throw new Error('FREE_PLAN_REQUIRES_ZERO_PERIOD_POINTS');
+  }
   return { code, displayName, priceTwd, rank, enabled, subscriptionPeriodPoints, capabilities };
 }
 
 function aiRuntimeInput(body: Record<string, unknown>): AdminAiRuntimeInput {
+  const outputUsdPerMillion = decimal(body.outputUsdPerMillion, 'INVALID_AI_OUTPUT_PRICE');
+  if (Number(outputUsdPerMillion) <= 0) throw new Error('AI_OUTPUT_PRICE_MUST_BE_POSITIVE');
   return {
     provider: requiredText(body.provider, 'INVALID_AI_PROVIDER', 128),
     model: requiredText(body.model, 'INVALID_AI_MODEL', 255),
     inputUsdPerMillion: decimal(body.inputUsdPerMillion, 'INVALID_AI_INPUT_PRICE'),
-    outputUsdPerMillion: decimal(body.outputUsdPerMillion, 'INVALID_AI_OUTPUT_PRICE'),
+    outputUsdPerMillion,
     audioUsdPerMillion: nullableDecimal(body.audioUsdPerMillion, 'INVALID_AI_AUDIO_PRICE'),
     imageUsdPerMillion: nullableDecimal(body.imageUsdPerMillion, 'INVALID_AI_IMAGE_PRICE'),
     usdTwdRate: nullableDecimal(body.usdTwdRate, 'INVALID_USD_TWD_RATE'),
