@@ -3,7 +3,6 @@ param(
     [switch]$AllowDirty,
     [switch]$AllowNonMain,
     [switch]$AllowInitialBootstrapNotReady,
-    [string]$Environment = '',
     [string]$WorkerUrl = $env:AFTERTRACE_API_URL,
     [string]$DatabaseUrl = $env:AFTERTRACE_PROD_DATABASE_URL
 )
@@ -33,11 +32,11 @@ function Invoke-CommandChecked {
 
 function Assert-PostgresUrl([string]$Value) {
     if (-not $Value.Trim()) {
-        throw 'AFTERTRACE_PROD_DATABASE_URL (or -DatabaseUrl) is required for deployment migration. The deploy helper must never fall back to repository .env.local.'
+        throw 'AFTERTRACE_PROD_DATABASE_URL (or -DatabaseUrl) is required for production migration. The deploy helper must never fall back to repository .env.local.'
     }
     $uri = $null
     if (-not [Uri]::TryCreate($Value, [UriKind]::Absolute, [ref]$uri) -or ($uri.Scheme -ne 'postgresql' -and $uri.Scheme -ne 'postgres')) {
-        throw 'DatabaseUrl must be an absolute postgresql:// or postgres:// URL.'
+        throw 'Production DatabaseUrl must be an absolute postgresql:// or postgres:// URL.'
     }
     return $Value.Trim()
 }
@@ -58,10 +57,7 @@ function Read-ReadinessError($Failure) {
 
 Push-Location $RepoRoot
 try {
-    Write-Host 'AFTERTRACE API Worker deployment' -ForegroundColor Green
-    if ($Environment.Trim()) {
-        Write-Host "Wrangler environment: $Environment"
-    }
+    Write-Host 'AFTERTRACE API Worker production deployment' -ForegroundColor Green
 
     if (-not $WorkerUrl) {
         throw 'AFTERTRACE_API_URL (or -WorkerUrl) is required. Do not hard-code a workers.dev account subdomain in the repository.'
@@ -92,7 +88,7 @@ try {
         Write-Host 'Working tree: clean'
     }
 
-    Invoke-CommandChecked 'Update current branch from origin' {
+    Invoke-CommandChecked 'Update main from origin' {
         git pull --ff-only
     }
 
@@ -126,12 +122,12 @@ try {
         pnpm db:schema:check
     }
 
-    # Deployment migration must use an explicitly supplied DB URL. Never let
-    # drizzle.config.ts silently fall back to local .env.local during a deploy.
+    # Production migration must use an explicitly supplied production DB URL. Never let
+    # drizzle.config.ts silently fall back to local .env.local during a production deploy.
     $previousDatabaseUrl = $env:DATABASE_URL
     try {
         $env:DATABASE_URL = $DatabaseUrl
-        Invoke-CommandChecked 'Apply DB migrations' {
+        Invoke-CommandChecked 'Apply production DB migrations' {
             pnpm --filter @aftertrace/api db:deploy:migrate
         }
     }
@@ -140,12 +136,7 @@ try {
     }
 
     Invoke-CommandChecked 'Deploy aftertrace-api Worker' {
-        if ($Environment.Trim()) {
-            pnpm --filter @aftertrace/api exec wrangler deploy --env $Environment
-        }
-        else {
-            pnpm --filter @aftertrace/api exec wrangler deploy
-        }
+        pnpm --filter @aftertrace/api exec wrangler deploy
     }
 
     Write-Step 'Verify API Worker liveness'
