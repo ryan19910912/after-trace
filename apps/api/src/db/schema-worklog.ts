@@ -1,7 +1,9 @@
+import { sql } from 'drizzle-orm';
 import {
   bigint,
   bigserial,
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -108,7 +110,16 @@ export const worklogSources = pgTable(
   },
   (table) => [
     uniqueIndex('worklog_source_private_user_uq').on(table.privateUserId),
+    uniqueIndex('worklog_source_private_user_id_uq').on(table.privateUserId, table.id),
     index('worklog_source_workspace_type_idx').on(table.workspaceId, table.type),
+    check(
+      'worklog_source_identity_shape_ck',
+      sql`(
+        (${table.type} = 'PRIVATE' AND ${table.privateUserId} IS NOT NULL AND ${table.lineGroupId} IS NULL)
+        OR
+        (${table.type} = 'GROUP' AND ${table.privateUserId} IS NULL AND ${table.lineGroupId} IS NOT NULL)
+      )`,
+    ),
   ],
 );
 
