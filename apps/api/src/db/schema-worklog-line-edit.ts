@@ -42,6 +42,7 @@ export const worklogLineAiEdits = pgTable(
       .references(() => worklogUsers.id, { onDelete: 'restrict' }),
     lineCommandMessageId: varchar('line_command_message_id', { length: 64 }).notNull(),
     quotedLineMessageId: varchar('quoted_line_message_id', { length: 64 }).notNull(),
+    commandTimestamp: timestamp('command_timestamp', { withTimezone: true }).notNull(),
     instruction: text('instruction').notNull(),
     expectedRecordVersion: integer('expected_record_version').notNull(),
     status: varchar('status', { length: 32 }).default('PROCESSING').notNull(),
