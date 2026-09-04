@@ -82,4 +82,28 @@ describe('admin route input validation', () => {
       error: 'INVALID_SUBSCRIPTION_PERIOD_POINTS',
     });
   });
+
+  it('rejects enabling customer export until the export API/UI is actually shipped', async () => {
+    const response = await createAdminRoutes().request('/plans/PRO', {
+      method: 'PUT',
+      headers: {
+        authorization: await authorization(),
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        displayName: 'Pro',
+        priceTwd: '299',
+        rank: 10,
+        enabled: true,
+        subscriptionPeriodPoints: 800_000,
+        capabilities: { export: true },
+      }),
+    }, env);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'CAPABILITY_NOT_SHIPPED_export',
+    });
+  });
 });
