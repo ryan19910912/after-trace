@@ -2,6 +2,7 @@ param(
     [switch]$SkipInstall,
     [switch]$AllowDirty,
     [switch]$AllowNonMain,
+    [switch]$AllowInitialBootstrapNotReady,
     [string]$WorkerUrl = $env:AFTERTRACE_API_URL,
     [string]$DatabaseUrl = $env:AFTERTRACE_PROD_DATABASE_URL
 )
@@ -38,6 +39,18 @@ function Assert-PostgresUrl([string]$Value) {
         throw 'Production DatabaseUrl must be an absolute postgresql:// or postgres:// URL.'
     }
     return $Value.Trim()
+}
+
+function Read-ReadinessError($Failure) {
+    $message = $Failure.ErrorDetails.Message
+    if (-not $message) { return $null }
+    try {
+        $parsed = $message | ConvertFrom-Json
+        return [string]$parsed.error
+    }
+    catch {
+        return $null
+    }
 }
 
 Push-Location $RepoRoot
@@ -132,19 +145,33 @@ try {
     Write-Host "API Worker liveness: $($health.status)" -ForegroundColor Green
 
     Write-Step 'Verify API launch readiness'
+    $bootstrapPending = $false
     try {
         $ready = Invoke-RestMethod "$WorkerUrl/health/ready" -Method Get
+        if ($ready.status -ne 'ready') {
+            throw "Worker readiness check failed: $($ready | ConvertTo-Json -Compress)"
+        }
+        Write-Host "API Worker readiness: $($ready.status)" -ForegroundColor Green
     }
     catch {
-        throw "Worker readiness check failed. Verify Worker vars/secrets, initialized FREE/AI runtime config, and the regenerated Worklog database schema. $($_.Exception.Message)"
+        $readinessError = Read-ReadinessError $_
+        $allowedBootstrapError = $readinessError -eq 'AI_RUNTIME_CONFIG_NOT_INITIALIZED' -or $readinessError -eq 'FREE_PLAN_NOT_INITIALIZED'
+        if ($AllowInitialBootstrapNotReady -and $allowedBootstrapError) {
+            $bootstrapPending = $true
+            Write-Warning "API Worker is live but first-database bootstrap is incomplete ($readinessError). Deploy Admin, initialize AI runtime + FREE plan, then require /health/ready=ready before public launch."
+        }
+        else {
+            throw "Worker readiness check failed. Verify Worker vars/secrets, initialized FREE/AI runtime config, and the regenerated Worklog database schema. $($_.Exception.Message)"
+        }
     }
-    if ($ready.status -ne 'ready') {
-        throw "Worker readiness check failed: $($ready | ConvertTo-Json -Compress)"
-    }
-    Write-Host "API Worker readiness: $($ready.status)" -ForegroundColor Green
 
     Write-Host ''
-    Write-Host 'API Worker deployment completed successfully.' -ForegroundColor Green
+    if ($bootstrapPending) {
+        Write-Host 'API Worker deployment completed in INITIAL BOOTSTRAP mode; public launch is NOT ready yet.' -ForegroundColor Yellow
+    }
+    else {
+        Write-Host 'API Worker deployment completed successfully.' -ForegroundColor Green
+    }
     Write-Host "API: $WorkerUrl"
     Write-Host ''
     Write-Host 'Web and Admin deploy independently via web-worker-deploy.ps1 and admin-worker-deploy.ps1.' -ForegroundColor Yellow
