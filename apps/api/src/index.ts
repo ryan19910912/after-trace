@@ -49,6 +49,9 @@ export type Bindings = {
   ADMIN_WEB_ORIGIN?: string;
 };
 
+const SUPPORTED_AI_PROVIDER = 'GOOGLE';
+const SUPPORTED_WORKLOG_MODEL = 'gemini-3.5-flash';
+
 const app = new Hono<{ Bindings: Bindings }>();
 app.route('/api/v1/auth', createWebAuthRoutes());
 
@@ -82,7 +85,14 @@ app.get('/health/ready', async (c) => {
     `);
     const row = runtime.rows[0] as { provider?: unknown; model?: unknown; output_usd_per_million?: unknown } | undefined;
     const outputPrice = Number(row?.output_usd_per_million ?? 0);
-    if (typeof row?.provider !== 'string' || !row.provider.trim() || typeof row.model !== 'string' || !row.model.trim() || !Number.isFinite(outputPrice) || outputPrice <= 0) {
+    const provider = typeof row?.provider === 'string' ? row.provider.trim().toUpperCase() : '';
+    const model = typeof row?.model === 'string' ? row.model.trim() : '';
+    if (
+      provider !== SUPPORTED_AI_PROVIDER
+      || model !== SUPPORTED_WORKLOG_MODEL
+      || !Number.isFinite(outputPrice)
+      || outputPrice <= 0
+    ) {
       return c.json({ service: 'after-trace-api', product: 'worklog', status: 'not_ready', error: 'AI_RUNTIME_CONFIG_NOT_INITIALIZED' }, 503);
     }
   } catch {
