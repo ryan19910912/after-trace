@@ -24,6 +24,8 @@ const FREE: WorklogSubscriptionPlanTemplate = {
   subscriptionPeriodPoints: 0,
 };
 
+const ACTIVE_AT = new Date('2026-09-10T00:00:00.000Z');
+
 class FakeRepository implements WorklogSubscriptionPeriodRepository {
   plans = new Map<string, WorklogSubscriptionPlanTemplate>([[PRO.code, PRO], [FREE.code, FREE]]);
   current: WorklogSubscriptionPeriodSnapshot | null = null;
@@ -101,6 +103,7 @@ describe('WorklogSubscriptionPeriodService', () => {
       planCode: 'pro',
       source: 'ADMIN',
       actor: 'admin',
+      at: start,
       effectiveAt: start,
       currentPeriodStart: start,
       currentPeriodEnd: end,
@@ -137,6 +140,7 @@ describe('WorklogSubscriptionPeriodService', () => {
       planCode: 'FREE',
       source: 'ADMIN',
       actor: 'admin',
+      at: start,
       effectiveAt: start,
       currentPeriodStart: start,
     });
@@ -172,7 +176,8 @@ describe('WorklogSubscriptionPeriodService', () => {
       planCode: 'PRO',
       source: 'ADMIN',
       actor: 'admin',
-      effectiveAt: new Date('2026-09-10T00:00:00.000Z'),
+      at: ACTIVE_AT,
+      effectiveAt: ACTIVE_AT,
       currentPeriodStart: new Date('2026-09-01T00:00:00.000Z'),
       currentPeriodEnd: new Date('2026-10-01T00:00:00.000Z'),
     });
@@ -195,7 +200,8 @@ describe('WorklogSubscriptionPeriodService', () => {
       planCode: 'PRO',
       source: 'ADMIN',
       actor: 'admin',
-      effectiveAt: new Date('2026-09-10T00:00:00.000Z'),
+      at: ACTIVE_AT,
+      effectiveAt: ACTIVE_AT,
       currentPeriodStart: new Date('2026-09-01T00:00:00.000Z'),
       currentPeriodEnd: new Date('2026-10-01T00:00:00.000Z'),
     });
@@ -215,7 +221,8 @@ describe('WorklogSubscriptionPeriodService', () => {
       planCode: 'PLUS',
       source: 'ADMIN',
       actor: 'admin',
-      effectiveAt: new Date('2026-09-10T00:00:00.000Z'),
+      at: ACTIVE_AT,
+      effectiveAt: ACTIVE_AT,
     });
 
     expect(result.status).toBe('ACTIVE_PERIOD_CHANGE_POLICY_UNDEFINED');
@@ -232,7 +239,8 @@ describe('WorklogSubscriptionPeriodService', () => {
       planCode: 'PRO',
       source: 'ADMIN',
       actor: 'admin',
-      effectiveAt: new Date('2026-09-10T00:00:00.000Z'),
+      at: ACTIVE_AT,
+      effectiveAt: ACTIVE_AT,
       currentPeriodStart: new Date('2026-09-01T00:00:00.000Z'),
       currentPeriodEnd: new Date('2026-10-15T00:00:00.000Z'),
     });
@@ -251,6 +259,7 @@ describe('WorklogSubscriptionPeriodService', () => {
       planCode: 'PRO',
       source: 'ADMIN',
       actor: 'admin',
+      at: new Date('2026-09-04T00:00:00.000Z'),
       effectiveAt: new Date('2026-09-04T00:00:00.000Z'),
       currentPeriodStart: new Date('2026-09-04T00:00:00.000Z'),
       currentPeriodEnd: new Date('2026-10-04T00:00:00.000Z'),
