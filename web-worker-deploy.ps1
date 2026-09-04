@@ -2,6 +2,7 @@ param(
     [switch]$SkipInstall,
     [switch]$AllowDirty,
     [switch]$AllowNonMain,
+    [string]$Environment = '',
     [string]$ApiOrigin = $env:AFTERTRACE_API_URL,
     [string]$ExpectedUrl = ''
 )
@@ -52,7 +53,10 @@ function Assert-WebPath([string]$Origin, [string]$Path) {
 
 Push-Location $RepoRoot
 try {
-    Write-Host 'AFTERTRACE Web Worker production deployment' -ForegroundColor Green
+    Write-Host 'AFTERTRACE Web Worker deployment' -ForegroundColor Green
+    if ($Environment.Trim()) {
+        Write-Host "Wrangler environment: $Environment"
+    }
 
     Invoke-CommandChecked 'Check Git branch' {
         $branch = (git branch --show-current).Trim()
@@ -73,7 +77,7 @@ try {
         Write-Host 'Working tree: clean'
     }
 
-    Invoke-CommandChecked 'Update main from origin' {
+    Invoke-CommandChecked 'Update current branch from origin' {
         git pull --ff-only
     }
 
@@ -106,7 +110,12 @@ try {
     }
 
     Invoke-CommandChecked 'Deploy aftertrace-web Worker' {
-        & $WranglerCmd deploy --config $WranglerConfig
+        if ($Environment.Trim()) {
+            & $WranglerCmd deploy --config $WranglerConfig --env $Environment
+        }
+        else {
+            & $WranglerCmd deploy --config $WranglerConfig
+        }
     }
 
     if ($ExpectedUrl.Trim()) {
