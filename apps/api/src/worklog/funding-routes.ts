@@ -17,12 +17,12 @@ type Env = {
 type UserContext = { userId: number; database: Database };
 
 /**
- * Customer funding management for GROUP Sources.
+ * Customer funding views are Source-scoped and backed only by user-owned Grants.
  *
- * Active members may see only group-scoped AI availability/history and the current
- * AI 額度負責人. Only that responsible user may allocate their own grants to this
- * GROUP or change an optional cap. No endpoint exposes unrelated PRIVATE/other-GROUP
- * balances or another user's grant inventory.
+ * PRIVATE exposes only the authenticated user's own Grant inventory as applied to the
+ * personal Source. GROUP exposes group-scoped availability/history to active members;
+ * only the current AI 額度負責人 may see/manage their Grant allocations for that GROUP.
+ * No endpoint exposes another user's unrelated PRIVATE/other-GROUP balances.
  */
 export function createWorklogFundingRoutes() {
   const app = new Hono<Env>();
@@ -62,6 +62,14 @@ export function createWorklogFundingRoutes() {
     if (!session) return c.json({ ok: false, error: 'INVALID_WEB_SESSION' }, 401);
     c.set('lineUserId', session.lineUserId);
     await next();
+  });
+
+  app.get('/personal', async (c) => {
+    const context = await contextFor(c.env.DATABASE_URL, c.get('lineUserId'));
+    if (!context) return c.json({ ok: false, error: 'WORKLOG_USER_NOT_FOUND' }, 404);
+    const sourceId = await personalSourceId(context.database, context.userId);
+    if (!sourceId) return c.json({ ok: false, error: 'PERSONAL_SCOPE_FORBIDDEN' }, 403);
+    return c.json({ ok: true, funding: await personalFundingView(context.database, context.userId, sourceId) });
   });
 
   app.get('/group/:sourceId', async (c) => {
@@ -116,6 +124,88 @@ export function createWorklogFundingRoutes() {
   });
 
   return app;
+}
+
+async function personalFundingView(database: Database, userId: number, sourceId: number) {
+  const [balances, usage, grants] = await Promise.all([
+    database.execute(sql`
+      SELECT
+        COALESCE(SUM(
+          LEAST(
+            grant.remaining_points,
+            CASE
+              WHEN scope.cap_points IS NULL THEN grant.remaining_points
+              ELSE GREATEST(0, scope.cap_points - scope.used_points - scope.reserved_points)
+            END
+          )
+        ), 0)::bigint AS available_points,
+        COALESCE(SUM(scope.reserved_points), 0)::bigint AS reserved_points
+      FROM worklog_ai_grants grant
+      INNER JOIN worklog_ai_grant_scopes scope
+        ON scope.grant_id = grant.id
+       AND scope.source_id = ${sourceId}
+       AND scope.enabled = TRUE
+      WHERE grant.owner_user_id = ${userId}
+        AND grant.status = 'ACTIVE'
+        AND grant.effective_at <= NOW()
+        AND (grant.expires_at IS NULL OR grant.expires_at > NOW())
+    `),
+    database.execute(sql`
+      SELECT
+        COALESCE(SUM(customer_points_charged), 0)::bigint AS used_points,
+        COALESCE(SUM(platform_subsidized_points), 0)::bigint AS platform_subsidized_points
+      FROM worklog_ai_usage_events
+      WHERE source_id = ${sourceId}
+    `),
+    database.execute(sql`
+      SELECT
+        grant.id::text AS id,
+        grant.type,
+        grant.status,
+        grant.original_points,
+        grant.remaining_points,
+        grant.effective_at,
+        grant.expires_at,
+        scope.cap_points,
+        COALESCE(scope.used_points, 0) AS scope_used_points,
+        COALESCE(scope.reserved_points, 0) AS scope_reserved_points,
+        COALESCE(scope.enabled, FALSE) AS scope_enabled,
+        CASE
+          WHEN scope.id IS NULL OR scope.enabled = FALSE THEN 0
+          ELSE LEAST(
+            grant.remaining_points,
+            CASE
+              WHEN scope.cap_points IS NULL THEN grant.remaining_points
+              ELSE GREATEST(0, scope.cap_points - scope.used_points - scope.reserved_points)
+            END
+          )
+        END AS source_available_points
+      FROM worklog_ai_grants grant
+      LEFT JOIN worklog_ai_grant_scopes scope
+        ON scope.grant_id = grant.id
+       AND scope.source_id = ${sourceId}
+      WHERE grant.owner_user_id = ${userId}
+        AND grant.status <> 'REVOKED'
+      ORDER BY grant.expires_at ASC NULLS LAST, grant.effective_at ASC, grant.id ASC
+    `),
+  ]);
+  const balanceRow = balances.rows[0] as {
+    available_points?: number | string | null;
+    reserved_points?: number | string | null;
+  } | undefined;
+  const usageRow = usage.rows[0] as {
+    used_points?: number | string | null;
+    platform_subsidized_points?: number | string | null;
+  } | undefined;
+  return {
+    sourceId,
+    userId,
+    availablePoints: nonNegativeInteger(balanceRow?.available_points),
+    reservedPoints: nonNegativeInteger(balanceRow?.reserved_points),
+    usedPoints: nonNegativeInteger(usageRow?.used_points),
+    platformSubsidizedPoints: nonNegativeInteger(usageRow?.platform_subsidized_points),
+    grants: grants.rows,
+  };
 }
 
 async function fundingView(database: Database, viewerUserId: number, sourceId: number) {
@@ -321,6 +411,18 @@ async function contextFor(databaseUrl: string, lineUserId: string): Promise<User
   `);
   const userId = positiveNumber((result.rows[0] as { id?: string } | undefined)?.id ?? null);
   return userId ? { userId, database } : null;
+}
+
+async function personalSourceId(database: Database, userId: number): Promise<number | null> {
+  const result = await database.execute(sql`
+    SELECT id::text AS id
+    FROM worklog_sources
+    WHERE type = 'PRIVATE'
+      AND status = 'ACTIVE'
+      AND private_user_id = ${userId}
+    LIMIT 1
+  `);
+  return positiveNumber((result.rows[0] as { id?: string } | undefined)?.id ?? null);
 }
 
 async function activeGroupMember(database: Database, userId: number, sourceId: number): Promise<boolean> {
