@@ -253,7 +253,7 @@ export class AdminApi {
   }
 
   async audit(): Promise<Row[]> {
-    return applyServerLabels((await this.request<{ audit: Row[] }>('/audit')).audit;
+    return applyServerLabels((await this.request<{ audit: Row[] }>('/audit')).audit);
   }
 
   private async request<T>(path: string, init?: RequestInit, authenticated = true): Promise<T> {
