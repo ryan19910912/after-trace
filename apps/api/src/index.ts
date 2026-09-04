@@ -17,12 +17,15 @@ import { DrizzleWorklogAiPointLedgerRepository } from './worklog/drizzle-ai-poin
 import { DrizzleWorklogAiResponsibilityRepository } from './worklog/drizzle-ai-responsibility';
 import { DrizzleWorklogBootstrapRepository } from './worklog/drizzle-bootstrap';
 import { DrizzleWorklogCollaborationRepository } from './worklog/drizzle-collaboration';
+import { DrizzleWorklogLineRecordEditRepository } from './worklog/drizzle-line-record-edit';
 import { DrizzleWorklogRecordWriteRepository } from './worklog/drizzle-records';
 import { DrizzleWorklogTextNormalizationRepository } from './worklog/drizzle-text-normalization';
+import { GeminiWorklogLineRecordEditor } from './worklog/gemini-line-record-editor';
 import { GeminiWorklogTextNormalizer } from './worklog/gemini-text-normalizer';
 import { WorklogGrantBackedCollaboration } from './worklog/grant-collaboration';
 import type { WorklogHistoryFilters } from './worklog/history-navigation';
 import { processWorklogGroupWebhook } from './worklog/group-webhook';
+import { WorklogLineRecordEditService } from './worklog/line-record-edit';
 import { WorklogLineRuntime } from './worklog/line-runtime';
 import { WorklogOaRuntime } from './worklog/oa-runtime';
 import { processWorklogOaWebhook } from './worklog/oa-webhook';
@@ -118,17 +121,24 @@ app.post('/webhooks/line', async (c) => {
     worklogAiPoints,
     new GeminiWorklogTextNormalizer({ apiKey: c.env.GEMINI_API_KEY }),
   );
+  const worklogLineRecordEditService = new WorklogLineRecordEditService(
+    new DrizzleWorklogLineRecordEditRepository(database),
+    worklogAiPoints,
+    new GeminiWorklogLineRecordEditor({ apiKey: c.env.GEMINI_API_KEY }),
+  );
   const worklogManualCollaboration = new WorklogCollaborationService(new DrizzleWorklogCollaborationRepository(database));
   const worklogLineRuntime = new WorklogLineRuntime(
     worklogBootstrapService,
     new WorklogGrantBackedCollaboration(worklogManualCollaboration, worklogAiResponsibility),
     worklogRecordWriteService,
     worklogTextNormalizationService,
+    worklogLineRecordEditService,
   );
   const worklogOaRuntime = new WorklogOaRuntime(
     worklogBootstrapService,
     worklogRecordWriteService,
     worklogTextNormalizationService,
+    worklogLineRecordEditService,
   );
 
   const [groupCounters, oaCounters] = await Promise.all([
