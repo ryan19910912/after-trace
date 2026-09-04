@@ -13,148 +13,139 @@ Read first every run, in this order:
 - `docs/WORKLOG_DEPLOYMENT.md`
 - this file
 
-The latest product/development documents above are the only product specification. Do not revive old Customer/Project/Finance/Owner/aggregate-quota assumptions from older code or tests.
+The latest product/development documents above are the only product specification. Do not revive old Customer/Project/Finance/Owner/aggregate-quota assumptions from older code, migrations, or tests.
 
-## Current execution checkpoint — 2026-09-04 13:00 batch
+## Current execution checkpoint — 2026-09-04 13:30 batch
 
-This batch re-read all required specifications and reconciled the previous checkpoint against the **actual current branch** before modifying anything.
+This batch re-read all required specifications and reconciled the previous checkpoint against the actual branch before modifying anything. It did not redo the already-completed Source/Record/LINE/Grant/subscription-period foundation.
 
-Important reconciliation: the prior 11:30 checkpoint was behind the branch. The subscription aggregate-quota collapse it listed as the next large implementation task had already landed in later branch commits before this batch. Current subscription execution is already based on successful-period -> immutable `SUBSCRIPTION_PERIOD` Grant, not the old aggregate quota repository. This batch therefore did **not** reimplement subscription-period grants. It instead audited and removed stale schema/test contracts that still encoded the retired Owner/quota model and would otherwise break or mislead validation.
+The main completed batch was the remaining **plan-template aggregate-allowance terminology cleanup** plus two related accounting fixes:
+
+1. plan configuration now uses explicit `subscription_period_points` / `subscriptionPeriodPoints` semantics from TypeScript schema through subscription-period persistence, customer subscription API/PWA and Admin API/UI;
+2. Admin overview now actually displays customer-charged AI points and platform-subsidized points/cost that the backend was already calculating;
+3. attachment AI usage now receives deterministic operation tags such as `IMAGE_RECORD_CREATE` instead of falling through to generic `UNKNOWN`.
+
+The physical Drizzle baseline/snapshot were intentionally **not** hand-edited. They remain stale and are still the primary deployment blocker until regenerated from the final checked-out TypeScript schema and applied to a fresh PostgreSQL database.
 
 ## Scanned this run
 
 - all required durable product/development/deployment documents;
-- latest progress checkpoint and recent branch commits/tree;
-- `subscription.ts`, `subscription-period.ts`, `drizzle-subscription-period.ts`, subscription routes and Admin subscription assignment;
-- Grant schema/service/point ledger and Grant-backed usage readers;
-- Source schema and bootstrap persistence;
-- GROUP manual collaboration and AI-responsibility domains;
-- GROUP LINE runtime and Reply-targeted edit integration;
-- Admin Grant-aware repository for remaining Source-owner references;
-- high-risk stale test files: entitlement, bootstrap, lifecycle ordering, collaboration, GROUP LINE runtime, GROUP/OA webhook, OA runtime, Record and subscription-period tests.
+- latest progress checkpoint and current branch state;
+- `schema-worklog.ts` plan/Source/workspace structure;
+- `subscription-period.ts` and `drizzle-subscription-period.ts`;
+- customer subscription routes/client/page;
+- Admin repository/routes/client/editor/overview;
+- Admin route validation tests;
+- attachment ingestion service/tests and AI usage operation persistence;
+- AI point ledger settlement SQL and AI usage schema;
+- `entitlements.ts` after the previous cleanup;
+- bootstrap service + Drizzle bootstrap repository to trace remaining workspace dependency;
+- auth repository to verify PWA authorization is Source/user/member based rather than workspace Owner based;
+- Grant-backed usage service/repository/tests;
+- current stale Drizzle baseline, confirming it still contains Customer/Project/Transaction/category/normalized-summary, Source Owner fields, aggregate AI units and the old plan-template column.
 
 ## Files changed this run
 
-- `apps/api/src/worklog/entitlements.ts`
-- `apps/api/src/worklog/entitlements.test.ts`
 - `apps/api/src/db/schema-worklog.ts`
-- `apps/api/src/worklog/bootstrap.test.ts`
-- `apps/api/src/worklog/bootstrap-lifecycle-ordering.test.ts`
-- `apps/api/src/worklog/collaboration.test.ts`
-- `apps/api/src/worklog/line-runtime.test.ts`
+- `apps/api/src/worklog/drizzle-subscription-period.ts`
+- `apps/api/src/worklog/subscription-routes.ts`
+- `apps/api/src/admin/repository.ts`
+- `apps/api/src/admin/routes.ts`
+- `apps/api/src/admin/routes.test.ts`
+- `apps/admin/src/api.ts`
+- `apps/admin/src/App.tsx`
+- `apps/web/src/worklog-api.ts`
+- `apps/web/src/SubscriptionRoot.tsx`
+- `apps/api/src/worklog/attachment-ingestion.ts`
+- `apps/api/src/worklog/attachment-ingestion.test.ts`
 - `docs/WORKLOG_REBUILD_PROGRESS.md`
 
 ## Completed / confirmed this run
 
-### 1. Subscription runtime is already Grant-period based; old aggregate repository is no longer the execution path
+### 1. Plan template no longer presents itself as a live aggregate AI allowance
 
-Branch reconciliation confirmed:
+The runtime/schema/API naming has been changed from the legacy:
 
-- `subscription.ts` is now a compatibility barrel for neutral provider-usage types plus subscription-period lifecycle; it no longer implements aggregate AI reserve/commit/release;
-- `WorklogSubscriptionPeriodService` creates one immutable/idempotent `SUBSCRIPTION_PERIOD` Grant for an unambiguous successful paid period;
-- the Grant gets a stable origin key and automatic PRIVATE Source scope only;
-- GROUP scope remains explicit and is never inherited automatically;
-- `DrizzleWorklogSubscriptionPeriodRepository` writes subscription lifecycle + Grant/scope atomically and does not use the old aggregate quota tables;
-- Admin manual period assignment is already wired to the subscription-period service;
-- a mid-period plan switch is intentionally rejected as `ACTIVE_PERIOD_CHANGE_POLICY_UNDEFINED` rather than inventing proration/refund behavior.
+- DB: `ai_allowance_units`
+- TS/API: `aiAllowanceUnits`
 
-Do not redo this foundation unless a concrete regression is found.
+into the explicit period-grant template:
 
-### 2. Removed obsolete entitlement helpers that could revive paid GROUP gating / aggregate quota
+- DB: `subscription_period_points`
+- TS/API: `subscriptionPeriodPoints`
 
-`entitlements.ts` no longer exposes the retired helpers for:
+The value semantics did not change: it is the configured number of points frozen into a future immutable `SUBSCRIPTION_PERIOD` Grant. It is **not** a current balance and changing a plan template does not resize historical Grants.
 
-- `groupCollaboration` / `maxGroupCount` gating;
-- aggregate remaining allowance;
-- aggregate `canConsumeAiUnits` checks.
+Updated surfaces include:
 
-The module now keeps only generic plan-capability parsing and immutable provider-cost accounting. Its documentation explicitly states that customer AI eligibility and point consumption belong to user-owned Grant scopes / AI point ledger, not plan capabilities.
+- Drizzle plan schema;
+- subscription-period repository plan SELECT/mapping;
+- customer `/api/v1/subscription/plans` response;
+- customer subscription PWA types/display;
+- Admin plan repository/upsert;
+- Admin route input contract;
+- Admin client/editor labels and payload.
 
-The entitlement tests were rewritten accordingly. They no longer assert that GROUP collaboration is a paid capability or that subscription allowance is the live AI balance.
+Admin route validation now includes a source test that the retired `aiAllowanceUnits` request field is rejected before persistence instead of being silently accepted as the new model.
 
-### 3. Removed dead Owner/subscription-owner fields from the TypeScript Source schema
+Do not add a compatibility alias back unless an actual external production client requires a deliberate migration. There is no production-customer compatibility requirement in the current prelaunch rebuild.
 
-`worklog_sources` no longer defines:
+### 2. Admin overview now surfaces already-accounted charged/subsidized facts
 
-- `owner_user_id`;
+The backend already calculated:
+
+- customer-charged AI points;
+- platform-subsidized AI points;
+- total provider cost in TWD;
+- platform-subsidized provider cost in TWD.
+
+The Admin Overview UI now displays all four instead of hiding the subsidy split. This makes Grant overrun/platform subsidy visible without exposing internal provider pricing to the customer PWA.
+
+This is still only the first profitability view. Period selection, cohort/breakdown reporting and pricing calculator remain below.
+
+### 3. Attachment AI operations are now deterministically classified
+
+Attachment usage used to omit `operation`, causing `DrizzleWorklogAiPointLedgerRepository` to persist `UNKNOWN` even though the provider output had already identified the durable Record input type.
+
+New attachment calls now set:
+
+- `AUDIO_RECORD_CREATE`
+- `IMAGE_RECORD_CREATE`
+- `FILE_RECORD_CREATE`
+
+based strictly on `provider.output.inputType`.
+
+This does not call AI again, does not use legacy category/summary concepts and does not alter point settlement. The attachment service test source now asserts `IMAGE_RECORD_CREATE` on the successful image path.
+
+Existing historical/durable replay payloads without an operation remain readable because the usage contract still permits missing operation and the ledger retains `UNKNOWN` as a compatibility fallback.
+
+### 4. Workspace trace confirms it is technical storage debt, not product Owner semantics
+
+The remaining `worklog_workspaces.owner_user_id` was traced further rather than deleted blindly.
+
+Current facts:
+
+- `WorklogBootstrapService` still calls `ensureWorkspace(userId)` before creating PRIVATE Source and before first creation of a GROUP Source;
+- `DrizzleWorklogBootstrapRepository` persists one workspace per user and every Source still has a non-null `workspace_id` FK;
+- GROUP authorization itself does not consult workspace owner: active membership controls data access;
+- GROUP AI funding does not consult workspace owner: `worklog_source_ai_responsibility` + user-owned Grant scopes control funding;
+- web auth private entry validation uses the PRIVATE Source/user relationship directly, not workspace ownership;
+- audit/provider-usage schemas still carry optional `workspace_id` references.
+
+Therefore workspace deletion is **not** a low-risk one-field cleanup. It would require a coordinated schema/bootstrap/audit/usage migration. Until that is deliberately done, `owner_user_id` must remain documented and treated strictly as a technical storage-parent identity, never as Source Owner, group permission, subscription payer or AI 額度負責人.
+
+### 5. Current TypeScript Source schema and old baseline are intentionally divergent until regeneration
+
+The current TypeScript Source schema already has no:
+
+- Source `owner_user_id`;
 - owner binding method/time;
 - `subscription_owner_user_id`;
-- related Owner/subscription-owner indexes.
+- Customer/Project/Transaction/category/normalized-summary Record core.
 
-GROUP data authorization is membership-based. GROUP AI payment responsibility is represented only by `worklog_source_ai_responsibility` plus user-owned Grant scopes.
+The checked-in `drizzle/0000_worklog_baseline.sql` still contains all of those obsolete structures plus `ai_allowance_units` and `ai_units_consumed`. This is confirmed stale migration debt, not the current product model.
 
-`worklog_workspaces.owner_user_id` is still retained as a **transitional storage-parent identity only** because bootstrap/auth/audit still carry `workspace_id`. It must not be treated as GROUP authorization or AI funding. Remove the workspace storage parent only after its remaining technical references are traced; do not conflate that cleanup with the already-removed Source Owner domain.
-
-The physical plan-template column `ai_allowance_units` is also still retained temporarily, but current runtime semantics treat it only as the configured point count frozen into a future `SUBSCRIPTION_PERIOD` Grant. Naming cleanup remains.
-
-### 4. Fixed stale bootstrap tests that no longer matched the production interface
-
-`bootstrap.test.ts` still referenced removed contracts such as:
-
-- Source `ownerUserId`;
-- `promoteGroup`;
-- `bindGroupOwner`;
-- legacy owner conflict behavior.
-
-Those tests were rewritten to the current model:
-
-- GROUP Source is durable immediately and has no Owner field;
-- membership is independent of AI funding;
-- AI responsibility is claimed later through `WorklogAiResponsibilityClaimPort`;
-- a conflicting claimant does not replace the current AI 額度負責人;
-- absence of responsibility infrastructure fails closed;
-- Source leave/rejoin identity is independent from AI responsibility.
-
-`bootstrap-lifecycle-ordering.test.ts` was also cleaned of the obsolete Owner property and `promoteGroup` stub while retaining delayed LINE lifecycle ordering coverage.
-
-### 5. Fixed stale collaboration tests that contradicted the current free/manual product contract
-
-The previous `collaboration.test.ts` still exercised a deleted legacy service surface:
-
-- `GroupAuthorizationContext`;
-- owner subscription status/capabilities;
-- owner allowance consumption;
-- `authorizeGroupRecord`;
-- member recording permissions controlled by legacy Owner;
-- Owner binding.
-
-The test now covers only the real `WorklogCollaborationService` responsibility: free manual GROUP data access based on Source existence/status + active membership. AI funding remains completely separate in `ai-responsibility.ts`.
-
-### 6. Fixed stale GROUP LINE runtime tests that still expected Owner/quota/capability authorization
-
-`line-runtime.test.ts` still imported/constructed the retired Owner/quota collaboration interface even though production `line-runtime.ts` already uses:
-
-- `authorizeGroupAccess` for free HISTORY/manual access;
-- `authorizeGroupAi` for CREATE/attachment/AI EDIT;
-- current AI 額度負責人 -> `chargedUserId`;
-- Grant positive-balance checks rather than subscription allowance.
-
-The rewritten tests now cover the current contract:
-
-- ordinary GROUP text is only temporary cache and does not bootstrap/fund/write;
-- `@AFTERTRACE 啟用` claims AI responsibility without changing Source ownership;
-- HISTORY requires only active-member access and never checks AI points;
-- CREATE is rejected before persistence when no eligible scoped Grant can start AI;
-- CREATE writes raw Record then invokes the one-title/time normalizer;
-- delayed Reply text uses only the exact GROUP cache;
-- EDIT resolves deterministic same-Source Reply target before funding;
-- invalid/missing EDIT target does not touch AI funding;
-- attachment ingestion receives the current responsible user as `chargedUserId`.
-
-### 7. Additional static audit did not find the same stale contract in nearby current tests
-
-This batch also read current:
-
-- `group-webhook.test.ts`;
-- `oa-runtime.test.ts` / `oa-runtime.ts`;
-- `oa-webhook.test.ts`;
-- `records.test.ts`;
-- `usage.test.ts`;
-- `subscription-period.test.ts`;
-- `drizzle-collaboration.ts`;
-- `ai-responsibility.ts`.
-
-Those inspected files were already aligned closely enough with the current Source/Grant model and were not rewritten in this batch.
+Do not patch individual lines into the historical 0000 snapshot. Regenerate the baseline/snapshot from the final TypeScript schema using the real project toolchain, then apply it to a fresh disposable PostgreSQL database.
 
 ## Stable completed foundation from earlier batches
 
@@ -183,73 +174,74 @@ Do not redo unless an actual regression is found:
 - Grant-backed PRIVATE funding PWA;
 - Admin customer/group usage reporting based on Grants/responsibility/provider-cost facts;
 - normalization reservation FK points to Grant-backed point reservations;
-- successful paid subscription period -> immutable/idempotent `SUBSCRIPTION_PERIOD` Grant with PRIVATE scope.
+- successful paid subscription period -> immutable/idempotent `SUBSCRIPTION_PERIOD` Grant with PRIVATE scope;
+- retired `groupCollaboration`, `maxGroupCount`, aggregate entitlement/quota helper contracts removed from current entitlement/collaboration paths;
+- stale bootstrap/collaboration/GROUP LINE runtime tests from the Owner/quota model rewritten to the current Source/member/AI-responsibility/Grant contracts.
 
 ## Remaining / blocking work
 
-### 1. Continue stale-contract audit before runtime validation
+### 1. Finish stale terminology/data-column cleanup in AI usage accounting
 
-The branch had several tests lagging behind already-refactored production code. Continue scanning tests and peripheral readers for any remaining references to:
+One important compatibility remnant was found during this run:
+
+- `worklog_ai_usage_events.ai_units_consumed` still exists in the current TypeScript AI usage schema;
+- AI point settlement still writes `actualPoints` into that legacy column even though all current readers use `customer_points_charged` and `platform_subsidized_points`;
+- `WorklogAiUsageCommit.actualUnits` and some reservation APIs still use legacy `Units` naming even though the actual semantics are points.
+
+Before migration regeneration, trace all references and remove/rename these compatibility remnants only if there are no current callers/readers. Do not preserve `ai_units_consumed` as a second authoritative customer balance fact.
+
+### 2. Continue targeted stale-contract audit
+
+The highest-risk old test/contracts were already cleaned, but continue checking peripheral files for:
 
 - Source Owner / owner binding;
 - `subscription_owner_user_id`;
 - aggregate quota/allowance as live balance;
 - `groupCollaboration` / `maxGroupCount`;
-- old `authorizeGroupRecord` / recording-permission ownership semantics;
+- old `authorizeGroupRecord` / Owner-controlled recording semantics;
 - Customer/Project/Transaction/category/normalized-summary Record assumptions.
 
-Do not blindly remove generic fields named `category` or `summary` from anomaly/audit infrastructure; only remove the obsolete customer Record normalization concepts.
+Do not remove generic anomaly/audit fields named `category` or `summary`; those are unrelated to the obsolete customer Record normalization model.
 
-### 2. Plan-template terminology / billing representation remains transitional
+### 3. Admin profitability still needs the full reporting workflow from the AI point policy
 
-The execution semantics are already Grant-period based, but schema/API/UI still expose `ai_allowance_units` / `aiAllowanceUnits` as the subscription plan template field.
+Now-visible today metrics are not the complete required Admin reporting.
 
-Next naming cleanup should migrate that to a neutral explicit name such as `subscription_period_points` / `subscriptionPeriodPoints` across:
+Still needed, using actual immutable usage/cost facts:
 
-- Drizzle schema;
-- subscription-period repository SELECTs;
-- customer subscription API/client;
-- Admin repository/routes/client/editor.
-
-Because the product docs define FREE one-time launch Grant and paid recurring plans but do **not** define every future billing/proration edge, do not invent upgrade/downgrade/refund behavior. A clean explicit billing-type representation may be added only where semantics are unambiguous.
-
-### 3. TOP_UP lifecycle remains unwired
-
-The Grant model supports `TOP_UP`, but there is no real payment-provider success boundary yet. When one exists, each successful purchase must create one immutable/idempotent user-owned TOP_UP Grant keyed by the external purchase identity. Do not fake provider behavior merely to complete schema work.
-
-### 4. Admin profitability is only partially surfaced
-
-Backend overview/accounting already contains useful Grant/provider facts, including charged AI points, platform-subsidized points and provider cost. Still needed:
-
-- expose charged/subsidized metrics clearly in Admin UI;
-- today / 7d / 30d / billing-month period selection;
-- request/user/subscriber usage averages/medians;
+- selectable today / 7d / 30d / current billing month;
+- total requests/points/provider USD+TWD cost;
+- request/user/subscriber averages and medians where enough data exists;
 - allowance utilization/exhaustion;
 - FREE subsidy/conversion;
-- realized AI cost ratio/gross margin;
-- pricing recommendation calculator with explicit Admin-confirmed included points;
-- breakdowns by plan, Grant type, model, operation/input type and PRIVATE/GROUP.
+- realized AI cost ratio / gross margin where real revenue exists;
+- breakdowns by plan, Grant type, model, operation/input type and PRIVATE/GROUP;
+- pricing recommendation calculator using Admin-entered price/target margin/model snapshot and explicit Admin-confirmed included points.
 
-### 5. Attachment operation classification remains generic
+Do not invent revenue from plan list price when no successful payment/revenue fact exists.
 
-Attachment settlement is Grant-correct, but stable operation tags still need cleanup before operation-level profitability reporting is trustworthy.
+### 4. TOP_UP/payment lifecycle remains unwired
 
-### 6. Transitional workspace storage parent remains
+The Grant model supports `TOP_UP`, but there is no real payment-provider success boundary yet. Each future successful purchase must create one immutable/idempotent user-owned TOP_UP Grant keyed by the external purchase identity. Do not fake provider behavior merely to complete schema work.
 
-`worklog_workspaces.owner_user_id` is still used as a technical storage/bootstrap parent. Trace auth/bootstrap/audit dependencies before deciding whether to remove workspace entirely. This field must not be reused as product Owner, GROUP authorization, or AI funding responsibility.
+Undefined mid-period upgrade/downgrade/refund/proration behavior must continue to fail closed until product policy explicitly defines it.
 
-### 7. Drizzle baseline/snapshot are stale — deployment remains blocked
+### 5. Transitional workspace storage parent remains
 
-`drizzle/0000_worklog_baseline.sql`, `drizzle/meta/0000_snapshot.json`, and journal still describe obsolete structures and do not represent the current final TypeScript schema.
+Keep workspace technical-only for now. A later structural simplification may remove it, but only as a coordinated schema/bootstrap/audit/provider-usage change after current migration/runtime validation is stable. It is not a blocker to the Source/member/Grant product semantics because those paths already do not authorize by workspace Owner.
 
-Do **not** hand-fabricate the large snapshot. Regenerate from the checked-out current TypeScript schema, then apply against a fresh disposable PostgreSQL database. The current TypeScript Source schema now intentionally omits legacy Owner/subscription-owner columns, so the regenerated migration must reflect that.
+### 6. Drizzle baseline/snapshot are stale — deployment remains blocked
 
-### 8. Real runtime validation is still mandatory
+`drizzle/0000_worklog_baseline.sql`, `drizzle/meta/0000_snapshot.json`, and journal do not represent the current TypeScript schema.
+
+Regenerate from a checked-out current branch with the project toolchain; do not hand-fabricate the large snapshot. Apply the generated baseline to a fresh disposable PostgreSQL database before any Worker deployment.
+
+### 7. Real runtime validation is still mandatory
 
 Before deployment, execute locally/runtime, not GitHub Actions:
 
 - TypeScript typecheck/build;
-- Vitest suites, especially the stale-contract tests rewritten this batch;
+- Vitest suites, especially plan-contract and attachment-operation tests changed this batch plus stale-contract tests from the previous batch;
 - fresh disposable PostgreSQL migration;
 - Grant reservation/settlement/subsidy/concurrency tests;
 - manual CRUD/version/revision/delete/restore tests;
@@ -261,12 +253,12 @@ Before deployment, execute locally/runtime, not GitHub Actions:
 
 ## Next implementation target
 
-Continue from this exact checkpoint; do not redo subscription-period Grant creation, PWA funding, or LINE edit confirmation UX.
+Continue from this exact checkpoint; do not redo subscription-period Grant creation, plan-template naming, PWA funding, or LINE edit confirmation UX.
 
-1. Audit remaining stale tests/peripheral code for retired Owner/quota/capability contracts; fix only real mismatches.
-2. Rename plan-template `ai_allowance_units` semantics to `subscription_period_points` (or equivalent neutral point-template name) consistently across schema/API/Admin/PWA without changing configured values.
-3. Trace whether `workspace_id` can be removed or simplified without breaking auth/bootstrap/audit; keep it technical-only until that trace is complete.
-4. Improve Admin charged/subsidized/profitability presentation and attachment operation tags where product policy is already explicit.
+1. Trace and remove/rename remaining `ai_units_consumed` / `actualUnits` / point-ledger `requestedUnits` compatibility terminology so customer point accounting has one authoritative vocabulary and one authoritative persisted charged-point fact.
+2. Continue focused peripheral stale-contract scan; fix only concrete mismatches.
+3. Add the first full Admin profitability reporting endpoint/view with selectable periods and factual cost/point/request/user breakdowns. Do not synthesize revenue or margin without real revenue data.
+4. Keep workspace as technical-only unless a complete removal change can be made safely in one coordinated schema batch.
 5. Regenerate Drizzle baseline/snapshot from the final schema with a real local toolchain and apply to disposable PostgreSQL.
 6. Run concentrated local/runtime validation. Only after those checks should Workers deployment readiness be reconsidered.
 
@@ -276,19 +268,22 @@ This batch performed static branch/document cross-file audit and GitHub source e
 
 **Not executed:** TypeScript typecheck, build, Vitest, PostgreSQL, Drizzle generation/apply, browser/PWA runtime, Cloudflare Worker runtime, LINE runtime, Gemini runtime, or deployment.
 
-Therefore no test/build/runtime result is claimed as passing. The rewritten tests are specification-aligned source changes, not executed proof.
+Therefore no test/build/runtime result is claimed as passing. The changed tests are specification-aligned source changes, not executed proof.
+
+A local repository checkout was not available in this execution environment, so migration generation and local package scripts could not be run here.
 
 No GitHub Actions workflow was executed, dispatched, rerun, enabled, modified, or used as validation.
 
 ## Deployment status
 
-**NOT READY.** Main blockers are stale Drizzle baseline/snapshot plus lack of real local/PostgreSQL/runtime validation. Plan-template terminology and remaining stale-contract audit should also be completed before final migration regeneration.
+**NOT READY.** Main blockers are stale Drizzle baseline/snapshot plus lack of real local/PostgreSQL/runtime validation. The remaining `ai_units_consumed` compatibility column/terminology should also be resolved before final migration regeneration so the new baseline does not encode avoidable legacy accounting debt.
 
 ## Rough remaining work
 
 Planning-only estimate from the current branch state:
 
 - core Record/domain/manual PWA/LINE CREATE-HISTORY-EDIT/Grant funding/subscription-period behavior: largely implemented;
-- remaining non-payment implementation/audit before concentrated validation: roughly **1 substantial cleanup batch** for stale contracts + plan naming, with Admin reporting potentially another focused batch;
+- remaining non-payment implementation/audit before migration regeneration: roughly **1 focused accounting/stale-contract cleanup batch**;
+- Admin profitability reporting: roughly **1 focused reporting batch** for the factual non-payment analytics, with real revenue/margin views extending only when payment revenue facts exist;
 - migration regeneration + disposable PostgreSQL + typecheck/Vitest/runtime smoke: **1 mandatory validation batch**;
-- real payment/TOP_UP and any undefined proration/refund policy remain separate product/payment work and are not blockers to finishing the current non-payment refactor checkpoint unless launch scope requires them.
+- real payment/TOP_UP and undefined proration/refund policy remain separate product/payment work and are not blockers to finishing the current non-payment refactor unless launch scope explicitly requires them.
