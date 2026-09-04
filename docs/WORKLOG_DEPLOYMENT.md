@@ -42,7 +42,7 @@ AFTERTRACE deploys as three independent Cloudflare Workers. Do not reintroduce C
 
 **Cloudflare production Workers do not read repository `.env.local` or `.env`.**
 
-Repository `.env.local` is local development/tooling input only.
+Repository `.env.local` is local development/tooling input only. Repository `.env.prod` is an operator-maintained production/deployment input and is not read automatically by the deployed Worker runtime.
 
 Production API Worker values come from Cloudflare Worker Variables/Secrets plus checked-in non-secret `wrangler.toml` values.
 
@@ -59,7 +59,7 @@ Required API production bindings include:
 - `LINE_LOGIN_CHANNEL_SECRET` — secret.
 - `ADMIN_USERNAME` — configured Admin identity.
 - `ADMIN_PASSWORD` — **at least 16 characters**, use a unique random production value.
-- `ADMIN_SESSION_SECRET` — >= 32 chars, secret.
+- `ADMIN_SESSION_SECRET` — >= 32 characters, secret.
 - `ADMIN_WEB_ORIGIN` — exact deployed Admin HTTPS origin.
 
 Do not put API secrets in `VITE_*` variables.
@@ -69,11 +69,11 @@ Web/Admin use only public build-time config, primarily `VITE_API_BASE_URL`.
 ## Deployment helper target variables
 
 - `AFTERTRACE_API_URL` = actual deployed API Worker HTTPS origin.
-- `AFTERTRACE_PROD_DATABASE_URL` = explicit PostgreSQL URL used by **production migration**.
+- `DATABASE_URL` = the intended production PostgreSQL URL. The same variable name is used for deployment migration and as the API Worker runtime database binding.
 
-`worker-deploy.ps1` must never silently use repository `.env.local` as the production migration target. It requires `AFTERTRACE_PROD_DATABASE_URL` or explicit `-DatabaseUrl` and temporarily sets that value as `DATABASE_URL` only around the migration command.
+`AFTERTRACE_PROD_DATABASE_URL` is intentionally not used. The operator loads the intended production environment before running deployment. `worker-deploy.ps1` validates `DATABASE_URL` and never loads repository `.env.local` itself, so deployment stays simple without maintaining two database variables with identical values.
 
-The runtime Worker `DATABASE_URL` secret must point to the intended production database as well. Post-deploy readiness is expected to catch missing/unmigrated runtime DB state, but operators must still verify the migration URL and Worker secret identify the same intended environment.
+Operators must still verify that the `DATABASE_URL` loaded for migration and the `DATABASE_URL` secret configured on the Worker identify the same intended database. Post-deploy readiness catches missing/unmigrated schema but cannot infer operator intent.
 
 ## workers.dev launch direction
 
@@ -236,8 +236,8 @@ Passing preflight is necessary but not sufficient. Fresh PostgreSQL and runtime 
 3. install from lockfile unless skipped;
 4. typecheck/lint/test/build;
 5. export Drizzle schema;
-6. require explicit production migration URL (`AFTERTRACE_PROD_DATABASE_URL` / `-DatabaseUrl`);
-7. migrate that explicit DB;
+6. require a valid `DATABASE_URL` already loaded for the intended production database (or explicit `-DatabaseUrl` override), without loading `.env.local`;
+7. migrate that database;
 8. deploy API Worker;
 9. verify `/health`;
 10. verify `/health/ready` by default.
@@ -349,7 +349,7 @@ Validate locally/runtime, never substitute GitHub Actions unless explicitly requ
 
 - actual Cloudflare workers.dev hosts;
 - Worker Variables/Secrets listed above;
-- explicit production migration DB URL;
+- production `DATABASE_URL` loaded for deployment migration and configured as the API Worker secret;
 - LINE OA webhook and LINE Login callback URLs;
 - LINE OA Rich Menu;
 - initialized AI runtime pricing row;
