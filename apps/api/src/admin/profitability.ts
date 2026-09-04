@@ -21,6 +21,8 @@ export type AdminProfitabilitySummary = {
   providerCostTwd: string;
   platformSubsidizedCostUsd: string;
   platformSubsidizedCostTwd: string;
+  missingProviderCostTwdRequests: number;
+  missingSubsidyCostTwdRequests: number;
   averagePointsPerRequest: number;
   averageProviderCostTwdPerRequest: string;
   averagePointsPerChargedUser: number;
@@ -39,6 +41,7 @@ export type AdminProfitabilityBreakdownRow = {
   platformSubsidizedPoints: number;
   providerCostUsd: string;
   providerCostTwd: string;
+  missingProviderCostTwdRequests: number;
 };
 
 export type AdminGrantTypeUsageRow = {
@@ -70,6 +73,9 @@ export type AdminProfitabilityReport = {
  * Revenue and margin intentionally remain null until AFTERTRACE has a durable,
  * successful-payment revenue ledger. Checkout intent status or plan list price is not
  * sufficient evidence of realized revenue and must never be synthesized here.
+ *
+ * TWD totals expose missing-conversion request counts. A NULL historical TWD cost must
+ * never be silently interpreted as a known zero-cost request.
  */
 export class DrizzleAdminProfitabilityRepository {
   constructor(private readonly db: Database) {}
@@ -97,7 +103,11 @@ export class DrizzleAdminProfitabilityRepository {
         COALESCE(SUM(provider_cost_usd), 0)::text AS provider_cost_usd,
         COALESCE(SUM(provider_cost_twd), 0)::text AS provider_cost_twd,
         COALESCE(SUM(platform_subsidized_cost_usd), 0)::text AS platform_subsidized_cost_usd,
-        COALESCE(SUM(platform_subsidized_cost_twd), 0)::text AS platform_subsidized_cost_twd
+        COALESCE(SUM(platform_subsidized_cost_twd), 0)::text AS platform_subsidized_cost_twd,
+        COUNT(*) FILTER (WHERE provider_cost_twd IS NULL)::text AS missing_provider_cost_twd_requests,
+        COUNT(*) FILTER (
+          WHERE platform_subsidized_points > 0 AND platform_subsidized_cost_twd IS NULL
+        )::text AS missing_subsidy_cost_twd_requests
       FROM worklog_ai_usage_events
       WHERE created_at >= ${window.from} AND created_at < ${window.to}
     `);
@@ -118,6 +128,8 @@ export class DrizzleAdminProfitabilityRepository {
       providerCostTwd: costTwd,
       platformSubsidizedCostUsd: decimal(row?.platform_subsidized_cost_usd),
       platformSubsidizedCostTwd: decimal(row?.platform_subsidized_cost_twd),
+      missingProviderCostTwdRequests: integer(row?.missing_provider_cost_twd_requests),
+      missingSubsidyCostTwdRequests: integer(row?.missing_subsidy_cost_twd_requests),
       averagePointsPerRequest: requests > 0 ? points / requests : 0,
       averageProviderCostTwdPerRequest: ratioDecimal(costTwd, requests),
       averagePointsPerChargedUser: chargedUsers > 0 ? points / chargedUsers : 0,
@@ -146,7 +158,8 @@ export class DrizzleAdminProfitabilityRepository {
         COALESCE(SUM(usage.customer_points_charged), 0)::bigint::text AS customer_points_charged,
         COALESCE(SUM(usage.platform_subsidized_points), 0)::bigint::text AS platform_subsidized_points,
         COALESCE(SUM(usage.provider_cost_usd), 0)::text AS provider_cost_usd,
-        COALESCE(SUM(usage.provider_cost_twd), 0)::text AS provider_cost_twd
+        COALESCE(SUM(usage.provider_cost_twd), 0)::text AS provider_cost_twd,
+        COUNT(*) FILTER (WHERE usage.provider_cost_twd IS NULL)::text AS missing_provider_cost_twd_requests
       FROM worklog_ai_usage_events usage
       LEFT JOIN worklog_sources source ON source.id = usage.source_id
       WHERE usage.created_at >= ${window.from} AND usage.created_at < ${window.to}
@@ -163,6 +176,7 @@ export class DrizzleAdminProfitabilityRepository {
         platformSubsidizedPoints: integer(row.platform_subsidized_points),
         providerCostUsd: decimal(row.provider_cost_usd),
         providerCostTwd: decimal(row.provider_cost_twd),
+        missingProviderCostTwdRequests: integer(row.missing_provider_cost_twd_requests),
       };
     });
   }
