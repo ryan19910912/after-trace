@@ -11,8 +11,9 @@ import { worklogRecords } from './schema-worklog-record-core';
  * retained as platform_subsidized_points/cost rather than customer overdraw.
  *
  * reservation_token is the exactly-once bridge from durable provider success to
- * customer grant settlement. ai_units_consumed remains transitional until all legacy
- * aggregate-quota readers are removed.
+ * customer grant settlement. customer_points_charged is the single authoritative
+ * persisted customer point charge for an AI request; do not add a parallel aggregate
+ * "units consumed" fact back to this table.
  */
 export const worklogAiUsageEvents = pgTable(
   'worklog_ai_usage_events',
@@ -52,7 +53,6 @@ export const worklogAiUsageEvents = pgTable(
     platformSubsidizedPoints: integer('platform_subsidized_points').default(0).notNull(),
     platformSubsidizedCostUsd: numeric('platform_subsidized_cost_usd', { precision: 18, scale: 8 }).default('0').notNull(),
     platformSubsidizedCostTwd: numeric('platform_subsidized_cost_twd', { precision: 18, scale: 6 }),
-    aiUnitsConsumed: integer('ai_units_consumed').default(0).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
