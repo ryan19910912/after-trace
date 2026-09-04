@@ -19,8 +19,14 @@ export interface WorklogGroupLifecyclePort {
   }): Promise<void>;
 }
 
+export type WorklogSentReply = { sentMessageIds: string[] };
+
 export interface WorklogGroupReplyPort {
-  reply(replyToken: string, text: string): Promise<void>;
+  reply(replyToken: string, text: string): Promise<void | WorklogSentReply>;
+}
+
+export interface WorklogBotReplyTargetPort {
+  rememberBotReplyTarget(recordId: number, botLineMessageId: string): Promise<void>;
 }
 
 export type WorklogGroupWebhookCounters = {
@@ -86,9 +92,10 @@ async function replySafely(input: {
   lineMessageId: string;
   webhookEventId: string | null;
   counters: WorklogGroupWebhookCounters;
-}): Promise<void> {
+}): Promise<WorklogSentReply | null> {
   try {
-    await input.reply.reply(input.replyToken, input.text);
+    const result = await input.reply.reply(input.replyToken, input.text);
+    return result && Array.isArray(result.sentMessageIds) ? result : null;
   } catch (error) {
     input.counters.worklogErrors += 1;
     logFailure({
@@ -105,6 +112,49 @@ async function replySafely(input: {
       lineMessageId: input.lineMessageId,
       requestRef: input.webhookEventId,
       metadata: {
+        lineGroupId: input.lineGroupId,
+        ...(input.lineUserId ? { lineUserId: input.lineUserId } : {}),
+      },
+    });
+    return null;
+  }
+}
+
+async function rememberReplyTargetSafely(input: {
+  target?: WorklogBotReplyTargetPort;
+  recordId: number;
+  sent: WorklogSentReply | null;
+  lineGroupId: string;
+  lineUserId?: string | null;
+  lineMessageId: string;
+  webhookEventId: string | null;
+  anomalies?: WorklogAnomalyPort;
+  counters: WorklogGroupWebhookCounters;
+}): Promise<void> {
+  const botLineMessageId = input.sent?.sentMessageIds[0]?.trim();
+  if (!input.target || !botLineMessageId) return;
+  try {
+    await input.target.rememberBotReplyTarget(input.recordId, botLineMessageId);
+  } catch (error) {
+    input.counters.worklogErrors += 1;
+    logFailure({
+      event: 'worklog_group_reply_target_persist_failed',
+      lineGroupId: input.lineGroupId,
+      lineMessageId: input.lineMessageId,
+      webhookEventId: input.webhookEventId,
+      error,
+      extra: { recordId: input.recordId, botLineMessageId },
+    });
+    await recordAnomalySafely(input.anomalies, {
+      category: 'LINE_GROUP_REPLY_TARGET',
+      errorCode: anomalyErrorCode(error, 'LINE_REPLY_TARGET_PERSIST_FAILED'),
+      summary: anomalyErrorSummary(error, 'LINE group bot Reply target persistence failed'),
+      sourceId: null,
+      lineMessageId: input.lineMessageId,
+      requestRef: input.webhookEventId,
+      metadata: {
+        recordId: input.recordId,
+        botLineMessageId,
         lineGroupId: input.lineGroupId,
         ...(input.lineUserId ? { lineUserId: input.lineUserId } : {}),
       },
@@ -138,6 +188,7 @@ export async function processWorklogGroupWebhook(input: {
   bootstrap: WorklogGroupLifecyclePort;
   runtime: Pick<WorklogLineRuntime, 'handle'>;
   reply: WorklogGroupReplyPort;
+  replyTargets?: WorklogBotReplyTargetPort;
   anomalies?: WorklogAnomalyPort;
   createQueryUrl?: (target: WorklogGroupQueryTarget) => Promise<string | null>;
 }): Promise<WorklogGroupWebhookCounters> {
@@ -291,7 +342,7 @@ export async function processWorklogGroupWebhook(input: {
       continue;
     }
 
-    await replySafely({
+    const sent = await replySafely({
       reply: input.reply,
       anomalies: input.anomalies,
       replyToken: message.replyToken,
@@ -302,6 +353,19 @@ export async function processWorklogGroupWebhook(input: {
       webhookEventId: message.webhookEventId,
       counters,
     });
+    if (result.status === 'RECORDED') {
+      await rememberReplyTargetSafely({
+        target: input.replyTargets,
+        recordId: result.recordId,
+        sent,
+        lineGroupId: message.lineGroupId,
+        lineUserId: message.lineUserId,
+        lineMessageId: message.lineMessageId,
+        webhookEventId: message.webhookEventId,
+        anomalies: input.anomalies,
+        counters,
+      });
+    }
   }
 
   return counters;
