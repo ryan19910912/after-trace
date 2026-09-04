@@ -26,6 +26,15 @@ type SubscriptionRow = {
   plan_enabled: boolean;
 };
 
+type GrantRow = {
+  grant_id: string | number;
+  grant_original_points: string | number;
+  grant_remaining_points: string | number;
+  grant_effective_at: Date | string;
+  grant_expires_at: Date | string | null;
+  grant_origin_key: string;
+};
+
 type AssignmentRow = SubscriptionRow & {
   grant_id: string | number | null;
   grant_original_points: string | number | null;
@@ -89,6 +98,28 @@ export class DrizzleWorklogSubscriptionPeriodRepository implements WorklogSubscr
     return id === undefined ? null : positiveInteger(id, 'private source id');
   }
 
+  async getGrantByOrigin(input: {
+    ownerUserId: number;
+    originKey: string;
+  }): Promise<WorklogSubscriptionPeriodGrantSnapshot | null> {
+    const result = await this.db.execute(sql`
+      SELECT
+        id::text AS grant_id,
+        original_points AS grant_original_points,
+        remaining_points AS grant_remaining_points,
+        effective_at AS grant_effective_at,
+        expires_at AS grant_expires_at,
+        origin_key AS grant_origin_key
+      FROM worklog_ai_grants
+      WHERE owner_user_id = ${input.ownerUserId}
+        AND type = 'SUBSCRIPTION_PERIOD'
+        AND origin_key = ${input.originKey}
+      LIMIT 1
+    `);
+    const row = result.rows[0] as GrantRow | undefined;
+    return row ? grantFromRow(row) : null;
+  }
+
   async assignPeriodAtomic(
     input: Parameters<WorklogSubscriptionPeriodRepository['assignPeriodAtomic']>[0],
   ): Promise<{
@@ -114,6 +145,7 @@ export class DrizzleWorklogSubscriptionPeriodRepository implements WorklogSubscr
         FROM worklog_ai_grants
         WHERE owner_user_id = ${input.userId}
           AND ${input.originKey}::text IS NOT NULL
+          AND type = 'SUBSCRIPTION_PERIOD'
           AND origin_key = ${input.originKey}
         LIMIT 1
       ),
@@ -234,7 +266,7 @@ export class DrizzleWorklogSubscriptionPeriodRepository implements WorklogSubscr
         ON CONFLICT (grant_id, source_id) DO UPDATE
         SET cap_points = NULL,
             enabled = TRUE,
-            updated_at = worklog_ai_grant_scopes.updated_at
+            updated_at = NOW()
         RETURNING id
       ),
       history AS (
@@ -354,7 +386,7 @@ function subscriptionFromRow(row: SubscriptionRow): WorklogSubscriptionPeriodSna
   };
 }
 
-function grantFromRow(row: AssignmentRow): WorklogSubscriptionPeriodGrantSnapshot {
+function grantFromRow(row: AssignmentRow | GrantRow): WorklogSubscriptionPeriodGrantSnapshot {
   if (
     row.grant_id === null
     || row.grant_original_points === null
