@@ -69,7 +69,7 @@ export class GeminiWorklogAttachmentNormalizer implements WorklogAttachmentProvi
     this.maxOutputTokens = positiveInteger(options.maxOutputTokens ?? 768, 'maxOutputTokens');
   }
 
-  reservationUnits(content: LineMessageContent, config: WorklogAiRuntimeConfigSnapshot): number {
+  reservationPoints(content: LineMessageContent, config: WorklogAiRuntimeConfigSnapshot): number {
     this.assertConfig(config);
     // The binary byte length is intentionally treated as a conservative input-token
     // upper bound. Add request/output/thinking overhead, then price the whole upper
