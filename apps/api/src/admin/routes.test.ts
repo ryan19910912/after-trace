@@ -141,7 +141,7 @@ describe('admin route input validation', () => {
       },
       body: JSON.stringify({
         provider: 'GOOGLE',
-        model: 'gemini-test',
+        model: 'gemini-3.5-flash',
         inputUsdPerMillion: '0.1',
         outputUsdPerMillion: '0',
         audioUsdPerMillion: null,
@@ -155,5 +155,31 @@ describe('admin route input validation', () => {
       ok: false,
       error: 'AI_OUTPUT_PRICE_MUST_BE_POSITIVE',
     });
+  });
+
+  it.each([
+    [{ provider: 'OTHER', model: 'gemini-3.5-flash' }, 'AI_PROVIDER_NOT_SUPPORTED'],
+    [{ provider: 'GOOGLE', model: 'gemini-other' }, 'AI_MODEL_NOT_SUPPORTED'],
+  ])('rejects AI runtime settings that the shipped Worklog provider cannot execute', async (override, error) => {
+    const response = await createAdminRoutes().request('/ai-runtime', {
+      method: 'PUT',
+      headers: {
+        authorization: await authorization(),
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        provider: 'GOOGLE',
+        model: 'gemini-3.5-flash',
+        inputUsdPerMillion: '0.1',
+        outputUsdPerMillion: '0.4',
+        audioUsdPerMillion: null,
+        imageUsdPerMillion: null,
+        usdTwdRate: '30',
+        ...override,
+      }),
+    }, env);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ ok: false, error });
   });
 });
