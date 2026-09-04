@@ -68,6 +68,8 @@ export type AdminProfitabilityReport = {
     grants: number;
     exhaustedGrants: number;
     originalPoints: number;
+    usedPoints: number;
+    reservedPoints: number;
     remainingPoints: number;
     utilizationPercent: number;
     exhaustionPercent: number;
