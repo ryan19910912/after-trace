@@ -36,8 +36,9 @@ export function ProfitabilityPage({ api }: Props) {
       setUsername(session.username);
     }).catch(() => {
       if (!active) return;
-      sessionStorage.removeItem(SESSION_KEY);
-      api.setSessionToken(null);
+      clearAdminSession(api);
+      setUsername(null);
+      setReport(null);
       setError('管理員登入已失效，請重新登入。');
       setLoading(false);
     });
@@ -55,7 +56,14 @@ export function ProfitabilityPage({ api }: Props) {
       setLoading(false);
     }).catch((cause) => {
       if (!active) return;
-      setError(cause instanceof Error ? cause.message : String(cause));
+      if (isAdminSessionError(cause)) {
+        clearAdminSession(api);
+        setUsername(null);
+        setReport(null);
+        setError('管理員登入已失效，請重新登入。');
+      } else {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      }
       setLoading(false);
     });
     return () => { active = false; };
@@ -97,7 +105,7 @@ export function ProfitabilityPage({ api }: Props) {
     <section className="stack">
       <article className="card filter-card">
         <label>報表期間
-          <select value={period} onChange={(event) => setPeriod(event.target.value as AdminProfitabilityPeriod)} disabled={loading}>
+          <select value={period} onChange={(event) => setPeriod(event.target.value as AdminProfitabilityPeriod)} disabled={loading || !username}>
             {PERIODS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
           </select>
         </label>
@@ -177,6 +185,16 @@ function Breakdown({ title, rows }: { title: string; rows: AdminProfitabilityRep
       </tr>)}
     </tbody></table>
   </article>;
+}
+
+function clearAdminSession(api: AdminApi) {
+  sessionStorage.removeItem(SESSION_KEY);
+  api.setSessionToken(null);
+}
+
+function isAdminSessionError(cause: unknown): boolean {
+  const text = cause instanceof Error ? cause.message : String(cause ?? '');
+  return /ADMIN_SESSION_(?:REQUIRED|INVALID)/.test(text);
 }
 
 function money(value: string, digits: number): string {
