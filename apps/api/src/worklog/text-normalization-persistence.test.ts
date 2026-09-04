@@ -87,7 +87,7 @@ describe('WorklogTextNormalizationService persistence uncertainty', () => {
       latencyMs: 120,
     }));
     const service = new WorklogTextNormalizationService(repo, port, {
-      reservationUnits: () => 100,
+      reservationPoints: () => 100,
       normalize,
     }, () => 'claim-1');
 
@@ -107,7 +107,7 @@ describe('WorklogTextNormalizationService persistence uncertainty', () => {
     const repo = repository(vi.fn(async () => undefined));
     const { port, releaseAi } = aiPoints();
     const service = new WorklogTextNormalizationService(repo, port, {
-      reservationUnits: () => 100,
+      reservationPoints: () => 100,
       normalize: vi.fn(async () => { throw new Error('provider failed'); }),
     }, () => 'claim-1');
 
