@@ -123,15 +123,6 @@ export const worklogSourceMembers = pgTable(
       .notNull()
       .references(() => worklogUsers.id, { onDelete: 'restrict' }),
     isActive: boolean('is_active').default(true).notNull(),
-
-    // Recording preference is an AI-path fact. Manual PWA authorization ignores it.
-    recordingEnabled: boolean('recording_enabled').default(true).notNull(),
-    recordingUpdatedByUserId: bigint('recording_updated_by_user_id', { mode: 'number' }).references(
-      () => worklogUsers.id,
-      { onDelete: 'restrict' },
-    ),
-    recordingUpdatedAt: timestamp('recording_updated_at', { withTimezone: true }),
-
     firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).defaultNow().notNull(),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).defaultNow().notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -140,11 +131,6 @@ export const worklogSourceMembers = pgTable(
   (table) => [
     uniqueIndex('worklog_source_member_uq').on(table.sourceId, table.userId),
     index('worklog_source_member_user_active_idx').on(table.userId, table.isActive),
-    index('worklog_source_member_source_recording_idx').on(
-      table.sourceId,
-      table.isActive,
-      table.recordingEnabled,
-    ),
   ],
 );
 
