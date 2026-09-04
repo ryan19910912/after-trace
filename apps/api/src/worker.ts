@@ -65,7 +65,7 @@ async function withApiAnomalyBoundary(
   boundary: ApiBoundary,
   request: Request,
   env: Bindings,
-  run: () => Promise<Response>,
+  run: () => Response | Promise<Response>,
 ): Promise<Response> {
   const requestUrl = new URL(request.url);
   try {
