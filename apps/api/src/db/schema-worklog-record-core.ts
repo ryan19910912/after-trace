@@ -1,6 +1,7 @@
 import {
   bigint,
   bigserial,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -54,6 +55,9 @@ export const worklogEntities = pgTable(
   },
   (table) => [
     uniqueIndex('worklog_entity_source_name_uq').on(table.sourceId, table.name),
+    // PostgreSQL composite FKs below use this key to make Source isolation a durable
+    // database invariant instead of relying only on every caller remembering to check.
+    uniqueIndex('worklog_entity_source_id_uq').on(table.sourceId, table.id),
     index('worklog_entity_source_status_idx').on(table.sourceId, table.status),
   ],
 );
@@ -66,9 +70,7 @@ export const worklogEntityAliases = pgTable(
     sourceId: bigint('source_id', { mode: 'number' })
       .notNull()
       .references(() => worklogSources.id, { onDelete: 'restrict' }),
-    entityId: bigint('entity_id', { mode: 'number' })
-      .notNull()
-      .references(() => worklogEntities.id, { onDelete: 'restrict' }),
+    entityId: bigint('entity_id', { mode: 'number' }).notNull(),
     alias: varchar('alias', { length: 255 }).notNull(),
     createdByUserId: bigint('created_by_user_id', { mode: 'number' }).references(
       () => worklogUsers.id,
@@ -81,6 +83,11 @@ export const worklogEntityAliases = pgTable(
   (table) => [
     uniqueIndex('worklog_entity_alias_source_alias_uq').on(table.sourceId, table.alias),
     index('worklog_entity_alias_entity_idx').on(table.entityId),
+    foreignKey({
+      columns: [table.sourceId, table.entityId],
+      foreignColumns: [worklogEntities.sourceId, worklogEntities.id],
+      name: 'worklog_entity_alias_source_entity_fk',
+    }).onDelete('restrict'),
   ],
 );
 
@@ -98,9 +105,7 @@ export const worklogRecords = pgTable(
     sourceId: bigint('source_id', { mode: 'number' })
       .notNull()
       .references(() => worklogSources.id, { onDelete: 'restrict' }),
-    entityId: bigint('entity_id', { mode: 'number' }).references(() => worklogEntities.id, {
-      onDelete: 'restrict',
-    }),
+    entityId: bigint('entity_id', { mode: 'number' }),
     authorUserId: bigint('author_user_id', { mode: 'number' }).references(() => worklogUsers.id, {
       onDelete: 'restrict',
     }),
@@ -120,6 +125,7 @@ export const worklogRecords = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
+    uniqueIndex('worklog_record_source_id_uq').on(table.sourceId, table.id),
     index('worklog_record_source_status_occurred_idx').on(
       table.sourceId,
       table.status,
@@ -128,6 +134,11 @@ export const worklogRecords = pgTable(
     index('worklog_record_source_entity_status_idx').on(table.sourceId, table.entityId, table.status),
     index('worklog_record_author_type_idx').on(table.authorUserId, table.inputType),
     index('worklog_record_quoted_line_idx').on(table.quotedLineMessageId),
+    foreignKey({
+      columns: [table.sourceId, table.entityId],
+      foreignColumns: [worklogEntities.sourceId, worklogEntities.id],
+      name: 'worklog_record_source_entity_fk',
+    }).onDelete('restrict'),
   ],
 );
 
@@ -175,17 +186,12 @@ export const worklogAiConfirmations = pgTable(
     sourceId: bigint('source_id', { mode: 'number' })
       .notNull()
       .references(() => worklogSources.id, { onDelete: 'restrict' }),
-    recordId: bigint('record_id', { mode: 'number' }).references(() => worklogRecords.id, {
-      onDelete: 'restrict',
-    }),
+    recordId: bigint('record_id', { mode: 'number' }),
     requestedUserId: bigint('requested_user_id', { mode: 'number' })
       .notNull()
       .references(() => worklogUsers.id, { onDelete: 'restrict' }),
     confirmationType: worklogAiConfirmationTypeEnum('confirmation_type').notNull(),
-    candidateEntityId: bigint('candidate_entity_id', { mode: 'number' }).references(
-      () => worklogEntities.id,
-      { onDelete: 'restrict' },
-    ),
+    candidateEntityId: bigint('candidate_entity_id', { mode: 'number' }),
     proposedName: varchar('proposed_name', { length: 255 }),
     payload: jsonb('payload').default({}).notNull(),
     status: worklogAiConfirmationStatusEnum('status').default('PENDING').notNull(),
@@ -199,6 +205,7 @@ export const worklogAiConfirmations = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
+    uniqueIndex('worklog_ai_confirmation_source_id_uq').on(table.sourceId, table.id),
     index('worklog_ai_confirmation_user_status_idx').on(
       table.requestedUserId,
       table.status,
@@ -206,5 +213,15 @@ export const worklogAiConfirmations = pgTable(
     ),
     index('worklog_ai_confirmation_source_status_idx').on(table.sourceId, table.status),
     index('worklog_ai_confirmation_record_idx').on(table.recordId),
+    foreignKey({
+      columns: [table.sourceId, table.recordId],
+      foreignColumns: [worklogRecords.sourceId, worklogRecords.id],
+      name: 'worklog_ai_confirmation_source_record_fk',
+    }).onDelete('restrict'),
+    foreignKey({
+      columns: [table.sourceId, table.candidateEntityId],
+      foreignColumns: [worklogEntities.sourceId, worklogEntities.id],
+      name: 'worklog_ai_confirmation_source_entity_fk',
+    }).onDelete('restrict'),
   ],
 );
