@@ -190,6 +190,44 @@ describe('WorklogSubscriptionPeriodService', () => {
     expect(repository.assigned).toHaveLength(0);
   });
 
+  it('keeps an existing period retry idempotent after the future plan template point count changes', async () => {
+    const repository = new FakeRepository();
+    repository.current = active();
+    repository.plans.set('PRO', { ...PRO, subscriptionPeriodPoints: 1_200_000 });
+    const originKey = subscriptionPeriodOriginKey({
+      userId: 1,
+      planCode: 'PRO',
+      source: 'ADMIN',
+      currentPeriodStart: repository.current.currentPeriodStart,
+    });
+    repository.grants.set(originKey, {
+      grantId: 77,
+      originalPoints: 800_000,
+      remainingPoints: 650_000,
+      effectiveAt: repository.current.currentPeriodStart,
+      expiresAt: repository.current.currentPeriodEnd,
+      originKey,
+    });
+    const service = new WorklogSubscriptionPeriodService(repository);
+
+    const result = await service.assignPeriod({
+      userId: 1,
+      planCode: 'PRO',
+      source: 'ADMIN',
+      actor: 'admin',
+      at: ACTIVE_AT,
+      currentPeriodStart: new Date('2026-09-01T00:00:00.000Z'),
+      currentPeriodEnd: new Date('2026-10-01T00:00:00.000Z'),
+    });
+
+    expect(result).toMatchObject({
+      status: 'ASSIGNED',
+      idempotent: true,
+      grant: { grantId: 77, originalPoints: 800_000, remainingPoints: 650_000 },
+    });
+    expect(repository.assigned).toHaveLength(0);
+  });
+
   it('does not infer a missing historical grant from an active lifecycle row', async () => {
     const repository = new FakeRepository();
     repository.current = active();
