@@ -8,7 +8,6 @@ export type WorklogBoundGroup = {
   sourceId: number;
   lineGroupId: string;
   workspaceId: number;
-  ownerUserId: number | null;
   status: 'ACTIVE' | 'INACTIVE';
 };
 
@@ -26,14 +25,6 @@ export interface WorklogBootstrapRepository {
   reactivateBoundGroup(sourceId: number, at: Date): Promise<boolean>;
   upsertBoundGroupMember(sourceId: number, userId: number, isActive: boolean, at: Date): Promise<void>;
   markGroupInactive(lineGroupId: string, at: Date): Promise<void>;
-  /** Legacy fallback used only while old tests/storage are being removed. */
-  promoteGroup(input: {
-    lineGroupId: string;
-    ownerUserId: number;
-    workspaceId: number;
-    bindingMethod: string;
-    at: Date;
-  }): Promise<WorklogBoundGroup | null>;
 }
 
 export interface WorklogInitialGrantPort {
@@ -61,24 +52,17 @@ export type PrivateBootstrapResult =
   | { status: 'READY'; userId: number; workspaceId: number; sourceId: number }
   | { status: 'NOT_OA_FRIEND'; userId: number };
 
-/**
- * GROUP Source existence is independent from AI funding. A group becomes a durable
- * Source as soon as a known member interacts; ownerUserId is transitional legacy
- * storage only and may remain null indefinitely. Manual PWA access is authorized by
- * Source membership, never by this legacy field.
- */
+/** GROUP Source existence is independent from AI funding responsibility. */
 export type GroupBootstrapResult = {
   status: 'BOUND';
   userId: number;
   sourceId: number;
-  ownerUserId: number | null;
 };
 
-/** Public name kept temporarily for LINE runtime compatibility; semantically this is AI 額度負責人. */
-export type GroupOwnerBindResult =
-  | { status: 'BOUND'; sourceId: number; ownerUserId: number }
-  | { status: 'ALREADY_BOUND'; sourceId: number; ownerUserId: number }
-  | { status: 'OWNER_CONFLICT'; sourceId: number; ownerUserId: number };
+export type GroupAiResponsibilityBindResult =
+  | { status: 'BOUND'; sourceId: number; responsibleUserId: number }
+  | { status: 'ALREADY_BOUND'; sourceId: number; responsibleUserId: number }
+  | { status: 'RESPONSIBILITY_CONFLICT'; sourceId: number };
 
 export class WorklogBootstrapService {
   constructor(
@@ -163,9 +147,8 @@ export class WorklogBootstrapService {
 
     let group = await this.repository.findBoundGroupByLineId(lineGroupId);
     if (!group) {
-      // workspace_id is still a non-null legacy column. Use the first observed member's
-      // workspace only as a temporary storage parent; it is NOT authorization or data
-      // ownership. The final Source schema batch removes this accidental coupling.
+      // workspace_id remains a transitional storage parent only. GROUP authorization
+      // is membership-based and GROUP AI funding is stored in responsibility + grants.
       const storageWorkspaceId = await this.repository.ensureWorkspace(user.userId, at);
       group = await this.repository.ensureGroupSource(lineGroupId, storageWorkspaceId, at);
     } else if (group.status === 'INACTIVE') {
@@ -178,12 +161,7 @@ export class WorklogBootstrapService {
     }
 
     await this.repository.upsertBoundGroupMember(group.sourceId, user.userId, true, at);
-    return {
-      status: 'BOUND',
-      userId: user.userId,
-      sourceId: group.sourceId,
-      ownerUserId: group.ownerUserId,
-    };
+    return { status: 'BOUND', userId: user.userId, sourceId: group.sourceId };
   }
 
   async setGroupMemberPresence(input: {
@@ -220,81 +198,46 @@ export class WorklogBootstrapService {
     );
   }
 
-  async bindGroupOwner(input: {
+  async claimGroupAiResponsibility(input: {
     lineGroupId: string;
-    ownerLineUserId: string;
-    ownerDisplayName?: string | null;
+    lineUserId: string;
+    displayName?: string | null;
     evidence: 'RELIABLE_JOIN_ACTOR' | 'EXPLICIT_CLAIM';
     at?: Date;
-  }): Promise<GroupOwnerBindResult> {
+  }): Promise<GroupAiResponsibilityBindResult> {
+    if (!this.aiResponsibility) throw new Error('group AI responsibility service is not configured');
+
     const at = input.at ?? new Date();
     const lineGroupId = normalizeLineId(input.lineGroupId, 'LINE group id');
-    const owner = await this.repository.upsertLineUser({
-      lineUserId: normalizeLineId(input.ownerLineUserId, 'LINE user id'),
-      displayName: normalizeDisplayName(input.ownerDisplayName),
+    const user = await this.repository.upsertLineUser({
+      lineUserId: normalizeLineId(input.lineUserId, 'LINE user id'),
+      displayName: normalizeDisplayName(input.displayName),
       at,
     });
 
-    // Ensure the data Source exists and the claimant is an active member before
-    // touching AI funding responsibility. GROUP existence/manual access remains free.
     let group = await this.repository.findBoundGroupByLineId(lineGroupId);
     if (!group) {
-      const storageWorkspaceId = await this.repository.ensureWorkspace(owner.userId, at);
+      const storageWorkspaceId = await this.repository.ensureWorkspace(user.userId, at);
       group = await this.repository.ensureGroupSource(lineGroupId, storageWorkspaceId, at);
     }
-    await this.repository.upsertBoundGroupMember(group.sourceId, owner.userId, true, at);
+    await this.repository.upsertBoundGroupMember(group.sourceId, user.userId, true, at);
 
-    if (this.aiResponsibility) {
-      const claimed = await this.aiResponsibility.claim({
-        sourceId: group.sourceId,
-        actorUserId: owner.userId,
-        reason: input.evidence,
-        at,
-      });
-      if (claimed.status === 'BOUND') {
-        return { status: 'BOUND', sourceId: group.sourceId, ownerUserId: owner.userId };
-      }
-      if (claimed.status === 'ALREADY_BOUND') {
-        return { status: 'ALREADY_BOUND', sourceId: group.sourceId, ownerUserId: owner.userId };
-      }
-      if (claimed.status === 'CONFLICT') {
-        return { status: 'OWNER_CONFLICT', sourceId: group.sourceId, ownerUserId: owner.userId };
-      }
-      throw new Error(`group AI responsibility claim failed: ${claimed.status}`);
-    }
-
-    // Legacy fallback for old isolated unit tests/storage until the old owner columns
-    // and repository methods are deleted. Production runtime injects aiResponsibility.
-    if (group.ownerUserId === owner.userId) {
-      return { status: 'ALREADY_BOUND', sourceId: group.sourceId, ownerUserId: owner.userId };
-    }
-    const workspaceId = await this.repository.ensureWorkspace(owner.userId, at);
-    const promoted = await this.repository.promoteGroup({
-      lineGroupId,
-      ownerUserId: owner.userId,
-      workspaceId,
-      bindingMethod: input.evidence,
+    const claimed = await this.aiResponsibility.claim({
+      sourceId: group.sourceId,
+      actorUserId: user.userId,
+      reason: input.evidence,
       at,
     });
-
-    if (!promoted) {
-      const winner = await this.repository.findBoundGroupByLineId(lineGroupId);
-      if (!winner || winner.ownerUserId === null) {
-        throw new Error('group AI responsible-user binding failed without a winning user');
-      }
-      return winner.ownerUserId === owner.userId
-        ? { status: 'ALREADY_BOUND', sourceId: winner.sourceId, ownerUserId: owner.userId }
-        : { status: 'OWNER_CONFLICT', sourceId: winner.sourceId, ownerUserId: winner.ownerUserId };
+    if (claimed.status === 'BOUND') {
+      return { status: 'BOUND', sourceId: group.sourceId, responsibleUserId: user.userId };
     }
-
-    if (promoted.ownerUserId !== owner.userId) {
-      return {
-        status: 'OWNER_CONFLICT',
-        sourceId: promoted.sourceId,
-        ownerUserId: promoted.ownerUserId ?? owner.userId,
-      };
+    if (claimed.status === 'ALREADY_BOUND') {
+      return { status: 'ALREADY_BOUND', sourceId: group.sourceId, responsibleUserId: user.userId };
     }
-    return { status: 'BOUND', sourceId: promoted.sourceId, ownerUserId: owner.userId };
+    if (claimed.status === 'CONFLICT') {
+      return { status: 'RESPONSIBILITY_CONFLICT', sourceId: group.sourceId };
+    }
+    throw new Error(`group AI responsibility claim failed: ${claimed.status}`);
   }
 
   private async ensureInitialGrant(userId: number, privateSourceId: number, at: Date): Promise<void> {
