@@ -111,21 +111,21 @@ describe('admin route input validation', () => {
     [{ priceTwd: '1', subscriptionPeriodPoints: 0 }, 'FREE_PLAN_REQUIRES_ZERO_PRICE'],
     [{ priceTwd: '0', subscriptionPeriodPoints: 1 }, 'FREE_PLAN_REQUIRES_ZERO_PERIOD_POINTS'],
   ])('keeps the frozen FREE plan shell invariant before persistence', async (override, error) => {
+    const body = Object.assign({
+      displayName: 'Free',
+      priceTwd: '0',
+      rank: 0,
+      enabled: true,
+      subscriptionPeriodPoints: 0,
+      capabilities: { export: false },
+    }, override);
     const response = await createAdminRoutes().request('/plans/FREE', {
       method: 'PUT',
       headers: {
         authorization: await authorization(),
         'content-type': 'application/json',
       },
-      body: JSON.stringify({
-        displayName: 'Free',
-        priceTwd: '0',
-        rank: 0,
-        enabled: true,
-        subscriptionPeriodPoints: 0,
-        capabilities: { export: false },
-        ...override,
-      }),
+      body: JSON.stringify(body),
     }, env);
 
     expect(response.status).toBe(400);
@@ -161,22 +161,22 @@ describe('admin route input validation', () => {
     [{ provider: 'OTHER', model: 'gemini-3.5-flash' }, 'AI_PROVIDER_NOT_SUPPORTED'],
     [{ provider: 'GOOGLE', model: 'gemini-other' }, 'AI_MODEL_NOT_SUPPORTED'],
   ])('rejects AI runtime settings that the shipped Worklog provider cannot execute', async (override, error) => {
+    const body = Object.assign({
+      provider: 'GOOGLE',
+      model: 'gemini-3.5-flash',
+      inputUsdPerMillion: '0.1',
+      outputUsdPerMillion: '0.4',
+      audioUsdPerMillion: null,
+      imageUsdPerMillion: null,
+      usdTwdRate: '30',
+    }, override);
     const response = await createAdminRoutes().request('/ai-runtime', {
       method: 'PUT',
       headers: {
         authorization: await authorization(),
         'content-type': 'application/json',
       },
-      body: JSON.stringify({
-        provider: 'GOOGLE',
-        model: 'gemini-3.5-flash',
-        inputUsdPerMillion: '0.1',
-        outputUsdPerMillion: '0.4',
-        audioUsdPerMillion: null,
-        imageUsdPerMillion: null,
-        usdTwdRate: '30',
-        ...override,
-      }),
+      body: JSON.stringify(body),
     }, env);
 
     expect(response.status).toBe(400);
