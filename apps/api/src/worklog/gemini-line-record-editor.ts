@@ -144,7 +144,7 @@ export class GeminiWorklogLineRecordEditor implements WorklogLineRecordEditProvi
     this.maxOutputTokens = positiveInteger(options.maxOutputTokens ?? 768, 'maxOutputTokens');
   }
 
-  reservationUnits(input: WorklogLineRecordEditProviderInput, config: WorklogAiRuntimeConfigSnapshot): number {
+  reservationPoints(input: WorklogLineRecordEditProviderInput, config: WorklogAiRuntimeConfigSnapshot): number {
     this.assertConfig(config);
     const upperBound = worklogLineEditReservationTokenUpperBound(input, this.maxOutputTokens);
     const conservativeCostUsd =
