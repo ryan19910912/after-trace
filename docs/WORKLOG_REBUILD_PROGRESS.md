@@ -15,11 +15,11 @@ Read first every run, in this exact order:
 
 The latest documents above are the only product/development specification. Do not revive Customer/Project/Finance/Owner/aggregate-quota assumptions from legacy code, migrations, README history or old tests.
 
-## Current execution checkpoint — 2026-09-04 fresh PostgreSQL green
+## Current execution checkpoint — 2026-09-04 local validation green, runtime smoke pending
 
-This run completed the prelaunch baseline rebuild and fresh PostgreSQL integrity stage.
+The prelaunch baseline rebuild, fresh PostgreSQL integrity stage, and complete local static/test/build validation are now green.
 
-## Completed in this validation round
+## Completed in this validation sequence
 
 - `pnpm install --frozen-lockfile` completed successfully.
 - API/Web/Admin TypeScript typecheck passed locally.
@@ -28,14 +28,16 @@ This run completed the prelaunch baseline rebuild and fresh PostgreSQL integrity
   - API: 42 files / 240 tests passed.
   - Admin: 3 files / 11 tests passed.
   - Web: no test files; `passWithNoTests` returned success.
-- Windows-safe baseline regeneration flow fixed.
+- API Worker dry-run build passed.
+- Web production build passed.
+- Admin production build passed.
 - `pnpm db:baseline:regenerate --confirm-prelaunch-reset` completed successfully.
-- `pnpm db:baseline:guard` passed.
-- regenerated `0000_worklog_baseline.sql`, snapshot and journal were committed.
-- migration tooling now loads root `.env.local` for local tooling and uses the Neon HTTP Drizzle migrator instead of the failing Drizzle Kit WebSocket migration path.
+- `pnpm db:baseline:guard` passed after the final schema changes.
+- regenerated `0000_worklog_baseline.sql`, snapshot and journal are committed.
+- `pnpm db:schema:check` completed successfully and exported current Drizzle schema.
+- migration tooling loads root `.env.local` for local tooling and uses the Neon HTTP Drizzle migrator.
 - fresh Neon PostgreSQL migration completed successfully.
-- composite Source/Grant FK referenced keys were changed from unique indexes to real UNIQUE constraints where PostgreSQL requires referenced uniqueness to exist before FK creation.
-- fresh PostgreSQL integrity probe was added and executed successfully.
+- fresh PostgreSQL integrity probes passed for Source/Grant isolation.
 - PostgreSQL rejects invalid writes for:
   - mixed PRIVATE/GROUP Source identity;
   - cross-Source Alias -> Entity;
@@ -47,14 +49,28 @@ This run completed the prelaunch baseline rebuild and fresh PostgreSQL integrity
   - cross-Source attachment reservation;
   - reservation funding Grant/Scope mismatch;
   - usage funding Grant/Scope mismatch.
-- Entity/Alias case-only duplicate behavior was reproduced on real PostgreSQL.
-- Source-scoped case-insensitive uniqueness is now enforced for Entity names and Aliases.
-- fresh PostgreSQL re-migration after that change completed successfully.
+- Source-scoped case-insensitive uniqueness is enforced for Entity names and Aliases.
+- final fresh PostgreSQL re-migration passed after the uniqueness fix.
 - final `pnpm db:integrity` passed, including:
   - case-only Entity duplicate rejected within same Source;
   - same Entity spelling allowed in another Source;
   - case-only Alias duplicate rejected within same Source;
   - same Alias spelling allowed in another Source.
+
+## Release preflight state
+
+`pnpm release:preflight` was invoked after the DB/schema fixes, but intentionally stopped before its internal checks because deployment policy requires a real absolute HTTPS `AFTERTRACE_API_URL`.
+
+The equivalent local validation stages were then executed directly and all passed:
+
+- TypeScript;
+- ESLint;
+- Vitest;
+- API/Web/Admin production builds / Worker dry-run;
+- baseline guard;
+- Drizzle schema export.
+
+Do not treat the `release:preflight` wrapper itself as passed until an actual deployed API Worker HTTPS origin exists and the wrapper is rerun with that real origin.
 
 ## Stable completed foundation — do not redo without a concrete regression
 
@@ -84,26 +100,17 @@ This run completed the prelaunch baseline rebuild and fresh PostgreSQL integrity
 
 ## Remaining P0 before free/manual + AI-recording launch
 
-### 1. Run local release preflight
+### 1. Real release preflight against actual API origin
 
-Run:
+After an API Worker HTTPS origin exists, run:
 
 - `pnpm release:preflight`
 
-This still requires an actual HTTPS `AFTERTRACE_API_URL` according to deployment policy.
-
-Preflight must cover:
-
-- baseline guard;
-- API/Web/Admin TypeScript;
-- ESLint;
-- Vitest;
-- API/Web/Admin production builds / Worker dry-run;
-- Drizzle schema export.
+with the actual `AFTERTRACE_API_URL`.
 
 ### 2. Runtime / browser / provider smoke
 
-After preflight is green:
+After deployment/runtime configuration is intentionally started:
 
 - initialize AI runtime pricing row and FREE plan on the intended fresh environment;
 - `/health` + `/health/ready`;
@@ -144,15 +151,17 @@ Executed locally during this prelaunch verification sequence:
 - API/Web/Admin typecheck;
 - ESLint;
 - Vitest;
+- API/Web/Admin production builds / Worker dry-run;
 - baseline regeneration;
 - baseline guard;
-- Drizzle migration to fresh Neon PostgreSQL;
+- Drizzle schema export;
+- fresh Neon PostgreSQL migration;
 - fresh PostgreSQL integrity probes;
 - case-insensitive Entity/Alias collision reproduction and final rejection validation.
 
 Not yet executed:
 
-- `pnpm release:preflight` after the latest DB/schema fixes;
+- successful `pnpm release:preflight` with a real deployed HTTPS API origin;
 - browser/PWA/Admin runtime smoke;
 - Cloudflare Worker runtime/deploy smoke;
 - LINE runtime smoke;
@@ -165,4 +174,4 @@ No GitHub Actions workflow was executed, dispatched, rerun, enabled, modified, t
 
 **NOT READY yet.**
 
-The regenerated baseline, fresh PostgreSQL migration, database Source/Grant integrity, and Entity/Alias case-insensitive uniqueness blockers are now cleared. The decisive remaining blockers are local release preflight and real browser/LINE/Gemini/Worker runtime smoke.
+The regenerated baseline, fresh PostgreSQL migration, database Source/Grant integrity, Entity/Alias case-insensitive uniqueness, and complete local typecheck/lint/test/build/schema-export validation are cleared. The decisive remaining blockers are real release preflight with an actual API Worker origin and browser/LINE/Gemini/Worker runtime smoke.
