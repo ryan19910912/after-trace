@@ -22,8 +22,8 @@ type UserContext = { userId: number; database: Database; service: WorklogConfirm
  * PWA surface for resolving already-durable AI title ambiguity.
  *
  * These endpoints never call provider AI and never consume additional points. They
- * only apply/reject the stored decision while the original unresolved Record version
- * is still current. PRIVATE/GROUP authorization follows ordinary manual PWA access.
+ * only apply/reject the stored decision while the original Record version is still
+ * current. PRIVATE/GROUP authorization follows ordinary manual PWA access.
  */
 export function createWorklogConfirmationRoutes() {
   const app = new Hono<Env>();
@@ -214,6 +214,8 @@ function serializeConfirmations(values: Awaited<ReturnType<WorklogConfirmationSe
     candidateTitle: value.candidateTitle,
     proposedName: value.proposedName,
     reason: value.reason,
+    operation: value.operation,
+    proposedRawText: value.proposedRawText,
     occurredAt: value.occurredAt.toISOString(),
     expectedRecordVersion: value.expectedRecordVersion,
     candidates: value.candidates,
