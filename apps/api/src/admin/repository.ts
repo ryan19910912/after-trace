@@ -13,6 +13,8 @@ export type WorklogAdminOverview = {
   platformSubsidizedPointsToday: number;
   aiCostTwdToday: string;
   platformSubsidizedCostTwdToday: string;
+  missingAiCostTwdRequestsToday: number;
+  missingSubsidyCostTwdRequestsToday: number;
   openAnomalies: number;
   failedAttachments: number;
   failedNormalizations: number;
@@ -73,6 +75,8 @@ export class DrizzleAdminRepository {
         COALESCE((SELECT SUM(platform_subsidized_points) FROM worklog_ai_usage_events WHERE created_at >= ${dayStart}), 0)::bigint::text AS platform_subsidized_points_today,
         COALESCE((SELECT SUM(provider_cost_twd) FROM worklog_ai_usage_events WHERE created_at >= ${dayStart}), 0)::text AS ai_cost_twd_today,
         COALESCE((SELECT SUM(platform_subsidized_cost_twd) FROM worklog_ai_usage_events WHERE created_at >= ${dayStart}), 0)::text AS platform_subsidized_cost_twd_today,
+        (SELECT COUNT(*) FROM worklog_ai_usage_events WHERE created_at >= ${dayStart} AND provider_cost_twd IS NULL)::text AS missing_ai_cost_twd_requests_today,
+        (SELECT COUNT(*) FROM worklog_ai_usage_events WHERE created_at >= ${dayStart} AND platform_subsidized_points > 0 AND platform_subsidized_cost_twd IS NULL)::text AS missing_subsidy_cost_twd_requests_today,
         (SELECT COUNT(*) FROM worklog_anomaly_events WHERE status = 'OPEN')::text AS open_anomalies,
         (SELECT COUNT(*) FROM worklog_attachment_ingestions WHERE status = 'FAILED')::text AS failed_attachments,
         (SELECT COUNT(*) FROM worklog_record_ai_normalizations WHERE status = 'FAILED')::text AS failed_normalizations,
@@ -91,6 +95,8 @@ export class DrizzleAdminRepository {
       platformSubsidizedPointsToday: numeric(row.platform_subsidized_points_today),
       aiCostTwdToday: row.ai_cost_twd_today ?? '0',
       platformSubsidizedCostTwdToday: row.platform_subsidized_cost_twd_today ?? '0',
+      missingAiCostTwdRequestsToday: numeric(row.missing_ai_cost_twd_requests_today),
+      missingSubsidyCostTwdRequestsToday: numeric(row.missing_subsidy_cost_twd_requests_today),
       openAnomalies: numeric(row.open_anomalies),
       failedAttachments: numeric(row.failed_attachments),
       failedNormalizations: numeric(row.failed_normalizations),
