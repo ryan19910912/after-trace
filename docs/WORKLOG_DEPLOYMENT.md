@@ -33,6 +33,8 @@ AFTERTRACE deploys as three independent Cloudflare Workers. Do not reintroduce C
 - Manual PWA read/create/edit/delete/restore/title move/batch move is free and independent from subscription/AI funding.
 - GROUP Source existence is independent from AI 額度負責人.
 - GROUP AI requires current AI 額度負責人 + active requesting member + eligible user-owned Grant scope.
+- PRIVATE AI requires positive eligible user-owned Grant points for that PRIVATE Source.
+- AI CREATE/EDIT/media eligibility is **not** a plan-capability gate. Retired flags such as `privateOaRecording`, `aiTextRecording`, and `aiMediaIngestion` must not return as a second entitlement system.
 - `worklog_workspaces.owner_user_id` is transitional storage only; it is never GROUP data authority/payment responsibility/AI 額度負責人.
 - Customer/Project/Finance/Transaction/category/normalized-summary must not return as universal Worklog schema.
 
@@ -160,17 +162,32 @@ Before `/health/ready` can become green on a brand-new DB:
 
 1. Apply the regenerated baseline to the intended production DB.
 2. Configure API Worker Variables/Secrets.
-3. Deploy API Worker (liveness may work while readiness is still 503).
-4. Initialize DB-backed AI runtime pricing through Admin `/ai-runtime` with the chosen provider/model/pricing/FX snapshot. `output_usd_per_million` must be positive.
-5. Create/enable the `FREE` plan through Admin with:
+3. Deploy API Worker. For the **first** fresh DB only, use the explicit `-AllowInitialBootstrapNotReady` switch if Admin configuration must happen after the API exists. This switch may tolerate only `AI_RUNTIME_CONFIG_NOT_INITIALIZED` or `FREE_PLAN_NOT_INITIALIZED`; missing secrets, DB/schema errors, or any other readiness failure still abort deployment.
+4. Deploy/open Admin against that API.
+5. Initialize DB-backed AI runtime pricing through Admin `/ai-runtime` with the chosen provider/model/pricing/FX snapshot. `output_usd_per_million` must be positive.
+6. Create/enable the `FREE` plan through Admin with:
    - code `FREE`;
    - price `0`;
    - `subscription_period_points = 0` because the frozen one-time 400,000 FREE Grant is provisioned separately by bootstrap;
-   - desired non-paid capabilities.
-6. Configure PRO/TEAM only with explicitly approved/Admin-entered point amounts. Do not invent them during migration.
-7. Recheck `/health/ready` until it returns `ready`.
+   - no stale AI capability flags.
+7. Configure PRO/TEAM only with explicitly approved/Admin-entered point amounts. Do not invent them during migration.
+8. Recheck `/health/ready` until it returns `ready`. **Do not expose the product publicly while the initial-bootstrap deploy remains not-ready.**
 
 The API/Admin routes remain available while readiness is 503 specifically so first-deploy operator configuration can be completed. A readiness 503 is not equivalent to Worker liveness failure.
+
+## FREE vs subscription-period point display
+
+The FREE plan shell correctly has `subscription_period_points = 0`; FREE does not have a monthly allowance.
+
+Customer plan API/UI must expose the frozen launch acquisition grant separately:
+
+- FREE `one_time_initial_points = 400000`;
+- one-time only;
+- no calendar refresh;
+- no calendar expiry;
+- bootstrap provisions the actual durable Grant idempotently.
+
+PRO/TEAM cards use `subscription_period_points` because their included points are created per successful paid renewal. Do not show FREE as “0 AI points” merely because its recurring-template field is zero.
 
 ## API liveness vs launch readiness
 
@@ -223,7 +240,9 @@ Passing preflight is necessary but not sufficient. Fresh PostgreSQL and runtime 
 7. migrate that explicit DB;
 8. deploy API Worker;
 9. verify `/health`;
-10. verify `/health/ready`.
+10. verify `/health/ready` by default.
+
+`-AllowInitialBootstrapNotReady` is an explicit first-deploy exception only. It tolerates only the two operator-initialization readiness errors documented above and prints that public launch is still **NOT READY**. After Admin initialization, `/health/ready=ready` is mandatory.
 
 ### Web
 
@@ -241,6 +260,18 @@ Passing preflight is necessary but not sufficient. Fresh PostgreSQL and runtime 
 - `/profitability`
 
 These Static Assets checks catch broken SPA fallback but do not replace authenticated browser smoke.
+
+## LINE AI zero-balance boundary
+
+Both GROUP and PRIVATE LINE AI paths follow the same product rule:
+
+- QUERY/history navigation remains free;
+- direct CREATE and quoted attachment processing require positive eligible points before starting the AI path;
+- Reply EDIT resolves the deterministic Record target first, then checks positive eligible points before invoking the editor;
+- the point ledger still performs the final atomic reservation immediately before provider execution, so a preflight check is not treated as a balance lock;
+- if eligible points are zero at request start, no provider call starts and manual PWA remains available.
+
+PRIVATE uses the current user's PRIVATE-scoped Grants; GROUP uses the current AI 額度負責人 and explicitly scoped Grants.
 
 ## LINE attachment operational limits
 
@@ -261,6 +292,8 @@ While checkout is disabled:
 - `POST /checkout-intents` fails closed with `CHECKOUT_NOT_ENABLED` before persistence;
 - no unusable `PENDING_PROVIDER` rows should be created by customer traffic.
 
+AI availability is Grant-backed, not gated by plan feature flags. The retired `privateOaRecording`, `aiTextRecording`, and `aiMediaIngestion` keys are removed from current Admin capability definitions and stripped from customer plan payloads if stale prelaunch JSON still contains them.
+
 When payment integration is later enabled, it must add idempotent recurring success/failure handling, successful-payment facts, renewal Grant creation, TOP_UP purchase identity, refunds according to approved policy, and no raw card storage.
 
 Do not infer realized revenue from plan list price/current subscription state.
@@ -269,7 +302,9 @@ Do not infer realized revenue from plan list price/current subscription state.
 
 Product spec still defines Export as MVP and initially paid, but the current branch does not yet contain the customer export endpoint/UI.
 
-Do not advertise `export=true` on a launch plan until the actual export surface and entitlement checks are implemented and validated. GROUP data authorization must remain active-membership based; any paid export entitlement must not be confused with AI 額度負責人 unless a later explicit product decision says otherwise.
+`export` remains the only current non-AI plan capability definition and is marked unshipped/fail-closed. Admin must reject `export=true` until the actual export surface and entitlement tests exist, and customer plan payloads must not advertise it as active.
+
+GROUP data authorization must remain active-membership based; any paid export entitlement must not be confused with AI 額度負責人 unless a later explicit product decision says otherwise.
 
 This is a **paid/full-MVP gap**, distinct from the free/manual Worklog + AI-recording launch path.
 
@@ -299,9 +334,9 @@ Validate locally/runtime, never substitute GitHub Actions unless explicitly requ
 - PRIVATE manual access isolation;
 - GROUP active-member manual access and inactive-member denial;
 - manual create/edit/version/move/batch/delete/restore/revisions;
-- FREE 400,000 one-time Grant idempotency;
+- FREE 400,000 one-time Grant idempotency and customer display;
+- PRIVATE/GROUP zero-point preflight and provider-overrun subsidy;
 - GROUP AI responsibility + Grant scope authorization;
-- zero-point preflight and provider-overrun subsidy;
 - CREATE/HISTORY/Reply EDIT + both Pending Confirmation operations;
 - LINE cached TEXT TTL/cap and expired Reply handling;
 - LINE image/audio/file size/202/expired flows;
