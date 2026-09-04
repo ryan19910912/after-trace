@@ -12,13 +12,18 @@ import {
 import { WorklogAiPointLedgerService } from './worklog/ai-point-ledger';
 import { WorklogAttachmentIngestionService } from './worklog/attachment-ingestion';
 import { configureWorklogAttachmentRuntime } from './worklog/attachment-runtime';
+import { WorklogAttachmentTitleNormalizationService } from './worklog/attachment-title-normalization';
 import { createWorklogConfirmationRoutes } from './worklog/confirmation-routes';
 import { DrizzleWorklogAiPointLedgerRepository } from './worklog/drizzle-ai-point-ledger';
 import { DrizzleWorklogAttachmentRepository } from './worklog/drizzle-attachment-ingestion';
+import { DrizzleWorklogRecordNormalizationRepository } from './worklog/drizzle-record-normalization-adapter';
 import { createWorklogFundingRoutes } from './worklog/funding-routes';
 import { GeminiWorklogAttachmentNormalizer } from './worklog/gemini-attachment-normalizer';
+import { GeminiWorklogTextNormalizer } from './worklog/gemini-text-normalizer';
+import { RecordNormalizationAiPointPort } from './worklog/record-normalization-ai-points';
 import { createWorklogRoutes } from './worklog/routes';
 import { createWorklogSubscriptionRoutes } from './worklog/subscription-routes';
+import { WorklogTextNormalizationService } from './worklog/text-normalization';
 
 type ExecutionContextLike = { waitUntil(promise: Promise<unknown>): void };
 type ApiBoundary = 'ADMIN_API' | 'SUBSCRIPTION_API' | 'WORKLOG_WEB_API';
@@ -34,12 +39,21 @@ const LEGACY_AUTH_PATHS = new Set(['/api/v1/auth/groups', '/api/v1/auth/memories
 
 function configureWorklogRuntime(env: Bindings): void {
   const database = createDatabase(env.DATABASE_URL);
-  configureWorklogAttachmentRuntime(new WorklogAttachmentIngestionService(
+  const pointLedger = new WorklogAiPointLedgerService(new DrizzleWorklogAiPointLedgerRepository(database));
+  const recordNormalization = new WorklogTextNormalizationService(
+    new DrizzleWorklogRecordNormalizationRepository(database),
+    new RecordNormalizationAiPointPort(database, pointLedger),
+    new GeminiWorklogTextNormalizer({ apiKey: env.GEMINI_API_KEY }),
+  );
+  const attachmentIngestion = new WorklogAttachmentIngestionService(
     new DrizzleWorklogAttachmentRepository(database),
-    new WorklogAiPointLedgerService(new DrizzleWorklogAiPointLedgerRepository(database)),
+    pointLedger,
     new LineMessageContentResolver(env.LINE_CHANNEL_ACCESS_TOKEN),
     new GeminiWorklogAttachmentNormalizer({ apiKey: env.GEMINI_API_KEY }),
-  ));
+  );
+  configureWorklogAttachmentRuntime(
+    new WorklogAttachmentTitleNormalizationService(attachmentIngestion, recordNormalization),
+  );
 }
 
 function legacyRoute(pathname: string): boolean {
@@ -56,8 +70,6 @@ async function withApiAnomalyBoundary(
   const requestUrl = new URL(request.url);
   try {
     const response = await run();
-    // Expected client/auth validation failures are 4xx and are deliberately not
-    // operational anomalies. Persist only server-side responses at this boundary.
     if (response.status >= 500) {
       await recordAnomalySafely(
         new DrizzleWorklogAnomalyRepository(createDatabase(env.DATABASE_URL)),
