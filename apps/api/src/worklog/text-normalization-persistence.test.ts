@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   WorklogTextNormalizationService,
   type WorklogAiRuntimeConfigSnapshot,
+  type WorklogTextNormalizationAiPointPort,
   type WorklogTextNormalizationContext,
   type WorklogTextNormalizationRepository,
-  type WorklogTextNormalizationSubscriptionPort,
 } from './text-normalization';
 
 const referenceOccurredAt = new Date('2026-09-02T03:00:00Z');
@@ -41,25 +41,27 @@ function repository(saveProviderResult: WorklogTextNormalizationRepository['save
   };
 }
 
-function subscriptions() {
+function aiPoints() {
   const releaseAi = vi.fn(async () => ({
     status: 'RELEASED' as const,
     reservation: {
+      id: 1,
       token: 'reservation-1', chargedUserId: 50, actorUserId: 40, sourceId: 30,
-      unitsReserved: 100, unitsCommitted: 0, status: 'RELEASED' as const,
-      periodStart: new Date('2026-09-01T00:00:00Z'), periodEnd: null,
-      expiresAt: new Date('2026-09-02T00:10:00Z'),
+      pointsReserved: 100, pointsCommitted: 0, platformSubsidizedPoints: 0,
+      status: 'RELEASED' as const,
+      expiresAt: new Date('2026-09-02T03:10:00Z'),
     },
   }));
-  const port: WorklogTextNormalizationSubscriptionPort = {
+  const port: WorklogTextNormalizationAiPointPort = {
     reserveAi: vi.fn(async () => ({
       status: 'RESERVED' as const,
-      remainingAiUnits: 900,
+      remainingAiPoints: 0,
       reservation: {
+        id: 1,
         token: 'reservation-1', chargedUserId: 50, actorUserId: 40, sourceId: 30,
-        unitsReserved: 100, unitsCommitted: 0, status: 'RESERVED' as const,
-        periodStart: new Date('2026-09-01T00:00:00Z'), periodEnd: null,
-        expiresAt: new Date('2026-09-02T00:10:00Z'),
+        pointsReserved: 100, pointsCommitted: 0, platformSubsidizedPoints: 0,
+        status: 'RESERVED' as const,
+        expiresAt: new Date('2026-09-02T03:10:00Z'),
       },
     })),
     commitAiUsage: vi.fn(async () => ({ status: 'RESERVATION_NOT_ACTIVE' as const })),
@@ -69,10 +71,10 @@ function subscriptions() {
 }
 
 describe('WorklogTextNormalizationService persistence uncertainty', () => {
-  it('keeps the reservation and returns IN_PROGRESS when provider succeeded but provider-result persistence failed', async () => {
+  it('keeps the point hold and returns IN_PROGRESS when provider succeeded but provider-result persistence failed', async () => {
     const saveProviderResult = vi.fn(async () => { throw new Error('database unavailable'); });
     const repo = repository(saveProviderResult);
-    const { port, releaseAi } = subscriptions();
+    const { port, releaseAi } = aiPoints();
     const normalize = vi.fn(async () => ({
       output: {
         title: '浴室配線',
@@ -90,6 +92,7 @@ describe('WorklogTextNormalizationService persistence uncertainty', () => {
     }, () => 'claim-1');
 
     await expect(service.normalizeText(10)).resolves.toEqual({ status: 'IN_PROGRESS' });
+    expect(port.reserveAi).toHaveBeenCalledWith(expect.objectContaining({ requestedPoints: 100 }));
     expect(normalize).toHaveBeenCalledWith({
       text: context.rawText,
       referenceOccurredAt: referenceOccurredAt.toISOString(),
@@ -100,9 +103,9 @@ describe('WorklogTextNormalizationService persistence uncertainty', () => {
     expect(repo.fail).not.toHaveBeenCalled();
   });
 
-  it('still releases the reservation for a provider call that throws without returning a response', async () => {
+  it('still releases the point hold for a provider call that throws without returning a response', async () => {
     const repo = repository(vi.fn(async () => undefined));
-    const { port, releaseAi } = subscriptions();
+    const { port, releaseAi } = aiPoints();
     const service = new WorklogTextNormalizationService(repo, port, {
       reservationUnits: () => 100,
       normalize: vi.fn(async () => { throw new Error('provider failed'); }),
