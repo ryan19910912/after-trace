@@ -9,6 +9,7 @@ import {
   pgTable,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/pg-core';
@@ -57,7 +58,7 @@ export const worklogEntities = pgTable(
     uniqueIndex('worklog_entity_source_name_uq').on(table.sourceId, table.name),
     // PostgreSQL composite FKs below use this key to make Source isolation a durable
     // database invariant instead of relying only on every caller remembering to check.
-    uniqueIndex('worklog_entity_source_id_uq').on(table.sourceId, table.id),
+    unique('worklog_entity_source_id_uq').on(table.sourceId, table.id),
     index('worklog_entity_source_status_idx').on(table.sourceId, table.status),
   ],
 );
@@ -125,7 +126,7 @@ export const worklogRecords = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    uniqueIndex('worklog_record_source_id_uq').on(table.sourceId, table.id),
+    unique('worklog_record_source_id_uq').on(table.sourceId, table.id),
     index('worklog_record_source_status_occurred_idx').on(
       table.sourceId,
       table.status,
@@ -205,7 +206,7 @@ export const worklogAiConfirmations = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    uniqueIndex('worklog_ai_confirmation_source_id_uq').on(table.sourceId, table.id),
+    unique('worklog_ai_confirmation_source_id_uq').on(table.sourceId, table.id),
     index('worklog_ai_confirmation_user_status_idx').on(
       table.requestedUserId,
       table.status,
