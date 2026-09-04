@@ -46,7 +46,7 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
   }
 
   async function choose(plan: SubscriptionPlan) {
-    if (!session || plan.current || Number(plan.price_twd) <= 0) return;
+    if (!session || !data?.checkoutEnabled || plan.current || Number(plan.price_twd) <= 0) return;
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -56,7 +56,9 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
         location.href = intent.checkout_url;
         return;
       }
-      setNotice(intent.message || '付款服務尚未啟用，方案選擇已記錄。');
+      // The page never starts checkout while checkoutEnabled is false. Keep this
+      // response guard for a provider/config race between plan load and click.
+      setNotice(intent.message || '付款服務目前無法使用，請稍後再試。');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '付款流程建立失敗');
     } finally {
@@ -93,30 +95,39 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
     {notice ? <div className="worklog-notice">{notice}</div> : null}
 
     <section className="subscription-grid">
-      {data?.plans.map((plan) => <article
-        className={plan.current ? 'panel subscription-card current' : 'panel subscription-card'}
-        key={plan.code}
-      >
-        <div>
-          <p className="eyebrow">{plan.code}</p>
-          <h2>{plan.display_name}</h2>
-        </div>
-        <strong className="subscription-price">
-          {Number(plan.price_twd) <= 0 ? '免費' : `NT$ ${Number(plan.price_twd).toLocaleString('zh-TW')}`}
-        </strong>
-        <p>訂閱週期 AI 點數：{Number(plan.subscription_period_points).toLocaleString('zh-TW')}</p>
-        <small>✓ 群組數量不限；手動 PWA 功能不依訂閱解鎖</small>
-        {capabilitySummary(plan.capabilities).map((item) => <small key={item}>✓ {item}</small>)}
-        <button
-          disabled={busy || plan.current || Number(plan.price_twd) <= 0}
-          onClick={() => void choose(plan)}
-        >{plan.current ? '目前方案' : Number(plan.price_twd) <= 0 ? '免費方案' : '選擇方案'}</button>
-      </article>)}
+      {data?.plans.map((plan) => {
+        const paid = Number(plan.price_twd) > 0;
+        const checkoutUnavailable = paid && !data.checkoutEnabled;
+        const disabled = busy || plan.current || !paid || checkoutUnavailable;
+        const buttonLabel = plan.current
+          ? '目前方案'
+          : !paid
+            ? '免費方案'
+            : checkoutUnavailable
+              ? '尚未開放'
+              : '選擇方案';
+        return <article
+          className={plan.current ? 'panel subscription-card current' : 'panel subscription-card'}
+          key={plan.code}
+        >
+          <div>
+            <p className="eyebrow">{plan.code}</p>
+            <h2>{plan.display_name}</h2>
+          </div>
+          <strong className="subscription-price">
+            {!paid ? '免費' : `NT$ ${Number(plan.price_twd).toLocaleString('zh-TW')}`}
+          </strong>
+          <p>訂閱週期 AI 點數：{Number(plan.subscription_period_points).toLocaleString('zh-TW')}</p>
+          <small>✓ 群組數量不限；手動 PWA 功能不依訂閱解鎖</small>
+          {capabilitySummary(plan.capabilities).map((item) => <small key={item}>✓ {item}</small>)}
+          <button disabled={disabled} onClick={() => void choose(plan)}>{buttonLabel}</button>
+        </article>;
+      })}
     </section>
 
     {!data?.checkoutEnabled ? <section className="panel">
       <strong>付款服務尚未啟用</strong>
-      <p className="muted">目前只有方案展示與 provider-neutral checkout intent。正式付款仍需補上方案計費類型、支付商付款流程；月訂閱還需要定期扣款授權、續扣成功／失敗事件，以及成功後建立下一期 AI 點數 grant。</p>
+      <p className="muted">目前先開放免費使用與方案展示。付費按鈕會維持停用，直到支付 provider、定期扣款與續扣成功／失敗事件正式接妥；只有確認付款成功後才會建立下一期 AI 點數 Grant。</p>
     </section> : null}
   </main>;
 }
