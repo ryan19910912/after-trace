@@ -2,7 +2,7 @@
 
 Durable handoff for branch `revive/line-worklog`.
 
-Read first every run, in this order:
+Read first every run, in this exact order:
 
 1. `docs/WORKLOG_PRODUCT_SPEC.md`
 2. `docs/WORKLOG_ENTITY_MODEL.md`
@@ -15,89 +15,93 @@ Read first every run, in this order:
 
 The latest documents above are the only product/development specification. Do not revive Customer/Project/Finance/Owner/aggregate-quota assumptions from legacy code, migrations, README history or old tests.
 
-## Current execution checkpoint — 2026-09-04 remaining-work / fresh bug audit
+## Current execution checkpoint — 2026-09-04 Admin pricing calculator + remaining launch UX
 
-This run re-read all eight durable documents and audited the latest `revive/line-worklog` branch for work that is still incomplete or could still produce launch-facing bugs. It did not redo completed Source/Entity/Record/PWA CRUD/LINE Reply EDIT/Grant accounting/Admin profitability/composite-FK work.
+This run continued from the remaining-work/fresh-bug audit. It did not redo completed Source/Entity/Record/PWA CRUD/LINE Reply EDIT/Grant accounting/Admin profitability/composite-FK work.
 
-### Scanned this run
+The focus was the next explicit product gap that could be implemented safely without a local checkout: the Admin AI pricing recommendation calculator. A local Git clone was retried after reading all eight required documents and still failed with `Could not resolve host: github.com`, so large 40KB runtime/PWA files were deliberately not rewritten through whole-file GitHub API writes merely to perform small UX patches.
 
-- current customer PWA state/race/session behavior;
-- current Admin plan/pricing/profitability behavior;
-- API readiness vs actual Gemini runtime constraints;
-- current customer Help page and repository README for stale product claims;
-- attachment supported formats/text limits;
-- product/pricing policy gaps that are still genuinely unimplemented;
-- deployment/migration checkpoint.
+## Scanned this run
 
-### Files changed this run
+- all eight required durable documents in exact required order;
+- latest `revive/line-worklog` checkpoint;
+- Admin runtime pricing contract and existing `AdminApi.aiRuntime()` surface;
+- existing `/profitability` standalone Admin route pattern;
+- pricing policy formula and 40% subscription / 50% one-time planning defaults;
+- Admin Worker SPA/deployment helper deep-link checks;
+- PWA version-conflict policy and LINE raw-first normalization result contract for next-batch planning.
 
-- `apps/api/src/admin/routes.ts`
-- `apps/api/src/admin/routes.test.ts`
-- `apps/api/src/index.ts`
-- `apps/web/src/HelpRoot.tsx`
-- `README.md`
-- `docs/WORKLOG_REBUILD_PROGRESS.md`
+## Files changed this run
 
-## Fixed / completed this run
+Admin pricing calculator:
 
-### 1. Admin/runtime model mismatch no longer false-positives readiness
+- `apps/admin/src/PricingCalculatorPage.tsx` — new standalone Admin page;
+- `apps/admin/src/pricing-calculator.ts` — new pure planning formula;
+- `apps/admin/src/pricing-calculator.test.ts` — new source tests;
+- `apps/admin/src/main.tsx` — routes `/pricing-calculator`;
+- `admin-worker-deploy.ps1` — verifies `/pricing-calculator` SPA deep link when an expected Admin URL is supplied.
 
-Shipped Gemini Worklog providers currently enforce exactly:
+Durable handoff:
 
-- provider `GOOGLE`;
-- model `gemini-3.5-flash`.
+- `docs/WORKLOG_REBUILD_PROGRESS.md`.
 
-Previously Admin could persist any non-empty provider/model and `/health/ready` would accept any non-empty value, while TEXT normalization, LINE AI EDIT and attachment runtime would later reject unsupported values with `GEMINI_CONFIG_INVALID` / provider errors.
+## Completed / fixed this run
 
-Now:
+### 1. Admin pricing recommendation calculator is now implemented
 
-- Admin AI-runtime input rejects unsupported provider/model before persistence;
-- `/health/ready` requires the same shipped provider/model plus positive output reference price;
-- route test source covers unsupported provider/model;
-- the existing output-price test fixture now uses the actually supported model so it still tests the intended invariant.
+The pricing policy already required a planning calculator but the Admin previously only allowed operators to type the final plan point count manually.
 
-This is intentionally a launch contract, not a decision that AFTERTRACE can never support another model. Expanding model/provider support later must update provider implementations, Admin validation and readiness together.
+New route:
 
-### 2. Customer `/help` stale product copy removed
+`/pricing-calculator`
 
-`apps/web/src/HelpRoot.tsx` still described the retired product:
+The page:
 
-- Customer/Project/finance management;
-- Group Owner;
-- Owner subscription funding group AI;
-- Owner disabling another member's recording permission;
-- generic 5-day Reply-to-TEXT behavior that incorrectly implied PRIVATE ordinary text is cached.
+- requires the existing Admin bearer session;
+- reads the current DB-backed AI runtime pricing snapshot through the existing Admin API;
+- uses current `output_usd_per_million` and `usd_twd_rate`;
+- accepts customer price in TWD;
+- accepts editable target gross margin;
+- defaults monthly subscription planning to 40% target gross margin;
+- defaults one-time/top-up planning to 50%;
+- calculates the maximum planned AI direct-cost budget;
+- converts that budget to USD;
+- converts USD budget into the frozen output-price-equivalent AI point basis;
+- floors the recommendation so the suggested point balance does not exceed the entered AI cost budget.
 
-Help now documents the accepted MVP:
+The calculator is **planning only**. It never updates a plan and never resizes any historical Grant. Admin must still explicitly enter/confirm the final `subscription_period_points` in plan management.
 
-- Source + 紀錄標題 + Record;
-- free manual PWA CRUD/search/title move/batch move/recycle/history;
-- GROUP-only temporary TEXT cache;
-- PRIVATE ordinary text is not cached;
-- attachment binaries are discarded after durable textual extraction;
-- AI 額度負責人 + explicitly scoped user-owned Grant points;
-- zero AI points disables AI compute only, never free manual PWA.
+### 2. Pricing formula is isolated and testable
 
-### 3. Repository README no longer revives the old world
+`pricing-calculator.ts` owns the pure calculation contract instead of duplicating arithmetic in JSX.
 
-README still claimed:
+It fails closed for:
 
-- FREE personal-only;
-- paid/capability-driven group collaboration;
-- stable group Owner;
-- customers/projects/typed finance;
-- aggregate quota;
-- old `0000` baseline should remain.
+- negative product price;
+- target margin below 0 or >= 100%;
+- missing/non-positive USD/TWD rate;
+- missing/non-positive output reference price;
+- non-finite results.
 
-README now points to the eight durable documents, describes the current Source/Entity/Record/Grant model and clearly marks the checked-in baseline as stale and unsafe to apply until regenerated.
+Test source covers the subscription planning example, floor behavior, and invalid inputs. Tests were authored but not executed in this environment.
+
+### 3. Admin deployment smoke includes the new deep link
+
+`admin-worker-deploy.ps1` now verifies:
+
+- `/`;
+- `/profitability`;
+- `/pricing-calculator`.
+
+This catches a broken Workers Static Assets SPA fallback for the new standalone page.
 
 ## Stable completed foundation — do not redo without a concrete regression
 
 - Source + single Entity/title + Alias + Record + immutable Revision + durable Pending Confirmation;
-- DB-level Source identity and cross-Source protection declarations;
+- DB-level Source identity and declared cross-Source protection;
 - free PWA manual CRUD/search/filter/title move/batch move/delete/recycle/restore/revision history;
 - GROUP manual authorization = active membership only;
-- PWA optimistic version checks + stale Source/filter response generation guard;
+- optimistic Record version checks and stale Source/filter response generation guard;
 - deterministic LINE HISTORY -> filtered PWA deep links;
 - deterministic Reply-targeted PRIVATE/GROUP LINE AI EDIT;
 - FREE 400,000 one-time user Grant;
@@ -108,93 +112,115 @@ README now points to the eight durable documents, describes the current Source/E
 - retired aggregate quota / `ai_units_consumed` / `actualUnits` removed from active accounting;
 - Admin factual profitability base report;
 - Admin separate audio/image pricing, FREE shell invariants, missing-TWD coverage, strong session/password handling;
+- Admin/runtime/readiness agree on currently shipped `GOOGLE + gemini-3.5-flash` contract;
 - stale AI plan capability gates removed;
+- customer Help and README no longer describe Customer/Project/Finance/Owner/paid-group legacy behavior;
 - bounded LINE attachment streaming/no permanent binaries;
 - payment-disabled checkout fail-closed;
 - Export capability fail-closed until implemented;
 - safe baseline regeneration/guard scripts;
 - release preflight + liveness/readiness split + first-fresh-DB bootstrap mode;
 - explicit production migration database URL;
-- Web/Admin Static Assets SPA fallback/deep-link deployment checks.
+- Web/Admin Static Assets SPA fallback/deep-link deployment checks;
+- Admin pricing recommendation calculator.
 
-## Remaining work / known gaps
+## P0 — blocks any real launch
 
-### P0 — blocks any real launch
+### 1. Regenerate Drizzle baseline/snapshot/journal
 
-1. **Regenerate Drizzle baseline/snapshot/journal.**
-   - Current checked-in `drizzle/0000_worklog_baseline.sql` is still from the retired pre-rebuild world and MUST NOT be applied.
-   - Run the pinned local toolchain: `pnpm db:baseline:regenerate --confirm-prelaunch-reset`, inspect generated artifacts, then `pnpm db:baseline:guard`.
+The checked-in `drizzle/0000_worklog_baseline.sql` is still from the retired pre-rebuild world and MUST NOT be applied.
 
-2. **Fresh PostgreSQL migration/integrity validation.**
-   - Validate generated composite FK/check/index declarations.
-   - Probe malformed PRIVATE/GROUP Source writes, cross-Source Entity/Alias/Record/Confirmation/LINE-edit/attachment writes, PRIVATE Web-entry mismatch and Grant/scope/reservation funding mismatches.
-   - Exercise Grant reserve/commit/release/expire/subsidy concurrency.
+From a real current checkout:
 
-3. **Entity/Alias case-insensitive collision behavior remains unresolved.**
-   - Runtime lookup uses case-insensitive matching while current declared uniqueness is case-sensitive.
-   - Reproduce on real PostgreSQL before choosing an expression index/normalization/collation fix.
+1. `pnpm install --frozen-lockfile`
+2. verify pinned `pnpm --version`
+3. `pnpm db:baseline:regenerate --confirm-prelaunch-reset`
+4. inspect generated SQL/snapshot/journal
+5. fix actual TypeScript/Drizzle errors exposed by current composite FK/check declarations
+6. `pnpm db:baseline:guard` until green
 
-4. **Run the actual release gate and runtime smoke.**
-   - `pnpm release:preflight`;
-   - API/Web/Admin typecheck, ESLint, Vitest, builds/Worker dry-run through that gate;
-   - customer browser CRUD/version/group-membership/Source-switch/session smoke;
-   - Admin plan/pricing/Overview/Profitability/session smoke;
-   - LINE Login/one-time entry;
-   - PRIVATE/GROUP CREATE/HISTORY/Reply EDIT/confirmations;
-   - LINE TEXT cache + image/audio/file expiry/202/size flows;
-   - real Gemini pricing/usage/point settlement;
-   - Worker `/health` + `/health/ready`.
+Do not hand-fabricate Drizzle metadata.
 
-### P1 — source/UX gaps that should be fixed before a polished free/AI launch
+### 2. Fresh PostgreSQL migration/integrity validation
 
-1. **PWA version-conflict UX is still too raw.**
-   - Backend correctly returns `RECORD_VERSION_CONFLICT`.
-   - PWA currently mainly surfaces the error string; accepted policy says stale saves should guide/reload the user to the latest Record instead of leaving an old editor as-is.
+Validate at minimum:
 
-2. **Raw-first LINE TEXT CREATE can reply too optimistically.**
-   - Raw Record persistence is safe.
-   - If positive preflight later loses the final reservation race or normalization is deferred, Record can remain `entity_id = NULL` and PWA shows `待確認`.
-   - LINE reply should eventually distinguish `原文已保存，標題尚待處理` from a fully normalized success. Do not redesign reservation ownership without runtime evidence.
+- generated FK/check/index/type names;
+- PRIVATE/GROUP Source shape;
+- cross-Source Entity/Alias/Record/Confirmation/LINE-edit/attachment rejection;
+- PRIVATE Web-entry Source mismatch rejection;
+- Grant/grant-scope attribution mismatch rejection;
+- reservation/usage funding mismatch rejection;
+- normal CRUD/revision/confirmation paths under constraints;
+- Grant reserve/commit/release/expire/subsidy/concurrency state;
+- customer/Admin final-held-point reserved reporting.
 
-3. **Customer AI usage percentage/progress UI is not complete.**
-   - Policy asks for remaining/used/total plus usage/remaining percentage/progress indicator.
-   - Current PWA shows point numbers and Grant rows, but not a complete percentage/progress presentation. Scope/cap/expired-Grant semantics must be handled correctly rather than dividing unrelated lifetime totals.
+### 3. Entity/Alias case-insensitive collision behavior
 
-4. **Admin main navigation still lacks a direct `/profitability` shortcut.**
-   - Report exists and is routed; this is navigation polish, not accounting debt.
+Runtime matching uses case-insensitive matching while current declared uniqueness is case-sensitive. Reproduce on real PostgreSQL before choosing expression-index/normalization/collation behavior.
 
-### P2 — full paid MVP work, not required for a deliberately free/manual + AI-recording beta
+### 4. Run actual release validation
 
-1. **Payment provider is not implemented.**
-   - Provider selection is intentionally not frozen.
-   - Missing: real checkout, successful-payment facts, recurring renewal success/failure, idempotent payment webhooks, refund lifecycle and realized revenue ledger.
+After fresh PostgreSQL is green:
 
-2. **TOP_UP purchase lifecycle is not implemented.**
-   - Grant type/accounting foundation exists, but there is no complete purchase/provider/refund flow.
+- `pnpm release:preflight`;
+- TypeScript typecheck, ESLint, Vitest, API/Web/Admin builds and Worker dry-run through that gate;
+- PWA CRUD/version/group membership/Source-switch/session browser smoke;
+- Admin plans/pricing calculator/AI pricing/Overview/Profitability/session browser smoke;
+- LINE Login/one-time entry;
+- PRIVATE/GROUP CREATE/HISTORY/Reply EDIT/confirmations;
+- LINE TEXT cache + image/audio/file expiry/202/size flows;
+- real Gemini pricing/usage/point settlement;
+- Worker `/health` + `/health/ready`.
 
-3. **Paid Export is not implemented.**
-   - Product spec still calls Export MVP/initially paid.
-   - Current capability is deliberately `shipped:false`; there is no customer export endpoint/UI yet.
+## P1 — source/UX cleanup before a polished free/AI launch
 
-4. **Proration / mid-period paid-plan change policy remains intentionally undefined.**
-   - Current code safely rejects ambiguous active-period changes instead of inventing behavior.
+### 1. PWA version-conflict recovery
 
-5. **Admin pricing calculator is still missing.**
-   - `WORKLOG_AI_POINT_POLICY.md` requires a calculator using price TWD + target gross margin + FX + model pricing to recommend included AI points, with explicit Admin confirmation before persistence.
-   - Current Admin lets operators enter final plan points manually but does not calculate the recommendation.
+Backend correctly returns `RECORD_VERSION_CONFLICT` and prevents stale overwrite. PWA should still improve recovery so a stale edit/move/delete/restore/batch action:
 
-6. **Advanced profitability metrics are incomplete.**
-   - Base TODAY/7D/30D/BILLING_MONTH report, cost, points, subsidy, plan/grant/model/operation/source breakdown and Grant inventory exist.
-   - Still missing or intentionally unavailable: monthly subscriber average/median distribution, FREE->paid conversion, average real FREE subsidy/user, and realized revenue/margin until a successful-payment ledger exists.
+- explains that another update won;
+- reloads the latest Record/list state;
+- closes or refreshes the stale editor instead of leaving the user with a raw error code.
 
-### Attachment format limitation
+This is the next PWA source patch once a safe local patch workflow is available.
 
-- Image, audio, PDF and text-like files have an active Gemini path with bounded input/output handling.
-- DOCX/XLSX/legacy Office MIME types are currently explicitly `ATTACHMENT_UNSUPPORTED`; supporting them would need a validated parser/provider-native document path. This is an attachment coverage gap, not a data-integrity blocker for the formats already shipped.
+### 2. LINE raw-first CREATE deferred-normalization messaging
+
+`WorklogTextNormalizationService.normalizeText()` already distinguishes `NORMALIZED`, `PENDING_CONFIRMATION`, `DEFERRED`, `IN_PROGRESS`, `FAILED`, etc.
+
+GROUP and PRIVATE runtimes still treat normalization as best-effort `void` and can reply as though the Record were fully organized even when the raw Record was saved but `entity_id` remains unresolved.
+
+Next patch should preserve the raw-first/ledger state machine and only improve reply text, for example:
+
+`原文已保存，AI 標題目前尚未完成，請稍後到 AFTERTRACE 查看或手動整理。`
+
+Do not redesign reservation ownership for this UX fix.
+
+### 3. Customer AI usage percentage/progress UI
+
+Policy asks for used/remaining/total plus usage/remaining percentage/progress indicator. Current PWA shows point numbers and Grant rows but not a fully correct progress representation. Scope caps, expired Grants and lifetime usage must not be mixed into a misleading denominator.
+
+### 4. Admin main navigation shortcuts
+
+Standalone `/profitability` and `/pricing-calculator` routes exist. Main Admin navigation still needs convenient direct shortcuts; this is UX polish, not accounting or authorization debt.
+
+## P2 — full paid MVP, separate from free/manual + AI-recording beta
+
+1. Payment provider is intentionally not implemented yet.
+2. Successful-payment durable facts / recurring renewal success/failure / idempotent payment webhooks remain unimplemented.
+3. TOP_UP purchase/refund lifecycle remains unimplemented.
+4. Paid Export remains `shipped:false`; no customer export endpoint/UI exists yet.
+5. Proration / mid-period paid-plan change remains intentionally undefined and fail-closed.
+6. Advanced profitability still lacks subscriber monthly average/median distribution, FREE->paid conversion and average real FREE subsidy/user; realized revenue/margin remains unavailable until a successful-payment ledger exists.
+
+## Attachment coverage limitation
+
+Active provider path supports image, audio, PDF and text-like files with bounded input/output handling. DOCX/XLSX/legacy Office MIME types remain explicitly `ATTACHMENT_UNSUPPORTED`; adding them requires a validated parser or provider-native document path.
 
 ## Next implementation target
 
-If a real latest local checkout/toolchain is available, stop broad static refactoring and immediately:
+If a real latest local checkout/toolchain becomes available, stop broad static refactoring and immediately:
 
 1. regenerate baseline;
 2. fix actual Drizzle/type errors;
@@ -203,17 +229,21 @@ If a real latest local checkout/toolchain is available, stop broad static refact
 5. execute integrity/concurrency probes;
 6. initialize AI runtime config + FREE plan;
 7. run `pnpm release:preflight`;
-8. run browser/LINE/Gemini/Worker smoke.
+8. run customer/Admin/LINE/Gemini/Worker smoke.
 
-If local execution remains unavailable, the best next source batch is P1 UX only: PWA version-conflict recovery + deferred LINE CREATE messaging. Do not start payment/export/proration implementation without the missing commercial/product decisions.
+If local execution remains unavailable, next safe source batch is the remaining P1 UX work, preferably through a patch-capable checkout rather than whole-file rewrites of large runtime/PWA files.
 
 ## Validation status
 
-This run performed source/document audit and GitHub source edits only.
+This run performed document/source audit plus direct GitHub source edits.
 
-No usable checked-out local project/toolchain was available, so none of the authored/updated tests were executed.
+A local clone was retried after the required document read and failed with:
 
-**Not executed:**
+`Could not resolve host: github.com`
+
+Therefore there was no usable checked-out project/toolchain.
+
+Not executed:
 
 - `pnpm install`;
 - baseline regeneration/guard;
@@ -229,22 +259,22 @@ No usable checked-out local project/toolchain was available, so none of the auth
 - LINE runtime;
 - Gemini runtime.
 
-No test/build/migration/runtime result is claimed as passing.
+New pricing tests are source contracts only until actually executed. No test/build/migration/runtime result is claimed as passing.
 
-No GitHub Actions workflow was executed, dispatched, rerun, enabled, modified, or used as validation.
+No GitHub Actions workflow was executed, dispatched, rerun, enabled, modified, triggered or used as validation.
 
 ## Deployment status
 
 **NOT READY yet.**
 
-For the free/manual + AI-recording launch path, the remaining decisive blockers are now migration generation, PostgreSQL validation and real preflight/runtime smoke rather than another broad product refactor.
-
-Full paid MVP additionally requires Payment + TOP_UP lifecycle + Export + pricing/revenue follow-up.
+For the free/manual + AI-recording launch path, the remaining decisive blockers are migration generation, fresh PostgreSQL, real preflight and runtime smoke. The remaining P1 items are UX polish on top of already fail-closed data/accounting behavior.
 
 ## Rough remaining work
 
-- regenerated migration + actual schema/type fixes: **1 substantial batch**;
+Assuming a current checkout/toolchain and disposable PostgreSQL become available:
+
+- baseline regeneration + generated-schema/type fixes: **1 substantial batch**;
 - fresh PostgreSQL/integrity/concurrency validation: **1 batch**;
-- release preflight + customer/Admin/LINE/Gemini/Workers smoke: **1 validation batch**;
-- P1 customer UX cleanup: **1 smaller batch**;
-- Payment/TOP_UP/Export/full paid economics: **separate product/payment batches**.
+- release preflight + browser/LINE/Gemini/Workers smoke: **1 validation batch**;
+- remaining P1 UX cleanup: **1 smaller batch**;
+- Payment/TOP_UP/Export/full paid lifecycle: **separate product/payment batches**.
