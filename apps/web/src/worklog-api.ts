@@ -1,6 +1,9 @@
 export type WorklogInputType = 'TEXT' | 'AUDIO' | 'IMAGE' | 'FILE';
 export type WorklogRecordStatus = 'ACTIVE' | 'DELETED';
 
+const WEB_SESSION_KEY = 'aftertrace.worklog.session';
+const WEB_SCOPE_KEY = 'aftertrace.worklog.scope';
+
 export type WorklogRecord = {
   id: number;
   sourceId: number;
@@ -151,6 +154,7 @@ export type SubscriptionPlan = {
   price_twd: string;
   rank: number;
   subscription_period_points: number;
+  one_time_initial_points?: number;
   capabilities: Record<string, unknown>;
   current: boolean;
 };
@@ -191,8 +195,25 @@ async function json<T>(response: Response, fallback: string): Promise<T & { erro
   } catch {
     throw new Error(`${fallback} (${response.status})`);
   }
-  if (!response.ok) throw new Error(body.error || `${fallback} (${response.status})`);
+  if (!response.ok) {
+    const error = body.error || `${fallback} (${response.status})`;
+    if (response.status === 401 && /^(?:INVALID_WEB_SESSION|WEB_SESSION_REQUIRED)$/.test(error)) {
+      recoverExpiredWebSession();
+    }
+    throw new Error(error);
+  }
   return body;
+}
+
+function recoverExpiredWebSession(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(WEB_SESSION_KEY);
+    window.localStorage.removeItem(WEB_SCOPE_KEY);
+  } finally {
+    // Defer navigation so the current promise rejects normally and React cleanup can run.
+    window.setTimeout(() => window.location.reload(), 0);
+  }
 }
 
 export class WorklogApi {
