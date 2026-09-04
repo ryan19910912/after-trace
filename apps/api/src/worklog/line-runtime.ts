@@ -6,7 +6,7 @@ import { hasCapability } from './entitlements';
 import { historyFiltersFromText, type WorklogHistoryFilters } from './history-navigation';
 import type { WorklogLineTextCacheService } from './line-text-cache';
 import { worklogAttachmentRuntime } from './attachment-runtime';
-import type { WorklogTextRecordWriteResult } from './records';
+import type { WorklogReplyEditTargetResolution, WorklogTextRecordWriteResult } from './records';
 import type { WorklogTextNormalizationService } from './text-normalization';
 
 export interface WorklogLineBootstrapPort {
@@ -38,6 +38,7 @@ export interface WorklogLineTextCachePort {
 export interface WorklogLineRecordWritePort extends WorklogLineTextCachePort {
   recordText(input: { sourceId: number; authorUserId: number; lineMessageId: string; text: string; sourceTimestamp?: Date }): Promise<WorklogTextRecordWriteResult>;
   recordQuotedText(input: { sourceId: number; authorUserId: number; lineMessageId: string; quotedLineMessageId: string; text: string; sourceTimestamp?: Date }): Promise<WorklogTextRecordWriteResult>;
+  resolveReplyEditTarget(sourceId: number, quotedLineMessageId: string): Promise<WorklogReplyEditTargetResolution>;
 }
 
 export interface WorklogLineTextNormalizationPort {
@@ -56,7 +57,8 @@ export type WorklogLineRuntimeResult =
         | 'USER_UNKNOWN' | 'OWNER_CONFLICT' | 'GROUP_NOT_FOUND' | 'GROUP_INACTIVE'
         | 'OWNER_UNBOUND' | 'OWNER_ABSENT' | 'NOT_ACTIVE_MEMBER' | 'RECORDING_DISABLED'
         | 'GROUP_NOT_ENTITLED' | 'AI_QUOTA_EXHAUSTED' | 'AI_MEDIA_DISABLED' | 'SOURCE_NOT_FOUND'
-        | 'IDEMPOTENCY_CONFLICT' | 'ATTACHMENT_FAILED' | 'EDIT_TARGET_REQUIRED' | 'EDIT_NOT_READY';
+        | 'IDEMPOTENCY_CONFLICT' | 'ATTACHMENT_FAILED' | 'EDIT_TARGET_REQUIRED' | 'EDIT_TARGET_NOT_FOUND'
+        | 'EDIT_TARGET_AMBIGUOUS' | 'EDIT_TARGET_DELETED' | 'EDIT_NOT_READY';
       replyText: string;
     };
 
@@ -100,7 +102,10 @@ export class WorklogLineRuntime {
       if (!command.quotedLineMessageId) {
         return { status: 'REJECTED', reason: 'EDIT_TARGET_REQUIRED', replyText: '目前無法確定你要修改哪一筆紀錄，請直接 Reply 要修改的原始紀錄，或前往 AFTERTRACE 編輯。' };
       }
-      return { status: 'REJECTED', reason: 'EDIT_NOT_READY', replyText: '已辨識這是修改指令，但 LINE AI 修改尚未完成接線；為避免改錯資料，請先到 AFTERTRACE 紀錄頁手動編輯。' };
+      const access = await this.collaboration.authorizeGroupAccess({ sourceId: group.sourceId, actorUserId: group.userId });
+      if (access.status !== 'OK') return rejectedAuthorization(access);
+      const target = await this.records.resolveReplyEditTarget(group.sourceId, command.quotedLineMessageId);
+      return replyEditTargetResult(target);
     }
 
     // Only AI-backed create/attachment paths require the transitional funding check.
@@ -151,6 +156,19 @@ export class WorklogLineRuntime {
     if (!this.textNormalization) return;
     try { await this.textNormalization.normalizeText(recordId); }
     catch (error) { console.error(JSON.stringify({ event: 'worklog_text_normalization_failed_after_persist', source: 'GROUP', recordId, lineGroupId: message.lineGroupId, lineMessageId: message.lineMessageId, message: error instanceof Error ? error.message : 'unknown error' })); }
+  }
+}
+
+function replyEditTargetResult(result: WorklogReplyEditTargetResolution): WorklogLineRuntimeResult {
+  switch (result.status) {
+    case 'FOUND':
+      return { status: 'REJECTED', reason: 'EDIT_NOT_READY', replyText: '已確認你回覆的是同一個群組中的有效 AFTERTRACE 紀錄，但 LINE AI 修改尚未完成接線；目前請先到 AFTERTRACE 紀錄頁手動編輯。' };
+    case 'NOT_FOUND':
+      return { status: 'REJECTED', reason: 'EDIT_TARGET_NOT_FOUND', replyText: '找不到你回覆的 AFTERTRACE 紀錄。請確認 Reply 的是這個群組中原本已記錄的訊息，或前往 AFTERTRACE 編輯。' };
+    case 'AMBIGUOUS':
+      return { status: 'REJECTED', reason: 'EDIT_TARGET_AMBIGUOUS', replyText: '你回覆的 LINE 訊息目前對應到多筆有效紀錄，為避免改錯資料不會自動修改；請前往 AFTERTRACE 紀錄頁處理。' };
+    case 'DELETED':
+      return { status: 'REJECTED', reason: 'EDIT_TARGET_DELETED', replyText: '你回覆的 AFTERTRACE 紀錄目前已刪除；請先到回收桶還原，或直接在 AFTERTRACE 紀錄頁處理。' };
   }
 }
 
