@@ -96,7 +96,7 @@ function baseProvider(): WorklogTextNormalizationProvider {
 }
 
 describe('WorklogTextNormalizationService', () => {
-  it('holds points, persists provider output, commits actual point usage, then applies one title/time interpretation', async () => {
+  it('holds points, persists provider output/cost, commits point usage, then applies one title/time interpretation', async () => {
     const repository = baseRepository();
     const aiPoints = baseAiPoints();
     const provider = baseProvider();
@@ -123,7 +123,7 @@ describe('WorklogTextNormalizationService', () => {
       chargedUserId: 99,
       actorUserId: 7,
       sourceId: 3,
-      requestedUnits: 500,
+      requestedPoints: 500,
     }));
 
     expect(repository.saveProviderResult).toHaveBeenCalledTimes(1);
@@ -137,7 +137,6 @@ describe('WorklogTextNormalizationService', () => {
         titleRequiresConfirmation: false,
       },
       usage: {
-        actualUnits: 8,
         workspaceId: 2,
         recordId: 11,
         operation: 'TEXT_RECORD_CREATE',
@@ -154,6 +153,7 @@ describe('WorklogTextNormalizationService', () => {
         usdTwdRate: 30,
       },
     });
+    expect(persisted?.usage).not.toHaveProperty('actualUnits');
     expect(persisted?.usage.providerCostUsd).toBeCloseTo(0.000003, 12);
     expect(persisted?.usage.providerCostTwd).toBeCloseTo(0.00009, 12);
 
@@ -166,7 +166,7 @@ describe('WorklogTextNormalizationService', () => {
     expect(aiPoints.releaseAi).not.toHaveBeenCalled();
   });
 
-  it('persists full provider cost and point usage even when actual cost exceeds the preflight estimate', async () => {
+  it('persists full provider cost when actual cost exceeds the preflight estimate', async () => {
     const repository = baseRepository();
     const aiPoints = baseAiPoints();
     const provider = baseProvider();
@@ -186,12 +186,12 @@ describe('WorklogTextNormalizationService', () => {
     await expect(service.normalizeText(11)).resolves.toEqual({
       status: 'NORMALIZED', entityId: 71, createdEntity: true,
     });
-    expect(repository.saveProviderResult).toHaveBeenCalledWith(expect.objectContaining({
-      usage: expect.objectContaining({ actualUnits: 213 }),
-    }));
+    const persisted = vi.mocked(repository.saveProviderResult).mock.calls[0]?.[0];
+    expect(persisted?.usage.providerCostUsd).toBeCloseTo(0.000085, 12);
+    expect(persisted?.usage).not.toHaveProperty('actualUnits');
     expect(aiPoints.commitAiUsage).toHaveBeenCalledWith(
       'reserve-1',
-      expect.objectContaining({ actualUnits: 213 }),
+      expect.objectContaining({ providerCostUsd: expect.any(Number) }),
     );
     expect(aiPoints.releaseAi).not.toHaveBeenCalled();
   });
@@ -250,7 +250,6 @@ describe('WorklogTextNormalizationService', () => {
         occurredAt: null,
       },
       usage: {
-        actualUnits: 8,
         workspaceId: 2,
         recordId: 11,
         operation: 'TEXT_RECORD_CREATE',
@@ -288,7 +287,6 @@ describe('WorklogTextNormalizationService', () => {
         occurredAt: null,
       },
       usage: {
-        actualUnits: 8,
         workspaceId: 2,
         recordId: 11,
         operation: 'TEXT_RECORD_CREATE',
