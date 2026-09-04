@@ -5,7 +5,7 @@ import { parseWorklogCommand } from './command';
 import { historyFiltersFromText, type WorklogHistoryFilters } from './history-navigation';
 import type { WorklogLineRecordEditResult } from './line-record-edit';
 import type { WorklogReplyEditTarget, WorklogReplyEditTargetResolution, WorklogTextRecordWriteResult } from './records';
-import type { WorklogTextNormalizationService } from './text-normalization';
+import type { WorklogTextNormalizationResult, WorklogTextNormalizationService } from './text-normalization';
 
 export interface WorklogOaBootstrapPort {
   handleOaFollow(input: { lineUserId: string; displayName?: string | null; at?: Date }): Promise<{ userId: number; workspaceId: number; sourceId: number }>;
@@ -182,12 +182,22 @@ export class WorklogOaRuntime {
       sourceTimestamp: message.lineTimestamp,
     });
     if (write.status === 'CREATED') {
-      await this.normalizeBestEffort(write.recordId, message);
-      return { status: 'RECORDED', recordId: write.recordId, duplicate: false, replyText: '已記錄到你的個人 AFTERTRACE。' };
+      const normalization = await this.normalizeBestEffort(write.recordId, message);
+      return {
+        status: 'RECORDED',
+        recordId: write.recordId,
+        duplicate: false,
+        replyText: normalizationReplyText(normalization, '已記錄到你的個人 AFTERTRACE。'),
+      };
     }
     if (write.status === 'ALREADY_RECORDED') {
-      await this.normalizeBestEffort(write.recordId, message);
-      return { status: 'RECORDED', recordId: write.recordId, duplicate: true, replyText: '這則訊息已經記錄過了。' };
+      const normalization = await this.normalizeBestEffort(write.recordId, message);
+      return {
+        status: 'RECORDED',
+        recordId: write.recordId,
+        duplicate: true,
+        replyText: normalizationReplyText(normalization, '這則訊息已經記錄過了。'),
+      };
     }
     if (write.status === 'IDEMPOTENCY_CONFLICT') {
       return { status: 'REJECTED', reason: 'IDEMPOTENCY_CONFLICT', replyText: '這則 LINE 訊息的紀錄狀態不一致，為避免寫錯資料，本次沒有覆蓋既有紀錄。' };
@@ -204,10 +214,13 @@ export class WorklogOaRuntime {
     }
   }
 
-  private async normalizeBestEffort(recordId: number, message: BufferedPrivateMessage): Promise<void> {
-    if (!this.textNormalization) return;
+  private async normalizeBestEffort(
+    recordId: number,
+    message: BufferedPrivateMessage,
+  ): Promise<WorklogTextNormalizationResult | null> {
+    if (!this.textNormalization) return null;
     try {
-      await this.textNormalization.normalizeText(recordId);
+      return await this.textNormalization.normalizeText(recordId);
     } catch (error) {
       console.error(JSON.stringify({
         event: 'worklog_text_normalization_failed_after_persist',
@@ -217,8 +230,23 @@ export class WorklogOaRuntime {
         lineMessageId: message.lineMessageId,
         message: error instanceof Error ? error.message : 'unknown error',
       }));
+      return null;
     }
   }
+}
+
+function normalizationReplyText(
+  result: WorklogTextNormalizationResult | null,
+  successText: string,
+): string {
+  if (result?.status === 'NORMALIZED' || result?.status === 'ALREADY_NORMALIZED') return successText;
+  if (result?.status === 'PENDING_CONFIRMATION') {
+    return '原文已保存，AI 需要你確認紀錄標題。請到 AFTERTRACE 完成確認；不會再扣第二次 AI 點數。';
+  }
+  if (result?.status === 'IN_PROGRESS') {
+    return '原文已保存，AI 標題正在安全處理中，請稍後到 AFTERTRACE 查看。';
+  }
+  return '原文已保存，但 AI 標題目前尚未完成。請到 AFTERTRACE 查看或手動整理；原始紀錄不會遺失。';
 }
 
 function replyEditTargetFailure(result: Exclude<WorklogReplyEditTargetResolution, { status: 'FOUND' }>): WorklogOaRuntimeResult {
