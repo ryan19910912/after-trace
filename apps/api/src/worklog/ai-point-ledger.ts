@@ -1,5 +1,5 @@
 import { providerCostToAiPoints } from './ai-points';
-import type { WorklogAiUsageCommit } from './subscription';
+import type { WorklogAiUsageCommit } from './ai-provider-usage';
 
 export type WorklogAiPointReservationStatus = 'RESERVED' | 'COMMITTED' | 'RELEASED' | 'EXPIRED';
 
