@@ -6,7 +6,7 @@ import type { GroupBootstrapResult, GroupOwnerBindResult } from './bootstrap';
 import type { GroupAccessAuthorizationResult, GroupRecordAuthorizationResult } from './collaboration';
 import type { CachedLineText } from './line-text-cache';
 import { WorklogLineRuntime } from './line-runtime';
-import type { WorklogTextRecordWriteResult } from './records';
+import type { WorklogReplyEditTargetResolution, WorklogTextRecordWriteResult } from './records';
 
 function message(textContent: string, overrides: Partial<BufferedGroupMessage> = {}): BufferedGroupMessage {
   return {
@@ -77,8 +77,21 @@ class FakeCollaboration {
 
 class FakeRecords {
   result: WorklogTextRecordWriteResult = { status: 'CREATED', recordId: 99 };
+  replyTargetResult: WorklogReplyEditTargetResolution = {
+    status: 'FOUND',
+    record: {
+      id: 77,
+      sourceId: 20,
+      authorUserId: 7,
+      entityId: 31,
+      rawText: '王先生冷氣清潔費 3000',
+      occurredAt: '2026-09-02T00:00:00.000Z',
+      version: 2,
+    },
+  };
   calls = 0;
   quotedCalls = 0;
+  replyTargetCalls: Array<{ sourceId: number; quotedLineMessageId: string }> = [];
   remembered: Array<{ lineMessageId: string; lineGroupId: string; text: string }> = [];
   cached: CachedLineText | null = null;
   lastQuotedInput: { lineMessageId: string; quotedLineMessageId: string; text: string } | null = null;
@@ -92,6 +105,11 @@ class FakeRecords {
     return this.cached.lineGroupId === lineGroupId && this.cached.lineMessageId === lineMessageId
       ? this.cached
       : null;
+  }
+
+  async resolveReplyEditTarget(sourceId: number, quotedLineMessageId: string) {
+    this.replyTargetCalls.push({ sourceId, quotedLineMessageId });
+    return this.replyTargetResult;
   }
 
   async recordText() {
@@ -341,9 +359,10 @@ describe('WorklogLineRuntime', () => {
     expect(collaboration.calls).toBe(0);
   });
 
-  it('does not persist obvious edit commands and requires a reliable Reply target', async () => {
+  it('does not persist edit commands and resolves only a same-Source active Reply target first', async () => {
     const records = new FakeRecords();
-    const runtime = new WorklogLineRuntime(new FakeBootstrap(), new FakeCollaboration(), records);
+    const collaboration = new FakeCollaboration();
+    const runtime = new WorklogLineRuntime(new FakeBootstrap(), collaboration, records);
 
     await expect(runtime.handle(message('@AFTERTRACE 幫我改成 2800'))).resolves.toMatchObject({
       status: 'REJECTED',
@@ -355,8 +374,41 @@ describe('WorklogLineRuntime', () => {
       status: 'REJECTED',
       reason: 'EDIT_NOT_READY',
     });
+    expect(records.replyTargetCalls).toEqual([{ sourceId: 20, quotedLineMessageId: 'quoted-record-1' }]);
+    expect(collaboration.accessCalls).toBe(1);
+    expect(collaboration.calls).toBe(0);
     expect(records.calls).toBe(0);
     expect(records.quotedCalls).toBe(0);
+  });
+
+  it('refuses missing, ambiguous and deleted Reply edit targets without invoking AI funding', async () => {
+    const records = new FakeRecords();
+    const collaboration = new FakeCollaboration();
+    const runtime = new WorklogLineRuntime(new FakeBootstrap(), collaboration, records);
+
+    records.replyTargetResult = { status: 'NOT_FOUND' };
+    await expect(runtime.handle(message('@AFTERTRACE 幫我改成 2800', { quotedLineMessageId: 'missing' }))).resolves.toMatchObject({ reason: 'EDIT_TARGET_NOT_FOUND' });
+    records.replyTargetResult = { status: 'AMBIGUOUS' };
+    await expect(runtime.handle(message('@AFTERTRACE 幫我改成 2800', { quotedLineMessageId: 'ambiguous' }))).resolves.toMatchObject({ reason: 'EDIT_TARGET_AMBIGUOUS' });
+    records.replyTargetResult = { status: 'DELETED' };
+    await expect(runtime.handle(message('@AFTERTRACE 幫我改成 2800', { quotedLineMessageId: 'deleted' }))).resolves.toMatchObject({ reason: 'EDIT_TARGET_DELETED' });
+
+    expect(collaboration.calls).toBe(0);
+    expect(records.calls).toBe(0);
+  });
+
+  it('checks active group membership before resolving a Reply edit target', async () => {
+    const records = new FakeRecords();
+    const collaboration = new FakeCollaboration();
+    collaboration.accessResult = { status: 'NOT_ACTIVE_MEMBER' };
+    const runtime = new WorklogLineRuntime(new FakeBootstrap(), collaboration, records);
+
+    await expect(runtime.handle(message('@AFTERTRACE 幫我改成 2800', { quotedLineMessageId: 'quoted-record-1' }))).resolves.toMatchObject({
+      status: 'REJECTED',
+      reason: 'NOT_ACTIVE_MEMBER',
+    });
+    expect(records.replyTargetCalls).toHaveLength(0);
+    expect(collaboration.calls).toBe(0);
   });
 
   it('does not let legacy recording permission remove historical query access', async () => {
