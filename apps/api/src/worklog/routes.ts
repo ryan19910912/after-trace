@@ -197,6 +197,7 @@ export function createWorklogRoutes() {
     if (!body) return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
     const expectedVersion = positiveInteger(body.expectedVersion);
     if (!expectedVersion) return c.json({ ok: false, error: 'EXPECTED_VERSION_REQUIRED' }, 400);
+    if (expectedVersion !== current.version) return c.json({ ok: false, error: 'RECORD_VERSION_CONFLICT' }, 409);
     const nextText = body.rawText === undefined ? current.rawText : requiredText(body.rawText, 20000);
     if (!nextText) return c.json({ ok: false, error: 'RECORD_TEXT_REQUIRED' }, 400);
     const nextOccurredAt = body.occurredAt === undefined ? current.occurredAt : dateValue(body.occurredAt);
@@ -235,6 +236,7 @@ export function createWorklogRoutes() {
     if (!body) return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
     const expectedVersion = positiveInteger(body.expectedVersion);
     if (!expectedVersion) return c.json({ ok: false, error: 'EXPECTED_VERSION_REQUIRED' }, 400);
+    if (expectedVersion !== current.version) return c.json({ ok: false, error: 'RECORD_VERSION_CONFLICT' }, 409);
     const entity = await resolveManualEntity(context.database, current.sourceId, context.userId, body);
     if ('error' in entity) return c.json({ ok: false, error: entity.error }, 400);
     if (current.entityId === entity.id) return c.json({ ok: true, record: await recordById(context.database, recordId) });
@@ -281,13 +283,14 @@ export function createWorklogRoutes() {
       return c.json({ ok: false, error: 'RECORD_ACCESS_FORBIDDEN' }, 403);
     }
     if (snapshots.some((row) => row.status !== 'ACTIVE')) return c.json({ ok: false, error: 'RECORD_DELETED' }, 409);
-    const entity = await resolveManualEntity(context.database, sourceId, context.userId, body);
-    if ('error' in entity) return c.json({ ok: false, error: entity.error }, 400);
 
     const expected = new Map(requested.map((row) => [row!.id, row!.expectedVersion]));
     if (snapshots.some((row) => expected.get(row.id) !== row.version)) {
       return c.json({ ok: false, error: 'RECORD_VERSION_CONFLICT' }, 409);
     }
+
+    const entity = await resolveManualEntity(context.database, sourceId, context.userId, body);
+    if ('error' in entity) return c.json({ ok: false, error: entity.error }, 400);
 
     const result = await context.database.execute(sql`
       WITH target AS (
