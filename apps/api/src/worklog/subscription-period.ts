@@ -85,6 +85,8 @@ export class WorklogSubscriptionPeriodService {
     planCode: string;
     source: WorklogSubscriptionSource;
     actor?: string | null;
+    /** Evaluation time for an existing lifecycle row. Kept separate from effectiveAt for deterministic tests/webhooks. */
+    at?: Date;
     effectiveAt?: Date;
     currentPeriodStart?: Date;
     currentPeriodEnd?: Date | null;
@@ -98,9 +100,10 @@ export class WorklogSubscriptionPeriodService {
     const actor = input.actor?.trim() || null;
     if (input.source === 'ADMIN' && !actor) throw new Error('admin period assignment requires actor');
 
-    const effectiveAt = validDate(input.effectiveAt ?? new Date(), 'effectiveAt');
+    const at = validDate(input.at ?? new Date(), 'at');
+    const effectiveAt = validDate(input.effectiveAt ?? at, 'effectiveAt');
     const current = await this.repository.getCurrentSubscription(userId);
-    const currentState = current ? evaluateSubscriptionPeriod(current, new Date()) : 'NO_SUBSCRIPTION';
+    const currentState = current ? evaluateSubscriptionPeriod(current, at) : 'NO_SUBSCRIPTION';
     if (current && currentState === 'ACTIVE') {
       if (current.planCode !== planCode) {
         return { status: 'ACTIVE_PERIOD_CHANGE_POLICY_UNDEFINED', subscription: current };
