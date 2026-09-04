@@ -62,7 +62,11 @@ export function createWorklogSubscriptionRoutes() {
         plan.rank,
         plan.subscription_period_points,
         plan.capabilities,
-        CASE WHEN ${user.effectiveState} = 'ACTIVE' AND ${user.planCode} = plan.code THEN TRUE ELSE FALSE END AS current
+        CASE
+          WHEN ${user.effectiveState} = 'ACTIVE' AND ${user.planCode} = plan.code THEN TRUE
+          WHEN ${user.effectiveState} <> 'ACTIVE' AND plan.code = 'FREE' THEN TRUE
+          ELSE FALSE
+        END AS current
       FROM worklog_subscription_plans plan
       WHERE plan.enabled = TRUE
       ORDER BY plan.rank ASC, plan.price_twd ASC, plan.code ASC
