@@ -1,5 +1,4 @@
 export type WorklogAiUsageCommit = {
-  actualUnits: number;
   workspaceId?: number | null;
   recordId?: number | null;
   operation?: string;
