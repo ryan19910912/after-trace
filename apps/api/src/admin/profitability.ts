@@ -273,7 +273,9 @@ export class DrizzleAdminProfitabilityRepository {
       SELECT
         grant.type::text AS grant_type,
         COUNT(*)::text AS grants,
-        COUNT(*) FILTER (WHERE grant.status = 'EXHAUSTED' OR grant.remaining_points = 0)::text AS exhausted_grants,
+        COUNT(*) FILTER (
+          WHERE grant.remaining_points + COALESCE(scope_totals.reserved_points, 0) = 0
+        )::text AS exhausted_grants,
         COALESCE(SUM(grant.original_points), 0)::bigint::text AS original_points,
         COALESCE(SUM(COALESCE(scope_totals.used_points, 0)), 0)::bigint::text AS used_points,
         COALESCE(SUM(COALESCE(scope_totals.reserved_points, 0)), 0)::bigint::text AS reserved_points,
