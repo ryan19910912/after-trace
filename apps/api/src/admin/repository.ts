@@ -34,7 +34,7 @@ export type AdminPlanInput = {
   priceTwd: string;
   rank: number;
   enabled: boolean;
-  aiAllowanceUnits: number;
+  subscriptionPeriodPoints: number;
   capabilities: Record<string, boolean | number | string>;
 };
 
@@ -101,7 +101,7 @@ export class DrizzleAdminRepository {
   async plans() {
     const result = await this.db.execute(sql`
       SELECT id::text AS id, code, display_name, price_twd::text, rank, enabled,
-             ai_allowance_units, capabilities, created_at, updated_at
+             subscription_period_points, capabilities, created_at, updated_at
       FROM worklog_subscription_plans
       ORDER BY rank ASC, code ASC
     `);
@@ -114,17 +114,17 @@ export class DrizzleAdminRepository {
     const result = await this.db.execute(sql`
       WITH changed AS (
         INSERT INTO worklog_subscription_plans (
-          code, display_name, price_twd, rank, enabled, ai_allowance_units, capabilities, created_at, updated_at
+          code, display_name, price_twd, rank, enabled, subscription_period_points, capabilities, created_at, updated_at
         ) VALUES (
           ${input.code}, ${input.displayName}, ${input.priceTwd}, ${input.rank}, ${input.enabled},
-          ${input.aiAllowanceUnits}, ${capabilitiesJson}::jsonb, NOW(), NOW()
+          ${input.subscriptionPeriodPoints}, ${capabilitiesJson}::jsonb, NOW(), NOW()
         )
         ON CONFLICT (code) DO UPDATE SET
           display_name = EXCLUDED.display_name,
           price_twd = EXCLUDED.price_twd,
           rank = EXCLUDED.rank,
           enabled = EXCLUDED.enabled,
-          ai_allowance_units = EXCLUDED.ai_allowance_units,
+          subscription_period_points = EXCLUDED.subscription_period_points,
           capabilities = EXCLUDED.capabilities,
           updated_at = NOW()
         RETURNING *
