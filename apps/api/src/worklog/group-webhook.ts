@@ -284,7 +284,11 @@ export async function processWorklogGroupWebhook(input: {
       counters.worklogQueries += 1;
     } else if (result.status === 'OWNER_BOUND') {
       counters.worklogOwnerClaims += 1;
-    } else {
+    } else if (
+      result.status !== 'EDITED'
+      && result.status !== 'EDIT_CONFIRMATION_PENDING'
+      && result.status !== 'EDIT_IN_PROGRESS'
+    ) {
       counters.worklogRejected += 1;
     }
 
@@ -353,7 +357,7 @@ export async function processWorklogGroupWebhook(input: {
       webhookEventId: message.webhookEventId,
       counters,
     });
-    if (result.status === 'RECORDED') {
+    if (result.status === 'RECORDED' || result.status === 'EDITED') {
       await rememberReplyTargetSafely({
         target: input.replyTargets,
         recordId: result.recordId,
