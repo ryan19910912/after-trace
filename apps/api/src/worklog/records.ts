@@ -76,6 +76,7 @@ export interface WorklogRecordWriteRepository extends WorklogLineTextCacheReposi
     | { status: 'EXISTING'; record: StoredTextRecordIdentity }
     | { status: 'SOURCE_NOT_FOUND' }
   >;
+  rememberBotReplyTarget(recordId: number, botLineMessageId: string): Promise<void>;
   resolveReplyEditTarget(
     sourceId: number,
     quotedLineMessageId: string,
@@ -111,6 +112,13 @@ export class WorklogRecordWriteService {
     now?: Date,
   ): Promise<CachedLineText | null> {
     return this.textCache.resolve(lineGroupId, quotedLineMessageId, now);
+  }
+
+  async rememberBotReplyTarget(recordId: number, botLineMessageId: string): Promise<void> {
+    return this.repository.rememberBotReplyTarget(
+      positiveInteger(recordId, 'record id'),
+      requiredTrimmed(botLineMessageId, 'bot LINE message id', 64),
+    );
   }
 
   async resolveReplyEditTarget(
