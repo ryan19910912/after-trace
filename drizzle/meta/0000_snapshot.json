@@ -1,5 +1,5 @@
 {
-  "id": "119a9bb4-e7c7-4c5a-9c2d-7f4852dd727a",
+  "id": "89576fb6-4d4a-4d56-b839-ed9839b884e1",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -1624,9 +1624,9 @@
               "nulls": "last"
             },
             {
-              "expression": "name",
-              "isExpression": false,
+              "expression": "lower(\"name\")",
               "asc": true,
+              "isExpression": true,
               "nulls": "last"
             }
           ],
@@ -1754,9 +1754,9 @@
               "nulls": "last"
             },
             {
-              "expression": "alias",
-              "isExpression": false,
+              "expression": "lower(\"alias\")",
               "asc": true,
+              "isExpression": true,
               "nulls": "last"
             }
           ],

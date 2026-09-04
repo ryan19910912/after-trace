@@ -561,9 +561,9 @@ CREATE UNIQUE INDEX "worklog_workspace_owner_uq" ON "worklog_workspaces" USING b
 CREATE INDEX "worklog_ai_confirmation_user_status_idx" ON "worklog_ai_confirmations" USING btree ("requested_user_id","status","created_at");--> statement-breakpoint
 CREATE INDEX "worklog_ai_confirmation_source_status_idx" ON "worklog_ai_confirmations" USING btree ("source_id","status");--> statement-breakpoint
 CREATE INDEX "worklog_ai_confirmation_record_idx" ON "worklog_ai_confirmations" USING btree ("record_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "worklog_entity_source_name_uq" ON "worklog_entities" USING btree ("source_id","name");--> statement-breakpoint
+CREATE UNIQUE INDEX "worklog_entity_source_name_uq" ON "worklog_entities" USING btree ("source_id",lower("name"));--> statement-breakpoint
 CREATE INDEX "worklog_entity_source_status_idx" ON "worklog_entities" USING btree ("source_id","status");--> statement-breakpoint
-CREATE UNIQUE INDEX "worklog_entity_alias_source_alias_uq" ON "worklog_entity_aliases" USING btree ("source_id","alias");--> statement-breakpoint
+CREATE UNIQUE INDEX "worklog_entity_alias_source_alias_uq" ON "worklog_entity_aliases" USING btree ("source_id",lower("alias"));--> statement-breakpoint
 CREATE INDEX "worklog_entity_alias_entity_idx" ON "worklog_entity_aliases" USING btree ("entity_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "worklog_record_revision_record_version_uq" ON "worklog_record_revisions" USING btree ("record_id","version");--> statement-breakpoint
 CREATE INDEX "worklog_record_revision_record_time_idx" ON "worklog_record_revisions" USING btree ("record_id","created_at");--> statement-breakpoint
