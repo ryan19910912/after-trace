@@ -5,7 +5,7 @@ import type { WorklogAiRuntimeConfigSnapshot } from './text-normalization';
 
 const config: WorklogAiRuntimeConfigSnapshot = {
   provider: 'GOOGLE',
-  model: 'gemini-test',
+  model: 'gemini-3.5-flash',
   inputUsdPerMillion: 0.25,
   outputUsdPerMillion: 1.5,
   audioUsdPerMillion: 0.5,
