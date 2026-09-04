@@ -19,58 +19,88 @@ The latest documents above are the only product/development specification. Do no
 
 The prelaunch baseline rebuild, fresh PostgreSQL integrity stage, and complete local static/test/build validation are now green.
 
-## Completed in this validation sequence
+## 已完成 / 已實際驗證
 
-- `pnpm install --frozen-lockfile` completed successfully.
-- API/Web/Admin TypeScript typecheck passed locally.
-- ESLint passed locally for API/Web/Admin.
-- Vitest passed locally:
-  - API: 42 files / 240 tests passed.
-  - Admin: 3 files / 11 tests passed.
-  - Web: no test files; `passWithNoTests` returned success.
-- API Worker dry-run build passed.
-- Web production build passed.
-- Admin production build passed.
-- `pnpm db:baseline:regenerate --confirm-prelaunch-reset` completed successfully.
-- `pnpm db:baseline:guard` passed after the final schema changes.
-- regenerated `0000_worklog_baseline.sql`, snapshot and journal are committed.
-- `pnpm db:schema:check` completed successfully and exported current Drizzle schema.
-- migration tooling loads root `.env.local` for local tooling and uses the Neon HTTP Drizzle migrator.
-- fresh Neon PostgreSQL migration completed successfully.
-- fresh PostgreSQL integrity probes passed for Source/Grant isolation.
-- PostgreSQL rejects invalid writes for:
-  - mixed PRIVATE/GROUP Source identity;
-  - cross-Source Alias -> Entity;
-  - cross-Source Record -> Entity;
-  - cross-Source Pending Confirmation -> Record;
-  - PRIVATE Web entry user/Source mismatch;
-  - cross-Source LINE AI edit target Record;
-  - cross-Source attachment Record;
-  - cross-Source attachment reservation;
-  - reservation funding Grant/Scope mismatch;
-  - usage funding Grant/Scope mismatch.
-- Source-scoped case-insensitive uniqueness is enforced for Entity names and Aliases.
-- final fresh PostgreSQL re-migration passed after the uniqueness fix.
-- final `pnpm db:integrity` passed, including:
-  - case-only Entity duplicate rejected within same Source;
-  - same Entity spelling allowed in another Source;
-  - case-only Alias duplicate rejected within same Source;
-  - same Alias spelling allowed in another Source.
+以下項目均已在本機或 fresh Neon PostgreSQL 實際執行並成功，不是僅做靜態閱讀或推測：
 
-## Release preflight state
+### Local toolchain / static validation
 
-`pnpm release:preflight` was invoked after the DB/schema fixes, but intentionally stopped before its internal checks because deployment policy requires a real absolute HTTPS `AFTERTRACE_API_URL`.
+- `pnpm install --frozen-lockfile` — PASS.
+- API TypeScript typecheck — PASS.
+- Web TypeScript typecheck — PASS.
+- Admin TypeScript typecheck — PASS.
+- API ESLint — PASS.
+- Web ESLint — PASS.
+- Admin ESLint — PASS.
+- API Worker `wrangler deploy --dry-run` build — PASS.
+- Web production build — PASS.
+- Admin production build — PASS.
+- `pnpm db:schema:check` Drizzle schema export — PASS.
 
-The equivalent local validation stages were then executed directly and all passed:
+### Automated tests
+
+- API Vitest: **42 test files / 240 tests passed**.
+- Admin Vitest: **3 test files / 11 tests passed**.
+- Web: no test files; configured `passWithNoTests` completed successfully.
+
+### Drizzle baseline
+
+- Windows-safe baseline regeneration flow fixed and verified.
+- `pnpm db:baseline:regenerate --confirm-prelaunch-reset` — PASS.
+- `pnpm db:baseline:guard` — PASS after final schema changes.
+- regenerated `drizzle/0000_worklog_baseline.sql` — committed.
+- regenerated `drizzle/meta/0000_snapshot.json` — committed.
+- regenerated `drizzle/meta/_journal.json` — committed.
+- retired Customer/Project/Transaction/category/aggregate-quota/recording schema markers are no longer accepted by the baseline guard.
+
+### Fresh PostgreSQL migration
+
+- migration tooling loads repository-root `.env.local` for local tooling.
+- local migration uses the Neon HTTP Drizzle migrator instead of the failing Drizzle Kit WebSocket CLI path.
+- migration against a freshly reset Neon PostgreSQL database — PASS.
+- composite FK referenced keys required by PostgreSQL were changed to real UNIQUE constraints where needed.
+- fresh re-migration after the final Entity/Alias uniqueness fix — PASS.
+
+### Fresh PostgreSQL integrity probes
+
+`pnpm db:integrity` — PASS.
+
+Database constraints were actually verified to reject:
+
+- mixed PRIVATE/GROUP Source identity;
+- cross-Source Alias -> Entity;
+- cross-Source Record -> Entity;
+- cross-Source Pending Confirmation -> Record;
+- PRIVATE Web entry user/Source mismatch;
+- cross-Source LINE AI edit target Record;
+- cross-Source attachment Record;
+- cross-Source attachment reservation;
+- reservation funding Grant/Scope mismatch;
+- usage funding Grant/Scope mismatch.
+
+Entity/Alias case behavior was reproduced against real PostgreSQL and fixed. Final verified behavior:
+
+- Entity case-only duplicate rejected within the same Source;
+- the same Entity spelling is allowed in another Source;
+- Alias case-only duplicate rejected within the same Source;
+- the same Alias spelling is allowed in another Source.
+
+### Release-preflight-equivalent local checks
+
+`pnpm release:preflight` itself was invoked, but correctly stopped before its internal checks because deployment policy requires a real absolute HTTPS `AFTERTRACE_API_URL`.
+
+The checks that can be executed before deployment were then run directly and all passed:
 
 - TypeScript;
 - ESLint;
 - Vitest;
-- API/Web/Admin production builds / Worker dry-run;
+- API Worker dry-run build;
+- Web production build;
+- Admin production build;
 - baseline guard;
 - Drizzle schema export.
 
-Do not treat the `release:preflight` wrapper itself as passed until an actual deployed API Worker HTTPS origin exists and the wrapper is rerun with that real origin.
+Do not mark the `release:preflight` wrapper itself as PASS until a real deployed API Worker HTTPS origin exists and the wrapper is rerun with that real origin.
 
 ## Stable completed foundation — do not redo without a concrete regression
 
