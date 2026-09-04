@@ -67,44 +67,51 @@ export class DrizzleWorklogRecordNormalizationRepository implements WorklogTextN
 
     const current = await this.loadState(recordId);
     if (current) {
-      if (current.status === 'PENDING') {
-        const claimed = await this.db.execute(sql`
-          UPDATE worklog_record_ai_normalizations
-          SET status = 'PROCESSING',
-              claim_token = ${claimToken},
-              reservation_token = NULL,
-              result_json = NULL,
-              usage_commit_json = NULL,
-              provider_response_id = NULL,
-              latency_ms = NULL,
-              last_error_code = NULL,
-              last_error_detail = NULL,
-              started_at = NOW(),
-              provider_succeeded_at = NULL,
-              usage_committed_at = NULL,
-              completed_at = NULL,
-              updated_at = NOW()
-          WHERE record_id = ${recordId}
-            AND status = 'PENDING'
-          RETURNING record_id
-        `);
-        if (claimed.rows.length > 0) {
-          const context = await this.loadAttachmentContext(recordId);
-          if (!context) {
-            await this.db.execute(sql`
-              UPDATE worklog_record_ai_normalizations
-              SET status = 'FAILED', last_error_code = 'RECORD_NOT_ELIGIBLE', updated_at = NOW()
-              WHERE record_id = ${recordId}
-                AND claim_token = ${claimToken}
-                AND status = 'PROCESSING'
-            `);
-            return { status: 'NOT_ELIGIBLE' };
-          }
-          return { status: 'CLAIMED', context, claimToken };
-        }
-        return this.stateResult(await this.loadState(recordId));
+      if (current.status !== 'PENDING') {
+        // Existing PROCESSING/provider-success/committed/succeeded/failed states are
+        // parsed by the established repository before its TEXT-only context loader.
+        return this.base.begin(recordId, claimToken);
       }
-      return this.stateResult(current);
+
+      const claimed = await this.db.execute(sql`
+        UPDATE worklog_record_ai_normalizations
+        SET status = 'PROCESSING',
+            claim_token = ${claimToken},
+            reservation_token = NULL,
+            result_json = NULL,
+            usage_commit_json = NULL,
+            provider_response_id = NULL,
+            latency_ms = NULL,
+            last_error_code = NULL,
+            last_error_detail = NULL,
+            started_at = NOW(),
+            provider_succeeded_at = NULL,
+            usage_committed_at = NULL,
+            completed_at = NULL,
+            updated_at = NOW()
+        WHERE record_id = ${recordId}
+          AND status = 'PENDING'
+        RETURNING record_id
+      `);
+      if (claimed.rows.length > 0) {
+        const context = await this.loadAttachmentContext(recordId);
+        if (!context) {
+          await this.db.execute(sql`
+            UPDATE worklog_record_ai_normalizations
+            SET status = 'FAILED', last_error_code = 'RECORD_NOT_ELIGIBLE', updated_at = NOW()
+            WHERE record_id = ${recordId}
+              AND claim_token = ${claimToken}
+              AND status = 'PROCESSING'
+          `);
+          return { status: 'NOT_ELIGIBLE' };
+        }
+        return { status: 'CLAIMED', context, claimToken };
+      }
+
+      const winner = await this.loadState(recordId);
+      if (!winner) return { status: 'NOT_ELIGIBLE' };
+      if (winner.status === 'PENDING') return { status: 'IN_PROGRESS' };
+      return this.base.begin(recordId, claimToken);
     }
 
     const context = await this.loadAttachmentContext(recordId);
@@ -120,7 +127,11 @@ export class DrizzleWorklogRecordNormalizationRepository implements WorklogTextN
       RETURNING record_id
     `);
     if (inserted.rows.length > 0) return { status: 'CLAIMED', context, claimToken };
-    return this.stateResult(await this.loadState(recordId));
+
+    const winner = await this.loadState(recordId);
+    if (!winner) return { status: 'NOT_ELIGIBLE' };
+    if (winner.status === 'PENDING') return { status: 'IN_PROGRESS' };
+    return this.base.begin(recordId, claimToken);
   }
 
   getRuntimeConfig() { return this.base.getRuntimeConfig(); }
@@ -214,17 +225,6 @@ export class DrizzleWorklogRecordNormalizationRepository implements WorklogTextN
       LIMIT 1
     `);
     return (result.rows[0] as StateRow | undefined) ?? null;
-  }
-
-  private stateResult(row: StateRow | null): WorklogTextNormalizationBeginResult {
-    if (!row) return { status: 'NOT_ELIGIBLE' };
-    if (row.status === 'PROVIDER_SUCCEEDED' || row.status === 'USAGE_COMMITTED') {
-      // The base repository owns parsing of persisted provider payloads. Re-entering
-      // through base.begin is safe here because an existing non-PENDING state is
-      // returned before the TEXT-only context loader is consulted.
-      throw new Error('ATTACHMENT_NORMALIZATION_RESUME_REQUIRES_BASE_BEGIN');
-    }
-    return { status: row.status };
   }
 }
 
