@@ -63,7 +63,14 @@ export function createWorklogSubscriptionRoutes() {
         plan.price_twd::text AS price_twd,
         plan.rank,
         plan.subscription_period_points,
-        plan.capabilities,
+        -- AI CREATE/EDIT/media availability is Grant-backed, not a plan capability.
+        -- Strip retired pre-Grant flags from historical prelaunch rows. Export is also
+        -- forced false until the paid export endpoint/UI is actually shipped.
+        ((COALESCE(plan.capabilities, '{}'::jsonb)
+          - 'privateOaRecording'
+          - 'aiTextRecording'
+          - 'aiMediaIngestion'
+          - 'export') || jsonb_build_object('export', FALSE)) AS capabilities,
         CASE
           WHEN ${user.effectiveState} = 'ACTIVE' AND ${user.planCode} = plan.code THEN TRUE
           WHEN ${user.effectiveState} <> 'ACTIVE' AND plan.code = 'FREE' THEN TRUE
