@@ -38,7 +38,7 @@ const required = [
   ['worklog_source_ai_responsibility', 'GROUP AI responsibility table'],
   ['customer_points_charged', 'customer point charge fact'],
   ['platform_subsidized_points', 'platform subsidy fact'],
-  ['worklog_line_record_edits', 'durable Reply-targeted LINE edit state'],
+  ['worklog_line_ai_edits', 'durable Reply-targeted LINE edit state'],
 ];
 
 const failures = [];
