@@ -5,7 +5,7 @@ import type {
   WorklogAttachmentOutput,
   WorklogAttachmentRepository,
 } from './attachment-ingestion';
-import type { WorklogAiUsageCommit } from './subscription';
+import type { WorklogAiUsageCommit } from './ai-provider-usage';
 import type { WorklogAiRuntimeConfigSnapshot } from './text-normalization';
 
 type StateRow = {
@@ -253,7 +253,7 @@ function parseUsage(value: unknown): WorklogAiUsageCommit {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('ATTACHMENT_USAGE_STATE_INVALID');
   const row = value as Record<string, unknown>;
   return {
-    actualUnits: integer(row.actualUnits, 'actualUnits'), workspaceId: optionalInteger(row.workspaceId), recordId: optionalInteger(row.recordId),
+    workspaceId: optionalInteger(row.workspaceId), recordId: optionalInteger(row.recordId),
     operation: optionalText(row.operation, 64),
     provider: requiredUnknownText(row.provider, 'provider'), model: requiredUnknownText(row.model, 'model'),
     inputTokens: integer(row.inputTokens, 'inputTokens'), outputTokens: integer(row.outputTokens, 'outputTokens'),
