@@ -137,6 +137,7 @@ app.post('/webhooks/line', async (c) => {
       bootstrap: worklogBootstrapService,
       runtime: worklogLineRuntime,
       reply: lineReplyClient,
+      replyTargets: worklogRecordWriteService,
       anomalies: worklogAnomalies,
       createQueryUrl: webAuthService && webAppUrl
         ? async (target) => appendHistoryFilters(
@@ -154,6 +155,7 @@ app.post('/webhooks/line', async (c) => {
       parsed: parsedOa,
       runtime: worklogOaRuntime,
       reply: lineReplyClient,
+      replyTargets: worklogRecordWriteService,
       anomalies: worklogAnomalies,
       createQueryUrl: webAuthService && webAppUrl
         ? async (target) => appendHistoryFilters(
