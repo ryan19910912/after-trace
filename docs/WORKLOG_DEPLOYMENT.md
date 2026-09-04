@@ -36,6 +36,10 @@ Typical Web paths:
 - `/subscription` → 方案／付款訂閱
 - `/feedback` → 意見回饋
 
+Admin includes `/profitability` for the factual AI point/provider-cost report.
+
+Both Web and Admin Workers use Cloudflare Static Assets with `not_found_handling = "single-page-application"`. Production deployment helpers must verify representative deep links after deploy so a homepage-only success cannot hide broken SPA routing.
+
 LINE-created Record edit links should use short-lived/scoped Web-entry tokens that resolve to the exact Record and Source authorization; do not expose raw unauthenticated Record ids as authorization.
 
 LINE history/navigation links may carry deterministic non-secret filters such as title/entity id, keyword and date range after normal authenticated/scoped entry is established.
@@ -130,6 +134,8 @@ Current checked-in migration files are:
 
 `apps/api/src/db/schema-all.ts` is the authoritative Drizzle schema export surface. `drizzle.config.ts` must point to that single export so newly split schema modules cannot be silently omitted and deleted compatibility modules cannot be retained.
 
+Local API development uses repository-root `.env.local`. Drizzle tooling must read the same `.env.local` first, with `.env` only as a compatibility fallback, so local runtime and migration commands do not silently use different `DATABASE_URL` values.
+
 ### Safe baseline regeneration
 
 Baseline generation is a schema-only operation and does **not** require `DATABASE_URL`. Database credentials are required only when a command actually connects to PostgreSQL, such as migration/apply validation.
@@ -171,7 +177,47 @@ Do not hand-edit or fabricate Drizzle snapshot metadata merely to make the guard
 - Before any destructive reset, confirm that there is still no real user/business data that must be preserved.
 - Once the service is live with real production data, this rule ends immediately: migrations then become forward-only and destructive reset is no longer acceptable.
 
-`worker-deploy.ps1` runs the stale-baseline guard before schema checks/migration so a known-invalid baseline fails closed instead of being applied to production.
+## Local release preflight
+
+Before any production deployment, run from a clean checked-out current branch with the pinned pnpm version:
+
+```text
+pnpm install --frozen-lockfile
+pnpm release:preflight
+```
+
+`pnpm release:preflight` is intentionally non-deploying/non-migrating. It must fail fast if any of these do not pass locally/runtime:
+
+1. Worklog baseline/snapshot/journal guard;
+2. API/Web/Admin TypeScript typecheck;
+3. ESLint;
+4. Vitest;
+5. API Worker dry-run plus Web/Admin production builds;
+6. Drizzle schema export from `schema-all.ts`.
+
+Passing this command is necessary but **not sufficient** for launch: PostgreSQL migration/application and browser/LINE/Gemini smoke still have to run separately.
+
+`worker-deploy.ps1` also runs the stale-baseline guard before dependency install/build/test so a known-invalid baseline fails immediately.
+
+## API liveness vs readiness
+
+The API exposes two operational checks:
+
+- `GET /health` → Worker process/liveness only. It may return `ok` even if launch secrets or the database schema are missing.
+- `GET /health/ready` → launch readiness. It verifies required production bindings/origins/secrets and queries the rebuilt `worklog_users` table. Missing config, unreachable DB, or unapplied/stale Worklog schema returns HTTP 503.
+
+The API production deployment helper must require **both** liveness and readiness after deployment. A Worker that deployed successfully but fails `/health/ready` is not considered launched.
+
+The readiness check validates presence/shape, not secret correctness against external providers. LINE Login, LINE Messaging and Gemini still need real runtime smoke.
+
+## Post-deploy SPA checks
+
+When `-ExpectedUrl` is supplied:
+
+- `web-worker-deploy.ps1` verifies `/`, `/help`, and `/subscription`;
+- `admin-worker-deploy.ps1` verifies `/` and `/profitability`.
+
+These checks exist to catch broken Static Assets SPA fallback/deep links. They do not replace authenticated browser flows.
 
 ## External configuration still required
 
@@ -190,21 +236,26 @@ Do not hand-edit or fabricate Drizzle snapshot metadata merely to make the guard
 
 Validate locally/runtime, not through GitHub Actions unless explicitly requested:
 
-- API/Web/Admin builds and typecheck/tests;
+- `pnpm release:preflight`;
 - `pnpm db:baseline:guard` against the regenerated migration artifacts;
 - fresh database migration from current repository journal;
 - schema drift;
+- `/health` and `/health/ready` after API deploy;
 - Admin authentication/CORS;
 - Web deep links and scoped Record-edit links;
 - private manual Record access restricted to the owning user;
 - group manual browse/create/edit/delete/restore available to active group members without subscription/Owner/AI funding gates;
 - inactive/removed group members denied group data access;
-- AI 額度負責人 absence/transfer/rejoin/takeover behavior once the grant model is implemented;
+- AI 額度負責人 absence/transfer/rejoin/takeover behavior;
 - FREE 400,000 one-time point grant semantics;
-- independent subscription-period and top-up grant semantics;
+- independent subscription-period and top-up grant semantics where implemented;
 - zero-balance provider preflight and overage/platform-subsidy accounting;
 - paid MONTHLY renewal semantics once provider integration exists;
 - LINE TEXT/Reply-TEXT/image/audio/PDF/file flows;
 - real Gemini thinking/modality usage and provider-cost/point snapshots;
+- Web `/`, `/help`, `/subscription` direct navigation;
+- Admin `/`, `/profitability` direct navigation;
 - XLSX/DOCX extraction resource limits when Office support is implemented;
 - export authorization once export is implemented.
+
+No GitHub Actions workflow may be used as a substitute for these checks unless the user explicitly requests it.
