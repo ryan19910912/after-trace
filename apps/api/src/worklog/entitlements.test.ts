@@ -1,36 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import {
-  canConsumeAiUnits,
-  canUseGroupCollaboration,
   parsePlanCapabilities,
-  remainingAiAllowance,
   snapshotAiUsage,
 } from './entitlements';
 
-describe('worklog plan entitlements', () => {
-  it('keeps FREE personal-only even if a bad capability payload enables collaboration', () => {
-    expect(canUseGroupCollaboration('FREE', { groupCollaboration: true })).toBe(false);
-  });
-
-  it('requires an explicit paid collaboration capability', () => {
-    expect(canUseGroupCollaboration('SUB1', { groupCollaboration: true })).toBe(true);
-    expect(canUseGroupCollaboration('SUB1', {})).toBe(false);
-  });
-
-  it('sanitizes capability JSON and ignores nested values', () => {
-    expect(parsePlanCapabilities({ groupCollaboration: true, maxGroupCount: 2, nested: { bad: true } })).toEqual({
-      groupCollaboration: true,
-      maxGroupCount: 2,
+describe('worklog plan capabilities', () => {
+  it('sanitizes flat capability JSON and ignores nested values', () => {
+    expect(parsePlanCapabilities({ export: true, label: 'beta', limit: 2, nested: { bad: true } })).toEqual({
+      export: true,
+      label: 'beta',
+      limit: 2,
     });
   });
-});
 
-describe('worklog AI allowance', () => {
-  it('returns remaining bounded allowance and prevents over-consumption', () => {
-    expect(remainingAiAllowance(100, 35)).toBe(65);
-    expect(remainingAiAllowance(100, 150)).toBe(0);
-    expect(canConsumeAiUnits(100, 35, 65)).toBe(true);
-    expect(canConsumeAiUnits(100, 35, 66)).toBe(false);
+  it('does not encode GROUP authorization or aggregate AI quota rules in capability parsing', () => {
+    expect(parsePlanCapabilities({ export: false })).toEqual({ export: false });
+    expect(parsePlanCapabilities(null)).toEqual({});
   });
 });
 
