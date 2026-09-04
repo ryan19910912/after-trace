@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   WorklogSubscriptionPeriodService,
+  subscriptionPeriodOriginKey,
+  type WorklogSubscriptionPeriodGrantSnapshot,
   type WorklogSubscriptionPeriodRepository,
   type WorklogSubscriptionPeriodSnapshot,
   type WorklogSubscriptionPlanTemplate,
@@ -26,6 +28,7 @@ class FakeRepository implements WorklogSubscriptionPeriodRepository {
   plans = new Map<string, WorklogSubscriptionPlanTemplate>([[PRO.code, PRO], [FREE.code, FREE]]);
   current: WorklogSubscriptionPeriodSnapshot | null = null;
   privateSourceId: number | null = 42;
+  grants = new Map<string, WorklogSubscriptionPeriodGrantSnapshot>();
   assigned: Parameters<WorklogSubscriptionPeriodRepository['assignPeriodAtomic']>[0][] = [];
 
   async getPlan(planCode: string) {
@@ -38,6 +41,11 @@ class FakeRepository implements WorklogSubscriptionPeriodRepository {
 
   async getPrivateSourceId() {
     return this.privateSourceId;
+  }
+
+  async getGrantByOrigin(input: { ownerUserId: number; originKey: string }) {
+    void input.ownerUserId;
+    return this.grants.get(input.originKey) ?? null;
   }
 
   async assignPeriodAtomic(input: Parameters<WorklogSubscriptionPeriodRepository['assignPeriodAtomic']>[0]) {
@@ -140,7 +148,44 @@ describe('WorklogSubscriptionPeriodService', () => {
     expect(repository.assigned[0]?.currentPeriodEnd).toBeNull();
   });
 
-  it('treats an exact active-period retry as idempotent without writing again', async () => {
+  it('treats an exact active-period retry as idempotent only when its frozen grant exists', async () => {
+    const repository = new FakeRepository();
+    repository.current = active();
+    const originKey = subscriptionPeriodOriginKey({
+      userId: 1,
+      planCode: 'PRO',
+      source: 'ADMIN',
+      currentPeriodStart: repository.current.currentPeriodStart,
+    });
+    repository.grants.set(originKey, {
+      grantId: 77,
+      originalPoints: 800_000,
+      remainingPoints: 650_000,
+      effectiveAt: repository.current.currentPeriodStart,
+      expiresAt: repository.current.currentPeriodEnd,
+      originKey,
+    });
+    const service = new WorklogSubscriptionPeriodService(repository);
+
+    const result = await service.assignPeriod({
+      userId: 1,
+      planCode: 'PRO',
+      source: 'ADMIN',
+      actor: 'admin',
+      effectiveAt: new Date('2026-09-10T00:00:00.000Z'),
+      currentPeriodStart: new Date('2026-09-01T00:00:00.000Z'),
+      currentPeriodEnd: new Date('2026-10-01T00:00:00.000Z'),
+    });
+
+    expect(result).toMatchObject({
+      status: 'ASSIGNED',
+      idempotent: true,
+      grant: { grantId: 77, remainingPoints: 650_000 },
+    });
+    expect(repository.assigned).toHaveLength(0);
+  });
+
+  it('does not infer a missing historical grant from an active lifecycle row', async () => {
     const repository = new FakeRepository();
     repository.current = active();
     const service = new WorklogSubscriptionPeriodService(repository);
@@ -151,9 +196,11 @@ describe('WorklogSubscriptionPeriodService', () => {
       source: 'ADMIN',
       actor: 'admin',
       effectiveAt: new Date('2026-09-10T00:00:00.000Z'),
+      currentPeriodStart: new Date('2026-09-01T00:00:00.000Z'),
+      currentPeriodEnd: new Date('2026-10-01T00:00:00.000Z'),
     });
 
-    expect(result).toMatchObject({ status: 'ASSIGNED', idempotent: true });
+    expect(result.status).toBe('ACTIVE_PERIOD_EXISTS');
     expect(repository.assigned).toHaveLength(0);
   });
 
@@ -186,6 +233,7 @@ describe('WorklogSubscriptionPeriodService', () => {
       source: 'ADMIN',
       actor: 'admin',
       effectiveAt: new Date('2026-09-10T00:00:00.000Z'),
+      currentPeriodStart: new Date('2026-09-01T00:00:00.000Z'),
       currentPeriodEnd: new Date('2026-10-15T00:00:00.000Z'),
     });
 
