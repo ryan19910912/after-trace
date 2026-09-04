@@ -146,7 +146,7 @@ async function personalFundingView(database: Database, userId: number, sourceId:
        AND scope.source_id = ${sourceId}
        AND scope.enabled = TRUE
       WHERE grant.owner_user_id = ${userId}
-        AND grant.status = 'ACTIVE'
+        AND grant.status IN ('ACTIVE', 'EXHAUSTED')
         AND grant.effective_at <= NOW()
         AND (grant.expires_at IS NULL OR grant.expires_at > NOW())
     `),
@@ -277,7 +277,7 @@ async function fundingView(database: Database, viewerUserId: number, sourceId: n
      AND scope.source_id = ${sourceId}
      AND scope.enabled = TRUE
     WHERE grant.owner_user_id = ${responsibleUserId}
-      AND grant.status = 'ACTIVE'
+      AND grant.status IN ('ACTIVE', 'EXHAUSTED')
       AND grant.effective_at <= NOW()
       AND (grant.expires_at IS NULL OR grant.expires_at > NOW())
   `);
