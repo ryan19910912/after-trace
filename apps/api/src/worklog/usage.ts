@@ -27,18 +27,6 @@ export type SourceUsageSummary = {
   canManageFunding: boolean;
 };
 
-export type LegacyUserUsageSummary = {
-  userId: number;
-  planCode: string;
-  aiAllowanceUnits: number;
-  aiUsedUnits: number;
-  aiReservedUnits: number;
-  aiRemainingUnits: number;
-  providerCostUsd: number;
-  providerCostTwd: number;
-  records: { TEXT: number; AUDIO: number; IMAGE: number; FILE: number };
-};
-
 export interface WorklogUsageRepository {
   getPrivateSourceId(userId: number): Promise<number | null>;
   getGroupAiFunding(sourceId: number): Promise<SourceAiFundingSnapshot>;
@@ -51,11 +39,11 @@ export interface WorklogUsageRepository {
 }
 
 /**
- * Customer-facing usage is Source-scoped and grant-backed.
+ * Customer-facing usage is Source-scoped and Grant-backed.
  *
- * It deliberately does not read subscription-period aggregate quota. PRIVATE uses the
- * current user as the funding owner. GROUP exposes only the current responsible user's
- * balance that is explicitly scoped to this Source; unrelated balances stay private.
+ * It deliberately has no subscription-period aggregate compatibility API. PRIVATE
+ * uses the current user as the funding owner. GROUP exposes only the current AI 額度
+ * 負責人的 balance explicitly scoped to that Source; unrelated balances stay private.
  */
 export class WorklogUsageService {
   constructor(private readonly repository: WorklogUsageRepository) {}
@@ -97,54 +85,6 @@ export class WorklogUsageService {
       canManageFunding: funding.responsibleUserId === viewerUserId,
     };
   }
-
-  /**
-   * Compatibility for the existing `/usage/me` route while the Web surface moves to
-   * Source-scoped usage. Values come only from the PRIVATE grant ledger; no legacy
-   * subscription/quota tables are consulted.
-   */
-  async userUsage(userId: number, at = new Date()): Promise<LegacyUserUsageSummary> {
-    const normalizedUserId = positiveInteger(userId, 'userId');
-    const sourceId = await this.repository.getPrivateSourceId(normalizedUserId);
-    if (!sourceId) return emptyLegacyUserUsage(normalizedUserId);
-    const usage = await this.sourceUsage({
-      viewerUserId: normalizedUserId,
-      sourceId,
-      scopeType: 'PRIVATE',
-      at,
-    });
-    return {
-      userId: normalizedUserId,
-      planCode: 'AI_POINTS',
-      aiAllowanceUnits: safeAdd(usage.aiAvailablePoints, usage.aiReservedPoints, usage.aiUsedPoints),
-      aiUsedUnits: usage.aiUsedPoints,
-      aiReservedUnits: usage.aiReservedPoints,
-      aiRemainingUnits: usage.aiAvailablePoints,
-      providerCostUsd: 0,
-      providerCostTwd: 0,
-      records: { TEXT: 0, AUDIO: 0, IMAGE: 0, FILE: 0 },
-    };
-  }
-}
-
-function emptyLegacyUserUsage(userId: number): LegacyUserUsageSummary {
-  return {
-    userId,
-    planCode: 'AI_POINTS',
-    aiAllowanceUnits: 0,
-    aiUsedUnits: 0,
-    aiReservedUnits: 0,
-    aiRemainingUnits: 0,
-    providerCostUsd: 0,
-    providerCostTwd: 0,
-    records: { TEXT: 0, AUDIO: 0, IMAGE: 0, FILE: 0 },
-  };
-}
-
-function safeAdd(...values: number[]): number {
-  const total = values.reduce((sum, value) => sum + nonNegativeInteger(value), 0);
-  if (!Number.isSafeInteger(total)) throw new Error('AI point summary exceeds safe integer range');
-  return total;
 }
 
 function positiveInteger(value: number, label: string): number {
