@@ -35,7 +35,7 @@ export type AdminPlan = {
   price_twd: string;
   rank: number;
   enabled: boolean;
-  ai_allowance_units: number;
+  subscription_period_points: number;
   capabilities: Record<string, boolean | number | string>;
   created_at?: string;
   updated_at?: string;
@@ -151,7 +151,7 @@ export class AdminApi {
     priceTwd: string;
     rank: number;
     enabled: boolean;
-    aiAllowanceUnits: number;
+    subscriptionPeriodPoints: number;
     capabilities: Record<string, boolean | number | string>;
   }): Promise<void> {
     await this.request(`/plans/${encodeURIComponent(input.code)}`, {
@@ -189,7 +189,7 @@ export class AdminApi {
   }
 
   async audit(): Promise<Row[]> {
-    return applyServerLabels((await this.request<{ audit: Row[] }>('/audit')).audit;
+    return applyServerLabels((await this.request<{ audit: Row[] }>('/audit')).audit);
   }
 
   private async request<T>(path: string, init?: RequestInit, authenticated = true): Promise<T> {
