@@ -3,6 +3,7 @@ import {
   bigint,
   bigserial,
   check,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -13,7 +14,11 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 import { worklogAiPointReservations } from './schema-worklog-grants';
-import { worklogRecords } from './schema-worklog-record-core';
+import {
+  worklogAiConfirmations,
+  worklogEntities,
+  worklogRecords,
+} from './schema-worklog-record-core';
 import { worklogSources, worklogUsers } from './schema-worklog';
 
 /**
@@ -31,9 +36,7 @@ export const worklogLineAiEdits = pgTable(
     sourceId: bigint('source_id', { mode: 'number' })
       .notNull()
       .references(() => worklogSources.id, { onDelete: 'restrict' }),
-    recordId: bigint('record_id', { mode: 'number' })
-      .notNull()
-      .references(() => worklogRecords.id, { onDelete: 'restrict' }),
+    recordId: bigint('record_id', { mode: 'number' }).notNull(),
     actorUserId: bigint('actor_user_id', { mode: 'number' })
       .notNull()
       .references(() => worklogUsers.id, { onDelete: 'restrict' }),
@@ -73,6 +76,21 @@ export const worklogLineAiEdits = pgTable(
     index('worklog_line_ai_edit_record_idx').on(table.recordId, table.createdAt),
     index('worklog_line_ai_edit_status_idx').on(table.status, table.updatedAt),
     index('worklog_line_ai_edit_reservation_idx').on(table.reservationToken),
+    foreignKey({
+      columns: [table.sourceId, table.recordId],
+      foreignColumns: [worklogRecords.sourceId, worklogRecords.id],
+      name: 'worklog_line_ai_edit_source_record_fk',
+    }).onDelete('restrict'),
+    foreignKey({
+      columns: [table.sourceId, table.confirmationId],
+      foreignColumns: [worklogAiConfirmations.sourceId, worklogAiConfirmations.id],
+      name: 'worklog_line_ai_edit_source_confirmation_fk',
+    }).onDelete('restrict'),
+    foreignKey({
+      columns: [table.sourceId, table.appliedEntityId],
+      foreignColumns: [worklogEntities.sourceId, worklogEntities.id],
+      name: 'worklog_line_ai_edit_source_entity_fk',
+    }).onDelete('restrict'),
     check('worklog_line_ai_edit_expected_version_check', sql`${table.expectedRecordVersion} > 0`),
     check(
       'worklog_line_ai_edit_status_check',
