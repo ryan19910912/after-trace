@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   WorklogApi,
   type GroupFunding,
+  type PersonalFunding,
   type RecordFilters,
   type RecordPage,
   type RecordScope,
-  type UserUsage,
   type WebEntryContext,
   type WorklogConfirmation,
   type WorklogConfirmationDecision,
@@ -41,7 +41,7 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
   const [records, setRecords] = useState<WorklogRecord[]>([]);
   const [entities, setEntities] = useState<WorklogEntity[]>([]);
   const [recordPage, setRecordPage] = useState<RecordPage | null>(null);
-  const [usage, setUsage] = useState<UserUsage | null>(null);
+  const [personalFunding, setPersonalFunding] = useState<PersonalFunding | null>(null);
   const [groupFunding, setGroupFunding] = useState<GroupFunding | null>(null);
   const [confirmations, setConfirmations] = useState<WorklogConfirmation[]>([]);
   const [page, setPage] = useState<Page>('RECORDS');
@@ -76,12 +76,14 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
     if (!session || !scope) return;
     localStorage.setItem(ACTIVE_SCOPE_KEY, JSON.stringify(scope));
     setSelected(new Set());
+    setPersonalFunding(null);
     setGroupFunding(null);
     setConfirmations([]);
     void Promise.all([
       loadScope(session, scope, filters, false, showDeleted),
       loadEntities(session, scope),
       loadConfirmations(session, scope),
+      loadPersonalFunding(session, scope),
       loadGroupFunding(session, scope),
     ]);
   }, [session, scope?.type, scope?.sourceId, filters, showDeleted]);
@@ -113,12 +115,8 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
       }
 
       if (!token) return;
-      const [nextSurfaces, nextUsage] = await Promise.all([
-        api.surfaces(token),
-        api.myUsage(token),
-      ]);
+      const nextSurfaces = await api.surfaces(token);
       setSurfaces(nextSurfaces);
-      setUsage(nextUsage);
       const linked = scopeFromEntry(entryContext, nextSurfaces);
       const remembered = storedScope();
       setScope(linked ?? (remembered && scopeExists(remembered, nextSurfaces) ? remembered : defaultScope(nextSurfaces)));
@@ -174,6 +172,18 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
     }
   }
 
+  async function loadPersonalFunding(token: string, nextScope: Scope) {
+    if (nextScope.type !== 'PERSONAL') {
+      setPersonalFunding(null);
+      return;
+    }
+    try {
+      setPersonalFunding(await api.personalFunding(token));
+    } catch (cause) {
+      setError(message(cause, '個人 AI 點數載入失敗'));
+    }
+  }
+
   async function loadGroupFunding(token: string, nextScope: Scope) {
     if (nextScope.type !== 'GROUP') {
       setGroupFunding(null);
@@ -203,7 +213,7 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
     setScope(null);
     setRecords([]);
     setEntities([]);
-    setUsage(null);
+    setPersonalFunding(null);
     setGroupFunding(null);
     setConfirmations([]);
   }
@@ -341,6 +351,7 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
 
   async function resolveConfirmation(confirmationId: number, decision: WorklogConfirmationDecision) {
     if (!session || !scope) return;
+    const confirmation = confirmations.find((value) => value.id === confirmationId) ?? null;
     setLoading(true);
     setError(null);
     try {
@@ -350,7 +361,13 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
         loadEntities(session, scope),
         loadConfirmations(session, scope),
       ]);
-      setNotice(decision.action === 'REJECT' ? '已略過這次 AI 標題建議。' : '紀錄標題已確認。');
+      if (confirmation?.operation === 'LINE_AI_EDIT') {
+        setNotice(decision.action === 'REJECT'
+          ? '已拒絕這次 AI 修改，原紀錄維持不變。'
+          : 'AI 修改已套用，並保留完整編輯紀錄。');
+      } else {
+        setNotice(decision.action === 'REJECT' ? '已略過這次 AI 標題建議。' : '紀錄標題已確認。');
+      }
     } catch (cause) {
       setError(message(cause, '待確認紀錄處理失敗'));
       await loadConfirmations(session, scope);
@@ -411,7 +428,7 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
     {notice ? <div className="worklog-notice">{notice}</div> : null}
     {scope?.type === 'GROUP'
       ? groupFunding ? <GroupFundingPanel funding={groupFunding} busy={loading} onSave={configureGroupGrant} /> : null
-      : usage ? <UsageBar usage={usage} /> : null}
+      : personalFunding ? <PersonalFundingPanel funding={personalFunding} /> : null}
 
     <nav className="worklog-main-tabs">
       <button className={page === 'RECORDS' ? 'active' : ''} onClick={() => setPage('RECORDS')}>紀錄</button>
@@ -563,11 +580,29 @@ function ScopePicker({ surfaces, scope, onChange }: {
   </div></section>;
 }
 
-function UsageBar({ usage }: { usage: UserUsage }) {
-  return <section className="panel worklog-usage">
-    <strong>{usage.planCode}</strong>
-    <span>AI 點數 {usage.aiUsedUnits.toLocaleString('zh-TW')} / {usage.aiAllowanceUnits.toLocaleString('zh-TW')}</span>
-    <span>剩餘 {usage.aiRemainingUnits.toLocaleString('zh-TW')}</span>
+function PersonalFundingPanel({ funding }: { funding: PersonalFunding }) {
+  return <section className="panel stack">
+    <div><p className="eyebrow">PRIVATE AI</p><h2>個人 AI 點數</h2></div>
+    <div className="worklog-usage">
+      <span>可用 {funding.availablePoints.toLocaleString('zh-TW')}</span>
+      <span>處理中 {funding.reservedPoints.toLocaleString('zh-TW')}</span>
+      <span>歷史已用 {funding.usedPoints.toLocaleString('zh-TW')}</span>
+      <span>平台補貼 {funding.platformSubsidizedPoints.toLocaleString('zh-TW')}</span>
+    </div>
+    <p className="muted">AI 點數直接來自你擁有且允許此個人 Source 使用的 Grant；手動新增、編輯與搜尋不消耗 AI 點數。</p>
+    {funding.grants.length > 0 ? <div className="stack">
+      <h3>我的 AI Grant</h3>
+      {funding.grants.map((grant) => <article className="worklog-record-card" key={grant.id}>
+        <div className="worklog-record-meta">
+          <strong>{grant.type}</strong>
+          <span>{grant.status}</span>
+          <span>剩餘 {grant.remainingPoints.toLocaleString('zh-TW')}</span>
+          <span>個人可用 {grant.sourceAvailablePoints.toLocaleString('zh-TW')}</span>
+          {grant.expiresAt ? <span>到期 {new Date(grant.expiresAt).toLocaleDateString('zh-TW')}</span> : <span>無固定到期日</span>}
+        </div>
+        <p className="muted">此 Source 已用 {grant.usedPoints.toLocaleString('zh-TW')} · 處理中 {grant.reservedPoints.toLocaleString('zh-TW')}</p>
+      </article>)}
+    </div> : null}
   </section>;
 }
 
@@ -644,10 +679,12 @@ function PendingConfirmationsPanel({ confirmations, busy, onResolve }: {
   onResolve: (confirmationId: number, decision: WorklogConfirmationDecision) => Promise<void>;
 }) {
   const [drafts, setDrafts] = useState<Record<number, string>>({});
+  const hasLineEdit = confirmations.some((confirmation) => confirmation.operation === 'LINE_AI_EDIT');
   return <section className="panel stack">
-    <div><p className="eyebrow">待確認</p><h2>AI 需要你確認紀錄標題</h2></div>
-    <p className="muted">這些紀錄已經保存；以下選擇不會再呼叫 AI，也不會再扣 AI 點數。</p>
+    <div><p className="eyebrow">待確認</p><h2>{hasLineEdit ? 'AI 有修改需要你確認' : 'AI 需要你確認紀錄標題'}</h2></div>
+    <p className="muted">這些 AI 結果已經保存並完成原本的點數結算；以下確認或拒絕不會再呼叫 AI，也不會再扣 AI 點數。</p>
     {confirmations.map((confirmation) => {
+      const isLineEdit = confirmation.operation === 'LINE_AI_EDIT';
       const customTitle = drafts[confirmation.id] ?? confirmation.proposedName ?? confirmation.candidateTitle ?? '';
       const extraCandidate = confirmation.candidateEntityId
         && !confirmation.candidates.some((candidate) => candidate.entityId === confirmation.candidateEntityId)
@@ -655,10 +692,25 @@ function PendingConfirmationsPanel({ confirmations, busy, onResolve }: {
         : null;
       return <article className="worklog-record-card" key={confirmation.id}>
         <div className="worklog-record-meta">
-          <span>{confirmation.confirmationType}</span>
-          <time>{new Date(confirmation.occurredAt).toLocaleString('zh-TW')}</time>
+          <span>{isLineEdit ? 'LINE AI 修改' : confirmation.confirmationType}</span>
+          <span>預期版本 {confirmation.expectedRecordVersion}</span>
         </div>
-        <strong>{confirmation.recordRawText}</strong>
+        {isLineEdit ? <div className="stack">
+          <div>
+            <p className="muted">目前紀錄</p>
+            <strong>{confirmation.recordRawText}</strong>
+            <p className="muted">發生時間：{new Date(confirmation.recordOccurredAt).toLocaleString('zh-TW')}</p>
+          </div>
+          <div>
+            <p className="muted">AI 建議修改</p>
+            <strong>{confirmation.proposedRawText ?? confirmation.recordRawText}</strong>
+            <p className="muted">發生時間：{new Date(confirmation.occurredAt).toLocaleString('zh-TW')}</p>
+          </div>
+          <p className="muted">選好正確的紀錄標題後才會原子套用上述修改；若紀錄版本已改變，後端會拒絕舊建議。</p>
+        </div> : <>
+          <time>{new Date(confirmation.occurredAt).toLocaleString('zh-TW')}</time>
+          <strong>{confirmation.recordRawText}</strong>
+        </>}
         {(confirmation.candidates.length > 0 || extraCandidate) ? <div className="stack">
           <p className="muted">可能是既有紀錄標題：</p>
           <div className="filter-actions">
@@ -666,15 +718,15 @@ function PendingConfirmationsPanel({ confirmations, busy, onResolve }: {
               key={candidate.entityId}
               disabled={busy}
               onClick={() => void onResolve(confirmation.id, { action: 'USE_EXISTING', entityId: candidate.entityId })}
-            >使用「{candidate.name}」</button>)}
+            >{isLineEdit ? `套用修改並使用「${candidate.name}」` : `使用「${candidate.name}」`}</button>)}
             {extraCandidate ? <button
               disabled={busy}
               onClick={() => void onResolve(confirmation.id, { action: 'USE_EXISTING', entityId: extraCandidate.entityId })}
-            >使用「{extraCandidate.name}」</button> : null}
+            >{isLineEdit ? `套用修改並使用「${extraCandidate.name}」` : `使用「${extraCandidate.name}」`}</button> : null}
           </div>
         </div> : null}
         <div className="stack">
-          <label>建立／採用新紀錄標題
+          <label>{isLineEdit ? '建立／採用正確的修改後標題' : '建立／採用新紀錄標題'}
             <input
               list="aftertrace-title-options"
               value={customTitle}
@@ -686,8 +738,10 @@ function PendingConfirmationsPanel({ confirmations, busy, onResolve }: {
             <button
               disabled={busy || !customTitle.trim()}
               onClick={() => void onResolve(confirmation.id, { action: 'CREATE_TITLE', title: customTitle.trim() })}
-            >使用這個新標題</button>
-            <button className="ghost" disabled={busy} onClick={() => void onResolve(confirmation.id, { action: 'REJECT' })}>略過</button>
+            >{isLineEdit ? '套用修改並使用這個標題' : '使用這個新標題'}</button>
+            <button className="ghost" disabled={busy} onClick={() => void onResolve(confirmation.id, { action: 'REJECT' })}>
+              {isLineEdit ? '拒絕這次 AI 修改' : '略過'}
+            </button>
           </div>
         </div>
       </article>;
