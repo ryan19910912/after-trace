@@ -4,7 +4,6 @@ import {
   type WorklogBootstrapRepository,
   type WorklogBootstrapUser,
   type WorklogBoundGroup,
-  type WorklogPendingGroup,
 } from './bootstrap';
 
 class OrderingRepository implements WorklogBootstrapRepository {
@@ -33,12 +32,10 @@ class OrderingRepository implements WorklogBootstrapRepository {
   async ensureWorkspace() { return 100; }
   async ensurePrivateSource() { return 1000; }
   async findBoundGroupByLineId(): Promise<WorklogBoundGroup | null> { return null; }
+  async ensureGroupSource(): Promise<WorklogBoundGroup> { throw new Error('unused'); }
   async reactivateBoundGroup() { return false; }
-  async upsertPendingGroup(): Promise<WorklogPendingGroup> { throw new Error('unused'); }
-  async upsertPendingGroupMember() {}
   async upsertBoundGroupMember() {}
   async markGroupInactive() {}
-  async promoteGroup(): Promise<WorklogBoundGroup | null> { return null; }
 }
 
 describe('OA friendship lifecycle ordering', () => {
