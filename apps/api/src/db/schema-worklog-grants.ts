@@ -181,6 +181,7 @@ export const worklogAiPointReservations = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
+    uniqueIndex('worklog_ai_point_reservation_source_token_uq').on(table.sourceId, table.token),
     index('worklog_ai_point_reservation_user_status_idx').on(table.chargedUserId, table.status, table.expiresAt),
     index('worklog_ai_point_reservation_source_idx').on(table.sourceId, table.createdAt),
   ],
