@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { AdminAiRuntimeConfig, AdminApi } from './api';
+import { calculatePricingRecommendation } from './pricing-calculator';
 
 const SESSION_KEY = 'aftertrace.admin.session';
 
@@ -42,22 +43,14 @@ export function PricingCalculatorPage({ api }: Props) {
     return () => { active = false; };
   }, [api]);
 
-  const calculation = useMemo(() => {
-    const price = Number(priceTwd);
-    const margin = Number(targetMargin);
-    const fx = Number(config?.usd_twd_rate ?? 0);
-    const outputUsdPerMillion = Number(config?.output_usd_per_million ?? 0);
-    if (!Number.isFinite(price) || price < 0) return null;
-    if (!Number.isFinite(margin) || margin < 0 || margin >= 100) return null;
-    if (!Number.isFinite(fx) || fx <= 0) return null;
-    if (!Number.isFinite(outputUsdPerMillion) || outputUsdPerMillion <= 0) return null;
-
-    const aiBudgetTwd = price * (1 - margin / 100);
-    const aiBudgetUsd = aiBudgetTwd / fx;
-    const outputUsdPerPoint = outputUsdPerMillion / 1_000_000;
-    const recommendedPoints = Math.max(0, Math.floor(aiBudgetUsd / outputUsdPerPoint));
-    return { price, margin, fx, outputUsdPerMillion, aiBudgetTwd, aiBudgetUsd, recommendedPoints };
-  }, [priceTwd, targetMargin, config]);
+  const price = Number(priceTwd);
+  const margin = Number(targetMargin);
+  const calculation = useMemo(() => calculatePricingRecommendation({
+    priceTwd: price,
+    targetGrossMarginPercent: margin,
+    usdTwdRate: Number(config?.usd_twd_rate ?? 0),
+    outputUsdPerMillion: Number(config?.output_usd_per_million ?? 0),
+  }), [price, margin, config]);
 
   function changeMode(next: PricingMode) {
     setMode(next);
@@ -102,8 +95,8 @@ export function PricingCalculatorPage({ api }: Props) {
 
       {calculation ? <>
         <div className="metric-grid">
-          <article className="metric"><span>售價</span><strong>NT$ {calculation.price.toLocaleString('zh-TW', { maximumFractionDigits: 2 })}</strong></article>
-          <article className="metric"><span>目標毛利</span><strong>{calculation.margin.toFixed(1)}%</strong></article>
+          <article className="metric"><span>售價</span><strong>NT$ {price.toLocaleString('zh-TW', { maximumFractionDigits: 2 })}</strong></article>
+          <article className="metric"><span>目標毛利</span><strong>{margin.toFixed(1)}%</strong></article>
           <article className="metric"><span>AI 成本預算</span><strong>NT$ {calculation.aiBudgetTwd.toLocaleString('zh-TW', { maximumFractionDigits: 2 })}</strong></article>
           <article className="metric"><span>AI 成本預算 USD</span><strong>${calculation.aiBudgetUsd.toFixed(6)}</strong></article>
           <article className="metric"><span>建議 included AI 點數</span><strong>{calculation.recommendedPoints.toLocaleString('zh-TW')}</strong></article>
