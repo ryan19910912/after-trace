@@ -3,7 +3,8 @@ import { worklogAttachmentRuntime } from './attachment-runtime';
 import type { PrivateBootstrapResult } from './bootstrap';
 import { parseWorklogCommand } from './command';
 import { historyFiltersFromText, type WorklogHistoryFilters } from './history-navigation';
-import type { WorklogReplyEditTargetResolution, WorklogTextRecordWriteResult } from './records';
+import type { WorklogLineRecordEditResult } from './line-record-edit';
+import type { WorklogReplyEditTarget, WorklogReplyEditTargetResolution, WorklogTextRecordWriteResult } from './records';
 import type { WorklogTextNormalizationService } from './text-normalization';
 
 export interface WorklogOaBootstrapPort {
@@ -22,6 +23,18 @@ export interface WorklogOaTextNormalizationPort {
   normalizeText(recordId: number): ReturnType<WorklogTextNormalizationService['normalizeText']>;
 }
 
+export interface WorklogOaRecordEditPort {
+  edit(input: {
+    target: WorklogReplyEditTarget;
+    actorUserId: number;
+    chargedUserId: number;
+    lineCommandMessageId: string;
+    quotedLineMessageId: string;
+    commandTimestamp: Date;
+    instruction: string;
+  }): Promise<WorklogLineRecordEditResult>;
+}
+
 export type WorklogOaLifecycleResult =
   | { status: 'FOLLOWED'; userId: number; sourceId: number }
   | { status: 'UNFOLLOWED'; userId: number };
@@ -30,6 +43,9 @@ export type WorklogOaRuntimeResult =
   | { status: 'NOT_HANDLED' }
   | { status: 'QUERY'; sourceId: number; userId: number; filters: WorklogHistoryFilters }
   | { status: 'RECORDED'; recordId: number; duplicate: boolean; replyText: string }
+  | { status: 'EDITED'; recordId: number; recordVersion: number; replyText: string }
+  | { status: 'EDIT_CONFIRMATION_PENDING'; recordId: number; confirmationId: number; replyText: string }
+  | { status: 'EDIT_IN_PROGRESS'; replyText: string }
   | { status: 'QUOTED_NOT_READY'; replyText: string }
   | {
       status: 'REJECTED';
@@ -39,11 +55,14 @@ export type WorklogOaRuntimeResult =
         | 'SOURCE_NOT_FOUND'
         | 'IDEMPOTENCY_CONFLICT'
         | 'ATTACHMENT_FAILED'
+        | 'AI_POINTS_EXHAUSTED'
         | 'EDIT_TARGET_REQUIRED'
         | 'EDIT_TARGET_NOT_FOUND'
         | 'EDIT_TARGET_AMBIGUOUS'
         | 'EDIT_TARGET_DELETED'
-        | 'EDIT_NOT_READY';
+        | 'EDIT_NOT_READY'
+        | 'EDIT_RECORD_CHANGED'
+        | 'EDIT_FAILED';
       replyText: string;
     };
 
@@ -52,6 +71,7 @@ export class WorklogOaRuntime {
     private readonly bootstrap: WorklogOaBootstrapPort,
     private readonly records: WorklogOaRecordWritePort,
     private readonly textNormalization?: WorklogOaTextNormalizationPort,
+    private readonly recordEdit?: WorklogOaRecordEditPort,
   ) {}
 
   async handleLifecycle(event: OaLifecycleEvent): Promise<WorklogOaLifecycleResult> {
@@ -98,7 +118,20 @@ export class WorklogOaRuntime {
         };
       }
       const target = await this.records.resolveReplyEditTarget(personal.sourceId, command.quotedLineMessageId);
-      return replyEditTargetResult(target);
+      if (target.status !== 'FOUND') return replyEditTargetFailure(target);
+      if (!this.recordEdit) {
+        return { status: 'REJECTED', reason: 'EDIT_NOT_READY', replyText: 'LINE AI 修改服務目前尚未啟用；請先到 AFTERTRACE 紀錄頁手動編輯。' };
+      }
+      const edited = await this.recordEdit.edit({
+        target: target.record,
+        actorUserId: personal.userId,
+        chargedUserId: personal.userId,
+        lineCommandMessageId: message.lineMessageId,
+        quotedLineMessageId: command.quotedLineMessageId,
+        commandTimestamp: message.lineTimestamp,
+        instruction: command.instruction,
+      });
+      return privateLineEditResult(target.record.id, edited);
     }
 
     if (command.kind === 'RECORD_QUOTED') {
@@ -163,16 +196,39 @@ export class WorklogOaRuntime {
   }
 }
 
-function replyEditTargetResult(result: WorklogReplyEditTargetResolution): WorklogOaRuntimeResult {
+function replyEditTargetFailure(result: Exclude<WorklogReplyEditTargetResolution, { status: 'FOUND' }>): WorklogOaRuntimeResult {
   switch (result.status) {
-    case 'FOUND':
-      return { status: 'REJECTED', reason: 'EDIT_NOT_READY', replyText: '已確認你回覆的是個人 AFTERTRACE 中的有效紀錄，但 LINE AI 修改尚未完成接線；目前請先到 AFTERTRACE 紀錄頁手動編輯。' };
     case 'NOT_FOUND':
       return { status: 'REJECTED', reason: 'EDIT_TARGET_NOT_FOUND', replyText: '找不到你回覆的個人 AFTERTRACE 紀錄。請確認 Reply 的是原本已記錄的訊息，或前往 AFTERTRACE 編輯。' };
     case 'AMBIGUOUS':
       return { status: 'REJECTED', reason: 'EDIT_TARGET_AMBIGUOUS', replyText: '你回覆的 LINE 訊息目前對應到多筆有效紀錄，為避免改錯資料不會自動修改；請前往 AFTERTRACE 紀錄頁處理。' };
     case 'DELETED':
       return { status: 'REJECTED', reason: 'EDIT_TARGET_DELETED', replyText: '你回覆的個人 AFTERTRACE 紀錄目前已刪除；請先到回收桶還原，或直接在 AFTERTRACE 紀錄頁處理。' };
+  }
+}
+
+function privateLineEditResult(recordId: number, result: WorklogLineRecordEditResult): WorklogOaRuntimeResult {
+  switch (result.status) {
+    case 'EDITED':
+      return { status: 'EDITED', recordId, recordVersion: result.recordVersion, replyText: '已更新這筆個人 AFTERTRACE 紀錄。' };
+    case 'PENDING_CONFIRMATION':
+      return {
+        status: 'EDIT_CONFIRMATION_PENDING',
+        recordId,
+        confirmationId: result.confirmationId,
+        replyText: 'AI 已理解修改內容，但紀錄標題需要你確認。請到 AFTERTRACE 紀錄頁完成確認；不會再扣第二次 AI 點數。',
+      };
+    case 'IN_PROGRESS':
+      return { status: 'EDIT_IN_PROGRESS', replyText: '這筆修改已在安全處理中，請稍後查看 AFTERTRACE；系統不會因重送而再次呼叫 AI。' };
+    case 'AI_POINTS_EXHAUSTED':
+      return { status: 'REJECTED', reason: 'AI_POINTS_EXHAUSTED', replyText: '你的 AI 點數不足，這次沒有呼叫 AI 修改。' };
+    case 'RECORD_CHANGED':
+    case 'NOT_ELIGIBLE':
+      return { status: 'REJECTED', reason: 'EDIT_RECORD_CHANGED', replyText: '這筆紀錄在修改期間已被變更或刪除，為避免覆蓋較新的內容，本次沒有套用 AI 修改。' };
+    case 'IDEMPOTENCY_CONFLICT':
+      return { status: 'REJECTED', reason: 'IDEMPOTENCY_CONFLICT', replyText: '這則 LINE 修改指令的處理狀態不一致，為避免重複扣點或改錯資料，本次沒有再次執行 AI。' };
+    case 'FAILED':
+      return { status: 'REJECTED', reason: 'EDIT_FAILED', replyText: '這次 AI 修改沒有成功套用。原紀錄保持不變，請稍後再試或到 AFTERTRACE 手動編輯。' };
   }
 }
 
