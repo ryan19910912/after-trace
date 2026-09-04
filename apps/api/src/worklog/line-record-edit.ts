@@ -45,7 +45,8 @@ export type WorklogLineRecordEditProviderResponse = {
 };
 
 export interface WorklogLineRecordEditProvider {
-  reservationUnits(input: WorklogLineRecordEditProviderInput, config: WorklogAiRuntimeConfigSnapshot): number;
+  /** Conservative customer-point hold estimate; final charge comes from immutable provider cost. */
+  reservationPoints(input: WorklogLineRecordEditProviderInput, config: WorklogAiRuntimeConfigSnapshot): number;
   edit(input: WorklogLineRecordEditProviderInput, config: WorklogAiRuntimeConfigSnapshot): Promise<WorklogLineRecordEditProviderResponse>;
 }
 
@@ -195,7 +196,7 @@ export class WorklogLineRecordEditService {
     let requestedPoints: number;
     try {
       requestedPoints = positiveInteger(
-        this.provider.reservationUnits(providerInput, config),
+        this.provider.reservationPoints(providerInput, config),
         'requested AI points',
       );
     } catch (error) {
