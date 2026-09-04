@@ -1,13 +1,11 @@
 import {
-  cpSync,
   existsSync,
-  mkdtempSync,
   mkdirSync,
   readdirSync,
+  renameSync,
   rmSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -24,14 +22,17 @@ if (!process.argv.includes(resetFlag)) {
 
 assertCurrentPrelaunchShape();
 
-const backupRoot = mkdtempSync(join(tmpdir(), 'aftertrace-drizzle-backup-'));
-const backupDir = resolve(backupRoot, 'drizzle');
-cpSync(drizzleDir, backupDir, { recursive: true });
+// Keep the backup on the same filesystem as the repository. Windows can deny
+// fs.cpSync into the user's Temp directory even when the repository itself is
+// writable; an atomic same-volume rename avoids that failure mode and preserves
+// the full checked-in artifact set for restoration if generation fails.
+const backupDir = resolve(root, `.aftertrace-drizzle-backup-${process.pid}-${Date.now()}`);
+if (existsSync(backupDir)) rmSync(backupDir, { recursive: true, force: true });
+renameSync(drizzleDir, backupDir);
+mkdirSync(drizzleDir, { recursive: true });
 
 try {
   console.log('Regenerating the disposable prelaunch Drizzle baseline from apps/api/src/db/schema-all.ts...');
-  rmSync(drizzleDir, { recursive: true, force: true });
-  mkdirSync(drizzleDir, { recursive: true });
 
   try {
     run(
@@ -52,7 +53,7 @@ try {
     // Generation itself failed, so the partially-created directory is not useful and
     // may be structurally incomplete. Restore the previous checked-in artifacts.
     rmSync(drizzleDir, { recursive: true, force: true });
-    cpSync(backupDir, drizzleDir, { recursive: true });
+    renameSync(backupDir, drizzleDir);
     console.error('Baseline generation failed. The previous drizzle directory was restored in full.');
     throw error;
   }
@@ -71,7 +72,7 @@ try {
   console.log('Prelaunch baseline regenerated and guard passed.');
   console.log('Next: inspect the generated diff and apply it to a fresh disposable PostgreSQL database before any deployment.');
 } finally {
-  rmSync(backupRoot, { recursive: true, force: true });
+  if (existsSync(backupDir)) rmSync(backupDir, { recursive: true, force: true });
 }
 
 function assertCurrentPrelaunchShape() {
