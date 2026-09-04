@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { BufferedPrivateMessage, OaLifecycleEvent } from '../line/events';
 import type { PrivateBootstrapResult } from './bootstrap';
 import { WorklogOaRuntime, type WorklogOaBootstrapPort, type WorklogOaRecordWritePort } from './oa-runtime';
-import type { WorklogTextRecordWriteResult } from './records';
+import type { WorklogReplyEditTargetResolution, WorklogTextRecordWriteResult } from './records';
 
 function privateMessage(textContent: string, quotedLineMessageId: string | null = null): BufferedPrivateMessage {
   return {
@@ -59,7 +59,20 @@ class FakeRecords implements WorklogOaRecordWritePort {
     lineMessageId: string;
     text: string;
   }> = [];
+  public replyTargetCalls: Array<{ sourceId: number; quotedLineMessageId: string }> = [];
   public nextResult: WorklogTextRecordWriteResult = { status: 'CREATED', recordId: 101 };
+  public replyTargetResult: WorklogReplyEditTargetResolution = {
+    status: 'FOUND',
+    record: {
+      id: 101,
+      sourceId: 9,
+      authorUserId: 7,
+      entityId: 20,
+      rawText: '王先生冷氣清潔費 3000',
+      occurredAt: '2026-09-02T00:00:00.000Z',
+      version: 1,
+    },
+  };
 
   async recordText(input: {
     sourceId: number;
@@ -69,6 +82,11 @@ class FakeRecords implements WorklogOaRecordWritePort {
   }): Promise<WorklogTextRecordWriteResult> {
     this.calls.push(input);
     return this.nextResult;
+  }
+
+  async resolveReplyEditTarget(sourceId: number, quotedLineMessageId: string) {
+    this.replyTargetCalls.push({ sourceId, quotedLineMessageId });
+    return this.replyTargetResult;
   }
 }
 
@@ -152,7 +170,7 @@ describe('WorklogOaRuntime', () => {
     expect(records.calls).toHaveLength(0);
   });
 
-  it('never persists an obvious edit request as a new Record', async () => {
+  it('never persists an obvious edit request and resolves its Reply only inside the personal Source', async () => {
     const records = new FakeRecords();
     const runtime = new WorklogOaRuntime(new FakeBootstrap(), records);
 
@@ -164,6 +182,21 @@ describe('WorklogOaRuntime', () => {
       status: 'REJECTED',
       reason: 'EDIT_NOT_READY',
     });
+    expect(records.replyTargetCalls).toEqual([{ sourceId: 9, quotedLineMessageId: 'quoted-record-1' }]);
+    expect(records.calls).toHaveLength(0);
+  });
+
+  it('refuses private Reply edits when the target is missing, ambiguous or deleted', async () => {
+    const records = new FakeRecords();
+    const runtime = new WorklogOaRuntime(new FakeBootstrap(), records);
+
+    records.replyTargetResult = { status: 'NOT_FOUND' };
+    await expect(runtime.handleMessage(privateMessage('@AFTERTRACE 幫我改成 2800', 'missing'))).resolves.toMatchObject({ reason: 'EDIT_TARGET_NOT_FOUND' });
+    records.replyTargetResult = { status: 'AMBIGUOUS' };
+    await expect(runtime.handleMessage(privateMessage('@AFTERTRACE 幫我改成 2800', 'ambiguous'))).resolves.toMatchObject({ reason: 'EDIT_TARGET_AMBIGUOUS' });
+    records.replyTargetResult = { status: 'DELETED' };
+    await expect(runtime.handleMessage(privateMessage('@AFTERTRACE 幫我改成 2800', 'deleted'))).resolves.toMatchObject({ reason: 'EDIT_TARGET_DELETED' });
+
     expect(records.calls).toHaveLength(0);
   });
 
