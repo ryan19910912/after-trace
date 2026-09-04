@@ -13,6 +13,7 @@
     "lint": "pnpm -r lint",
     "release:preflight": "node scripts/release-preflight.mjs",
     "db:migrate": "pnpm --filter @aftertrace/api run db:deploy:migrate",
+    "db:integrity": "pnpm --filter @aftertrace/api run db:integrity",
     "db:schema:check": "pnpm --filter @aftertrace/api exec drizzle-kit export --dialect=postgresql --schema=src/db/schema-all.ts > aftertrace-schema.sql",
     "db:baseline:guard": "node scripts/check-worklog-baseline.mjs",
     "db:baseline:regenerate": "node scripts/regenerate-worklog-baseline.mjs"
