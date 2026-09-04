@@ -1,13 +1,19 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import {
+  cpSync,
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const drizzleDir = resolve(root, 'drizzle');
-const baselinePath = resolve(drizzleDir, '0000_worklog_baseline.sql');
-const snapshotPath = resolve(drizzleDir, 'meta/0000_snapshot.json');
-const journalPath = resolve(drizzleDir, 'meta/_journal.json');
+const metaDir = resolve(drizzleDir, 'meta');
 const resetFlag = '--confirm-prelaunch-reset';
 
 if (!process.argv.includes(resetFlag)) {
@@ -16,54 +22,86 @@ if (!process.argv.includes(resetFlag)) {
   process.exit(2);
 }
 
-if (!process.env.DATABASE_URL && !existsSync(resolve(root, '.env'))) {
-  console.error('DATABASE_URL (or a root .env containing it) is required because drizzle.config.ts fails closed without DB configuration.');
-  process.exit(2);
-}
+assertCurrentPrelaunchShape();
 
-const managedFiles = [baselinePath, snapshotPath, journalPath];
-const backup = new Map();
-for (const path of managedFiles) {
-  if (existsSync(path)) backup.set(path, readFileSync(path));
-}
+const backupRoot = mkdtempSync(join(tmpdir(), 'aftertrace-drizzle-backup-'));
+const backupDir = resolve(backupRoot, 'drizzle');
+cpSync(drizzleDir, backupDir, { recursive: true });
 
-function restoreBackup() {
+try {
+  console.log('Regenerating the disposable prelaunch Drizzle baseline from apps/api/src/db/schema-all.ts...');
   rmSync(drizzleDir, { recursive: true, force: true });
-  for (const [path, bytes] of backup.entries()) {
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, bytes);
+  mkdirSync(drizzleDir, { recursive: true });
+
+  run(
+    process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm',
+    [
+      '--filter',
+      '@aftertrace/api',
+      'exec',
+      'drizzle-kit',
+      'generate',
+      '--config=../../drizzle.config.ts',
+      '--name=worklog_baseline',
+    ],
+    'Drizzle baseline generation',
+  );
+
+  run(
+    process.execPath,
+    [resolve(root, 'scripts/check-worklog-baseline.mjs')],
+    'AFTERTRACE baseline guard',
+  );
+
+  console.log('Prelaunch baseline regenerated and guard passed.');
+  console.log('Next: inspect the generated diff and apply it to a fresh disposable PostgreSQL database before any deployment.');
+} catch (error) {
+  rmSync(drizzleDir, { recursive: true, force: true });
+  cpSync(backupDir, drizzleDir, { recursive: true });
+  console.error('Baseline regeneration failed. The previous drizzle directory was restored in full.');
+  throw error;
+} finally {
+  rmSync(backupRoot, { recursive: true, force: true });
+}
+
+function assertCurrentPrelaunchShape() {
+  if (!existsSync(drizzleDir) || !existsSync(metaDir)) {
+    fail('Expected the current prelaunch drizzle directory and meta directory to exist before regeneration.');
+  }
+
+  const rootEntries = readdirSync(drizzleDir).sort();
+  const expectedRoot = ['0000_worklog_baseline.sql', 'meta'];
+  if (!sameEntries(rootEntries, expectedRoot)) {
+    fail(
+      `Refusing to delete unexpected migration artifacts. Expected ${expectedRoot.join(', ')}; found ${rootEntries.join(', ') || '(empty)'}.`,
+    );
+  }
+
+  const metaEntries = readdirSync(metaDir).sort();
+  const expectedMeta = ['0000_snapshot.json', '_journal.json'];
+  if (!sameEntries(metaEntries, expectedMeta)) {
+    fail(
+      `Refusing to delete unexpected Drizzle metadata. Expected ${expectedMeta.join(', ')}; found ${metaEntries.join(', ') || '(empty)'}.`,
+    );
   }
 }
 
-console.log('Regenerating the disposable prelaunch Drizzle baseline from apps/api/src/db/schema-all.ts...');
-rmSync(drizzleDir, { recursive: true, force: true });
-
-const generate = spawnSync(
-  'pnpm',
-  ['--filter', '@aftertrace/api', 'exec', 'drizzle-kit', 'generate', '--config=../../drizzle.config.ts', '--name=worklog_baseline'],
-  { cwd: root, stdio: 'inherit', shell: process.platform === 'win32' },
-);
-
-if (generate.status !== 0) {
-  console.error('Drizzle generation failed; restoring the previous checked-in artifacts.');
-  restoreBackup();
-  process.exit(generate.status ?? 1);
+function sameEntries(actual, expected) {
+  return actual.length === expected.length && actual.every((value, index) => value === expected[index]);
 }
 
-if (!existsSync(baselinePath) || !existsSync(snapshotPath) || !existsSync(journalPath)) {
-  console.error('Drizzle generation did not produce the expected 0000 baseline/snapshot/journal; restoring previous artifacts.');
-  restoreBackup();
-  process.exit(1);
+function run(command, args, label) {
+  console.log(`\n==> ${label}`);
+  const result = spawnSync(command, args, {
+    cwd: root,
+    env: process.env,
+    stdio: 'inherit',
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(`${label} failed with exit code ${String(result.status)}`);
 }
 
-const guard = spawnSync('node', ['scripts/check-worklog-baseline.mjs'], {
-  cwd: root,
-  stdio: 'inherit',
-  shell: process.platform === 'win32',
-});
-if (guard.status !== 0) {
-  console.error('Generated artifacts failed the AFTERTRACE baseline guard. They are left in place for inspection, but deployment remains blocked.');
-  process.exit(guard.status ?? 1);
+function fail(message) {
+  console.error(message);
+  process.exit(2);
 }
-
-console.log('Prelaunch baseline regenerated and guard passed. Next: apply it to a fresh disposable PostgreSQL database before any deployment.');
