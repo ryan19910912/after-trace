@@ -15,7 +15,8 @@ describe('AdminApi profitability', () => {
             period: '30D', from: '2026-08-05T00:00:00.000Z', to: '2026-09-04T00:00:00.000Z',
             requests: 0, chargedUsers: 0, customerPointsCharged: 0, platformSubsidizedPoints: 0,
             providerCostUsd: '0', providerCostTwd: '0', platformSubsidizedCostUsd: '0',
-            platformSubsidizedCostTwd: '0', averagePointsPerRequest: 0,
+            platformSubsidizedCostTwd: '0', missingProviderCostTwdRequests: 0,
+            missingSubsidyCostTwdRequests: 0, averagePointsPerRequest: 0,
             averageProviderCostTwdPerRequest: '0', averagePointsPerChargedUser: 0,
             averageProviderCostTwdPerChargedUser: '0', revenueTwd: null,
             realizedAiCostRatio: null, realizedGrossMargin: null,
@@ -33,6 +34,7 @@ describe('AdminApi profitability', () => {
 
     expect(report.summary.period).toBe('30D');
     expect(report.summary.revenueTwd).toBeNull();
+    expect(report.summary.missingProviderCostTwdRequests).toBe(0);
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 });
