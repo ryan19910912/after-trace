@@ -54,9 +54,11 @@ const required = [
   ['worklog_ai_confirmation_source_record_fk', 'Pending Confirmation Record must belong to the same Source'],
   ['worklog_ai_confirmation_source_entity_fk', 'Pending Confirmation candidate Entity must belong to the same Source'],
   ['worklog_line_ai_edit_source_record_fk', 'LINE AI edit target Record must belong to the same Source'],
+  ['worklog_line_ai_edit_source_reservation_fk', 'LINE AI edit reservation must belong to the same Source'],
   ['worklog_line_ai_edit_source_confirmation_fk', 'LINE AI edit confirmation must belong to the same Source'],
   ['worklog_line_ai_edit_source_entity_fk', 'LINE AI edit applied Entity must belong to the same Source'],
   ['worklog_attachment_ingestion_source_record_fk', 'attachment ingestion Record must belong to the same Source'],
+  ['worklog_attachment_ingestion_source_reservation_fk', 'attachment reservation must belong to the same Source'],
   ['worklog_ai_point_reservation_funding_grant_scope_fk', 'reservation funding scope must belong to the same Grant'],
   ['worklog_ai_usage_funding_grant_scope_fk', 'usage funding scope must belong to the same Grant'],
 ];
