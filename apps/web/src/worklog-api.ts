@@ -200,6 +200,9 @@ async function json<T>(response: Response, fallback: string): Promise<T & { erro
     if (response.status === 401 && /^(?:INVALID_WEB_SESSION|WEB_SESSION_REQUIRED)$/.test(error)) {
       recoverExpiredWebSession();
     }
+    if (response.status === 409 && error === 'RECORD_VERSION_CONFLICT') {
+      recoverRecordVersionConflict();
+    }
     throw new Error(error);
   }
   return body;
@@ -214,6 +217,12 @@ function recoverExpiredWebSession(): void {
     // Defer navigation so the current promise rejects normally and React cleanup can run.
     window.setTimeout(() => window.location.reload(), 0);
   }
+}
+
+function recoverRecordVersionConflict(): void {
+  if (typeof window === 'undefined') return;
+  window.alert('這筆紀錄已被其他人更新。AFTERTRACE 將重新載入最新版，請確認後再修改。');
+  window.setTimeout(() => window.location.reload(), 0);
 }
 
 export class WorklogApi {
