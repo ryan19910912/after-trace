@@ -78,7 +78,7 @@ app.post('/webhooks/line', async (c) => {
       worklogDuplicateRecords: 0,
       worklogRejected: 0,
       worklogQueries: 0,
-      worklogOwnerClaims: 0,
+      worklogAiResponsibilityClaims: 0,
       worklogOrdinaryMessages: 0,
       worklogErrors: 0,
       oaLifecycleEvents: 0,
