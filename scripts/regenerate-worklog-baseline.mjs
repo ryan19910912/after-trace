@@ -34,7 +34,7 @@ try {
   mkdirSync(drizzleDir, { recursive: true });
 
   run(
-    process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm',
+    'pnpm',
     [
       '--filter',
       '@aftertrace/api',
@@ -45,6 +45,7 @@ try {
       '--name=worklog_baseline',
     ],
     'Drizzle baseline generation',
+    process.platform === 'win32',
   );
 
   run(
@@ -90,12 +91,13 @@ function sameEntries(actual, expected) {
   return actual.length === expected.length && actual.every((value, index) => value === expected[index]);
 }
 
-function run(command, args, label) {
+function run(command, args, label, shell = false) {
   console.log(`\n==> ${label}`);
   const result = spawnSync(command, args, {
     cwd: root,
     env: process.env,
     stdio: 'inherit',
+    shell,
   });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`${label} failed with exit code ${String(result.status)}`);
