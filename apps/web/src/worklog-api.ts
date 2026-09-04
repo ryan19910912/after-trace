@@ -150,7 +150,7 @@ export type SubscriptionPlan = {
   display_name: string;
   price_twd: string;
   rank: number;
-  ai_allowance_units: number;
+  subscription_period_points: number;
   capabilities: Record<string, unknown>;
   current: boolean;
 };
