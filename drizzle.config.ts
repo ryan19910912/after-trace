@@ -12,16 +12,10 @@ if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required for Dri
 const drizzlePath = (...segments: string[]) => resolve(rootDir, ...segments).replaceAll('\\', '/');
 
 export default defineConfig({
-  schema: [
-    drizzlePath('apps/api/src/db/schema-worklog.ts'),
-    drizzlePath('apps/api/src/db/schema-worklog-quota.ts'),
-    drizzlePath('apps/api/src/db/schema-worklog-bootstrap.ts'),
-    drizzlePath('apps/api/src/db/schema-worklog-web-auth.ts'),
-    drizzlePath('apps/api/src/db/schema-worklog-normalization.ts'),
-    drizzlePath('apps/api/src/db/schema-worklog-line-text-cache.ts'),
-    drizzlePath('apps/api/src/db/schema-worklog-attachment.ts'),
-    drizzlePath('apps/api/src/db/schema-worklog-checkout.ts'),
-  ],
+  // schema-all.ts is the authoritative export surface. Keeping one entry prevents the
+  // migration config from silently omitting newly split Source/Record/Grant/LINE
+  // schema modules or retaining deleted legacy quota/bootstrap files.
+  schema: drizzlePath('apps/api/src/db/schema-all.ts'),
   out: drizzlePath('drizzle'),
   dialect: 'postgresql',
   dbCredentials: { url: process.env.DATABASE_URL },
