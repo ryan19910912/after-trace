@@ -106,4 +106,54 @@ describe('admin route input validation', () => {
       error: 'CAPABILITY_NOT_SHIPPED_export',
     });
   });
+
+  it.each([
+    [{ priceTwd: '1', subscriptionPeriodPoints: 0 }, 'FREE_PLAN_REQUIRES_ZERO_PRICE'],
+    [{ priceTwd: '0', subscriptionPeriodPoints: 1 }, 'FREE_PLAN_REQUIRES_ZERO_PERIOD_POINTS'],
+  ])('keeps the frozen FREE plan shell invariant before persistence', async (override, error) => {
+    const response = await createAdminRoutes().request('/plans/FREE', {
+      method: 'PUT',
+      headers: {
+        authorization: await authorization(),
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        displayName: 'Free',
+        priceTwd: '0',
+        rank: 0,
+        enabled: true,
+        subscriptionPeriodPoints: 0,
+        capabilities: { export: false },
+        ...override,
+      }),
+    }, env);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ ok: false, error });
+  });
+
+  it('requires a positive output reference price for AI point conversion', async () => {
+    const response = await createAdminRoutes().request('/ai-runtime', {
+      method: 'PUT',
+      headers: {
+        authorization: await authorization(),
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        provider: 'GOOGLE',
+        model: 'gemini-test',
+        inputUsdPerMillion: '0.1',
+        outputUsdPerMillion: '0',
+        audioUsdPerMillion: null,
+        imageUsdPerMillion: null,
+        usdTwdRate: '30',
+      }),
+    }, env);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'AI_OUTPUT_PRICE_MUST_BE_POSITIVE',
+    });
+  });
 });
