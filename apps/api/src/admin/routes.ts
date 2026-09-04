@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { createDatabase } from '../db/client';
-import { DrizzleWorklogSubscriptionRepository } from '../worklog/drizzle-subscription';
-import { WorklogSubscriptionService } from '../worklog/subscription';
+import { DrizzleWorklogSubscriptionPeriodRepository } from '../worklog/drizzle-subscription-period';
+import { WorklogSubscriptionPeriodService } from '../worklog/subscription-period';
 import {
   adminAuthConfigured,
   authenticateAdminCredentials,
@@ -122,10 +122,12 @@ export function createAdminRoutes() {
     if (!body) return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
 
     let planCode: string;
+    let start: Date | null | undefined;
     let end: Date | null | undefined;
     try {
       planCode = requiredPlanCode(body.planCode);
-      end = optionalDate(body.currentPeriodEnd);
+      start = optionalDate(body.currentPeriodStart, 'INVALID_PERIOD_START');
+      end = optionalDate(body.currentPeriodEnd, 'INVALID_PERIOD_END');
     } catch (error) {
       return c.json({ ok: false, error: safeError(error, 'INVALID_SUBSCRIPTION_INPUT') }, 400);
     }
@@ -133,18 +135,31 @@ export function createAdminRoutes() {
     const database = createDatabase(c.env.DATABASE_URL);
     const adminRepository = new DrizzleGrantAdminRepository(database);
     if (!(await adminRepository.userDetail(userId))) return c.json({ ok: false, error: 'USER_NOT_FOUND' }, 404);
-    const service = new WorklogSubscriptionService(new DrizzleWorklogSubscriptionRepository(database));
+    const service = new WorklogSubscriptionPeriodService(new DrizzleWorklogSubscriptionPeriodRepository(database));
     try {
-      const result = await service.assignPlan({
+      const result = await service.assignPeriod({
         userId,
         planCode,
         source: 'ADMIN',
         actor: c.get('adminUsername'),
+        currentPeriodStart: start ?? undefined,
         currentPeriodEnd: end,
         metadata: { source: 'AFTERTRACE_ADMIN' },
       });
-      if (result.status !== 'ASSIGNED') return c.json({ ok: false, error: 'PLAN_NOT_AVAILABLE' }, 409);
-      return c.json({ ok: true, subscription: presentAdminPayload(result.subscription) });
+      if (result.status === 'PLAN_NOT_AVAILABLE') return c.json({ ok: false, error: 'PLAN_NOT_AVAILABLE' }, 409);
+      if (result.status === 'PRIVATE_SOURCE_NOT_FOUND') return c.json({ ok: false, error: 'PRIVATE_SOURCE_NOT_FOUND' }, 409);
+      if (result.status === 'ACTIVE_PERIOD_EXISTS') {
+        return c.json({ ok: false, error: 'ACTIVE_SUBSCRIPTION_PERIOD_EXISTS' }, 409);
+      }
+      if (result.status === 'ACTIVE_PERIOD_CHANGE_POLICY_UNDEFINED') {
+        return c.json({ ok: false, error: 'SUBSCRIPTION_PERIOD_CHANGE_POLICY_UNDEFINED' }, 409);
+      }
+      return c.json({
+        ok: true,
+        subscription: presentAdminPayload(result.subscription),
+        grant: presentAdminPayload(result.grant),
+        idempotent: result.idempotent,
+      });
     } catch (error) {
       return c.json({ ok: false, error: safeError(error, 'SUBSCRIPTION_UPDATE_FAILED') }, 400);
     }
@@ -322,12 +337,12 @@ function boolean(value: unknown, error: string): boolean {
   return value;
 }
 
-function optionalDate(value: unknown): Date | null | undefined {
+function optionalDate(value: unknown, error: string): Date | null | undefined {
   if (value === undefined) return undefined;
   if (value === null || value === '') return null;
-  if (typeof value !== 'string') throw new Error('INVALID_PERIOD_END');
+  if (typeof value !== 'string') throw new Error(error);
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) throw new Error('INVALID_PERIOD_END');
+  if (Number.isNaN(date.getTime())) throw new Error(error);
   return date;
 }
 
