@@ -42,6 +42,14 @@ function Assert-HttpsOrigin([string]$Value, [string]$Name) {
     return $uri.GetLeftPart([System.UriPartial]::Authority)
 }
 
+function Assert-AdminPath([string]$Origin, [string]$Path) {
+    $response = Invoke-WebRequest "$Origin$Path" -Method Get -UseBasicParsing
+    if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 400) {
+        throw "Admin Worker check failed for $Path with HTTP $($response.StatusCode)"
+    }
+    Write-Host "Admin $Path HTTP: $($response.StatusCode)" -ForegroundColor Green
+}
+
 Push-Location $RepoRoot
 try {
     Write-Host 'AFTERTRACE Admin Worker production deployment' -ForegroundColor Green
@@ -103,12 +111,9 @@ try {
 
     if ($ExpectedUrl.Trim()) {
         $url = Assert-HttpsOrigin $ExpectedUrl 'ExpectedUrl'
-        Write-Step 'Verify Admin Worker'
-        $response = Invoke-WebRequest $url -Method Get -UseBasicParsing
-        if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 400) {
-            throw "Admin Worker check failed with HTTP $($response.StatusCode)"
-        }
-        Write-Host "Admin Worker HTTP: $($response.StatusCode)" -ForegroundColor Green
+        Write-Step 'Verify Admin Worker and SPA deep links'
+        Assert-AdminPath $url '/'
+        Assert-AdminPath $url '/profitability'
     }
 
     Write-Host ''
