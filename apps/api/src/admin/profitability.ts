@@ -66,6 +66,8 @@ export type AdminGrantInventoryRow = {
   grants: number;
   exhaustedGrants: number;
   originalPoints: number;
+  usedPoints: number;
+  reservedPoints: number;
   remainingPoints: number;
   utilizationPercent: number;
   exhaustionPercent: number;
@@ -260,31 +262,45 @@ export class DrizzleAdminProfitabilityRepository {
 
   private async grantInventory(at: Date): Promise<AdminGrantInventoryRow[]> {
     const result = await this.db.execute(sql`
+      WITH scope_totals AS (
+        SELECT
+          grant_id,
+          COALESCE(SUM(used_points), 0)::bigint AS used_points,
+          COALESCE(SUM(reserved_points), 0)::bigint AS reserved_points
+        FROM worklog_ai_grant_scopes
+        GROUP BY grant_id
+      )
       SELECT
-        type::text AS grant_type,
+        grant.type::text AS grant_type,
         COUNT(*)::text AS grants,
-        COUNT(*) FILTER (WHERE status = 'EXHAUSTED' OR remaining_points = 0)::text AS exhausted_grants,
-        COALESCE(SUM(original_points), 0)::bigint::text AS original_points,
-        COALESCE(SUM(remaining_points), 0)::bigint::text AS remaining_points
-      FROM worklog_ai_grants
-      WHERE effective_at <= ${at}
-        AND (expires_at IS NULL OR expires_at > ${at})
-        AND status <> 'REVOKED'
-      GROUP BY type
-      ORDER BY type ASC
+        COUNT(*) FILTER (WHERE grant.status = 'EXHAUSTED' OR grant.remaining_points = 0)::text AS exhausted_grants,
+        COALESCE(SUM(grant.original_points), 0)::bigint::text AS original_points,
+        COALESCE(SUM(COALESCE(scope_totals.used_points, 0)), 0)::bigint::text AS used_points,
+        COALESCE(SUM(COALESCE(scope_totals.reserved_points, 0)), 0)::bigint::text AS reserved_points,
+        COALESCE(SUM(grant.remaining_points), 0)::bigint::text AS remaining_points
+      FROM worklog_ai_grants grant
+      LEFT JOIN scope_totals ON scope_totals.grant_id = grant.id
+      WHERE grant.effective_at <= ${at}
+        AND (grant.expires_at IS NULL OR grant.expires_at > ${at})
+        AND grant.status <> 'REVOKED'
+      GROUP BY grant.type
+      ORDER BY grant.type ASC
     `);
     return result.rows.map((value) => {
       const row = value as Record<string, unknown>;
       const grants = integer(row.grants);
       const exhaustedGrants = integer(row.exhausted_grants);
       const originalPoints = integer(row.original_points);
+      const usedPoints = integer(row.used_points);
+      const reservedPoints = integer(row.reserved_points);
       const remainingPoints = integer(row.remaining_points);
-      const usedPoints = Math.max(0, originalPoints - remainingPoints);
       return {
         grantType: text(row.grant_type, 'UNKNOWN'),
         grants,
         exhaustedGrants,
         originalPoints,
+        usedPoints,
+        reservedPoints,
         remainingPoints,
         utilizationPercent: originalPoints > 0 ? (usedPoints / originalPoints) * 100 : 0,
         exhaustionPercent: grants > 0 ? (exhaustedGrants / grants) * 100 : 0,
