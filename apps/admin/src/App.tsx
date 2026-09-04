@@ -84,6 +84,12 @@ export function App({ api }: Props) {
     setDetail(null);
   }
 
+  function handleAdminError(cause: unknown, fallback: string) {
+    const text = message(cause, fallback);
+    if (/ADMIN_SESSION_(?:REQUIRED|INVALID)/.test(text)) clearSession();
+    setError(text);
+  }
+
   async function loadCurrent() {
     setBusy(true); setError(null);
     try {
@@ -103,9 +109,7 @@ export function App({ api }: Props) {
       if (tab === 'anomalies') setAnomalies(await api.anomalies());
       if (tab === 'audit') setAudit(await api.audit());
     } catch (cause) {
-      const text = message(cause, '載入失敗');
-      if (/ADMIN_SESSION_(?:REQUIRED|INVALID)/.test(text)) clearSession();
-      setError(text);
+      handleAdminError(cause, '載入失敗');
     } finally { setBusy(false); }
   }
 
@@ -116,7 +120,7 @@ export function App({ api }: Props) {
       const [value, nextPlans] = await Promise.all([api.userDetail(id), api.plans()]);
       setPlans(nextPlans);
       setDetail({ kind: 'USER', value });
-    } catch (cause) { setError(message(cause, '使用者詳細資料載入失敗')); }
+    } catch (cause) { handleAdminError(cause, '使用者詳細資料載入失敗'); }
     finally { setBusy(false); }
   }
 
@@ -124,7 +128,7 @@ export function App({ api }: Props) {
     const id = String(row.id ?? ''); if (!id) return;
     setBusy(true); setError(null);
     try { setDetail({ kind: 'GROUP', value: await api.groupDetail(id) }); }
-    catch (cause) { setError(message(cause, '群組詳細資料載入失敗')); }
+    catch (cause) { handleAdminError(cause, '群組詳細資料載入失敗'); }
     finally { setBusy(false); }
   }
 
@@ -137,7 +141,7 @@ export function App({ api }: Props) {
       setDetail({ kind: 'USER', value });
       setNotice(`使用者 #${userId} 已切換至 ${planCode} 方案。`);
       if (tab === 'users') setUsers(await api.users(userFilters));
-    } catch (cause) { setError(message(cause, '方案調整失敗')); }
+    } catch (cause) { handleAdminError(cause, '方案調整失敗'); }
     finally { setBusy(false); }
   }
 
@@ -147,7 +151,7 @@ export function App({ api }: Props) {
       await api.savePlan(input);
       setPlans(await api.plans());
       setNotice(`${input.code} 已儲存。方案模板只影響之後建立的訂閱週期 AI 點數 Grant，不會回頭修改既有 Grant。`);
-    } catch (cause) { setError(message(cause, '方案儲存失敗')); }
+    } catch (cause) { handleAdminError(cause, '方案儲存失敗'); }
     finally { setBusy(false); }
   }
 
@@ -157,7 +161,7 @@ export function App({ api }: Props) {
       await api.saveAiRuntime(input);
       setAiConfig(await api.aiRuntime());
       setNotice('AI 模型與計價設定已更新，只會影響之後的 AI 呼叫。');
-    } catch (cause) { setError(message(cause, 'AI 設定更新失敗')); }
+    } catch (cause) { handleAdminError(cause, 'AI 設定更新失敗'); }
     finally { setBusy(false); }
   }
 
@@ -169,10 +173,16 @@ export function App({ api }: Props) {
       setAnomalies(await api.anomalies());
       const label = status === 'OPEN' ? '待處理' : status === 'RESOLVED' ? '已解決' : '已忽略';
       setNotice(`異常 #${id} 已更新為「${label}」。`);
-    } catch (cause) { setError(message(cause, '異常狀態更新失敗')); }
+    } catch (cause) { handleAdminError(cause, '異常狀態更新失敗'); }
     finally { setBusy(false); }
   }
 
+  const overviewCoverage = overview as (AdminOverview & {
+    missingAiCostTwdRequestsToday?: number;
+    missingSubsidyCostTwdRequestsToday?: number;
+  }) | null;
+  const missingAiTwd = Number(overviewCoverage?.missingAiCostTwdRequestsToday ?? 0);
+  const missingSubsidyTwd = Number(overviewCoverage?.missingSubsidyCostTwdRequestsToday ?? 0);
   const metrics = useMemo(() => overview ? [
     ['LINE 官方帳號好友數', overview.oaFriends],
     ['所有工作紀錄使用者', overview.users],
@@ -182,13 +192,13 @@ export function App({ api }: Props) {
     ['今日 AI 呼叫次數', overview.aiCallsToday],
     ['今日客戶實扣 AI 點數', overview.aiPointsToday],
     ['今日平台補貼 AI 點數', overview.platformSubsidizedPointsToday],
-    ['今日 AI 成本', `NT$ ${Number(overview.aiCostTwdToday).toFixed(4)}`],
-    ['今日平台補貼成本', `NT$ ${Number(overview.platformSubsidizedCostTwdToday).toFixed(4)}`],
+    ['今日 AI 成本', `${missingAiTwd > 0 ? '部分資料 · ' : ''}NT$ ${Number(overview.aiCostTwdToday).toFixed(4)}`],
+    ['今日平台補貼成本', `${missingSubsidyTwd > 0 ? '部分資料 · ' : ''}NT$ ${Number(overview.platformSubsidizedCostTwdToday).toFixed(4)}`],
     ['待處理異常', overview.openAnomalies],
     ['附件處理失敗', overview.failedAttachments],
     ['文字整理失敗', overview.failedNormalizations],
     ['近 30 天意見回饋', overview.feedback30d],
-  ] : [], [overview]);
+  ] : [], [overview, missingAiTwd, missingSubsidyTwd]);
 
   if (!authChecked) return <main className="shell auth-shell"><section className="login-card"><p className="eyebrow">AFTERTRACE</p><h1>工作紀錄管理後台</h1><p className="muted">正在確認管理員登入狀態。</p></section></main>;
   if (!username) return <LoginView busy={busy} error={error} onLogin={login} />;
@@ -203,6 +213,7 @@ export function App({ api }: Props) {
     {error && <div className="banner error">{error}</div>}{notice && <div className="banner success">{notice}</div>}
 
     {tab === 'overview' && <section>
+      {(missingAiTwd > 0 || missingSubsidyTwd > 0) && <div className="banner error">今日 TWD 成本資料不完整：{missingAiTwd} 筆 AI request 缺 provider TWD 成本；{missingSubsidyTwd} 筆補貼 request 缺 TWD 補貼成本。請以 USD 成本／Profitability 報表確認完整成本事實。</div>}
       <div className="metric-grid">{metrics.map(([name,value]) => <article className="metric" key={String(name)}><span>{name}</span><strong>{String(value)}</strong></article>)}</div>
       <article className="card"><h2>目前管理範圍</h2><p className="muted">此後台用來管理工作紀錄系統，包括使用者、群組 AI 額度負責人、Grant／AI 點數、方案、AI 模型與成本、平台補貼、意見回饋、異常事件及操作紀錄。</p></article>
     </section>}
@@ -277,14 +288,28 @@ function PlanEditor({ plan, definitions, busy, onSave }: { plan: AdminPlan | nul
     });
   }
 
+  const priceNumber = Number(priceTwd);
+  const rankNumber = Number(rank);
+  const allowanceNumber = Number(allowance);
+  const numericValid = nonNegativeDecimal(priceTwd)
+    && Number.isSafeInteger(rankNumber)
+    && rankNumber >= -100000
+    && rankNumber <= 100000
+    && /^\d+$/.test(allowance.trim())
+    && Number.isSafeInteger(allowanceNumber)
+    && allowanceNumber >= 0
+    && allowanceNumber <= 2_000_000_000
+    && Number.isFinite(priceNumber);
+
   async function submit() {
+    if (!numericValid) return;
     await onSave({
       code: code.trim().toUpperCase(),
       displayName: displayName.trim(),
       priceTwd: priceTwd.trim(),
-      rank: Number(rank),
+      rank: rankNumber,
       enabled,
-      subscriptionPeriodPoints: Number(allowance),
+      subscriptionPeriodPoints: allowanceNumber,
       capabilities,
     });
   }
@@ -297,22 +322,24 @@ function PlanEditor({ plan, definitions, busy, onSave }: { plan: AdminPlan | nul
       <label>排序順位<input inputMode="numeric" value={rank} onChange={(event) => setRank(event.target.value)} /></label>
       <label>訂閱週期 AI 點數<input inputMode="numeric" value={allowance} onChange={(event) => setAllowance(event.target.value)} /></label>
     </div>
+    {!numericValid && <p className="muted">請確認價格是非負數、排序順位是整數，且 AI 點數是 0～2,000,000,000 的整數。</p>}
 
     <h3>功能權限</h3>
-    {definitions.length === 0 ? <p className="muted">目前沒有可用的功能權限定義。</p> : <div className="form-grid">
+    {definitions.length === 0 ? <p className="muted">目前沒有額外方案功能權限；AI 能否使用由 Grant 點數決定。</p> : <div className="form-grid">
       {definitions.map((definition) => {
         const value = capabilities[definition.key] ?? definition.defaultValue;
+        const shipped = (definition as AdminCapabilityDefinition & { shipped?: boolean }).shipped !== false;
         if (definition.type === 'boolean') {
-          return <label key={definition.key} className="switch"><input type="checkbox" checked={Boolean(value)} onChange={(event) => setCapability(definition, event.target.checked)} /> <span><strong>{definition.label}</strong>{definition.description && <small className="muted">{definition.description}</small>}</span></label>;
+          return <label key={definition.key} className="switch"><input type="checkbox" checked={Boolean(value)} disabled={!shipped} onChange={(event) => setCapability(definition, event.target.checked)} /> <span><strong>{definition.label}</strong>{definition.description && <small className="muted">{definition.description}</small>}{!shipped && <small className="muted">尚未上線，不能啟用。</small>}</span></label>;
         }
         if (definition.type === 'number') {
-          return <label key={definition.key}>{definition.label}<input type="number" min={definition.min} max={definition.max} value={String(value)} onChange={(event) => setCapability(definition, event.target.value)} />{definition.description && <small className="muted">{definition.description}</small>}</label>;
+          return <label key={definition.key}>{definition.label}<input type="number" min={definition.min} max={definition.max} disabled={!shipped} value={String(value)} onChange={(event) => setCapability(definition, event.target.value)} />{definition.description && <small className="muted">{definition.description}</small>}</label>;
         }
-        return <label key={definition.key}>{definition.label}<input value={String(value)} onChange={(event) => setCapability(definition, event.target.value)} />{definition.description && <small className="muted">{definition.description}</small>}</label>;
+        return <label key={definition.key}>{definition.label}<input disabled={!shipped} value={String(value)} onChange={(event) => setCapability(definition, event.target.value)} />{definition.description && <small className="muted">{definition.description}</small>}</label>;
       })}
     </div>}
 
-    <button disabled={busy || !code.trim() || !displayName.trim() || definitions.length === 0} onClick={() => void submit()}>儲存方案</button>
+    <button disabled={busy || !code.trim() || !displayName.trim() || !numericValid} onClick={() => void submit()}>儲存方案</button>
   </article>;
 }
 
@@ -321,23 +348,36 @@ function AiRuntimeEditor({ config, busy, onSave }: { config: AdminAiRuntimeConfi
   const [model, setModel] = useState(config?.model ?? '');
   const [inputPrice, setInputPrice] = useState(config?.input_usd_per_million ?? '0');
   const [outputPrice, setOutputPrice] = useState(config?.output_usd_per_million ?? '0');
+  const [audioPrice, setAudioPrice] = useState(config?.audio_usd_per_million ?? '');
+  const [imagePrice, setImagePrice] = useState(config?.image_usd_per_million ?? '');
   const [fx, setFx] = useState(config?.usd_twd_rate ?? '');
   useEffect(() => {
     setProvider(config?.provider ?? 'GOOGLE');
     setModel(config?.model ?? '');
     setInputPrice(config?.input_usd_per_million ?? '0');
     setOutputPrice(config?.output_usd_per_million ?? '0');
+    setAudioPrice(config?.audio_usd_per_million ?? '');
+    setImagePrice(config?.image_usd_per_million ?? '');
     setFx(config?.usd_twd_rate ?? '');
   }, [config?.updated_at]);
-  return <article className="card"><p className="eyebrow">AI 執行設定</p><h2>AI 供應商、模型與計價</h2><p className="muted">文字、語音與圖片輸入統一使用同一個輸入價格。更新只會影響之後的 AI 呼叫；歷史使用紀錄會保留當時的計價資料。</p>
+  const pricingValid = nonNegativeDecimal(inputPrice)
+    && nonNegativeDecimal(outputPrice)
+    && optionalNonNegativeDecimal(audioPrice)
+    && optionalNonNegativeDecimal(imagePrice)
+    && optionalNonNegativeDecimal(fx)
+    && Number(outputPrice) > 0;
+  return <article className="card"><p className="eyebrow">AI 執行設定</p><h2>AI 供應商、模型與計價</h2><p className="muted">一般輸入、輸出、音訊與圖片價格可分開設定。音訊／圖片留空代表沿用一般輸入價格；歷史使用紀錄會保留呼叫當下的價格快照，不會因後續修改被重算。</p>
     <div className="form-grid">
       <label>AI 供應商<input value={provider} onChange={(event) => setProvider(event.target.value)} /></label>
       <label>模型<input value={model} onChange={(event) => setModel(event.target.value)} /></label>
-      <label>輸入價格（美元／100 萬單位）<input inputMode="decimal" value={inputPrice} onChange={(event) => setInputPrice(event.target.value)} /></label>
+      <label>一般輸入價格（美元／100 萬單位）<input inputMode="decimal" value={inputPrice} onChange={(event) => setInputPrice(event.target.value)} /></label>
       <label>輸出價格（美元／100 萬單位）<input inputMode="decimal" value={outputPrice} onChange={(event) => setOutputPrice(event.target.value)} /></label>
+      <label>音訊輸入價格（選填）<input inputMode="decimal" value={audioPrice} onChange={(event) => setAudioPrice(event.target.value)} placeholder="留空＝一般輸入價格" /></label>
+      <label>圖片輸入價格（選填）<input inputMode="decimal" value={imagePrice} onChange={(event) => setImagePrice(event.target.value)} placeholder="留空＝一般輸入價格" /></label>
       <label>美元兌新台幣匯率<input inputMode="decimal" value={fx} onChange={(event) => setFx(event.target.value)} placeholder="選填" /></label>
     </div>
-    <button disabled={busy || !provider.trim() || !model.trim()} onClick={() => void onSave({ provider: provider.trim(), model: model.trim(), inputUsdPerMillion: inputPrice.trim(), outputUsdPerMillion: outputPrice.trim(), audioUsdPerMillion: inputPrice.trim(), imageUsdPerMillion: inputPrice.trim(), usdTwdRate: fx.trim() || null })}>儲存 AI 設定</button>
+    {!pricingValid && <p className="muted">價格／匯率必須是非負數，且輸出價格必須大於 0，才能作為 AI 點數換算基準。</p>}
+    <button disabled={busy || !provider.trim() || !model.trim() || !pricingValid} onClick={() => void onSave({ provider: provider.trim(), model: model.trim(), inputUsdPerMillion: inputPrice.trim(), outputUsdPerMillion: outputPrice.trim(), audioUsdPerMillion: audioPrice.trim() || null, imageUsdPerMillion: imagePrice.trim() || null, usdTwdRate: fx.trim() || null })}>儲存 AI 設定</button>
     {config?.updated_at && <p className="muted">最後更新：{display(config.updated_at)}{config.updated_by ? ` · ${config.updated_by}` : ''}</p>}
   </article>;
 }
@@ -351,11 +391,13 @@ function DetailDrawer({ state, plans, busy, onClose, onUpdatePlan }: { state: Ex
 function UserDetail({ value, plans, busy, onUpdatePlan }: { value: Record<string, unknown>; plans: AdminPlan[]; busy: boolean; onUpdatePlan: (userId: string, planCode: string, end: string | null) => Promise<void> }) {
   const user = asRow(value.user);
   const userId = String(user.id ?? '');
-  const [planCode, setPlanCode] = useState(String(user.plan_code ?? plans[0]?.code ?? 'FREE'));
+  const currentPlanCode = String(user.plan_code ?? 'FREE');
+  const selectablePlans = plans.filter((plan) => plan.enabled || plan.code === currentPlanCode);
+  const [planCode, setPlanCode] = useState(currentPlanCode || selectablePlans[0]?.code || 'FREE');
   const [periodEnd, setPeriodEnd] = useState(toLocalInput(user.current_period_end));
-  useEffect(() => { setPlanCode(String(user.plan_code ?? plans[0]?.code ?? 'FREE')); setPeriodEnd(toLocalInput(user.current_period_end)); }, [user.id, user.plan_code, user.current_period_end, plans.length]);
+  useEffect(() => { setPlanCode(String(user.plan_code ?? selectablePlans[0]?.code ?? 'FREE')); setPeriodEnd(toLocalInput(user.current_period_end)); }, [user.id, user.plan_code, user.current_period_end, plans.length]);
   return <div className="stack"><article className="card"><h3>使用者資料與 AI 點數</h3><Detail value={user} /></article>
-    <article className="card"><h3>手動調整方案</h3><div className="form-grid"><label>方案<select value={planCode} onChange={(event) => setPlanCode(event.target.value)}>{plans.map((plan) => <option key={plan.code} value={plan.code}>{plan.code} · {plan.display_name}</option>)}</select></label><label>本期結束時間<input type="datetime-local" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} /></label></div><button disabled={busy || !userId || !planCode} onClick={() => void onUpdatePlan(userId, planCode, periodEnd ? new Date(periodEnd).toISOString() : null)}>套用方案</button></article>
+    <article className="card"><h3>手動調整方案</h3><div className="form-grid"><label>方案<select value={planCode} onChange={(event) => setPlanCode(event.target.value)}>{selectablePlans.map((plan) => <option key={plan.code} value={plan.code}>{plan.code} · {plan.display_name}{plan.enabled ? '' : '（已停用，目前既有）'}</option>)}</select></label><label>本期結束時間<input type="datetime-local" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} /></label></div><button disabled={busy || !userId || !planCode || !selectablePlans.some((plan) => plan.code === planCode && plan.enabled)} onClick={() => void onUpdatePlan(userId, planCode, periodEnd ? new Date(periodEnd).toISOString() : null)}>套用方案</button></article>
     <DetailTable title="AI Grant" value={value.grants} preferred={['id','type','status','original_points','remaining_points','scoped_used_points','scoped_reserved_points','enabled_source_count','effective_at','expires_at']} />
     <DetailTable title="擔任 AI 額度負責人的群組" value={value.responsibleGroups} preferred={['source_id','line_group_id','status','active_members','record_count','ai_used_points','platform_subsidized_points','assigned_at','updated_at']} />
     <DetailTable title="加入的群組" value={value.memberGroups} preferred={['source_id','line_group_id','status','first_seen_at','last_seen_at','updated_at']} />
@@ -435,3 +477,5 @@ function display(value: unknown): string {
 }
 function toLocalInput(value: unknown): string { if (!value) return ''; const date = new Date(String(value)); if (Number.isNaN(date.getTime())) return ''; const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000); return local.toISOString().slice(0,16); }
 function tabLabel(tab: Tab): string { return ({ overview:'總覽', users:'使用者', groups:'群組', plans:'方案管理', ai:'AI 計價', feedback:'意見回饋', anomalies:'異常事件', audit:'操作紀錄' })[tab]; }
+function nonNegativeDecimal(value: string): boolean { const normalized = value.trim(); return /^\d+(?:\.\d{1,8})?$/.test(normalized) && Number.isFinite(Number(normalized)) && Number(normalized) >= 0; }
+function optionalNonNegativeDecimal(value: string): boolean { return !value.trim() || nonNegativeDecimal(value); }
