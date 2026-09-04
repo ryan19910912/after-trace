@@ -4,9 +4,8 @@ import type {
   AiPointReleaseResult,
   AiPointReservationResult,
 } from './ai-point-ledger';
-import { providerCostToAiPoints } from './ai-points';
 import { snapshotAiUsage } from './entitlements';
-import type { WorklogAiUsageCommit } from './subscription';
+import type { WorklogAiUsageCommit } from './ai-provider-usage';
 import type { WorklogAiRuntimeConfigSnapshot } from './text-normalization';
 
 export type WorklogAttachmentInputType = 'AUDIO' | 'IMAGE' | 'FILE';
@@ -90,7 +89,7 @@ export interface WorklogAttachmentAiPointPort {
     chargedUserId: number;
     actorUserId: number;
     sourceId?: number | null;
-    requestedUnits: number;
+    requestedPoints: number;
     at?: Date;
     ttlMs?: number;
   }): Promise<AiPointReservationResult>;
@@ -167,7 +166,7 @@ export class WorklogAttachmentIngestionService {
         chargedUserId,
         actorUserId,
         sourceId,
-        requestedUnits: requestedPoints,
+        requestedPoints,
         ttlMs: 10 * 60_000,
       });
       if (reservation.status !== 'RESERVED') {
@@ -193,18 +192,11 @@ export class WorklogAttachmentIngestionService {
         audioInputUnits: provider.audioInputUnits,
         imageInputUnits: provider.imageInputUnits,
       });
-      const actualPoints = providerCostToAiPoints({
-        providerCostUsd: pricingSnapshot.providerCostUsd,
-        outputUsdPerMillion: pricingSnapshot.outputUsdPerMillion,
-      });
       const usage: WorklogAiUsageCommit = {
         // The provider output has already been normalized to one of the durable Record
         // input types, so operation classification is deterministic and does not need
         // another AI call or legacy category/summary metadata.
         operation: `${provider.output.inputType}_RECORD_CREATE`,
-        // Transitional reporting field. The point ledger independently recomputes
-        // actual customer points from immutable provider cost at settlement.
-        actualUnits: actualPoints,
         workspaceId: null,
         recordId: null,
         ...pricingSnapshot,
