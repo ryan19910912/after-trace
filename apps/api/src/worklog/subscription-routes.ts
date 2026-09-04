@@ -6,6 +6,8 @@ import { createDatabase } from '../db/client';
 type Bindings = { DATABASE_URL: string; WEB_AUTH_SECRET?: string; WEB_APP_ORIGIN?: string };
 type Env = { Bindings: Bindings; Variables: { lineUserId: string } };
 
+const CHECKOUT_ENABLED = false;
+
 type UserSubscriptionRow = {
   id: number;
   planCode: string;
@@ -76,12 +78,17 @@ export function createWorklogSubscriptionRoutes() {
       ok: true,
       currentPlanCode: user.effectiveState === 'ACTIVE' ? user.planCode : 'FREE',
       currentSubscriptionState: user.effectiveState,
-      checkoutEnabled: false,
+      checkoutEnabled: CHECKOUT_ENABLED,
       plans: result.rows,
     });
   });
 
   app.post('/checkout-intents', async (c) => {
+    // Provider-neutral persistence stays in place for the future payment integration,
+    // but until that integration is explicitly enabled do not let direct API clients
+    // create unbounded PENDING_PROVIDER rows that can never progress.
+    if (!CHECKOUT_ENABLED) return c.json({ ok: false, error: 'CHECKOUT_NOT_ENABLED' }, 503);
+
     const db = createDatabase(c.env.DATABASE_URL);
     const user = await userRow(db, c.get('lineUserId'));
     if (!user) return c.json({ ok: false, error: 'WORKLOG_USER_NOT_FOUND' }, 404);
@@ -126,16 +133,7 @@ export function createWorklogSubscriptionRoutes() {
       return c.json({ ok: false, error: 'CHECKOUT_IDEMPOTENCY_CONFLICT' }, 409);
     }
 
-    const checkoutEnabled = Boolean(intent.checkout_url);
-    return c.json({
-      ok: true,
-      intent: {
-        ...intent,
-        checkoutEnabled,
-        providerConfigured: checkoutEnabled,
-        ...(checkoutEnabled ? {} : { message: '付款服務尚未啟用；此 checkout intent 已建立，接上支付 provider 後可沿用同一邊界。' }),
-      },
-    }, inserted.rows.length > 0 ? 201 : 200);
+    return c.json({ ok: true, intent: { ...intent, checkoutEnabled: true, providerConfigured: true } }, inserted.rows.length > 0 ? 201 : 200);
   });
 
   return app;
