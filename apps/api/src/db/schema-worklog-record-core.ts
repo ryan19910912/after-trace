@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   bigint,
   bigserial,
@@ -55,7 +56,7 @@ export const worklogEntities = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    uniqueIndex('worklog_entity_source_name_uq').on(table.sourceId, table.name),
+    uniqueIndex('worklog_entity_source_name_uq').on(table.sourceId, sql`lower(${table.name})`),
     // PostgreSQL composite FKs below use this key to make Source isolation a durable
     // database invariant instead of relying only on every caller remembering to check.
     unique('worklog_entity_source_id_uq').on(table.sourceId, table.id),
@@ -82,7 +83,7 @@ export const worklogEntityAliases = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    uniqueIndex('worklog_entity_alias_source_alias_uq').on(table.sourceId, table.alias),
+    uniqueIndex('worklog_entity_alias_source_alias_uq').on(table.sourceId, sql`lower(${table.alias})`),
     index('worklog_entity_alias_entity_idx').on(table.entityId),
     foreignKey({
       columns: [table.sourceId, table.entityId],
