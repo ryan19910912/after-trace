@@ -35,6 +35,10 @@ export interface WorklogOaRecordEditPort {
   }): Promise<WorklogLineRecordEditResult>;
 }
 
+export interface WorklogOaAiGrantPort {
+  canStartAi(userId: number, sourceId: number, at?: Date): Promise<boolean>;
+}
+
 export type WorklogOaLifecycleResult =
   | { status: 'FOLLOWED'; userId: number; sourceId: number }
   | { status: 'UNFOLLOWED'; userId: number };
@@ -72,6 +76,7 @@ export class WorklogOaRuntime {
     private readonly records: WorklogOaRecordWritePort,
     private readonly textNormalization?: WorklogOaTextNormalizationPort,
     private readonly recordEdit?: WorklogOaRecordEditPort,
+    private readonly aiGrants?: WorklogOaAiGrantPort,
   ) {}
 
   async handleLifecycle(event: OaLifecycleEvent): Promise<WorklogOaLifecycleResult> {
@@ -122,6 +127,9 @@ export class WorklogOaRuntime {
       if (!this.recordEdit) {
         return { status: 'REJECTED', reason: 'EDIT_NOT_READY', replyText: 'LINE AI 修改服務目前尚未啟用；請先到 AFTERTRACE 紀錄頁手動編輯。' };
       }
+      if (!(await this.canStartPrivateAi(personal.userId, personal.sourceId, message.lineTimestamp))) {
+        return { status: 'REJECTED', reason: 'AI_POINTS_EXHAUSTED', replyText: '你的 AI 點數不足，這次沒有呼叫 AI 修改。' };
+      }
       const edited = await this.recordEdit.edit({
         target: target.record,
         actorUserId: personal.userId,
@@ -132,6 +140,14 @@ export class WorklogOaRuntime {
         instruction: command.instruction,
       });
       return privateLineEditResult(target.record.id, edited);
+    }
+
+    if (!(await this.canStartPrivateAi(personal.userId, personal.sourceId, message.lineTimestamp))) {
+      return {
+        status: 'REJECTED',
+        reason: 'AI_POINTS_EXHAUSTED',
+        replyText: '你的 AI 點數不足，這次沒有呼叫 AI；你仍可前往 AFTERTRACE 免費手動新增或編輯紀錄。',
+      };
     }
 
     if (command.kind === 'RECORD_QUOTED') {
@@ -177,6 +193,15 @@ export class WorklogOaRuntime {
       return { status: 'REJECTED', reason: 'IDEMPOTENCY_CONFLICT', replyText: '這則 LINE 訊息的紀錄狀態不一致，為避免寫錯資料，本次沒有覆蓋既有紀錄。' };
     }
     return { status: 'REJECTED', reason: 'SOURCE_NOT_FOUND', replyText: '你的個人 AFTERTRACE 紀錄區目前無法使用，請稍後再試。' };
+  }
+
+  private async canStartPrivateAi(userId: number, sourceId: number, at: Date): Promise<boolean> {
+    if (!this.aiGrants) return false;
+    try {
+      return await this.aiGrants.canStartAi(userId, sourceId, at);
+    } catch {
+      return false;
+    }
   }
 
   private async normalizeBestEffort(recordId: number, message: BufferedPrivateMessage): Promise<void> {
