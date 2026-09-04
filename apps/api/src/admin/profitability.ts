@@ -14,6 +14,7 @@ export type AdminProfitabilitySummary = {
   from: string;
   to: string;
   requests: number;
+  activeUsers: number;
   chargedUsers: number;
   customerPointsCharged: number;
   platformSubsidizedPoints: number;
@@ -24,9 +25,12 @@ export type AdminProfitabilitySummary = {
   missingProviderCostTwdRequests: number;
   missingSubsidyCostTwdRequests: number;
   averagePointsPerRequest: number;
-  averageProviderCostTwdPerRequest: string;
+  averageProviderCostUsdPerRequest: string;
+  averageProviderCostTwdPerRequest: string | null;
+  averagePointsPerActiveUser: number;
+  averageProviderCostUsdPerActiveUser: string;
+  averageProviderCostTwdPerActiveUser: string | null;
   averagePointsPerChargedUser: number;
-  averageProviderCostTwdPerChargedUser: string;
   revenueTwd: null;
   realizedAiCostRatio: null;
   realizedGrossMargin: null;
@@ -36,6 +40,7 @@ export type AdminProfitabilitySummary = {
 export type AdminProfitabilityBreakdownRow = {
   key: string;
   requests: number;
+  activeUsers: number;
   chargedUsers: number;
   customerPointsCharged: number;
   platformSubsidizedPoints: number;
@@ -50,12 +55,20 @@ export type AdminGrantTypeUsageRow = {
   pointsCharged: number;
 };
 
+export type AdminPlanUsageRow = {
+  planCode: string;
+  requests: number;
+  pointsCharged: number;
+};
+
 export type AdminGrantInventoryRow = {
   grantType: string;
   grants: number;
   exhaustedGrants: number;
   originalPoints: number;
   remainingPoints: number;
+  utilizationPercent: number;
+  exhaustionPercent: number;
 };
 
 export type AdminProfitabilityReport = {
@@ -64,6 +77,7 @@ export type AdminProfitabilityReport = {
   byOperation: AdminProfitabilityBreakdownRow[];
   bySourceType: AdminProfitabilityBreakdownRow[];
   byGrantType: AdminGrantTypeUsageRow[];
+  byPlan: AdminPlanUsageRow[];
   grantInventory: AdminGrantInventoryRow[];
 };
 
@@ -74,29 +88,33 @@ export type AdminProfitabilityReport = {
  * successful-payment revenue ledger. Checkout intent status or plan list price is not
  * sufficient evidence of realized revenue and must never be synthesized here.
  *
- * TWD totals expose missing-conversion request counts. A NULL historical TWD cost must
- * never be silently interpreted as a known zero-cost request.
+ * actor_user_id and charged_user_id are intentionally separate: GROUP operations may
+ * have many active actors funded by one AI allowance responsible user. TWD totals also
+ * expose missing-conversion request counts so NULL historical FX is never presented as
+ * a known zero-cost request.
  */
 export class DrizzleAdminProfitabilityRepository {
   constructor(private readonly db: Database) {}
 
   async report(period: AdminProfitabilityPeriod, at = new Date()): Promise<AdminProfitabilityReport> {
     const window = adminProfitabilityWindow(period, at);
-    const [summary, byModel, byOperation, bySourceType, byGrantType, grantInventory] = await Promise.all([
+    const [summary, byModel, byOperation, bySourceType, byGrantType, byPlan, grantInventory] = await Promise.all([
       this.summary(window),
       this.breakdown(window, 'MODEL'),
       this.breakdown(window, 'OPERATION'),
       this.breakdown(window, 'SOURCE_TYPE'),
       this.grantTypeUsage(window),
+      this.planUsage(window),
       this.grantInventory(window.to),
     ]);
-    return { summary, byModel, byOperation, bySourceType, byGrantType, grantInventory };
+    return { summary, byModel, byOperation, bySourceType, byGrantType, byPlan, grantInventory };
   }
 
   private async summary(window: AdminProfitabilityWindow): Promise<AdminProfitabilitySummary> {
     const result = await this.db.execute(sql`
       SELECT
         COUNT(*)::text AS requests,
+        COUNT(DISTINCT actor_user_id)::text AS active_users,
         COUNT(DISTINCT charged_user_id)::text AS charged_users,
         COALESCE(SUM(customer_points_charged), 0)::bigint::text AS customer_points_charged,
         COALESCE(SUM(platform_subsidized_points), 0)::bigint::text AS platform_subsidized_points,
@@ -113,27 +131,34 @@ export class DrizzleAdminProfitabilityRepository {
     `);
     const row = result.rows[0] as Record<string, unknown> | undefined;
     const requests = integer(row?.requests);
+    const activeUsers = integer(row?.active_users);
     const chargedUsers = integer(row?.charged_users);
     const points = integer(row?.customer_points_charged);
+    const costUsd = decimal(row?.provider_cost_usd);
     const costTwd = decimal(row?.provider_cost_twd);
+    const missingTwd = integer(row?.missing_provider_cost_twd_requests);
     return {
       period: window.period,
       from: window.from.toISOString(),
       to: window.to.toISOString(),
       requests,
+      activeUsers,
       chargedUsers,
       customerPointsCharged: points,
       platformSubsidizedPoints: integer(row?.platform_subsidized_points),
-      providerCostUsd: decimal(row?.provider_cost_usd),
+      providerCostUsd: costUsd,
       providerCostTwd: costTwd,
       platformSubsidizedCostUsd: decimal(row?.platform_subsidized_cost_usd),
       platformSubsidizedCostTwd: decimal(row?.platform_subsidized_cost_twd),
-      missingProviderCostTwdRequests: integer(row?.missing_provider_cost_twd_requests),
+      missingProviderCostTwdRequests: missingTwd,
       missingSubsidyCostTwdRequests: integer(row?.missing_subsidy_cost_twd_requests),
       averagePointsPerRequest: requests > 0 ? points / requests : 0,
-      averageProviderCostTwdPerRequest: ratioDecimal(costTwd, requests),
+      averageProviderCostUsdPerRequest: ratioDecimal(costUsd, requests),
+      averageProviderCostTwdPerRequest: missingTwd === 0 ? ratioDecimal(costTwd, requests) : null,
+      averagePointsPerActiveUser: activeUsers > 0 ? points / activeUsers : 0,
+      averageProviderCostUsdPerActiveUser: ratioDecimal(costUsd, activeUsers),
+      averageProviderCostTwdPerActiveUser: missingTwd === 0 ? ratioDecimal(costTwd, activeUsers) : null,
       averagePointsPerChargedUser: chargedUsers > 0 ? points / chargedUsers : 0,
-      averageProviderCostTwdPerChargedUser: ratioDecimal(costTwd, chargedUsers),
       revenueTwd: null,
       realizedAiCostRatio: null,
       realizedGrossMargin: null,
@@ -154,6 +179,7 @@ export class DrizzleAdminProfitabilityRepository {
       SELECT
         ${key} AS key,
         COUNT(*)::text AS requests,
+        COUNT(DISTINCT usage.actor_user_id)::text AS active_users,
         COUNT(DISTINCT usage.charged_user_id)::text AS charged_users,
         COALESCE(SUM(usage.customer_points_charged), 0)::bigint::text AS customer_points_charged,
         COALESCE(SUM(usage.platform_subsidized_points), 0)::bigint::text AS platform_subsidized_points,
@@ -171,6 +197,7 @@ export class DrizzleAdminProfitabilityRepository {
       return {
         key: text(row.key, 'UNKNOWN'),
         requests: integer(row.requests),
+        activeUsers: integer(row.active_users),
         chargedUsers: integer(row.charged_users),
         customerPointsCharged: integer(row.customer_points_charged),
         platformSubsidizedPoints: integer(row.platform_subsidized_points),
@@ -204,6 +231,33 @@ export class DrizzleAdminProfitabilityRepository {
     });
   }
 
+  private async planUsage(window: AdminProfitabilityWindow): Promise<AdminPlanUsageRow[]> {
+    const result = await this.db.execute(sql`
+      SELECT
+        CASE
+          WHEN grant.type = 'FREE_INITIAL' THEN 'FREE'
+          WHEN grant.type = 'SUBSCRIPTION_PERIOD' THEN COALESCE(NULLIF(BTRIM(grant.metadata ->> 'planCode'), ''), 'UNKNOWN_SUBSCRIPTION')
+          ELSE 'UNASSOCIATED'
+        END AS plan_code,
+        COUNT(DISTINCT funding.usage_event_id)::text AS requests,
+        COALESCE(SUM(funding.points_charged), 0)::bigint::text AS points_charged
+      FROM worklog_ai_usage_funding funding
+      INNER JOIN worklog_ai_usage_events usage ON usage.id = funding.usage_event_id
+      INNER JOIN worklog_ai_grants grant ON grant.id = funding.grant_id
+      WHERE usage.created_at >= ${window.from} AND usage.created_at < ${window.to}
+      GROUP BY plan_code
+      ORDER BY SUM(funding.points_charged) DESC, plan_code ASC
+    `);
+    return result.rows.map((value) => {
+      const row = value as Record<string, unknown>;
+      return {
+        planCode: text(row.plan_code, 'UNASSOCIATED'),
+        requests: integer(row.requests),
+        pointsCharged: integer(row.points_charged),
+      };
+    });
+  }
+
   private async grantInventory(at: Date): Promise<AdminGrantInventoryRow[]> {
     const result = await this.db.execute(sql`
       SELECT
@@ -213,18 +267,27 @@ export class DrizzleAdminProfitabilityRepository {
         COALESCE(SUM(original_points), 0)::bigint::text AS original_points,
         COALESCE(SUM(remaining_points), 0)::bigint::text AS remaining_points
       FROM worklog_ai_grants
-      WHERE effective_at < ${at} AND status <> 'REVOKED'
+      WHERE effective_at <= ${at}
+        AND (expires_at IS NULL OR expires_at > ${at})
+        AND status <> 'REVOKED'
       GROUP BY type
       ORDER BY type ASC
     `);
     return result.rows.map((value) => {
       const row = value as Record<string, unknown>;
+      const grants = integer(row.grants);
+      const exhaustedGrants = integer(row.exhausted_grants);
+      const originalPoints = integer(row.original_points);
+      const remainingPoints = integer(row.remaining_points);
+      const usedPoints = Math.max(0, originalPoints - remainingPoints);
       return {
         grantType: text(row.grant_type, 'UNKNOWN'),
-        grants: integer(row.grants),
-        exhaustedGrants: integer(row.exhausted_grants),
-        originalPoints: integer(row.original_points),
-        remainingPoints: integer(row.remaining_points),
+        grants,
+        exhaustedGrants,
+        originalPoints,
+        remainingPoints,
+        utilizationPercent: originalPoints > 0 ? (usedPoints / originalPoints) * 100 : 0,
+        exhaustionPercent: grants > 0 ? (exhaustedGrants / grants) * 100 : 0,
       };
     });
   }
