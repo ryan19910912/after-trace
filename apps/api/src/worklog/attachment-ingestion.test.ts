@@ -125,7 +125,7 @@ class NonRetrievableContentResolver {
 
 class Provider {
   calls = 0;
-  reservationUnits() { return 500; }
+  reservationPoints() { return 500; }
   async analyze(): Promise<WorklogAttachmentProviderResponse> {
     this.calls += 1;
     return { output, inputTokens: 100, outputTokens: 50, audioInputUnits: 0, imageInputUnits: 100, providerResponseId: 'r1', latencyMs: 10 };
