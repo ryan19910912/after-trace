@@ -8,8 +8,8 @@ const rootDir = dirname(fileURLToPath(import.meta.url));
 const envPath = resolve(rootDir, '.env');
 if (existsSync(envPath)) loadEnvFile(envPath);
 
-if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required for Drizzle Kit');
 const drizzlePath = (...segments: string[]) => resolve(rootDir, ...segments).replaceAll('\\', '/');
+const databaseUrl = process.env.DATABASE_URL?.trim();
 
 export default defineConfig({
   // schema-all.ts is the authoritative export surface. Keeping one entry prevents the
@@ -18,5 +18,8 @@ export default defineConfig({
   schema: drizzlePath('apps/api/src/db/schema-all.ts'),
   out: drizzlePath('drizzle'),
   dialect: 'postgresql',
-  dbCredentials: { url: process.env.DATABASE_URL },
+  // `generate` / `export` only need the TypeScript schema. Do not force developers to
+  // point schema generation at a real database. Commands that actually connect (for
+  // example `migrate`) still fail closed in Drizzle Kit when DATABASE_URL is absent.
+  ...(databaseUrl ? { dbCredentials: { url: databaseUrl } } : {}),
 });
