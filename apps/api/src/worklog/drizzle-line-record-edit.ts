@@ -39,6 +39,7 @@ type EditStateRow = {
   usage_commit_json: unknown;
   confirmation_id: string | number | null;
   applied_record_version: string | number | null;
+  applied_entity_id: string | number | null;
   last_error_code: string | null;
 };
 
@@ -232,7 +233,9 @@ export class DrizzleWorklogLineRecordEditRepository implements WorklogLineRecord
     const edit = await this.loadStateById(input.editId);
     if (!edit || edit.claim_token !== input.claimToken || edit.status !== 'USAGE_COMMITTED') {
       const terminal = edit ? stateResult(edit) : null;
-      if (terminal?.status === 'SUCCEEDED') return { status: 'APPLIED', recordVersion: terminal.recordVersion, entityId: 0 };
+      if (terminal?.status === 'SUCCEEDED') {
+        return { status: 'APPLIED', recordVersion: terminal.recordVersion, entityId: terminal.entityId };
+      }
       if (terminal?.status === 'PENDING_CONFIRMATION') return terminal;
       return { status: 'RECORD_CHANGED' };
     }
@@ -284,6 +287,7 @@ export class DrizzleWorklogLineRecordEditRepository implements WorklogLineRecord
         UPDATE worklog_line_ai_edits
         SET status = 'SUCCEEDED',
             applied_record_version = ${record.version},
+            applied_entity_id = ${targetEntityId},
             completed_at = NOW(),
             updated_at = NOW()
         WHERE id = ${input.editId}
@@ -336,6 +340,7 @@ export class DrizzleWorklogLineRecordEditRepository implements WorklogLineRecord
         UPDATE worklog_line_ai_edits edit
         SET status = 'SUCCEEDED',
             applied_record_version = ${nextVersion},
+            applied_entity_id = ${targetEntityId},
             completed_at = NOW(),
             updated_at = NOW()
         FROM updated_record, revision
@@ -460,7 +465,7 @@ export class DrizzleWorklogLineRecordEditRepository implements WorklogLineRecord
              line_command_message_id, quoted_line_message_id, command_timestamp, instruction,
              expected_record_version, status, claim_token, reservation_token,
              result_json, usage_commit_json, confirmation_id::text AS confirmation_id,
-             applied_record_version, last_error_code
+             applied_record_version, applied_entity_id::text AS applied_entity_id, last_error_code
       FROM worklog_line_ai_edits
       WHERE line_command_message_id = ${lineCommandMessageId}
       LIMIT 1
@@ -475,7 +480,7 @@ export class DrizzleWorklogLineRecordEditRepository implements WorklogLineRecord
              line_command_message_id, quoted_line_message_id, command_timestamp, instruction,
              expected_record_version, status, claim_token, reservation_token,
              result_json, usage_commit_json, confirmation_id::text AS confirmation_id,
-             applied_record_version, last_error_code
+             applied_record_version, applied_entity_id::text AS applied_entity_id, last_error_code
       FROM worklog_line_ai_edits
       WHERE id = ${editId}
       LIMIT 1
@@ -619,7 +624,10 @@ function stateResult(row: EditStateRow): WorklogLineRecordEditBeginResult {
   }
   if (row.status === 'SUCCEEDED') {
     const recordVersion = optionalPositiveNumber(row.applied_record_version, 'applied record version');
-    return recordVersion ? { status: 'SUCCEEDED', recordVersion } : { status: 'FAILED', reason: 'AI_EDIT_APPLY_STATE_INVALID' };
+    const entityId = optionalPositiveNumber(row.applied_entity_id, 'applied entity id');
+    return recordVersion && entityId
+      ? { status: 'SUCCEEDED', recordVersion, entityId }
+      : { status: 'FAILED', reason: 'AI_EDIT_APPLY_STATE_INVALID' };
   }
   if (row.status === 'RECORD_CHANGED') return { status: 'RECORD_CHANGED' };
   if (row.status === 'FAILED') return { status: 'FAILED', reason: row.last_error_code?.trim() || 'PREVIOUS_PROVIDER_ATTEMPT_FAILED' };
@@ -655,15 +663,17 @@ function sameIdentity(row: EditStateRow, input: {
   instruction: string;
   expectedRecordVersion: number;
 }): boolean {
+  // chargedUserId and expectedRecordVersion are execution-time derived facts. A LINE
+  // webhook redelivery may arrive after the first edit changed the Record version or
+  // after funding responsibility changed. The immutable LINE command identity must
+  // still resume its already-durable state instead of becoming a false conflict.
   return positiveNumber(row.source_id, 'source id') === input.sourceId
     && positiveNumber(row.record_id, 'record id') === input.recordId
     && positiveNumber(row.actor_user_id, 'actor user id') === input.actorUserId
-    && positiveNumber(row.charged_user_id, 'charged user id') === input.chargedUserId
     && row.line_command_message_id === input.lineCommandMessageId
     && row.quoted_line_message_id === input.quotedLineMessageId
     && validDate(row.command_timestamp, 'command timestamp').getTime() === input.commandTimestamp.getTime()
-    && row.instruction === input.instruction
-    && positiveNumber(row.expected_record_version, 'expected record version') === input.expectedRecordVersion;
+    && row.instruction === input.instruction;
 }
 
 function contextFromTarget(
