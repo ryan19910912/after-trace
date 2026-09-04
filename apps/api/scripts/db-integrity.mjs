@@ -157,24 +157,32 @@ async function probes() {
     'Entity baseline accepts first case variant',
     `INSERT INTO worklog_entities (source_id, name) VALUES (${ids.private1}, ${quote(entityCaseBase)})`,
   );
-  await expectAccepted(
-    'Entity database currently allows case-only duplicate (observed behavior)',
+  cleanup.unshift(`DELETE FROM worklog_entities WHERE source_id = ${ids.private1} AND lower(name) = lower(${quote(entityCaseBase)})`);
+  await expectRejected(
+    'Entity case-only duplicate is rejected in the same Source',
     `INSERT INTO worklog_entities (source_id, name) VALUES (${ids.private1}, ${quote(entityCaseBase.toLowerCase())})`,
   );
-  cleanup.unshift(`DELETE FROM worklog_entities WHERE source_id = ${ids.private1} AND lower(name) = lower(${quote(entityCaseBase)})`);
+  await expectAccepted(
+    'Entity same spelling remains allowed in another Source',
+    `INSERT INTO worklog_entities (source_id, name) VALUES (${ids.private2}, ${quote(entityCaseBase.toLowerCase())})`,
+  );
+  cleanup.unshift(`DELETE FROM worklog_entities WHERE source_id = ${ids.private2} AND lower(name) = lower(${quote(entityCaseBase)})`);
 
   const aliasCaseBase = `AliasProbe${suffix}`;
   await expectAccepted(
     'Alias baseline accepts first case variant',
     `INSERT INTO worklog_entity_aliases (source_id, entity_id, alias) VALUES (${ids.private1}, ${ids.entity1}, ${quote(aliasCaseBase)})`,
   );
-  await expectAccepted(
-    'Alias database currently allows case-only duplicate (observed behavior)',
+  cleanup.unshift(`DELETE FROM worklog_entity_aliases WHERE source_id = ${ids.private1} AND lower(alias) = lower(${quote(aliasCaseBase)})`);
+  await expectRejected(
+    'Alias case-only duplicate is rejected in the same Source',
     `INSERT INTO worklog_entity_aliases (source_id, entity_id, alias) VALUES (${ids.private1}, ${ids.entity1}, ${quote(aliasCaseBase.toLowerCase())})`,
   );
-  cleanup.unshift(`DELETE FROM worklog_entity_aliases WHERE source_id = ${ids.private1} AND lower(alias) = lower(${quote(aliasCaseBase)})`);
-
-  console.log('[OBSERVE] Entity/Alias uniqueness is case-sensitive in PostgreSQL; runtime matching is case-insensitive. This must be resolved before launch.');
+  await expectAccepted(
+    'Alias same spelling remains allowed in another Source',
+    `INSERT INTO worklog_entity_aliases (source_id, entity_id, alias) VALUES (${ids.private2}, ${ids.entity2}, ${quote(aliasCaseBase.toLowerCase())})`,
+  );
+  cleanup.unshift(`DELETE FROM worklog_entity_aliases WHERE source_id = ${ids.private2} AND lower(alias) = lower(${quote(aliasCaseBase)})`);
 }
 
 async function cleanupAll() {
@@ -200,4 +208,4 @@ try {
 }
 
 if (failed) process.exit(1);
-console.log('AFTERTRACE fresh PostgreSQL integrity probes passed; case-insensitive Entity/Alias collision remains an observed launch blocker.');
+console.log('AFTERTRACE fresh PostgreSQL integrity probes passed, including case-insensitive Source-scoped Entity/Alias uniqueness.');
