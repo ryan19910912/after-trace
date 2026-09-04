@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const packageJson = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'));
 const expectedPackageManager = String(packageJson.packageManager ?? '');
+const expectedPnpmVersion = /^pnpm@(.+)$/.exec(expectedPackageManager)?.[1] ?? null;
 
 const requiredFiles = [
   'pnpm-lock.yaml',
@@ -20,7 +21,15 @@ for (const relative of requiredFiles) {
   if (!existsSync(resolve(root, relative))) fail(`missing required release artifact: ${relative}`);
 }
 
-console.log(`AFTERTRACE release preflight using ${expectedPackageManager || 'configured pnpm'}`);
+if (!expectedPnpmVersion) {
+  fail(`package.json must pin pnpm via packageManager; found ${expectedPackageManager || '(missing)'}`);
+}
+const pnpmVersion = commandOutput('pnpm', ['--version']);
+if (pnpmVersion !== expectedPnpmVersion) {
+  fail(`pnpm version mismatch: package.json requires ${expectedPnpmVersion}, current executable is ${pnpmVersion || '(unknown)'}`);
+}
+
+console.log(`AFTERTRACE release preflight using pnpm@${pnpmVersion}`);
 
 run('Baseline / migration guard', 'node', ['scripts/check-worklog-baseline.mjs']);
 run('TypeScript typecheck', 'pnpm', ['typecheck']);
@@ -32,6 +41,18 @@ run('Drizzle schema export', 'pnpm', ['db:schema:check']);
 console.log('');
 console.log('AFTERTRACE local release preflight passed.');
 console.log('This does NOT apply database migrations, deploy Workers, or replace browser/LINE/Gemini runtime smoke checks.');
+
+function commandOutput(command, args) {
+  const result = spawnSync(command, args, {
+    cwd: root,
+    env: process.env,
+    encoding: 'utf8',
+    shell: process.platform === 'win32',
+  });
+  if (result.error) fail(`${command} could not start: ${result.error.message}`);
+  if (result.status !== 0) fail(`${command} ${args.join(' ')} failed with exit code ${result.status ?? 'unknown'}`);
+  return String(result.stdout ?? '').trim();
+}
 
 function run(label, command, args) {
   console.log('');
