@@ -3,9 +3,7 @@ import { sql } from 'drizzle-orm';
 import { verifyWebSessionToken } from '../auth/token';
 import { createDatabase, type Database } from '../db/client';
 import { DrizzleWorklogRecordReadRepository } from './drizzle-records';
-import { DrizzleWorklogUsageRepository } from './drizzle-usage';
 import { WorklogRecordReadService, type WorklogPwaSurfaces } from './records';
-import { WorklogUsageService } from './usage';
 
 export type WorklogRoutesBindings = {
   DATABASE_URL: string;
@@ -22,7 +20,6 @@ type WorklogRouteContext = {
   userId: number;
   database: Database;
   records: WorklogRecordReadService;
-  usage: WorklogUsageService;
 };
 
 type RecordFilter = {
@@ -434,15 +431,6 @@ export function createWorklogRoutes() {
     return c.json({ ok: true, revisions: result.rows });
   });
 
-  // Transitional aggregate usage endpoint. Grant/point display replaces this shape in
-  // the dedicated accounting batch; it is deliberately separate from manual CRUD.
-  app.get('/usage/me', async (c) => {
-    const context = await contextFor(c.env.DATABASE_URL, c.get('lineUserId'));
-    return context
-      ? c.json({ ok: true, usage: await context.usage.userUsage(context.userId) })
-      : c.json({ ok: false, error: 'WORKLOG_USER_NOT_FOUND' }, 404);
-  });
-
   app.post('/feedback', async (c) => {
     const context = await contextFor(c.env.DATABASE_URL, c.get('lineUserId'));
     if (!context) return c.json({ ok: false, error: 'WORKLOG_USER_NOT_FOUND' }, 404);
@@ -508,7 +496,6 @@ async function contextFor(
     userId,
     database,
     records: new WorklogRecordReadService(recordRepository),
-    usage: new WorklogUsageService(new DrizzleWorklogUsageRepository(database)),
   };
 }
 
