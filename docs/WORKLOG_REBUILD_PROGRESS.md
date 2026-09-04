@@ -15,38 +15,44 @@ Read first every run, in this order:
 
 The latest product/development documents above are the only product specification. Do not revive old Customer/Project/Finance/Owner/aggregate-quota assumptions from older code, migrations, or tests.
 
-## Current execution checkpoint — 2026-09-04 provider-cost point contract cleanup
+## Current execution checkpoint — 2026-09-04 Admin profitability reporting batch
 
-This batch continued immediately from the prior accounting checkpoint. It did not redo completed Source/Record/PWA/LINE/Grant/subscription-period work.
+This interactive batch continued immediately from the provider-cost AI-point accounting checkpoint. It did not redo the already-completed Source/Record/PWA/LINE/Grant/subscription-period rebuild.
 
-The main completed change is that customer AI accounting now has one coherent runtime contract:
+The main new result is the first end-to-end **factual Admin AI profitability/cost reporting workflow**:
 
-- durable provider usage snapshots no longer write or require `actualUnits`;
-- `WorklogAiUsageCommit` contains only factual provider usage/pricing/cost plus optional Record/workspace/operation attribution;
-- customer hold APIs now use `requestedPoints`, not `requestedUnits`;
-- actual customer points are always derived during settlement from immutable `providerCostUsd` and the frozen output-token reference price;
-- customer charge remains persisted only as `customer_points_charged`, with provider overrun separately recorded as `platform_subsidized_points`;
-- TEXT CREATE, attachment ingestion and Reply-targeted LINE AI EDIT new provider-result writes no longer serialize `actualUnits`;
-- TEXT and attachment durable replay parsers accept the new format and ignore any old prelaunch extra `actualUnits` field if present;
-- provider modality counters `audioInputUnits` / `imageInputUnits` remain because they are factual provider usage measurements, not customer quota/accounting units.
+- selectable `TODAY`, `7D`, `30D`, and `BILLING_MONTH` periods;
+- total AI request count and distinct charged users;
+- customer-charged AI points and platform-subsidized points;
+- immutable provider cost in USD and TWD where the historical pricing snapshot contained a TWD conversion;
+- platform-subsidy provider cost in USD/TWD;
+- average points and provider cost per request / charged user;
+- breakdowns by model, AI operation, and PRIVATE/GROUP Source type;
+- exact charged-point attribution by Grant type through `worklog_ai_usage_funding`;
+- current Grant inventory/exhaustion by Grant type;
+- explicit missing-TWD-cost request counts so unavailable historical FX conversion is not silently presented as zero cost;
+- realized revenue, AI cost ratio, and gross margin remain `null` because AFTERTRACE does not yet have a durable successful-payment revenue ledger. Plan list price and checkout intent status are deliberately not treated as realized revenue.
 
-A stale test contract was also found and corrected: `text-normalization-persistence.test.ts` still imported the removed aggregate-quota `WorklogTextNormalizationSubscriptionPort` and used `unitsReserved` / `remainingAiUnits`. It now uses the Grant-backed AI point port and point-reservation snapshot.
+The report is Admin-only, protected by the existing Admin session/origin boundary, and is mounted under `/api/v1/admin/profitability` before the general Admin route catch-all.
 
-Provider implementations still expose the internal method name `reservationUnits(...)` even though its return value is already an AI-point hold estimate. This is now a naming-only cleanup item; authoritative accounting and durable replay no longer depend on old unit semantics. Rename it coherently across all three provider interfaces/implementations/tests when convenient, but do not confuse `audioInputUnits` / `imageInputUnits` with customer AI points.
+An Admin Web page is also implemented at `/profitability`. It reuses the existing `aftertrace.admin.session`, provides the four period choices, surfaces summary metrics and breakdown tables, warns when TWD cost coverage is incomplete, and states clearly that revenue/margin are unavailable until a real successful-payment ledger exists.
 
 ## Scanned this run
 
 - all required durable product/development/deployment documents;
 - latest progress checkpoint and current `revive/line-worklog` branch;
-- `ai-provider-usage.ts`;
-- `ai-point-ledger.ts` and its test;
-- TEXT CREATE service/provider/repository/replay tests;
-- attachment service/provider/repository/replay tests;
-- Reply-targeted LINE AI EDIT service/repository/provider path;
-- transitional `subscription.ts` usage barrel;
-- stale persistence-uncertainty test contracts.
+- provider-cost/AI-point usage contract and durable replay paths from the prior checkpoint;
+- `apps/api/src/admin/repository.ts` and `grant-repository.ts`;
+- AI usage / Grant / checkout / Source Drizzle schemas;
+- Admin auth/presentation/routes and Worker route dispatch;
+- Admin Web API client and application entrypoint;
+- current payment/checkout state to verify that no durable successful-payment revenue fact exists yet.
+
+The scan reconfirmed that `worklog_checkout_intents` is an intent/provider-handoff table, not an accounting revenue ledger. Therefore profitability reporting must not infer revenue from `COMPLETED`, plan price, or current subscription rows until payment success facts and amounts are durably persisted under an approved payment lifecycle.
 
 ## Files changed this run
+
+Provider-cost point cleanup carried into this same interactive run:
 
 - `apps/api/src/worklog/ai-provider-usage.ts`
 - `apps/api/src/worklog/ai-point-ledger.ts`
@@ -59,47 +65,90 @@ Provider implementations still expose the internal method name `reservationUnits
 - `apps/api/src/worklog/text-normalization.test.ts`
 - `apps/api/src/worklog/attachment-ingestion.test.ts`
 - `apps/api/src/worklog/text-normalization-persistence.test.ts`
+
+Admin profitability batch:
+
+- `apps/api/src/admin/profitability.ts` — new factual reporting repository/window contract
+- `apps/api/src/admin/profitability.test.ts` — period/window tests
+- `apps/api/src/admin/profitability-routes.ts` — new read-only authenticated Admin endpoint
+- `apps/api/src/admin/profitability-routes.test.ts` — auth/origin/period validation tests
+- `apps/api/src/worker.ts` — mounts profitability route before general Admin route
+- `apps/admin/src/api.ts` — profitability API types/client
+- `apps/admin/src/profitability-api.test.ts` — client URL/bearer/response contract
+- `apps/admin/src/ProfitabilityPage.tsx` — selectable factual report UI
+- `apps/admin/src/main.tsx` — routes `/profitability` to the report page
 - `docs/WORKLOG_REBUILD_PROGRESS.md`
 
 ## Completed / confirmed this run
 
-### 1. `actualUnits` is removed from the provider-usage contract
+### 1. Provider usage and customer point accounting remain one coherent contract
 
-`WorklogAiUsageCommit.actualUnits` is gone. New TEXT, attachment and LINE EDIT durable provider usage snapshots contain provider facts such as:
+The preceding sub-batch in this same interactive run completed:
 
-- provider/model;
-- input/output tokens;
-- modality subsets where factual;
-- pricing snapshot;
-- provider USD/TWD cost;
-- operation/Record/workspace attribution where available.
+- `WorklogAiUsageCommit.actualUnits` removal;
+- `requestedUnits -> requestedPoints` on the Grant-backed point hold API;
+- TEXT CREATE / attachment / LINE EDIT new provider-result JSON no longer writes `actualUnits`;
+- TEXT and attachment replay no longer require `actualUnits`;
+- customer charge remains authoritative only as `worklog_ai_usage_events.customer_points_charged`;
+- provider overrun remains separate `platform_subsidized_points`/cost;
+- provider modality measurements `audioInputUnits` / `imageInputUnits` remain factual provider usage and are intentionally not renamed as customer points.
 
-The Grant ledger independently converts immutable provider cost to AI points when settling the reservation. There is no second mutable or replay-dependent customer-consumption value in provider-result JSON.
+Do not reintroduce an aggregate or duplicated "AI units consumed" fact.
 
-### 2. TEXT and attachment replay no longer depend on legacy unit JSON
+### 2. Factual period reporting is implemented
 
-`DrizzleWorklogTextNormalizationRepository` and `DrizzleWorklogAttachmentRepository` no longer parse or require `actualUnits`. This matters for Worker recovery after provider success when the provider result is durable but point settlement/application is unfinished.
+`DrizzleAdminProfitabilityRepository` supports:
 
-Old prelaunch JSON that contains an extra `actualUnits` property remains readable because the parsers ignore unknown extra fields. New JSON omits it.
+- `TODAY`: current Asia/Taipei calendar day;
+- `7D`: trailing 7 × 24 hours;
+- `30D`: trailing 30 × 24 hours;
+- `BILLING_MONTH`: platform-level current Asia/Taipei calendar month for this aggregate report.
 
-LINE EDIT durable replay already used the stored usage object without an `actualUnits`-specific parser; its new writes now also omit the field.
+The platform report cannot use one user's subscription anniversary as a global period. If a future per-subscriber cohort report needs subscription-period boundaries, implement that as a separate cohort view rather than silently changing this aggregate period.
 
-### 3. Customer hold APIs use point vocabulary
+### 3. Revenue is deliberately not synthesized
 
-The Grant-backed point ledger and TEXT/attachment/LINE EDIT callers now use `requestedPoints`. The repository layer already used `requestedPoints`, so the public execution contract now matches the actual ledger semantics.
+The report returns:
 
-The remaining provider method name `reservationUnits` is only an internal naming inconsistency. Its implementations already convert conservative provider-token/cost estimates into AI points before returning.
+- `revenueTwd = null`;
+- `realizedAiCostRatio = null`;
+- `realizedGrossMargin = null`;
+- `revenueStatus = UNAVAILABLE_NO_SUCCESSFUL_PAYMENT_FACT`.
 
-### 4. Stale aggregate-quota persistence test removed
+This is intentional and required by the pricing policy. Current tables do not contain a trustworthy successful-payment amount ledger. Do not multiply subscriber counts by plan price and call it revenue.
 
-`text-normalization-persistence.test.ts` no longer imports or constructs the removed subscription/aggregate-quota port. Its fixtures now use:
+When a payment provider is implemented, successful charge/renewal/top-up payment events should persist immutable external payment identity, successful amount/currency, provider/fee facts where available, timestamps, refund state and idempotency identity. Only then should this report calculate realized revenue/margin.
 
-- `WorklogTextNormalizationAiPointPort`;
-- `pointsReserved` / `pointsCommitted`;
-- `platformSubsidizedPoints`;
-- `requestedPoints`.
+### 4. TWD cost completeness is explicit
 
-The uncertainty rule is unchanged: if provider success may have happened but durable result persistence fails, do not release the hold and do not automatically call the provider again.
+`provider_cost_twd` and subsidy TWD cost may be NULL for historical events without a stored USD/TWD rate. The report therefore exposes:
+
+- `missingProviderCostTwdRequests`;
+- `missingSubsidyCostTwdRequests`;
+- per-breakdown `missingProviderCostTwdRequests`.
+
+The Admin page warns when these values are non-zero. USD provider cost remains the primary complete provider-cost fact. Do not interpret a missing TWD conversion as known zero cost.
+
+### 5. Report is Admin-only and read-only
+
+The new route:
+
+`GET /api/v1/admin/profitability?period=TODAY|7D|30D|BILLING_MONTH`
+
+uses the existing Admin HMAC bearer session and Admin Web origin restriction. Unsupported periods fail before persistence access. The route has no mutation surface and does not expose provider cost to normal customer PWA APIs.
+
+### 6. Admin Web report surface is implemented
+
+`/profitability`:
+
+- reuses the existing Admin session stored in `sessionStorage`;
+- checks `/session` before report loading;
+- allows period switching;
+- displays request/point/cost/user averages;
+- displays model / operation / PRIVATE-GROUP breakdown tables;
+- displays Grant-type charged points and Grant inventory;
+- warns about incomplete TWD conversion coverage;
+- explicitly explains that revenue/margin are unavailable until successful-payment facts exist.
 
 ## Stable completed foundation from earlier batches
 
@@ -126,118 +175,116 @@ Do not redo unless an actual regression is found:
 - GROUP charged-user resolution via `worklog_source_ai_responsibility`;
 - Grant-backed GROUP funding/allocation PWA;
 - Grant-backed PRIVATE funding PWA;
-- Admin customer/group usage reporting based on Grants/responsibility/provider-cost facts;
 - successful paid subscription period -> immutable/idempotent `SUBSCRIPTION_PERIOD` Grant with PRIVATE scope;
 - plan template uses `subscription_period_points` / `subscriptionPeriodPoints`, not live aggregate allowance naming;
-- Admin overview surfaces customer-charged points plus platform subsidy points/cost;
-- attachment usage operations are deterministic `AUDIO_RECORD_CREATE` / `IMAGE_RECORD_CREATE` / `FILE_RECORD_CREATE`;
-- retired `groupCollaboration`, `maxGroupCount`, aggregate entitlement/quota helper contracts removed from current entitlement/collaboration paths;
-- persisted `worklog_ai_usage_events.ai_units_consumed` removed from current source and executable settlement SQL.
+- persisted `worklog_ai_usage_events.ai_units_consumed` removed from current source and executable settlement SQL;
+- provider durable usage JSON no longer contains/requires `actualUnits`;
+- Admin user/group reporting based on Grants/responsibility/provider-cost facts;
+- attachment operations use deterministic `AUDIO_RECORD_CREATE` / `IMAGE_RECORD_CREATE` / `FILE_RECORD_CREATE`;
+- retired `groupCollaboration`, `maxGroupCount`, aggregate entitlement/quota helper contracts removed from current entitlement/collaboration paths.
 
 ## Remaining / blocking work
 
-### 1. Small provider naming / compatibility cleanup
+### 1. Small provider naming/direct-import cleanup
 
-Trace and coherently rename provider-only `reservationUnits(...)` to explicit point-estimate naming across:
+Provider interfaces/implementations still use the internal method name `reservationUnits(...)` although they already return an AI-point hold estimate. This is naming-only, not an alternate accounting path.
 
-- TEXT provider interface + Gemini implementation/tests;
-- attachment provider interface + Gemini implementation/tests;
-- LINE EDIT provider interface + Gemini implementation/tests.
+When cleaning it, rename coherently across TEXT, attachment and LINE EDIT provider interfaces/implementations/tests, e.g. `reservationPoints(...)` or another clearly point-specific name. Do not rename `audioInputUnits` / `imageInputUnits`.
 
-Also switch remaining `WorklogAiUsageCommit` imports from `subscription.ts` to `ai-provider-usage.ts` where practical. These are cleanup items, not alternate accounting sources.
+Also remove remaining `WorklogAiUsageCommit` imports through the transitional `subscription.ts` compatibility barrel when a touched file can safely import `ai-provider-usage.ts` directly.
 
-Do not rename `audioInputUnits` / `imageInputUnits`; they are provider modality usage facts.
+### 2. Focused stale-contract audit before schema regeneration
 
-### 2. Continue targeted stale-contract audit
+Continue checking peripheral files/tests for concrete remnants of:
 
-Check peripheral files for concrete remnants of:
-
-- Source Owner / owner binding;
+- Source Owner / owner binding as product authority;
 - `subscription_owner_user_id`;
-- aggregate quota/allowance as live balance;
+- aggregate quota/allowance as live customer balance;
 - `groupCollaboration` / `maxGroupCount`;
-- old Owner-controlled recording authorization;
+- old Owner-controlled group recording authorization;
 - Customer/Project/Transaction/category/normalized-summary Record assumptions;
-- tests or fixtures that still construct old subscription/quota reservation shapes.
+- stale aggregate quota reservation fixtures.
 
-Do not remove generic anomaly/audit fields named `category` or `summary`; those are unrelated to the obsolete Record model.
+Do not remove generic anomaly/audit `category` or `summary` fields; those are unrelated.
 
-### 3. Admin profitability reporting still needs the full factual workflow
+`worklog_workspaces.owner_user_id` remains a technical storage/bootstrap parent only. Do not treat it as product Owner/payment responsibility/AI 額度負責人. Removing the workspace parent is a coordinated later schema migration, not required to preserve current Source/member/Grant semantics.
 
-Current Admin Overview shows basic charged/subsidy/cost facts, but the accepted AI point policy still needs a selectable factual report:
+`worklog_source_members.recording_enabled` still exists as an AI-path member preference. It is not used for free manual PWA authorization. Trace its runtime use before deciding whether it is obsolete; do not delete it by assumption.
 
-- today / 7d / 30d / current billing month;
-- request count, charged points, subsidized points, provider USD/TWD cost;
-- charged-user / active-user averages and medians where factual and meaningful;
-- Grant utilization/exhaustion;
-- breakdowns by Grant type, factual plan association, model, operation/input type and PRIVATE/GROUP;
-- realized cost ratio/gross margin only when successful-payment revenue facts actually exist;
-- no synthetic revenue from plan list price.
+### 3. Profitability reporting follow-ups that need additional factual domains
+
+The new report covers current immutable AI usage/Grant facts. The following policy metrics cannot be completed truthfully yet without additional durable facts or an approved definition:
+
+- realized revenue / gross margin / payment fee cost;
+- FREE-to-paid conversion based on successful payment, not subscription/admin assignment alone;
+- top-up realized margin;
+- refunds/proration impact;
+- cohort monthly median per subscriber tied to actual successful billing periods.
+
+Do not invent these from plan price or current subscription state.
 
 ### 4. TOP_UP/payment lifecycle remains separate/unwired
 
-The Grant model supports `TOP_UP`, but no payment-provider success boundary exists yet. A future successful purchase must create one immutable/idempotent TOP_UP Grant keyed by external purchase identity.
+The Grant model supports `TOP_UP`, but no successful payment-provider boundary exists yet. A future successful purchase must create one immutable/idempotent TOP_UP Grant keyed by external purchase identity.
 
-Undefined mid-period upgrade/downgrade/refund/proration behavior must continue to fail closed until product policy explicitly defines it.
+Undefined mid-period upgrade/downgrade/refund/proration behavior continues to fail closed until product policy explicitly defines it.
 
-### 5. Transitional workspace storage parent remains technical-only
+### 5. Drizzle baseline/snapshot are stale — deployment remains blocked
 
-`worklog_workspaces.owner_user_id` remains a storage/bootstrap parent while Source/audit/provider-usage structures still reference `workspace_id`. It must not be used as GROUP access, payment responsibility or AI 額度負責人 authority.
+`drizzle/0000_worklog_baseline.sql`, `drizzle/meta/0000_snapshot.json`, and `_journal.json` do not represent the current TypeScript schema. The obsolete baseline still contains legacy domain/accounting structures from before the rebuild.
 
-Removing workspace requires a coordinated schema/bootstrap/audit/provider-usage migration and is not required before the accepted Source/member/Grant authorization model can function.
+Do not hand-fabricate the large Drizzle snapshot. Regenerate from a checked-out current branch with the actual project toolchain, then apply the resulting baseline to a fresh disposable PostgreSQL database.
 
-### 6. Drizzle baseline/snapshot are stale — deployment remains blocked
-
-`drizzle/0000_worklog_baseline.sql`, `drizzle/meta/0000_snapshot.json`, and the journal do not represent the current TypeScript schema. Do not hand-fabricate the large Drizzle snapshot.
-
-Regenerate from a checked-out current branch with the real project toolchain and apply to a fresh disposable PostgreSQL database before any Worker deployment.
-
-### 7. Real runtime validation is mandatory
+### 6. Real runtime validation is mandatory
 
 Before deployment execute locally/runtime, not GitHub Actions:
 
-- TypeScript typecheck/build;
-- Vitest suites for point ledger, text normalization, persistence uncertainty, attachment ingestion, LINE EDIT and stale-contract rewrites;
-- fresh disposable PostgreSQL migration;
+- TypeScript typecheck/build for API/Web/Admin;
+- Vitest for point ledger, text normalization/replay uncertainty, attachment ingestion, LINE EDIT, manual Record domain, subscription-period Grants, Admin profitability periods/routes/client;
+- fresh disposable PostgreSQL migration and schema drift check;
 - Grant reservation/settlement/subsidy/concurrency tests;
 - manual CRUD/version/revision/delete/restore tests;
-- CREATE/HISTORY/Reply EDIT and confirmation-operation tests;
+- CREATE/HISTORY/Reply EDIT and both confirmation-operation tests;
 - PRIVATE/GROUP funding authorization tests;
-- browser/PWA smoke;
+- Admin `/profitability` browser smoke;
+- customer PWA browser smoke;
 - LINE/Gemini runtime smoke as available;
 - Workers deployment-readiness checks from `WORKLOG_DEPLOYMENT.md`.
 
 ## Next implementation target
 
-Continue from this exact checkpoint. Do not redo `actualUnits` removal, `requestedPoints` conversion, subscription-period Grant creation, PWA funding, LINE edit confirmation UX or the removed persisted `ai_units_consumed` column.
+Continue from this exact checkpoint. Do not redo the Admin profitability repository/route/client/page, `actualUnits` removal, `requestedPoints` conversion, subscription-period Grant creation, PWA funding, or LINE edit confirmation UX.
 
-1. Finish the small provider `reservationUnits` naming/direct-import cleanup and focused stale-contract scan.
-2. Implement the first full Admin profitability reporting endpoint/view with selectable factual periods and cost/point/request/user/model/operation/Source-type breakdowns. Do not synthesize revenue.
-3. Regenerate Drizzle baseline/snapshot from the final schema with a real local toolchain and apply to disposable PostgreSQL.
-4. Run concentrated local/runtime validation. Only after those checks should Workers deployment readiness be reconsidered.
+1. Do one final focused provider/stale-contract cleanup (`reservationUnits` naming + safe direct imports + concrete obsolete remnants only).
+2. Obtain/use a real checked-out project toolchain; regenerate the prelaunch Drizzle baseline/snapshot/journal from the final TypeScript schema.
+3. Apply to a fresh disposable PostgreSQL database and fix every real schema/SQL mismatch found.
+4. Run API/Web/Admin typecheck/build and targeted/full Vitest locally/runtime.
+5. Run browser/Worker/LINE/Gemini smoke as available. Only after these checks should workers.dev deployment readiness be reconsidered.
 
 ## Validation status
 
 This batch performed static branch/document cross-file audit and GitHub source edits only.
 
-**Not executed:** TypeScript typecheck, build, Vitest, PostgreSQL, Drizzle generation/apply, browser/PWA runtime, Cloudflare Worker runtime, LINE runtime, Gemini runtime, or deployment.
+Test files were authored/updated, but **none were executed** in this environment.
+
+**Not executed:** TypeScript typecheck, build, Vitest, PostgreSQL, Drizzle generation/apply, browser/PWA/Admin runtime, Cloudflare Worker runtime, LINE runtime, Gemini runtime, or deployment.
 
 Therefore no test/build/runtime result is claimed as passing.
 
-A local checked-out project/toolchain was not available in this execution environment, so package scripts and migration generation were not executed. This was not substituted with GitHub Actions.
+A local checked-out project/toolchain is still unavailable in this execution environment; earlier direct GitHub clone/network resolution failed. This limitation was not substituted with GitHub Actions.
 
 No GitHub Actions workflow was executed, dispatched, rerun, enabled, modified, or used as validation.
 
 ## Deployment status
 
-**NOT READY.** Main blockers are stale Drizzle baseline/snapshot and lack of real local/PostgreSQL/runtime validation. Provider `reservationUnits` naming and the remaining stale-contract audit should also be cleaned before migration regeneration, but the authoritative AI point accounting/replay contract is now provider-cost/Grant-point based.
+**NOT READY.** Product/domain/manual PWA/LINE AI/Grant/subscription-period and the first factual Admin profitability surface are largely implemented. Main blockers are now the stale Drizzle baseline/snapshot and lack of actual PostgreSQL/typecheck/Vitest/runtime validation, plus one small stale-contract/provider naming cleanup pass before regeneration.
 
 ## Rough remaining work
 
 Planning-only estimate from the current branch state:
 
-- core Record/domain/manual PWA/LINE CREATE-HISTORY-EDIT/Grant funding/subscription-period behavior: largely implemented;
-- provider naming + stale-contract cleanup: **small focused cleanup**;
-- factual Admin profitability reporting: roughly **1 focused reporting batch**;
-- migration regeneration + disposable PostgreSQL + typecheck/Vitest/runtime smoke: **1 mandatory validation batch**;
-- real payment/TOP_UP and undefined proration/refund policy remain separate product/payment work unless launch scope later explicitly requires them.
+- core non-payment product implementation: largely implemented;
+- provider naming + final stale-contract cleanup: **small focused batch**;
+- Drizzle regeneration + disposable PostgreSQL fixes: **1 mandatory schema batch**;
+- API/Web/Admin typecheck/Vitest/browser/Worker/LINE/Gemini validation: **1 mandatory validation batch**;
+- real payment/TOP_UP plus undefined proration/refund policy remain separate payment/product work unless launch scope explicitly requires them.
