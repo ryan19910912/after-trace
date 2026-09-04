@@ -76,7 +76,7 @@ export interface WorklogAttachmentContentPort {
 
 export interface WorklogAttachmentProvider {
   /** Conservative customer-point hold estimate; a smaller positive balance may still start AI. */
-  reservationUnits(content: LineMessageContent, config: WorklogAiRuntimeConfigSnapshot): number;
+  reservationPoints(content: LineMessageContent, config: WorklogAiRuntimeConfigSnapshot): number;
   analyze(
     content: LineMessageContent,
     config: WorklogAiRuntimeConfigSnapshot,
@@ -161,7 +161,7 @@ export class WorklogAttachmentIngestionService {
         return { status: 'FAILED', reason: 'AI_RUNTIME_CONFIG_MISSING' };
       }
 
-      const requestedPoints = positiveInteger(this.provider.reservationUnits(content, config), 'requestedPoints');
+      const requestedPoints = positiveInteger(this.provider.reservationPoints(content, config), 'requestedPoints');
       const reservation = await this.aiPoints.reserveAi({
         chargedUserId,
         actorUserId,
