@@ -66,11 +66,12 @@ app.get('/health/ready', async (c) => {
     }, 503);
   }
 
+  const database = createDatabase(c.env.DATABASE_URL);
   try {
     // Probe multiple rebuilt-only tables/columns instead of merely checking connectivity
     // or worklog_users. The known stale pre-rebuild baseline also contains worklog_users,
     // so a single-table probe would produce a dangerous false-positive readiness result.
-    await createDatabase(c.env.DATABASE_URL).execute(sql`
+    await database.execute(sql`
       SELECT
         (SELECT COUNT(*) FROM worklog_users WHERE FALSE) AS users_probe,
         (SELECT COUNT(*) FROM worklog_entities WHERE FALSE) AS entities_probe,
@@ -88,6 +89,46 @@ app.get('/health/ready', async (c) => {
       product: 'worklog',
       status: 'not_ready',
       error: 'WORKLOG_DATABASE_OR_SCHEMA_UNAVAILABLE',
+    }, 503);
+  }
+
+  try {
+    // Schema readiness is not enough for this product: all shipped AI CREATE/EDIT/media
+    // paths require one DB-backed immutable-pricing source row. Fresh schema with no
+    // runtime config would otherwise report ready while every AI operation fails closed.
+    const runtime = await database.execute(sql`
+      SELECT provider, model, output_usd_per_million
+      FROM worklog_ai_runtime_config
+      WHERE id = 1
+      LIMIT 1
+    `);
+    const row = runtime.rows[0] as {
+      provider?: unknown;
+      model?: unknown;
+      output_usd_per_million?: unknown;
+    } | undefined;
+    const outputPrice = Number(row?.output_usd_per_million ?? 0);
+    if (
+      typeof row?.provider !== 'string'
+      || !row.provider.trim()
+      || typeof row.model !== 'string'
+      || !row.model.trim()
+      || !Number.isFinite(outputPrice)
+      || outputPrice <= 0
+    ) {
+      return c.json({
+        service: 'after-trace-api',
+        product: 'worklog',
+        status: 'not_ready',
+        error: 'AI_RUNTIME_CONFIG_NOT_INITIALIZED',
+      }, 503);
+    }
+  } catch {
+    return c.json({
+      service: 'after-trace-api',
+      product: 'worklog',
+      status: 'not_ready',
+      error: 'AI_RUNTIME_CONFIG_NOT_INITIALIZED',
     }, 503);
   }
 
