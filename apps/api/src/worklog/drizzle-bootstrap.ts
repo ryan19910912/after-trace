@@ -206,13 +206,12 @@ export class DrizzleWorklogBootstrapRepository implements WorklogBootstrapReposi
         source_id,
         user_id,
         is_active,
-        recording_enabled,
         first_seen_at,
         last_seen_at,
         created_at,
         updated_at
       )
-      VALUES (${sourceId}, ${userId}, ${isActive}, TRUE, ${at}, ${at}, ${at}, ${at})
+      VALUES (${sourceId}, ${userId}, ${isActive}, ${at}, ${at}, ${at}, ${at})
       ON CONFLICT (source_id, user_id) DO UPDATE
       SET
         is_active = CASE
