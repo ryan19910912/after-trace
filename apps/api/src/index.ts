@@ -132,6 +132,42 @@ app.get('/health/ready', async (c) => {
     }, 503);
   }
 
+  try {
+    // FREE has a frozen launch contract: it is a zero-price plan shell while the
+    // one-time 400k acquisition Grant is provisioned separately by bootstrap. Do not
+    // invent PRO/TEAM included-point values here; those remain explicit Admin config.
+    const free = await database.execute(sql`
+      SELECT price_twd, subscription_period_points, enabled
+      FROM worklog_subscription_plans
+      WHERE code = 'FREE'
+      LIMIT 1
+    `);
+    const row = free.rows[0] as {
+      price_twd?: unknown;
+      subscription_period_points?: unknown;
+      enabled?: unknown;
+    } | undefined;
+    if (
+      row?.enabled !== true
+      || Number(row.price_twd ?? -1) !== 0
+      || Number(row.subscription_period_points ?? -1) !== 0
+    ) {
+      return c.json({
+        service: 'after-trace-api',
+        product: 'worklog',
+        status: 'not_ready',
+        error: 'FREE_PLAN_NOT_INITIALIZED',
+      }, 503);
+    }
+  } catch {
+    return c.json({
+      service: 'after-trace-api',
+      product: 'worklog',
+      status: 'not_ready',
+      error: 'FREE_PLAN_NOT_INITIALIZED',
+    }, 503);
+  }
+
   return c.json({ service: 'after-trace-api', product: 'worklog', status: 'ready' });
 });
 
