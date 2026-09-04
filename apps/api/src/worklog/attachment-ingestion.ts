@@ -198,6 +198,10 @@ export class WorklogAttachmentIngestionService {
         outputUsdPerMillion: pricingSnapshot.outputUsdPerMillion,
       });
       const usage: WorklogAiUsageCommit = {
+        // The provider output has already been normalized to one of the durable Record
+        // input types, so operation classification is deterministic and does not need
+        // another AI call or legacy category/summary metadata.
+        operation: `${provider.output.inputType}_RECORD_CREATE`,
         // Transitional reporting field. The point ledger independently recomputes
         // actual customer points from immutable provider cost at settlement.
         actualUnits: actualPoints,
