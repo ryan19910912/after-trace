@@ -18,7 +18,10 @@ export type WorklogPendingConfirmation = {
   operation: 'CREATE_TITLE' | 'LINE_AI_EDIT';
   /** Complete proposed durable Record text for LINE_AI_EDIT; null for create-title confirmation. */
   proposedRawText: string | null;
+  /** Proposed occurred_at captured from the already-paid provider result. */
   occurredAt: Date;
+  /** Current durable Record occurred_at before a LINE_AI_EDIT confirmation is applied. */
+  recordOccurredAt: Date;
   expectedRecordVersion: number;
   candidates: WorklogConfirmationCandidate[];
   recordRawText: string;
