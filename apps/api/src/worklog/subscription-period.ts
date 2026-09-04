@@ -33,6 +33,10 @@ export interface WorklogSubscriptionPeriodRepository {
   getPlan(planCode: string): Promise<WorklogSubscriptionPlanTemplate | null>;
   getCurrentSubscription(userId: number): Promise<WorklogSubscriptionPeriodSnapshot | null>;
   getPrivateSourceId(userId: number): Promise<number | null>;
+  getGrantByOrigin(input: {
+    ownerUserId: number;
+    originKey: string;
+  }): Promise<WorklogSubscriptionPeriodGrantSnapshot | null>;
   assignPeriodAtomic(input: {
     userId: number;
     planCode: string;
@@ -94,38 +98,40 @@ export class WorklogSubscriptionPeriodService {
     const actor = input.actor?.trim() || null;
     if (input.source === 'ADMIN' && !actor) throw new Error('admin period assignment requires actor');
 
-    const now = validDate(input.effectiveAt ?? new Date(), 'effectiveAt');
+    const effectiveAt = validDate(input.effectiveAt ?? new Date(), 'effectiveAt');
     const current = await this.repository.getCurrentSubscription(userId);
-    const currentState = current ? evaluateSubscriptionPeriod(current, now) : 'NO_SUBSCRIPTION';
+    const currentState = current ? evaluateSubscriptionPeriod(current, new Date()) : 'NO_SUBSCRIPTION';
     if (current && currentState === 'ACTIVE') {
-      const requestedStart = input.currentPeriodStart ? validDate(input.currentPeriodStart, 'currentPeriodStart') : null;
-      const requestedEnd = input.currentPeriodEnd === undefined
-        ? undefined
-        : input.currentPeriodEnd === null
-          ? null
-          : validDate(input.currentPeriodEnd, 'currentPeriodEnd');
-      const samePlan = current.planCode === planCode;
-      const sameStart = requestedStart === null || requestedStart.getTime() === current.currentPeriodStart.getTime();
-      const sameEnd = requestedEnd === undefined || sameNullableDate(requestedEnd, current.currentPeriodEnd);
-      if (samePlan && sameStart && sameEnd) {
-        return { status: 'ASSIGNED', subscription: current, grant: null, idempotent: true };
+      if (current.planCode !== planCode) {
+        return { status: 'ACTIVE_PERIOD_CHANGE_POLICY_UNDEFINED', subscription: current };
       }
-      if (samePlan) return { status: 'ACTIVE_PERIOD_EXISTS', subscription: current };
-      return { status: 'ACTIVE_PERIOD_CHANGE_POLICY_UNDEFINED', subscription: current };
+
+      const retryGrant = await this.resolveActivePeriodRetry({
+        userId,
+        plan,
+        current,
+        source: input.source,
+        requestedStart: input.currentPeriodStart,
+        requestedEnd: input.currentPeriodEnd,
+      });
+      if (retryGrant !== undefined) {
+        return {
+          status: 'ASSIGNED',
+          subscription: current,
+          grant: retryGrant,
+          idempotent: true,
+        };
+      }
+      return { status: 'ACTIVE_PERIOD_EXISTS', subscription: current };
     }
 
-    const currentPeriodStart = validDate(input.currentPeriodStart ?? now, 'currentPeriodStart');
+    const currentPeriodStart = validDate(input.currentPeriodStart ?? effectiveAt, 'currentPeriodStart');
     const currentPeriodEnd = input.currentPeriodEnd === undefined
       ? (plan.priceTwd > 0 ? addOneCalendarMonth(currentPeriodStart) : null)
       : input.currentPeriodEnd === null
         ? null
         : validDate(input.currentPeriodEnd, 'currentPeriodEnd');
-    if (currentPeriodEnd !== null && currentPeriodEnd.getTime() <= currentPeriodStart.getTime()) {
-      throw new Error('subscription period end must be after period start');
-    }
-    if (plan.priceTwd > 0 && currentPeriodEnd === null) {
-      throw new Error('paid subscription period requires period end');
-    }
+    validatePeriod(plan, currentPeriodStart, currentPeriodEnd);
 
     const subscriptionPeriodPoints = nonNegativeInteger(plan.subscriptionPeriodPoints, 'subscriptionPeriodPoints');
     const createsPaidGrant = plan.priceTwd > 0 && subscriptionPeriodPoints > 0;
@@ -135,23 +141,20 @@ export class WorklogSubscriptionPeriodService {
     const originKey = createsPaidGrant
       ? subscriptionPeriodOriginKey({ userId, planCode, source: input.source, currentPeriodStart })
       : null;
-    const metadata = {
-      ...(input.metadata ?? {}),
-      grantPolicy: 'SUBSCRIPTION_PERIOD_V1',
+    const metadata = subscriptionPeriodMetadata({
+      metadata: input.metadata,
+      plan,
       planCode,
-      planDisplayName: plan.displayName,
-      priceTwd: plan.priceTwd,
-      includedAiPoints: subscriptionPeriodPoints,
-      periodStart: currentPeriodStart.toISOString(),
-      periodEnd: currentPeriodEnd?.toISOString() ?? null,
-    };
+      currentPeriodStart,
+      currentPeriodEnd,
+    });
 
     const assigned = await this.repository.assignPeriodAtomic({
       userId,
       planCode,
       source: input.source,
       actor,
-      effectiveAt: now,
+      effectiveAt,
       currentPeriodStart,
       currentPeriodEnd,
       privateSourceId,
@@ -161,6 +164,58 @@ export class WorklogSubscriptionPeriodService {
     });
     if (!assigned) return { status: 'PLAN_NOT_AVAILABLE' };
     return { status: 'ASSIGNED', ...assigned, idempotent: false };
+  }
+
+  private async resolveActivePeriodRetry(input: {
+    userId: number;
+    plan: WorklogSubscriptionPlanTemplate;
+    current: WorklogSubscriptionPeriodSnapshot;
+    source: WorklogSubscriptionSource;
+    requestedStart?: Date;
+    requestedEnd?: Date | null;
+  }): Promise<WorklogSubscriptionPeriodGrantSnapshot | null | undefined> {
+    const requestedStart = input.requestedStart === undefined
+      ? null
+      : validDate(input.requestedStart, 'currentPeriodStart');
+    const requestedEnd = input.requestedEnd === undefined
+      ? undefined
+      : input.requestedEnd === null
+        ? null
+        : validDate(input.requestedEnd, 'currentPeriodEnd');
+
+    // A retry must identify the exact active period. A plan-only ADMIN click is not
+    // enough evidence to infer that an old lifecycle row already has its frozen grant.
+    if (
+      requestedStart === null
+      || requestedStart.getTime() !== input.current.currentPeriodStart.getTime()
+      || requestedEnd === undefined
+      || !sameNullableDate(requestedEnd, input.current.currentPeriodEnd)
+    ) {
+      return undefined;
+    }
+
+    const points = nonNegativeInteger(input.plan.subscriptionPeriodPoints, 'subscriptionPeriodPoints');
+    if (input.plan.priceTwd <= 0 || points === 0) return null;
+
+    const originKey = subscriptionPeriodOriginKey({
+      userId: input.userId,
+      planCode: input.current.planCode,
+      source: input.source,
+      currentPeriodStart: input.current.currentPeriodStart,
+    });
+    const grant = await this.repository.getGrantByOrigin({
+      ownerUserId: input.userId,
+      originKey,
+    });
+    if (!grant) return undefined;
+    if (
+      grant.originalPoints !== points
+      || grant.effectiveAt.getTime() !== input.current.currentPeriodStart.getTime()
+      || !sameNullableDate(grant.expiresAt, input.current.currentPeriodEnd)
+    ) {
+      return undefined;
+    }
+    return grant;
   }
 }
 
@@ -193,6 +248,36 @@ export function addOneCalendarMonth(value: Date): Date {
   const lastDay = new Date(Date.UTC(result.getUTCFullYear(), result.getUTCMonth() + 1, 0)).getUTCDate();
   result.setUTCDate(Math.min(originalDay, lastDay));
   return result;
+}
+
+function subscriptionPeriodMetadata(input: {
+  metadata?: Record<string, unknown> | null;
+  plan: WorklogSubscriptionPlanTemplate;
+  planCode: string;
+  currentPeriodStart: Date;
+  currentPeriodEnd: Date | null;
+}): Record<string, unknown> {
+  return {
+    ...(input.metadata ?? {}),
+    grantPolicy: 'SUBSCRIPTION_PERIOD_V1',
+    planCode: input.planCode,
+    planDisplayName: input.plan.displayName,
+    priceTwd: input.plan.priceTwd,
+    includedAiPoints: nonNegativeInteger(input.plan.subscriptionPeriodPoints, 'subscriptionPeriodPoints'),
+    periodStart: input.currentPeriodStart.toISOString(),
+    periodEnd: input.currentPeriodEnd?.toISOString() ?? null,
+  };
+}
+
+function validatePeriod(
+  plan: WorklogSubscriptionPlanTemplate,
+  start: Date,
+  end: Date | null,
+): void {
+  if (end !== null && end.getTime() <= start.getTime()) {
+    throw new Error('subscription period end must be after period start');
+  }
+  if (plan.priceTwd > 0 && end === null) throw new Error('paid subscription period requires period end');
 }
 
 function sameNullableDate(left: Date | null, right: Date | null): boolean {
