@@ -1,11 +1,11 @@
-import type { WorklogAttachmentIngestionService } from './attachment-ingestion';
+import type { WorklogAttachmentRuntimePort } from './attachment-title-normalization';
 
-let current: WorklogAttachmentIngestionService | null = null;
+let current: WorklogAttachmentRuntimePort | null = null;
 
-export function configureWorklogAttachmentRuntime(service: WorklogAttachmentIngestionService | null): void {
+export function configureWorklogAttachmentRuntime(service: WorklogAttachmentRuntimePort | null): void {
   current = service;
 }
 
-export function worklogAttachmentRuntime(): WorklogAttachmentIngestionService | null {
+export function worklogAttachmentRuntime(): WorklogAttachmentRuntimePort | null {
   return current;
 }
