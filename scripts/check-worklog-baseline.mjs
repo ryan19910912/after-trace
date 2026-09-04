@@ -46,6 +46,13 @@ const required = [
   ['customer_points_charged', 'customer point charge fact'],
   ['platform_subsidized_points', 'platform subsidy fact'],
   ['worklog_line_ai_edits', 'durable Reply-targeted LINE edit state'],
+  ['worklog_entity_alias_source_entity_fk', 'Alias cannot point at an Entity from another Source'],
+  ['worklog_record_source_entity_fk', 'Record title Entity must belong to the same Source'],
+  ['worklog_ai_confirmation_source_record_fk', 'Pending Confirmation Record must belong to the same Source'],
+  ['worklog_ai_confirmation_source_entity_fk', 'Pending Confirmation candidate Entity must belong to the same Source'],
+  ['worklog_line_ai_edit_source_record_fk', 'LINE AI edit target Record must belong to the same Source'],
+  ['worklog_line_ai_edit_source_confirmation_fk', 'LINE AI edit confirmation must belong to the same Source'],
+  ['worklog_line_ai_edit_source_entity_fk', 'LINE AI edit applied Entity must belong to the same Source'],
 ];
 
 for (const [sourceName, source] of sources) {
