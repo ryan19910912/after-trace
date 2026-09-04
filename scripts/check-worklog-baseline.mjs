@@ -4,7 +4,14 @@ import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const baselinePath = resolve(root, 'drizzle/0000_worklog_baseline.sql');
-const baseline = readFileSync(baselinePath, 'utf8');
+const snapshotPath = resolve(root, 'drizzle/meta/0000_snapshot.json');
+const journalPath = resolve(root, 'drizzle/meta/_journal.json');
+
+const sources = [
+  ['baseline SQL', readFileSync(baselinePath, 'utf8')],
+  ['Drizzle snapshot', readFileSync(snapshotPath, 'utf8')],
+];
+const journalText = readFileSync(journalPath, 'utf8');
 
 const forbidden = [
   ['worklog_customers', 'legacy Customer table'],
@@ -35,18 +42,38 @@ const required = [
 ];
 
 const failures = [];
-for (const [marker, description] of forbidden) {
-  if (baseline.includes(marker)) failures.push(`forbidden: ${marker} (${description})`);
+for (const [sourceName, source] of sources) {
+  for (const [marker, description] of forbidden) {
+    if (source.includes(marker)) failures.push(`${sourceName} forbidden: ${marker} (${description})`);
+  }
+  for (const [marker, description] of required) {
+    if (!source.includes(marker)) failures.push(`${sourceName} missing: ${marker} (${description})`);
+  }
 }
-for (const [marker, description] of required) {
-  if (!baseline.includes(marker)) failures.push(`missing: ${marker} (${description})`);
+
+let journal;
+try {
+  journal = JSON.parse(journalText);
+} catch {
+  failures.push('Drizzle journal is not valid JSON');
+}
+if (journal) {
+  if (journal.dialect !== 'postgresql') failures.push('Drizzle journal dialect must be postgresql');
+  if (!Array.isArray(journal.entries) || journal.entries.length !== 1) {
+    failures.push('prelaunch Drizzle journal must contain exactly one regenerated baseline entry');
+  } else {
+    const entry = journal.entries[0];
+    if (entry?.idx !== 0 || entry?.tag !== '0000_worklog_baseline') {
+      failures.push('Drizzle journal baseline entry must be idx=0 and tag=0000_worklog_baseline');
+    }
+  }
 }
 
 if (failures.length > 0) {
-  console.error('AFTERTRACE migration baseline is stale and deployment must stop.');
+  console.error('AFTERTRACE migration baseline is stale/inconsistent and deployment must stop.');
   for (const failure of failures) console.error(`- ${failure}`);
-  console.error('Regenerate drizzle/0000_worklog_baseline.sql + meta snapshot/journal from apps/api/src/db/schema-all.ts, then apply it to a fresh disposable PostgreSQL database before deployment.');
+  console.error('Regenerate drizzle/0000_worklog_baseline.sql + meta snapshot/journal together from apps/api/src/db/schema-all.ts, then apply them to a fresh disposable PostgreSQL database before deployment.');
   process.exit(1);
 }
 
-console.log('AFTERTRACE Worklog baseline guard passed.');
+console.log('AFTERTRACE Worklog baseline + Drizzle metadata guard passed.');
