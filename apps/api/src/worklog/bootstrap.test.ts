@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   WorklogBootstrapService,
+  type WorklogAiResponsibilityClaimPort,
   type WorklogBootstrapRepository,
   type WorklogBootstrapUser,
   type WorklogBoundGroup,
@@ -16,7 +17,6 @@ class FakeRepository implements WorklogBootstrapRepository {
   boundGroups = new Map<string, WorklogBoundGroup>();
   boundMembers = new Map<string, boolean>();
   workspaceEnsureCalls: number[] = [];
-  promoteCalls: Array<Parameters<WorklogBootstrapRepository['promoteGroup']>[0]> = [];
   ensureGroupCalls: Array<{ lineGroupId: string; workspaceId: number }> = [];
 
   async upsertLineUser(input: Parameters<WorklogBootstrapRepository['upsertLineUser']>[0]) {
@@ -40,12 +40,12 @@ class FakeRepository implements WorklogBootstrapRepository {
     }
   }
 
-  async ensureWorkspace(ownerUserId: number) {
-    this.workspaceEnsureCalls.push(ownerUserId);
-    const existing = this.workspaces.get(ownerUserId);
+  async ensureWorkspace(userId: number) {
+    this.workspaceEnsureCalls.push(userId);
+    const existing = this.workspaces.get(userId);
     if (existing) return existing;
     const id = this.nextWorkspaceId++;
-    this.workspaces.set(ownerUserId, id);
+    this.workspaces.set(userId, id);
     return id;
   }
 
@@ -73,7 +73,6 @@ class FakeRepository implements WorklogBootstrapRepository {
       sourceId: this.nextSourceId++,
       lineGroupId,
       workspaceId,
-      ownerUserId: null,
       status: 'ACTIVE',
     };
     this.boundGroups.set(lineGroupId, created);
@@ -98,26 +97,27 @@ class FakeRepository implements WorklogBootstrapRepository {
     const bound = this.boundGroups.get(lineGroupId);
     if (bound) this.boundGroups.set(lineGroupId, { ...bound, status: 'INACTIVE' });
   }
+}
 
-  async promoteGroup(input: Parameters<WorklogBootstrapRepository['promoteGroup']>[0]) {
-    this.promoteCalls.push(input);
-    const existing = this.boundGroups.get(input.lineGroupId);
-    if (existing && existing.ownerUserId !== null && existing.ownerUserId !== input.ownerUserId) return null;
-    const source: WorklogBoundGroup = existing ?? {
-      sourceId: this.nextSourceId++,
-      lineGroupId: input.lineGroupId,
-      workspaceId: input.workspaceId,
-      ownerUserId: null,
-      status: 'ACTIVE',
-    };
-    const promoted: WorklogBoundGroup = {
-      ...source,
-      workspaceId: input.workspaceId,
-      ownerUserId: input.ownerUserId,
-      status: 'ACTIVE',
-    };
-    this.boundGroups.set(input.lineGroupId, promoted);
-    return promoted;
+class FakeAiResponsibility implements WorklogAiResponsibilityClaimPort {
+  responsibleBySource = new Map<number, number>();
+  claims: Array<{ sourceId: number; actorUserId: number; reason?: string }> = [];
+
+  async claim(input: Parameters<WorklogAiResponsibilityClaimPort['claim']>[0]) {
+    this.claims.push({
+      sourceId: input.sourceId,
+      actorUserId: input.actorUserId,
+      reason: input.reason,
+    });
+    const existing = this.responsibleBySource.get(input.sourceId);
+    if (existing === undefined) {
+      this.responsibleBySource.set(input.sourceId, input.actorUserId);
+      return { status: 'BOUND' as const, sourceId: input.sourceId, responsibleUserId: input.actorUserId };
+    }
+    if (existing === input.actorUserId) {
+      return { status: 'ALREADY_BOUND' as const, sourceId: input.sourceId, responsibleUserId: existing };
+    }
+    return { status: 'CONFLICT' as const, sourceId: input.sourceId };
   }
 }
 
@@ -175,7 +175,7 @@ describe('OA bootstrap', () => {
 });
 
 describe('group bootstrap', () => {
-  it('creates a durable active group Source immediately without assigning an AI responsible user', async () => {
+  it('creates a durable active group Source immediately without assigning AI responsibility', async () => {
     const repository = new FakeRepository();
     const service = new WorklogBootstrapService(repository);
 
@@ -185,13 +185,12 @@ describe('group bootstrap', () => {
       at: new Date('2026-09-02T01:00:00Z'),
     });
 
-    expect(result).toMatchObject({ status: 'BOUND', userId: 1, ownerUserId: null });
+    expect(result).toEqual({ status: 'BOUND', userId: 1, sourceId: 1000 });
     expect(repository.ensureGroupCalls).toHaveLength(1);
-    expect(repository.promoteCalls).toEqual([]);
     expect(repository.boundMembers.get(`${result.sourceId}:1`)).toBe(true);
   });
 
-  it('reuses the same unowned Source for later members instead of creating pending-group state', async () => {
+  it('reuses the same Source for later members without pending-group or Owner state', async () => {
     const repository = new FakeRepository();
     const service = new WorklogBootstrapService(repository);
 
@@ -199,70 +198,78 @@ describe('group bootstrap', () => {
     const second = await service.bootstrapGroupInteraction({ lineGroupId: 'C1', lineUserId: 'MEMBER-2' });
 
     expect(second.sourceId).toBe(first.sourceId);
-    expect(second.ownerUserId).toBeNull();
     expect(repository.ensureGroupCalls).toHaveLength(1);
     expect(repository.boundMembers.get(`${first.sourceId}:1`)).toBe(true);
     expect(repository.boundMembers.get(`${first.sourceId}:2`)).toBe(true);
   });
 
-  it('assigns AI responsibility later without changing Source identity', async () => {
+  it('claims AI responsibility later without changing Source identity', async () => {
     const repository = new FakeRepository();
-    const service = new WorklogBootstrapService(repository);
+    const responsibility = new FakeAiResponsibility();
+    const service = new WorklogBootstrapService(repository, undefined, responsibility);
 
     const source = await service.bootstrapGroupInteraction({ lineGroupId: 'C1', lineUserId: 'MEMBER' });
-    const result = await service.bindGroupOwner({
+    const result = await service.claimGroupAiResponsibility({
       lineGroupId: 'C1',
-      ownerLineUserId: 'OWNER',
+      lineUserId: 'RESPONSIBLE',
       evidence: 'EXPLICIT_CLAIM',
       at: new Date('2026-09-02T02:00:00Z'),
     });
 
-    expect(result).toMatchObject({ status: 'BOUND', sourceId: source.sourceId, ownerUserId: 2 });
-    expect(repository.promoteCalls[0]?.bindingMethod).toBe('EXPLICIT_CLAIM');
+    expect(result).toEqual({ status: 'BOUND', sourceId: source.sourceId, responsibleUserId: 2 });
+    expect(responsibility.claims).toEqual([{
+      sourceId: source.sourceId,
+      actorUserId: 2,
+      reason: 'EXPLICIT_CLAIM',
+    }]);
     expect(repository.boundMembers.get(`${source.sourceId}:1`)).toBe(true);
     expect(repository.boundMembers.get(`${source.sourceId}:2`)).toBe(true);
   });
 
-  it('never reassigns an already-owned group to a different active responsible user', async () => {
+  it('does not replace an existing AI responsible user with another claimant', async () => {
     const repository = new FakeRepository();
-    const service = new WorklogBootstrapService(repository);
+    const responsibility = new FakeAiResponsibility();
+    const service = new WorklogBootstrapService(repository, undefined, responsibility);
 
-    const first = await service.bindGroupOwner({
+    const first = await service.claimGroupAiResponsibility({
       lineGroupId: 'C1',
-      ownerLineUserId: 'OWNER-1',
+      lineUserId: 'RESPONSIBLE-1',
       evidence: 'RELIABLE_JOIN_ACTOR',
     });
-    const second = await service.bindGroupOwner({
+    const second = await service.claimGroupAiResponsibility({
       lineGroupId: 'C1',
-      ownerLineUserId: 'OWNER-2',
+      lineUserId: 'RESPONSIBLE-2',
       evidence: 'EXPLICIT_CLAIM',
     });
 
-    expect(first.status).toBe('BOUND');
-    expect(second).toMatchObject({ status: 'OWNER_CONFLICT', ownerUserId: 1 });
-    expect(repository.promoteCalls).toHaveLength(2);
+    expect(first).toMatchObject({ status: 'BOUND', responsibleUserId: 1 });
+    expect(second).toEqual({ status: 'RESPONSIBILITY_CONFLICT', sourceId: first.sourceId });
+    expect(responsibility.responsibleBySource.get(first.sourceId)).toBe(1);
+  });
+
+  it('fails closed when AI responsibility infrastructure is not configured', async () => {
+    const repository = new FakeRepository();
+    const service = new WorklogBootstrapService(repository);
+
+    await expect(service.claimGroupAiResponsibility({
+      lineGroupId: 'C1',
+      lineUserId: 'RESPONSIBLE',
+      evidence: 'EXPLICIT_CLAIM',
+    })).rejects.toThrow(/responsibility service is not configured/);
   });
 
   it('reactivates a known member without changing recording permission semantics', async () => {
     const repository = new FakeRepository();
     const service = new WorklogBootstrapService(repository);
-    const group = await service.bootstrapGroupInteraction({ lineGroupId: 'C1', lineUserId: 'OWNER' });
+    const group = await service.bootstrapGroupInteraction({ lineGroupId: 'C1', lineUserId: 'MEMBER-1' });
 
-    await service.setGroupMemberPresence({
-      lineGroupId: 'C1',
-      lineUserId: 'MEMBER',
-      isActive: false,
-    });
-    await service.setGroupMemberPresence({
-      lineGroupId: 'C1',
-      lineUserId: 'MEMBER',
-      isActive: true,
-    });
+    await service.setGroupMemberPresence({ lineGroupId: 'C1', lineUserId: 'MEMBER-2', isActive: false });
+    await service.setGroupMemberPresence({ lineGroupId: 'C1', lineUserId: 'MEMBER-2', isActive: true });
 
     expect(repository.boundMembers.get(`${group.sourceId}:2`)).toBe(true);
   });
 
-  it('reactivates the existing Source after a group leave without requiring an AI responsible user', async () => {
+  it('reactivates the existing Source after group leave without AI responsibility', async () => {
     const repository = new FakeRepository();
     const service = new WorklogBootstrapService(repository);
     const group = await service.bootstrapGroupInteraction({ lineGroupId: 'C1', lineUserId: 'MEMBER' });
@@ -276,12 +283,7 @@ describe('group bootstrap', () => {
       at: new Date('2026-09-02T04:00:00Z'),
     });
 
-    expect(rejoined).toEqual({
-      status: 'BOUND',
-      userId: 1,
-      sourceId: group.sourceId,
-      ownerUserId: null,
-    });
+    expect(rejoined).toEqual({ status: 'BOUND', userId: 1, sourceId: group.sourceId });
     expect(repository.boundGroups.get('C1')?.status).toBe('ACTIVE');
   });
 });
