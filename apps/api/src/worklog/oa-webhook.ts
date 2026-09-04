@@ -8,9 +8,10 @@ import {
 import { parseWorklogCommand } from './command';
 import type { WorklogHistoryFilters } from './history-navigation';
 import type { WorklogOaRuntime, WorklogOaRuntimeResult } from './oa-runtime';
+import type { WorklogBotReplyTargetPort, WorklogSentReply } from './group-webhook';
 
 export interface WorklogOaReplyPort {
-  reply(replyToken: string, text: string): Promise<void>;
+  reply(replyToken: string, text: string): Promise<void | WorklogSentReply>;
 }
 
 export type WorklogOaWebhookCounters = {
@@ -69,9 +70,10 @@ async function replySafely(input: {
   lineMessageId: string;
   webhookEventId: string | null;
   counters: WorklogOaWebhookCounters;
-}): Promise<void> {
+}): Promise<WorklogSentReply | null> {
   try {
-    await input.reply.reply(input.replyToken, input.text);
+    const result = await input.reply.reply(input.replyToken, input.text);
+    return result && Array.isArray(result.sentMessageIds) ? result : null;
   } catch (error) {
     input.counters.oaErrors += 1;
     logMessageFailure(input, 'worklog_oa_reply_failed', error);
@@ -83,6 +85,42 @@ async function replySafely(input: {
       requestRef: input.webhookEventId,
       metadata: { lineUserId: input.lineUserId },
     });
+    return null;
+  }
+}
+
+async function rememberReplyTargetSafely(input: {
+  target?: WorklogBotReplyTargetPort;
+  recordId: number;
+  sent: WorklogSentReply | null;
+  lineUserId: string;
+  lineMessageId: string;
+  webhookEventId: string | null;
+  anomalies?: WorklogAnomalyPort;
+  counters: WorklogOaWebhookCounters;
+}): Promise<void> {
+  const botLineMessageId = input.sent?.sentMessageIds[0]?.trim();
+  if (!input.target || !botLineMessageId) return;
+  try {
+    await input.target.rememberBotReplyTarget(input.recordId, botLineMessageId);
+  } catch (error) {
+    input.counters.oaErrors += 1;
+    logMessageFailure(input, 'worklog_oa_reply_target_persist_failed', error, {
+      recordId: input.recordId,
+      botLineMessageId,
+    });
+    await recordAnomalySafely(input.anomalies, {
+      category: 'LINE_OA_REPLY_TARGET',
+      errorCode: anomalyErrorCode(error, 'LINE_REPLY_TARGET_PERSIST_FAILED'),
+      summary: anomalyErrorSummary(error, 'LINE OA bot Reply target persistence failed'),
+      lineMessageId: input.lineMessageId,
+      requestRef: input.webhookEventId,
+      metadata: {
+        recordId: input.recordId,
+        botLineMessageId,
+        lineUserId: input.lineUserId,
+      },
+    });
   }
 }
 
@@ -90,6 +128,7 @@ export async function processWorklogOaWebhook(input: {
   parsed: ParsedOaWebhook;
   runtime: Pick<WorklogOaRuntime, 'handleLifecycle' | 'handleMessage'>;
   reply: WorklogOaReplyPort;
+  replyTargets?: WorklogBotReplyTargetPort;
   anomalies?: WorklogAnomalyPort;
   createQueryUrl?: (target: WorklogPrivateQueryTarget) => Promise<string | null>;
 }): Promise<WorklogOaWebhookCounters> {
@@ -221,7 +260,7 @@ export async function processWorklogOaWebhook(input: {
       continue;
     }
 
-    await replySafely({
+    const sent = await replySafely({
       reply: input.reply,
       anomalies: input.anomalies,
       replyToken: message.replyToken,
@@ -231,6 +270,18 @@ export async function processWorklogOaWebhook(input: {
       webhookEventId: message.webhookEventId,
       counters,
     });
+    if (result.status === 'RECORDED') {
+      await rememberReplyTargetSafely({
+        target: input.replyTargets,
+        recordId: result.recordId,
+        sent,
+        lineUserId: message.lineUserId,
+        lineMessageId: message.lineMessageId,
+        webhookEventId: message.webhookEventId,
+        anomalies: input.anomalies,
+        counters,
+      });
+    }
   }
 
   return counters;
