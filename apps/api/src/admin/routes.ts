@@ -291,9 +291,14 @@ function planInput(codeRaw: string, body: Record<string, unknown>): AdminPlanInp
   const priceTwd = decimal(body.priceTwd, 'INVALID_PRICE_TWD');
   const rank = integer(body.rank, 'INVALID_PLAN_RANK', -100000, 100000);
   const enabled = boolean(body.enabled, 'INVALID_PLAN_ENABLED');
-  const aiAllowanceUnits = integer(body.aiAllowanceUnits, 'INVALID_AI_ALLOWANCE', 0, 2_000_000_000);
+  const subscriptionPeriodPoints = integer(
+    body.subscriptionPeriodPoints,
+    'INVALID_SUBSCRIPTION_PERIOD_POINTS',
+    0,
+    2_000_000_000,
+  );
   const capabilities = validateAdminCapabilities(body.capabilities);
-  return { code, displayName, priceTwd, rank, enabled, aiAllowanceUnits, capabilities };
+  return { code, displayName, priceTwd, rank, enabled, subscriptionPeriodPoints, capabilities };
 }
 
 function aiRuntimeInput(body: Record<string, unknown>): AdminAiRuntimeInput {
