@@ -12,7 +12,6 @@ class OrderingRepository implements WorklogBootstrapRepository {
     sourceId: 10,
     lineGroupId: 'C1',
     workspaceId: 20,
-    ownerUserId: null,
     status: 'ACTIVE',
   };
   groupEventAt = new Date('2026-09-02T10:00:00.000Z');
@@ -47,7 +46,6 @@ class OrderingRepository implements WorklogBootstrapRepository {
       this.memberActive = false;
     }
   }
-  async promoteGroup(): Promise<WorklogBoundGroup | null> { return this.group; }
 }
 
 describe('LINE lifecycle ordering', () => {
