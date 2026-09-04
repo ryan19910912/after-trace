@@ -14,6 +14,10 @@ export type WorklogPendingConfirmation = {
   candidateTitle: string | null;
   proposedName: string | null;
   reason: string | null;
+  /** CREATE_TITLE is the original AI-create ambiguity; LINE_AI_EDIT is an already-paid Reply edit. */
+  operation: 'CREATE_TITLE' | 'LINE_AI_EDIT';
+  /** Complete proposed durable Record text for LINE_AI_EDIT; null for create-title confirmation. */
+  proposedRawText: string | null;
   occurredAt: Date;
   expectedRecordVersion: number;
   candidates: WorklogConfirmationCandidate[];
@@ -82,9 +86,11 @@ export type WorklogConfirmationDecision =
  * Resolves already-paid/durable AI ambiguity without issuing another provider call.
  *
  * The repository owns the atomic DB guard: confirmation must still be PENDING and the
- * underlying Record must still be ACTIVE, unresolved and at the version captured when
- * the confirmation was created. This service only validates the deterministic user
- * decision and never performs AI or billing work.
+ * underlying Record must still be ACTIVE and at the version captured when the
+ * confirmation was created. CREATE title resolution additionally requires an unresolved
+ * Record; LINE AI edit resolution requires the exact pre-edit title/entity snapshot.
+ * This service only validates the deterministic user decision and never performs AI or
+ * billing work.
  */
 export class WorklogConfirmationService {
   constructor(private readonly repository: WorklogConfirmationRepository) {}
@@ -123,9 +129,6 @@ export class WorklogConfirmationService {
     const title = optionalTitle(input.decision.title);
     if (!title) {
       // The repository may still use the AI-proposed title when the caller omits one.
-      // Empty/whitespace text is intentionally represented as an empty string so the
-      // repository can fall back to proposed_name but reject a confirmation that has
-      // no proposal at all.
       return this.repository.resolveNewTitle({ ...base, title: '' });
     }
     return this.repository.resolveNewTitle({ ...base, title });
