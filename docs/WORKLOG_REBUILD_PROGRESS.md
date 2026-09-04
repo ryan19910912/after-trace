@@ -15,85 +15,121 @@ Read first every run, in this exact order:
 
 The latest documents above are the only product/development specification. Do not revive Customer/Project/Finance/Owner/aggregate-quota assumptions from legacy code, migrations, README history or old tests.
 
-## Current execution checkpoint — 2026-09-04 Admin pricing calculator + remaining launch UX
+## Current execution checkpoint — 2026-09-04 launch UX fixes + attachment title blocker audit
 
-This run continued from the remaining-work/fresh-bug audit. It did not redo completed Source/Entity/Record/PWA CRUD/LINE Reply EDIT/Grant accounting/Admin profitability/composite-FK work.
-
-The focus was the next explicit product gap that could be implemented safely without a local checkout: the Admin AI pricing recommendation calculator. A local Git clone was retried after reading all eight required documents and still failed with `Could not resolve host: github.com`, so large 40KB runtime/PWA files were deliberately not rewritten through whole-file GitHub API writes merely to perform small UX patches.
+This run continued from the Admin pricing-calculator checkpoint and focused only on launch-facing gaps that could be proven from current source. It did not redo completed Source/Entity/Record/PWA CRUD/Grant accounting/Admin profitability/composite-FK work.
 
 ## Scanned this run
 
 - all eight required durable documents in exact required order;
-- latest `revive/line-worklog` checkpoint;
-- Admin runtime pricing contract and existing `AdminApi.aiRuntime()` surface;
-- existing `/profitability` standalone Admin route pattern;
-- pricing policy formula and 40% subscription / 50% one-time planning defaults;
-- Admin Worker SPA/deployment helper deep-link checks;
-- PWA version-conflict policy and LINE raw-first normalization result contract for next-batch planning.
+- latest `revive/line-worklog` branch/checkpoint;
+- PWA shared API response/error handling and optimistic version-conflict behavior;
+- GROUP and PRIVATE LINE raw-first TEXT CREATE normalization result handling;
+- text-normalization result/state contract;
+- GROUP and PRIVATE attachment success path;
+- attachment provider output, durable Record persistence and Worker runtime wiring;
+- `DrizzleWorklogTextNormalizationRepository` eligibility/context loading;
+- current readiness provider/model contract;
+- GROUP/PRIVATE runtime test sources.
 
 ## Files changed this run
 
-Admin pricing calculator:
+Customer Web:
 
-- `apps/admin/src/PricingCalculatorPage.tsx` — new standalone Admin page;
-- `apps/admin/src/pricing-calculator.ts` — new pure planning formula;
-- `apps/admin/src/pricing-calculator.test.ts` — new source tests;
-- `apps/admin/src/main.tsx` — routes `/pricing-calculator`;
-- `admin-worker-deploy.ps1` — verifies `/pricing-calculator` SPA deep link when an expected Admin URL is supplied.
+- `apps/web/src/worklog-api.ts`
+
+LINE runtime:
+
+- `apps/api/src/worklog/line-runtime.ts`
+- `apps/api/src/worklog/oa-runtime.ts`
+- `apps/api/src/worklog/line-runtime.test.ts`
+- `apps/api/src/worklog/oa-runtime.test.ts`
 
 Durable handoff:
 
-- `docs/WORKLOG_REBUILD_PROGRESS.md`.
+- `docs/WORKLOG_REBUILD_PROGRESS.md`
 
 ## Completed / fixed this run
 
-### 1. Admin pricing recommendation calculator is now implemented
+### 1. PWA stale Record mutations now recover instead of leaving a stale editor
 
-The pricing policy already required a planning calculator but the Admin previously only allowed operators to type the final plan point count manually.
+The backend already correctly rejects stale edit/move/delete/restore/batch mutations with `RECORD_VERSION_CONFLICT`, but the PWA previously surfaced the raw error while leaving stale UI state in place.
 
-New route:
+The shared customer API response parser now handles only the exact HTTP 409 `RECORD_VERSION_CONFLICT` case by:
 
-`/pricing-calculator`
+- telling the user another update already won;
+- reloading the current page so the latest Record/list/version is fetched;
+- preserving the backend's fail-closed optimistic-concurrency rule.
 
-The page:
+This applies consistently to edit, move, delete, restore and batch move without duplicating recovery logic across the large PWA component.
 
-- requires the existing Admin bearer session;
-- reads the current DB-backed AI runtime pricing snapshot through the existing Admin API;
-- uses current `output_usd_per_million` and `usd_twd_rate`;
-- accepts customer price in TWD;
-- accepts editable target gross margin;
-- defaults monthly subscription planning to 40% target gross margin;
-- defaults one-time/top-up planning to 50%;
-- calculates the maximum planned AI direct-cost budget;
-- converts that budget to USD;
-- converts USD budget into the frozen output-price-equivalent AI point basis;
-- floors the recommendation so the suggested point balance does not exceed the entered AI cost budget.
+401 Web-session recovery remains separate; 403 authorization errors and unrelated 409/5xx responses do not trigger this reload behavior.
 
-The calculator is **planning only**. It never updates a plan and never resizes any historical Grant. Admin must still explicitly enter/confirm the final `subscription_period_points` in plan management.
+### 2. PRIVATE LINE TEXT CREATE no longer claims full organization when title normalization is incomplete
 
-### 2. Pricing formula is isolated and testable
+PRIVATE raw-first CREATE still persists the user's original text before AI title/time interpretation.
 
-`pricing-calculator.ts` owns the pure calculation contract instead of duplicating arithmetic in JSX.
+The runtime now consumes the actual `WorklogTextNormalizationResult` instead of discarding it:
 
-It fails closed for:
+- `NORMALIZED` / `ALREADY_NORMALIZED` -> ordinary success reply;
+- `PENDING_CONFIRMATION` -> says raw text is saved and asks the user to finish title confirmation in AFTERTRACE;
+- `IN_PROGRESS` -> says raw text is saved and title processing is still running;
+- `DEFERRED`, `FAILED`, `NOT_ELIGIBLE`, skipped/exception/no normalizer -> says raw text is saved but the AI title is not finished and manual PWA organization remains available.
 
-- negative product price;
-- target margin below 0 or >= 100%;
-- missing/non-positive USD/TWD rate;
-- missing/non-positive output reference price;
-- non-finite results.
+No provider, reservation, settlement or Record persistence state machine was changed.
 
-Test source covers the subscription planning example, floor behavior, and invalid inputs. Tests were authored but not executed in this environment.
+### 3. GROUP LINE TEXT CREATE and cached Reply-to-TEXT use the same truthful normalization reply contract
 
-### 3. Admin deployment smoke includes the new deep link
+GROUP direct CREATE and GROUP cached Reply-to-TEXT now use the same result-aware reply behavior as PRIVATE.
 
-`admin-worker-deploy.ps1` now verifies:
+A Record that is durable but still has unresolved title interpretation is no longer presented to the LINE user as though title organization definitely completed.
 
-- `/`;
-- `/profitability`;
-- `/pricing-calculator`.
+Focused source tests now cover deferred-normalization user messaging for both PRIVATE and GROUP. These tests were authored/updated but were not executed in this environment.
 
-This catches a broken Workers Static Assets SPA fallback for the new standalone page.
+## New P0 source blocker discovered — attachment Records never enter title/time normalization
+
+This run traced the complete active attachment path and found a real functional gap:
+
+1. `GeminiWorklogAttachmentNormalizer` returns durable extracted/transcribed `raw_text` plus input-type metadata only.
+2. `DrizzleWorklogAttachmentRepository.persistRecordCreated()` creates the attachment Record with `entity_id = NULL` and the command/source timestamp.
+3. `WorklogAttachmentIngestionService` settles the attachment provider call and returns `RECORDED`.
+4. GROUP/OA attachment branches return that result directly.
+5. No post-attachment title/time normalization is invoked.
+
+Therefore a newly created AUDIO / IMAGE / PDF / text-file Record currently remains permanently `待確認` unless the user manually moves it to a title.
+
+The accepted product contract says AI-assisted attachment ingestion may determine the same single Record title and `occurred_at` under the normal title parsing rules, so this is a launch-facing functional blocker rather than optional polish.
+
+### Safe reuse path identified
+
+The existing title/time normalization repository already has the correct:
+
+- Source-scoped title/Alias matching;
+- fuzzy ambiguity confirmation;
+- durable confirmation flow;
+- GROUP AI responsible-user lookup;
+- PRIVATE charged-user lookup;
+- provider usage/point settlement;
+- version/entity safety checks.
+
+The only explicit eligibility blocker found is currently:
+
+`record.input_type = 'TEXT'`
+
+in `DrizzleWorklogTextNormalizationRepository.loadContext()`.
+
+A follow-up source patch should generalize that eligibility to the durable Record input types (`TEXT`, `AUDIO`, `IMAGE`, `FILE`) and invoke the existing title/time normalization after successful **new** attachment persistence. The normalization usage operation should also be renamed from the misleading hard-coded `TEXT_RECORD_CREATE` to a neutral title-normalization operation so attachment follow-up cost is not misclassified.
+
+Do not create a second title/Alias resolver or bypass Pending Confirmation merely for attachments.
+
+The likely initial implementation uses two provider calls for an attachment:
+
+- provider call 1: binary -> durable textual Record;
+- provider call 2: durable text -> single title / event time.
+
+Each call must retain its own actual provider usage and Grant-ledger settlement. This is more expensive than a future combined provider call but preserves the current auditable accounting and title-resolution invariants. A later optimization may combine the calls only with explicit equivalent usage/accounting tests.
+
+This repository change was **not** attempted through a risky whole-file GitHub contents rewrite in this environment because the DB repository is large and no local typecheck/runtime checkout is available.
 
 ## Stable completed foundation — do not redo without a concrete regression
 
@@ -101,9 +137,10 @@ This catches a broken Workers Static Assets SPA fallback for the new standalone 
 - DB-level Source identity and declared cross-Source protection;
 - free PWA manual CRUD/search/filter/title move/batch move/delete/recycle/restore/revision history;
 - GROUP manual authorization = active membership only;
-- optimistic Record version checks and stale Source/filter response generation guard;
+- optimistic Record version checks plus PWA stale-conflict recovery and stale Source/filter generation guard;
 - deterministic LINE HISTORY -> filtered PWA deep links;
 - deterministic Reply-targeted PRIVATE/GROUP LINE AI EDIT;
+- truthful raw-first TEXT normalization status replies;
 - FREE 400,000 one-time user Grant;
 - user-owned Grant scopes/caps + separate GROUP AI 額度負責人;
 - positive-balance preflight + final atomic reservation;
@@ -113,20 +150,24 @@ This catches a broken Workers Static Assets SPA fallback for the new standalone 
 - Admin factual profitability base report;
 - Admin separate audio/image pricing, FREE shell invariants, missing-TWD coverage, strong session/password handling;
 - Admin/runtime/readiness agree on currently shipped `GOOGLE + gemini-3.5-flash` contract;
+- Admin pricing recommendation calculator;
 - stale AI plan capability gates removed;
-- customer Help and README no longer describe Customer/Project/Finance/Owner/paid-group legacy behavior;
+- customer Help and README use the current Source/Grant/AI-responsibility model;
 - bounded LINE attachment streaming/no permanent binaries;
 - payment-disabled checkout fail-closed;
 - Export capability fail-closed until implemented;
 - safe baseline regeneration/guard scripts;
 - release preflight + liveness/readiness split + first-fresh-DB bootstrap mode;
 - explicit production migration database URL;
-- Web/Admin Static Assets SPA fallback/deep-link deployment checks;
-- Admin pricing recommendation calculator.
+- Web/Admin Static Assets SPA fallback/deep-link deployment checks.
 
-## P0 — blocks any real launch
+## P0 — blocks free/manual + AI-recording production launch
 
-### 1. Regenerate Drizzle baseline/snapshot/journal
+### 1. Complete attachment Record title/time normalization — newly confirmed source blocker
+
+Generalize the existing normalization pipeline to AUDIO/IMAGE/FILE durable text and invoke it after successful new attachment ingestion. Preserve the two-call cost/accounting facts until a separately validated one-call optimization exists.
+
+### 2. Regenerate Drizzle baseline/snapshot/journal
 
 The checked-in `drizzle/0000_worklog_baseline.sql` is still from the retired pre-rebuild world and MUST NOT be applied.
 
@@ -141,7 +182,7 @@ From a real current checkout:
 
 Do not hand-fabricate Drizzle metadata.
 
-### 2. Fresh PostgreSQL migration/integrity validation
+### 3. Fresh PostgreSQL migration/integrity validation
 
 Validate at minimum:
 
@@ -153,13 +194,14 @@ Validate at minimum:
 - reservation/usage funding mismatch rejection;
 - normal CRUD/revision/confirmation paths under constraints;
 - Grant reserve/commit/release/expire/subsidy/concurrency state;
+- attachment extract -> title-normalization sequence and accounting;
 - customer/Admin final-held-point reserved reporting.
 
-### 3. Entity/Alias case-insensitive collision behavior
+### 4. Entity/Alias case-insensitive collision behavior
 
 Runtime matching uses case-insensitive matching while current declared uniqueness is case-sensitive. Reproduce on real PostgreSQL before choosing expression-index/normalization/collation behavior.
 
-### 4. Run actual release validation
+### 5. Run actual release validation
 
 After fresh PostgreSQL is green:
 
@@ -168,42 +210,20 @@ After fresh PostgreSQL is green:
 - PWA CRUD/version/group membership/Source-switch/session browser smoke;
 - Admin plans/pricing calculator/AI pricing/Overview/Profitability/session browser smoke;
 - LINE Login/one-time entry;
-- PRIVATE/GROUP CREATE/HISTORY/Reply EDIT/confirmations;
-- LINE TEXT cache + image/audio/file expiry/202/size flows;
+- PRIVATE/GROUP TEXT CREATE/HISTORY/Reply EDIT/confirmations;
+- attachment image/audio/PDF/text-file extraction + title/time resolution + expiry/202/size flows;
 - real Gemini pricing/usage/point settlement;
 - Worker `/health` + `/health/ready`.
 
-## P1 — source/UX cleanup before a polished free/AI launch
+## P1 — useful polish after P0
 
-### 1. PWA version-conflict recovery
-
-Backend correctly returns `RECORD_VERSION_CONFLICT` and prevents stale overwrite. PWA should still improve recovery so a stale edit/move/delete/restore/batch action:
-
-- explains that another update won;
-- reloads the latest Record/list state;
-- closes or refreshes the stale editor instead of leaving the user with a raw error code.
-
-This is the next PWA source patch once a safe local patch workflow is available.
-
-### 2. LINE raw-first CREATE deferred-normalization messaging
-
-`WorklogTextNormalizationService.normalizeText()` already distinguishes `NORMALIZED`, `PENDING_CONFIRMATION`, `DEFERRED`, `IN_PROGRESS`, `FAILED`, etc.
-
-GROUP and PRIVATE runtimes still treat normalization as best-effort `void` and can reply as though the Record were fully organized even when the raw Record was saved but `entity_id` remains unresolved.
-
-Next patch should preserve the raw-first/ledger state machine and only improve reply text, for example:
-
-`原文已保存，AI 標題目前尚未完成，請稍後到 AFTERTRACE 查看或手動整理。`
-
-Do not redesign reservation ownership for this UX fix.
-
-### 3. Customer AI usage percentage/progress UI
+### 1. Customer AI usage percentage/progress UI
 
 Policy asks for used/remaining/total plus usage/remaining percentage/progress indicator. Current PWA shows point numbers and Grant rows but not a fully correct progress representation. Scope caps, expired Grants and lifetime usage must not be mixed into a misleading denominator.
 
-### 4. Admin main navigation shortcuts
+### 2. Admin main navigation shortcuts
 
-Standalone `/profitability` and `/pricing-calculator` routes exist. Main Admin navigation still needs convenient direct shortcuts; this is UX polish, not accounting or authorization debt.
+Standalone `/profitability` and `/pricing-calculator` routes exist. Main Admin navigation can still add convenient direct shortcuts; this is UX polish, not accounting or authorization debt.
 
 ## P2 — full paid MVP, separate from free/manual + AI-recording beta
 
@@ -216,32 +236,29 @@ Standalone `/profitability` and `/pricing-calculator` routes exist. Main Admin n
 
 ## Attachment coverage limitation
 
-Active provider path supports image, audio, PDF and text-like files with bounded input/output handling. DOCX/XLSX/legacy Office MIME types remain explicitly `ATTACHMENT_UNSUPPORTED`; adding them requires a validated parser or provider-native document path.
+Active provider path supports image, audio, PDF and text-like files with bounded input/output handling. DOCX/XLSX/legacy Office MIME types remain explicitly `ATTACHMENT_UNSUPPORTED`; this is a clear fail-closed limitation, not silent data corruption.
 
 ## Next implementation target
 
-If a real latest local checkout/toolchain becomes available, stop broad static refactoring and immediately:
+Highest priority next run:
 
-1. regenerate baseline;
-2. fix actual Drizzle/type errors;
-3. pass baseline guard;
-4. apply to fresh PostgreSQL;
-5. execute integrity/concurrency probes;
-6. initialize AI runtime config + FREE plan;
-7. run `pnpm release:preflight`;
-8. run customer/Admin/LINE/Gemini/Worker smoke.
+1. finish attachment title/time normalization reuse;
+2. obtain/use a real latest checkout with pinned pnpm/Drizzle;
+3. regenerate baseline immediately;
+4. fix actual TypeScript/Drizzle errors from the current schema;
+5. pass baseline guard;
+6. apply to fresh PostgreSQL and execute integrity/concurrency probes;
+7. initialize AI runtime config + FREE plan;
+8. run `pnpm release:preflight`;
+9. run customer/Admin/LINE/Gemini/Worker smoke.
 
-If local execution remains unavailable, next safe source batch is the remaining P1 UX work, preferably through a patch-capable checkout rather than whole-file rewrites of large runtime/PWA files.
+Do not broaden into speculative redesign before these launch blockers are closed.
 
 ## Validation status
 
-This run performed document/source audit plus direct GitHub source edits.
+This run performed document/source audit plus direct GitHub source edits only.
 
-A local clone was retried after the required document read and failed with:
-
-`Could not resolve host: github.com`
-
-Therefore there was no usable checked-out project/toolchain.
+No usable current local checkout/toolchain became available in this environment.
 
 Not executed:
 
@@ -259,7 +276,7 @@ Not executed:
 - LINE runtime;
 - Gemini runtime.
 
-New pricing tests are source contracts only until actually executed. No test/build/migration/runtime result is claimed as passing.
+Updated runtime tests are source contracts only until actually executed. No test/build/migration/runtime result is claimed as passing.
 
 No GitHub Actions workflow was executed, dispatched, rerun, enabled, modified, triggered or used as validation.
 
@@ -267,14 +284,14 @@ No GitHub Actions workflow was executed, dispatched, rerun, enabled, modified, t
 
 **NOT READY yet.**
 
-For the free/manual + AI-recording launch path, the remaining decisive blockers are migration generation, fresh PostgreSQL, real preflight and runtime smoke. The remaining P1 items are UX polish on top of already fail-closed data/accounting behavior.
+The source-level launch blocker list is now small and explicit: attachment title/time normalization, regenerated migration artifacts, fresh PostgreSQL validation, Entity/Alias collision decision, then real release/runtime smoke.
 
 ## Rough remaining work
 
 Assuming a current checkout/toolchain and disposable PostgreSQL become available:
 
+- attachment title/time normalization reuse + focused tests: **1 smaller source batch**;
 - baseline regeneration + generated-schema/type fixes: **1 substantial batch**;
 - fresh PostgreSQL/integrity/concurrency validation: **1 batch**;
-- release preflight + browser/LINE/Gemini/Workers smoke: **1 validation batch**;
-- remaining P1 UX cleanup: **1 smaller batch**;
+- release preflight + customer/Admin/LINE/Gemini/Workers smoke: **1 validation batch**;
 - Payment/TOP_UP/Export/full paid lifecycle: **separate product/payment batches**.
