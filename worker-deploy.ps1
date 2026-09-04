@@ -1,14 +1,14 @@
 param(
     [switch]$SkipInstall,
     [switch]$AllowDirty,
-    [switch]$AllowNonMain
+    [switch]$AllowNonMain,
+    [string]$WorkerUrl = $env:AFTERTRACE_API_URL
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $RepoRoot = $PSScriptRoot
-$WorkerUrl = 'https://after-trace-api.a0955625660.workers.dev'
 
 function Write-Step([string]$Message) {
     Write-Host ''
@@ -31,6 +31,15 @@ function Invoke-CommandChecked {
 Push-Location $RepoRoot
 try {
     Write-Host 'AFTERTRACE API Worker production deployment' -ForegroundColor Green
+
+    if (-not $WorkerUrl) {
+        throw 'AFTERTRACE_API_URL (or -WorkerUrl) is required. Do not hard-code a workers.dev account subdomain in the repository.'
+    }
+    $parsedWorkerUrl = $null
+    if (-not [Uri]::TryCreate($WorkerUrl, [UriKind]::Absolute, [ref]$parsedWorkerUrl) -or $parsedWorkerUrl.Scheme -ne 'https') {
+        throw "Invalid AFTERTRACE API Worker URL: $WorkerUrl"
+    }
+    $WorkerUrl = $WorkerUrl.TrimEnd('/')
 
     Invoke-CommandChecked 'Check Git branch' {
         $branch = (git branch --show-current).Trim()
@@ -75,6 +84,10 @@ try {
 
     Invoke-CommandChecked 'API Worker production build / dry-run' {
         pnpm --filter @aftertrace/api build
+    }
+
+    Invoke-CommandChecked 'Reject stale Worklog migration baseline' {
+        pnpm db:baseline:guard
     }
 
     Invoke-CommandChecked 'Drizzle schema check' {
