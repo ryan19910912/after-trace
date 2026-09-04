@@ -221,16 +221,23 @@ function launchConfigErrors(env: Bindings): string[] {
   required(env.LINE_CHANNEL_SECRET) || missing.push('LINE_CHANNEL_SECRET');
   required(env.LINE_CHANNEL_ACCESS_TOKEN) || missing.push('LINE_CHANNEL_ACCESS_TOKEN');
   required(env.GEMINI_API_KEY) || missing.push('GEMINI_API_KEY');
-  httpsUrl(env.WEB_APP_URL) || missing.push('WEB_APP_URL');
-  httpsUrl(env.WEB_APP_ORIGIN) || missing.push('WEB_APP_ORIGIN');
+
+  const webAppUrl = exactHttpsOrigin(env.WEB_APP_URL);
+  const webAppOrigin = exactHttpsOrigin(env.WEB_APP_ORIGIN);
+  if (!webAppUrl) missing.push('WEB_APP_URL');
+  if (!webAppOrigin) missing.push('WEB_APP_ORIGIN');
+  if (webAppUrl && webAppOrigin && webAppUrl !== webAppOrigin) {
+    missing.push('WEB_APP_URL', 'WEB_APP_ORIGIN');
+  }
+
   secret(env.WEB_AUTH_SECRET) || missing.push('WEB_AUTH_SECRET');
   required(env.LINE_LOGIN_CHANNEL_ID) || missing.push('LINE_LOGIN_CHANNEL_ID');
   required(env.LINE_LOGIN_CHANNEL_SECRET) || missing.push('LINE_LOGIN_CHANNEL_SECRET');
   required(env.ADMIN_USERNAME) || missing.push('ADMIN_USERNAME');
   required(env.ADMIN_PASSWORD) || missing.push('ADMIN_PASSWORD');
   secret(env.ADMIN_SESSION_SECRET) || missing.push('ADMIN_SESSION_SECRET');
-  httpsUrl(env.ADMIN_WEB_ORIGIN) || missing.push('ADMIN_WEB_ORIGIN');
-  return missing;
+  exactHttpsOrigin(env.ADMIN_WEB_ORIGIN) || missing.push('ADMIN_WEB_ORIGIN');
+  return [...new Set(missing)];
 }
 
 function required(value: string | undefined): boolean {
@@ -241,13 +248,24 @@ function secret(value: string | undefined): boolean {
   return Boolean(value?.trim() && value.trim().length >= 32);
 }
 
-function httpsUrl(value: string | undefined): boolean {
-  if (!value?.trim()) return false;
+function exactHttpsOrigin(value: string | undefined): string | null {
+  if (!value?.trim()) return null;
   try {
     const url = new URL(value.trim());
-    return url.protocol === 'https:' && Boolean(url.host) && url.pathname === '/';
+    if (
+      url.protocol !== 'https:'
+      || !url.host
+      || url.username
+      || url.password
+      || url.pathname !== '/'
+      || url.search
+      || url.hash
+    ) {
+      return null;
+    }
+    return url.origin;
   } catch {
-    return false;
+    return null;
   }
 }
 
