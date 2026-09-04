@@ -104,7 +104,7 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
         <strong className="subscription-price">
           {Number(plan.price_twd) <= 0 ? '免費' : `NT$ ${Number(plan.price_twd).toLocaleString('zh-TW')}`}
         </strong>
-        <p>AI 點數：{Number(plan.ai_allowance_units).toLocaleString('zh-TW')}</p>
+        <p>訂閱週期 AI 點數：{Number(plan.subscription_period_points).toLocaleString('zh-TW')}</p>
         <small>✓ 群組數量不限；手動 PWA 功能不依訂閱解鎖</small>
         {capabilitySummary(plan.capabilities).map((item) => <small key={item}>✓ {item}</small>)}
         <button
