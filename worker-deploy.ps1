@@ -2,7 +2,8 @@ param(
     [switch]$SkipInstall,
     [switch]$AllowDirty,
     [switch]$AllowNonMain,
-    [string]$WorkerUrl = $env:AFTERTRACE_API_URL
+    [string]$WorkerUrl = $env:AFTERTRACE_API_URL,
+    [string]$DatabaseUrl = $env:AFTERTRACE_PROD_DATABASE_URL
 )
 
 Set-StrictMode -Version Latest
@@ -28,6 +29,17 @@ function Invoke-CommandChecked {
     }
 }
 
+function Assert-PostgresUrl([string]$Value) {
+    if (-not $Value.Trim()) {
+        throw 'AFTERTRACE_PROD_DATABASE_URL (or -DatabaseUrl) is required for production migration. The deploy helper must never fall back to repository .env.local.'
+    }
+    $uri = $null
+    if (-not [Uri]::TryCreate($Value, [UriKind]::Absolute, [ref]$uri) -or ($uri.Scheme -ne 'postgresql' -and $uri.Scheme -ne 'postgres')) {
+        throw 'Production DatabaseUrl must be an absolute postgresql:// or postgres:// URL.'
+    }
+    return $Value.Trim()
+}
+
 Push-Location $RepoRoot
 try {
     Write-Host 'AFTERTRACE API Worker production deployment' -ForegroundColor Green
@@ -40,6 +52,7 @@ try {
         throw "Invalid AFTERTRACE API Worker URL: $WorkerUrl"
     }
     $WorkerUrl = $WorkerUrl.TrimEnd('/')
+    $DatabaseUrl = Assert-PostgresUrl $DatabaseUrl
 
     Invoke-CommandChecked 'Check Git branch' {
         $branch = (git branch --show-current).Trim()
@@ -64,9 +77,6 @@ try {
         git pull --ff-only
     }
 
-    # This guard needs only Node and checked-in artifacts, so run it before dependency
-    # installation/build/test. A known-stale prelaunch baseline should fail immediately
-    # instead of wasting a full release validation cycle before migration is rejected.
     Invoke-CommandChecked 'Reject stale Worklog migration baseline' {
         node scripts/check-worklog-baseline.mjs
     }
@@ -97,8 +107,17 @@ try {
         pnpm db:schema:check
     }
 
-    Invoke-CommandChecked 'Apply production DB migrations' {
-        pnpm --filter @aftertrace/api db:deploy:migrate
+    # Production migration must use an explicitly supplied production DB URL. Never let
+    # drizzle.config.ts silently fall back to local .env.local during a production deploy.
+    $previousDatabaseUrl = $env:DATABASE_URL
+    try {
+        $env:DATABASE_URL = $DatabaseUrl
+        Invoke-CommandChecked 'Apply production DB migrations' {
+            pnpm --filter @aftertrace/api db:deploy:migrate
+        }
+    }
+    finally {
+        $env:DATABASE_URL = $previousDatabaseUrl
     }
 
     Invoke-CommandChecked 'Deploy aftertrace-api Worker' {
@@ -117,7 +136,7 @@ try {
         $ready = Invoke-RestMethod "$WorkerUrl/health/ready" -Method Get
     }
     catch {
-        throw "Worker readiness check failed. Verify Worker vars/secrets and the regenerated Worklog database schema. $($_.Exception.Message)"
+        throw "Worker readiness check failed. Verify Worker vars/secrets, initialized FREE/AI runtime config, and the regenerated Worklog database schema. $($_.Exception.Message)"
     }
     if ($ready.status -ne 'ready') {
         throw "Worker readiness check failed: $($ready | ConvertTo-Json -Compress)"
