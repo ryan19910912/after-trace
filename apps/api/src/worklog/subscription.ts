@@ -1,11 +1,10 @@
 /**
- * Compatibility barrel while provider-usage imports are moved to ai-provider-usage.
+ * Subscription-period compatibility barrel.
  *
- * Subscription lifecycle now lives in subscription-period.ts. AI availability and
- * settlement live exclusively in the user-owned Grant/point ledger. Do not add quota,
- * entitlement, group-collaboration, or reservation logic back to this module.
+ * Subscription lifecycle lives in subscription-period.ts. AI provider usage and
+ * settlement belong to ai-provider-usage.ts and the user-owned Grant/point ledger;
+ * do not add quota, entitlement, group-collaboration, or reservation logic here.
  */
-export type { WorklogAiUsageCommit } from './ai-provider-usage';
 export {
   WorklogSubscriptionPeriodService,
   addOneCalendarMonth,
