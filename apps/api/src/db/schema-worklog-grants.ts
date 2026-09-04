@@ -2,6 +2,7 @@ import {
   bigint,
   bigserial,
   boolean,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -100,6 +101,9 @@ export const worklogAiGrantScopes = pgTable(
   },
   (table) => [
     uniqueIndex('worklog_ai_grant_scope_uq').on(table.grantId, table.sourceId),
+    // Composite funding FKs below use this key so a funding row cannot pair grant A
+    // with a scope owned by grant B.
+    uniqueIndex('worklog_ai_grant_scope_grant_id_uq').on(table.grantId, table.id),
     index('worklog_ai_grant_scope_source_enabled_idx').on(table.sourceId, table.enabled),
   ],
 );
@@ -192,9 +196,7 @@ export const worklogAiPointReservationFunding = pgTable(
     grantId: bigint('grant_id', { mode: 'number' })
       .notNull()
       .references(() => worklogAiGrants.id, { onDelete: 'restrict' }),
-    grantScopeId: bigint('grant_scope_id', { mode: 'number' })
-      .notNull()
-      .references(() => worklogAiGrantScopes.id, { onDelete: 'restrict' }),
+    grantScopeId: bigint('grant_scope_id', { mode: 'number' }).notNull(),
     pointsReserved: integer('points_reserved').notNull(),
     pointsCharged: integer('points_charged').default(0).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -203,6 +205,11 @@ export const worklogAiPointReservationFunding = pgTable(
   (table) => [
     uniqueIndex('worklog_ai_point_reservation_funding_uq').on(table.reservationId, table.grantId, table.grantScopeId),
     index('worklog_ai_point_reservation_funding_grant_idx').on(table.grantId, table.createdAt),
+    foreignKey({
+      columns: [table.grantId, table.grantScopeId],
+      foreignColumns: [worklogAiGrantScopes.grantId, worklogAiGrantScopes.id],
+      name: 'worklog_ai_point_reservation_funding_grant_scope_fk',
+    }).onDelete('restrict'),
   ],
 );
 
@@ -217,14 +224,17 @@ export const worklogAiUsageFunding = pgTable(
     grantId: bigint('grant_id', { mode: 'number' })
       .notNull()
       .references(() => worklogAiGrants.id, { onDelete: 'restrict' }),
-    grantScopeId: bigint('grant_scope_id', { mode: 'number' })
-      .notNull()
-      .references(() => worklogAiGrantScopes.id, { onDelete: 'restrict' }),
+    grantScopeId: bigint('grant_scope_id', { mode: 'number' }).notNull(),
     pointsCharged: integer('points_charged').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
     uniqueIndex('worklog_ai_usage_funding_uq').on(table.usageEventId, table.grantId, table.grantScopeId),
     index('worklog_ai_usage_funding_grant_idx').on(table.grantId, table.createdAt),
+    foreignKey({
+      columns: [table.grantId, table.grantScopeId],
+      foreignColumns: [worklogAiGrantScopes.grantId, worklogAiGrantScopes.id],
+      name: 'worklog_ai_usage_funding_grant_scope_fk',
+    }).onDelete('restrict'),
   ],
 );
