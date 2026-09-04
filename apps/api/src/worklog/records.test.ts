@@ -51,9 +51,13 @@ class FakeWriteRepository implements WorklogRecordWriteRepository {
     | { status: 'SOURCE_NOT_FOUND' } = { status: 'SOURCE_NOT_FOUND' };
   replyTarget: WorklogReplyEditTargetResolution = { status: 'NOT_FOUND' };
   replyTargetCalls: Array<{ sourceId: number; quotedLineMessageId: string }> = [];
+  botReplyTargetCalls: Array<{ recordId: number; botLineMessageId: string }> = [];
   cache = new Map<string, CachedLineText>();
 
   async insertTextRecord() { return this.result; }
+  async rememberBotReplyTarget(recordId: number, botLineMessageId: string) {
+    this.botReplyTargetCalls.push({ recordId, botLineMessageId });
+  }
   async resolveReplyEditTarget(sourceId: number, quotedLineMessageId: string) {
     this.replyTargetCalls.push({ sourceId, quotedLineMessageId });
     return this.replyTarget;
@@ -86,6 +90,17 @@ describe('WorklogRecordWriteService', () => {
     repository.result = { status: 'EXISTING', record: { id: 10, sourceId: 20, authorUserId: 3, lineMessageId: 'command-1', quotedLineMessageId: 'quoted-1', rawText: '原始文字' } };
     const service = new WorklogRecordWriteService(repository);
     await expect(service.recordQuotedText({ sourceId: 20, authorUserId: 3, lineMessageId: 'command-1', quotedLineMessageId: 'quoted-1', text: '原始文字' })).resolves.toEqual({ status: 'ALREADY_RECORDED', recordId: 10 });
+  });
+
+  it('persists a trimmed bot acknowledgement id as a deterministic future Reply target', async () => {
+    const repository = new FakeWriteRepository();
+    const service = new WorklogRecordWriteService(repository);
+
+    await service.rememberBotReplyTarget(10, ' 468789577898262530 ');
+
+    expect(repository.botReplyTargetCalls).toEqual([
+      { recordId: 10, botLineMessageId: '468789577898262530' },
+    ]);
   });
 
   it('delegates a bounded same-source Reply edit target lookup', async () => {
