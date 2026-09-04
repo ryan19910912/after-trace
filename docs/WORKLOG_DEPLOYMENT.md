@@ -130,12 +130,34 @@ Current checked-in migration files are:
 
 `apps/api/src/db/schema-all.ts` is the authoritative Drizzle schema export surface. `drizzle.config.ts` must point to that single export so newly split schema modules cannot be silently omitted and deleted compatibility modules cannot be retained.
 
+### Safe baseline regeneration
+
+Baseline generation is a schema-only operation and does **not** require `DATABASE_URL`. Database credentials are required only when a command actually connects to PostgreSQL, such as migration/apply validation.
+
+After confirming the repository is still prelaunch/disposable and there is no production migration history to preserve, regenerate with:
+
+```text
+pnpm db:baseline:regenerate --confirm-prelaunch-reset
+```
+
+`scripts/regenerate-worklog-baseline.mjs` is intentionally destructive but fail-closed:
+
+- it refuses to run without the explicit `--confirm-prelaunch-reset` flag;
+- it refuses to delete the migration directory if files other than the expected prelaunch `0000_worklog_baseline.sql` + two metadata files are present;
+- it backs up the entire current `drizzle` directory before deletion;
+- it generates from `apps/api/src/db/schema-all.ts` through the project-pinned Drizzle Kit;
+- it immediately runs `pnpm db:baseline:guard` logic against the generated artifacts;
+- if generation or guard validation fails, the previous `drizzle` directory is restored in full.
+
+Do not bypass these checks by manually deleting unexpected migrations. Unexpected migration files mean the prelaunch reset assumption must be reviewed first.
+
 Before any migration or API Worker deployment:
 
-1. Regenerate `0000_worklog_baseline.sql`, `meta/0000_snapshot.json`, and `_journal.json` together from the current `schema-all.ts` using the actual checked-out project toolchain.
-2. Run `pnpm db:baseline:guard`. It is intentionally expected to fail against the currently stale checked-in baseline and must pass only after all three generated artifacts agree with the accepted schema.
-3. Apply the regenerated baseline to a fresh disposable PostgreSQL database.
-4. Run schema drift / SQL validation and fix every real mismatch before treating the migration set as deployable.
+1. Regenerate `0000_worklog_baseline.sql`, `meta/0000_snapshot.json`, and `_journal.json` together using the safe command above.
+2. Inspect the generated diff and run `pnpm db:baseline:guard` again. The guard must see exactly one coherent prelaunch baseline and no retired Customer/Project/Transaction/category/aggregate-quota/recording markers.
+3. Configure `DATABASE_URL` for a **fresh disposable PostgreSQL database** and apply the regenerated baseline.
+4. Run schema drift / SQL validation and exercise the Grant reservation/settlement plus Record revision/confirmation paths against PostgreSQL.
+5. Only after database validation should the migration set be considered deployable.
 
 Do not hand-edit or fabricate Drizzle snapshot metadata merely to make the guard pass.
 
