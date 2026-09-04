@@ -41,7 +41,14 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
       }
       if (token) setData(await api.subscriptionPlans(token));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '方案載入失敗');
+      if (isSessionError(cause)) {
+        localStorage.removeItem(SESSION_KEY);
+        setSession(null);
+        setData(null);
+        setError('登入已過期，請重新使用 LINE 登入。');
+      } else {
+        setError(cause instanceof Error ? cause.message : '方案載入失敗');
+      }
     } finally {
       setBusy(false);
     }
@@ -60,7 +67,14 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
       }
       setNotice(intent.message || '付款服務目前無法使用，請稍後再試。');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '付款流程建立失敗');
+      if (isSessionError(cause)) {
+        localStorage.removeItem(SESSION_KEY);
+        setSession(null);
+        setData(null);
+        setError('登入已過期，請重新使用 LINE 登入。');
+      } else {
+        setError(cause instanceof Error ? cause.message : '付款流程建立失敗');
+      }
     } finally {
       setBusy(false);
     }
@@ -146,4 +160,9 @@ function capabilitySummary(value: Record<string, unknown>) {
   // subscription feature flags. Keep only independently shipped paid capabilities here.
   if (value.export === true) result.push('資料匯出');
   return result;
+}
+
+function isSessionError(cause: unknown): boolean {
+  const text = cause instanceof Error ? cause.message : String(cause ?? '');
+  return /INVALID_WEB_SESSION|WEB_SESSION_REQUIRED/.test(text);
 }
