@@ -1,6 +1,5 @@
 import type { WorklogTextNormalizationAiPointPort, WorklogAiRuntimeConfigSnapshot } from './text-normalization';
-import { providerCostToAiPoints } from './ai-points';
-import type { WorklogAiUsageCommit } from './subscription';
+import type { WorklogAiUsageCommit } from './ai-provider-usage';
 import type { WorklogReplyEditTarget } from './records';
 
 export type WorklogLineRecordEditOutput = {
@@ -208,7 +207,7 @@ export class WorklogLineRecordEditService {
       chargedUserId: context.chargedUserId,
       actorUserId: context.actorUserId,
       sourceId: context.sourceId,
-      requestedUnits: requestedPoints,
+      requestedPoints,
       ttlMs: 10 * 60_000,
     });
     if (reservation.status !== 'RESERVED') {
@@ -226,12 +225,7 @@ export class WorklogLineRecordEditService {
         (response.inputTokens / 1_000_000) * config.inputUsdPerMillion +
         (response.outputTokens / 1_000_000) * config.outputUsdPerMillion;
       const providerCostTwd = config.usdTwdRate === null ? null : providerCostUsd * config.usdTwdRate;
-      const actualPoints = providerCostToAiPoints({
-        providerCostUsd,
-        outputUsdPerMillion: config.outputUsdPerMillion,
-      });
       const usage: WorklogAiUsageCommit = {
-        actualUnits: actualPoints,
         workspaceId: context.workspaceId,
         recordId: context.recordId,
         operation: 'TEXT_RECORD_EDIT',
