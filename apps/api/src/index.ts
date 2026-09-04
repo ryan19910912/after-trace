@@ -214,22 +214,22 @@ app.post('/webhooks/line', async (c) => {
 
 function launchConfigErrors(env: Bindings): string[] {
   const missing: string[] = [];
-  required(env.DATABASE_URL) || missing.push('DATABASE_URL');
-  required(env.LINE_CHANNEL_SECRET) || missing.push('LINE_CHANNEL_SECRET');
-  required(env.LINE_CHANNEL_ACCESS_TOKEN) || missing.push('LINE_CHANNEL_ACCESS_TOKEN');
-  required(env.GEMINI_API_KEY) || missing.push('GEMINI_API_KEY');
+  if (!required(env.DATABASE_URL)) missing.push('DATABASE_URL');
+  if (!required(env.LINE_CHANNEL_SECRET)) missing.push('LINE_CHANNEL_SECRET');
+  if (!required(env.LINE_CHANNEL_ACCESS_TOKEN)) missing.push('LINE_CHANNEL_ACCESS_TOKEN');
+  if (!required(env.GEMINI_API_KEY)) missing.push('GEMINI_API_KEY');
   const webAppUrl = exactHttpsOrigin(env.WEB_APP_URL);
   const webAppOrigin = exactHttpsOrigin(env.WEB_APP_ORIGIN);
   if (!webAppUrl) missing.push('WEB_APP_URL');
   if (!webAppOrigin) missing.push('WEB_APP_ORIGIN');
   if (webAppUrl && webAppOrigin && webAppUrl !== webAppOrigin) missing.push('WEB_APP_URL', 'WEB_APP_ORIGIN');
-  secret(env.WEB_AUTH_SECRET) || missing.push('WEB_AUTH_SECRET');
-  required(env.LINE_LOGIN_CHANNEL_ID) || missing.push('LINE_LOGIN_CHANNEL_ID');
-  required(env.LINE_LOGIN_CHANNEL_SECRET) || missing.push('LINE_LOGIN_CHANNEL_SECRET');
-  required(env.ADMIN_USERNAME) || missing.push('ADMIN_USERNAME');
-  adminPassword(env.ADMIN_PASSWORD) || missing.push('ADMIN_PASSWORD');
-  secret(env.ADMIN_SESSION_SECRET) || missing.push('ADMIN_SESSION_SECRET');
-  exactHttpsOrigin(env.ADMIN_WEB_ORIGIN) || missing.push('ADMIN_WEB_ORIGIN');
+  if (!secret(env.WEB_AUTH_SECRET)) missing.push('WEB_AUTH_SECRET');
+  if (!required(env.LINE_LOGIN_CHANNEL_ID)) missing.push('LINE_LOGIN_CHANNEL_ID');
+  if (!required(env.LINE_LOGIN_CHANNEL_SECRET)) missing.push('LINE_LOGIN_CHANNEL_SECRET');
+  if (!required(env.ADMIN_USERNAME)) missing.push('ADMIN_USERNAME');
+  if (!adminPassword(env.ADMIN_PASSWORD)) missing.push('ADMIN_PASSWORD');
+  if (!secret(env.ADMIN_SESSION_SECRET)) missing.push('ADMIN_SESSION_SECRET');
+  if (!exactHttpsOrigin(env.ADMIN_WEB_ORIGIN)) missing.push('ADMIN_WEB_ORIGIN');
   return [...new Set(missing)];
 }
 
