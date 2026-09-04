@@ -105,12 +105,24 @@ try {
         pnpm --filter @aftertrace/api exec wrangler deploy
     }
 
-    Write-Step 'Verify API Worker health'
+    Write-Step 'Verify API Worker liveness'
     $health = Invoke-RestMethod "$WorkerUrl/health" -Method Get
     if ($health.status -ne 'ok') {
-        throw "Worker health check failed: $($health | ConvertTo-Json -Compress)"
+        throw "Worker liveness check failed: $($health | ConvertTo-Json -Compress)"
     }
-    Write-Host "API Worker health: $($health.status)" -ForegroundColor Green
+    Write-Host "API Worker liveness: $($health.status)" -ForegroundColor Green
+
+    Write-Step 'Verify API launch readiness'
+    try {
+        $ready = Invoke-RestMethod "$WorkerUrl/health/ready" -Method Get
+    }
+    catch {
+        throw "Worker readiness check failed. Verify Worker vars/secrets and the regenerated Worklog database schema. $($_.Exception.Message)"
+    }
+    if ($ready.status -ne 'ready') {
+        throw "Worker readiness check failed: $($ready | ConvertTo-Json -Compress)"
+    }
+    Write-Host "API Worker readiness: $($ready.status)" -ForegroundColor Green
 
     Write-Host ''
     Write-Host 'API Worker deployment completed successfully.' -ForegroundColor Green
