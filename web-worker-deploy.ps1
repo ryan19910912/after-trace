@@ -2,7 +2,7 @@ param(
     [switch]$SkipInstall,
     [switch]$AllowDirty,
     [switch]$AllowNonMain,
-    [string]$ApiOrigin = 'https://after-trace-api.a0955625660.workers.dev',
+    [string]$ApiOrigin = $env:AFTERTRACE_API_URL,
     [string]$ExpectedUrl = ''
 )
 
@@ -32,6 +32,9 @@ function Invoke-CommandChecked {
 }
 
 function Assert-HttpsOrigin([string]$Value, [string]$Name) {
+    if (-not $Value.Trim()) {
+        throw "$Name is required. Set AFTERTRACE_API_URL or pass -ApiOrigin explicitly."
+    }
     $uri = [Uri]$Value
     if ($uri.Scheme -ne 'https' -or -not $uri.Host) {
         throw "$Name must be an absolute https URL"
