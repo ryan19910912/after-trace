@@ -147,7 +147,8 @@ pnpm db:baseline:regenerate --confirm-prelaunch-reset
 - it backs up the entire current `drizzle` directory before deletion;
 - it generates from `apps/api/src/db/schema-all.ts` through the project-pinned Drizzle Kit;
 - it immediately runs `pnpm db:baseline:guard` logic against the generated artifacts;
-- if generation or guard validation fails, the previous `drizzle` directory is restored in full.
+- if **Drizzle generation itself** fails or leaves an unusable partial artifact set, the previous `drizzle` directory is restored in full;
+- if generation succeeds but the AFTERTRACE guard finds a real product/schema drift, the generated artifacts are intentionally **kept for inspection** while the command still exits non-zero and deployment remains blocked. Do not restore the known-stale baseline merely to hide that drift.
 
 Do not bypass these checks by manually deleting unexpected migrations. Unexpected migration files mean the prelaunch reset assumption must be reviewed first.
 
@@ -155,9 +156,10 @@ Before any migration or API Worker deployment:
 
 1. Regenerate `0000_worklog_baseline.sql`, `meta/0000_snapshot.json`, and `_journal.json` together using the safe command above.
 2. Inspect the generated diff and run `pnpm db:baseline:guard` again. The guard must see exactly one coherent prelaunch baseline and no retired Customer/Project/Transaction/category/aggregate-quota/recording markers.
-3. Configure `DATABASE_URL` for a **fresh disposable PostgreSQL database** and apply the regenerated baseline.
-4. Run schema drift / SQL validation and exercise the Grant reservation/settlement plus Record revision/confirmation paths against PostgreSQL.
-5. Only after database validation should the migration set be considered deployable.
+3. If the regeneration command stopped on a guard failure, inspect and fix the **kept generated artifacts/schema mismatch**, regenerate again, and do not continue to database apply until the guard passes.
+4. Configure `DATABASE_URL` for a **fresh disposable PostgreSQL database** and apply the regenerated baseline.
+5. Run schema drift / SQL validation and exercise the Grant reservation/settlement plus Record revision/confirmation paths against PostgreSQL.
+6. Only after database validation should the migration set be considered deployable.
 
 Do not hand-edit or fabricate Drizzle snapshot metadata merely to make the guard pass.
 
