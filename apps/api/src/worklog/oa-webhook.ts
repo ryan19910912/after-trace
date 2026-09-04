@@ -214,7 +214,11 @@ export async function processWorklogOaWebhook(input: {
       if (result.duplicate) counters.oaWorklogDuplicateRecords += 1;
     } else if (result.status === 'QUERY') {
       counters.oaWorklogQueries += 1;
-    } else {
+    } else if (
+      result.status !== 'EDITED'
+      && result.status !== 'EDIT_CONFIRMATION_PENDING'
+      && result.status !== 'EDIT_IN_PROGRESS'
+    ) {
       counters.oaWorklogRejected += 1;
     }
 
@@ -270,7 +274,7 @@ export async function processWorklogOaWebhook(input: {
       webhookEventId: message.webhookEventId,
       counters,
     });
-    if (result.status === 'RECORDED') {
+    if (result.status === 'RECORDED' || result.status === 'EDITED') {
       await rememberReplyTargetSafely({
         target: input.replyTargets,
         recordId: result.recordId,
