@@ -12,6 +12,7 @@ import {
   pgTable,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/pg-core';
@@ -110,7 +111,7 @@ export const worklogSources = pgTable(
   },
   (table) => [
     uniqueIndex('worklog_source_private_user_uq').on(table.privateUserId),
-    uniqueIndex('worklog_source_private_user_id_uq').on(table.privateUserId, table.id),
+    unique('worklog_source_private_user_id_uq').on(table.privateUserId, table.id),
     index('worklog_source_workspace_type_idx').on(table.workspaceId, table.type),
     check(
       'worklog_source_identity_shape_ck',
