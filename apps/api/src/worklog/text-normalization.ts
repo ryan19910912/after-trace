@@ -3,8 +3,7 @@ import type {
   AiPointReleaseResult,
   AiPointReservationResult,
 } from './ai-point-ledger';
-import { providerCostToAiPoints } from './ai-points';
-import type { WorklogAiUsageCommit } from './subscription';
+import type { WorklogAiUsageCommit } from './ai-provider-usage';
 
 /**
  * Persisted interpretation for a newly-created LINE text Record.
@@ -113,7 +112,7 @@ export interface WorklogTextNormalizationAiPointPort {
     chargedUserId: number;
     actorUserId: number;
     sourceId?: number | null;
-    requestedUnits: number;
+    requestedPoints: number;
     at?: Date;
     ttlMs?: number;
   }): Promise<AiPointReservationResult>;
@@ -197,7 +196,7 @@ export class WorklogTextNormalizationService {
       chargedUserId: context.chargedUserId,
       actorUserId: context.actorUserId,
       sourceId: context.sourceId,
-      requestedUnits: requestedPoints,
+      requestedPoints,
       ttlMs: 10 * 60_000,
     });
     if (reservation.status !== 'RESERVED') {
@@ -218,14 +217,7 @@ export class WorklogTextNormalizationService {
       const providerCostTwd = config.usdTwdRate === null
         ? null
         : providerCostUsd * config.usdTwdRate;
-      const actualPoints = providerCostToAiPoints({
-        providerCostUsd,
-        outputUsdPerMillion: config.outputUsdPerMillion,
-      });
       const usage: WorklogAiUsageCommit = {
-        // Transitional field retained for old reporting only. The grant ledger settles
-        // from immutable provider cost and output reference price, not from this value.
-        actualUnits: actualPoints,
         workspaceId: context.workspaceId,
         recordId: context.recordId,
         operation: 'TEXT_RECORD_CREATE',
