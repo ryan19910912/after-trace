@@ -7,6 +7,8 @@ import type {
   WorklogPendingConfirmation,
 } from './confirmations';
 
+type PendingOperation = WorklogPendingConfirmation['operation'];
+
 type PendingState = {
   id: number;
   sourceId: number;
@@ -16,22 +18,29 @@ type PendingState = {
   candidateEntityId: number | null;
   proposedName: string | null;
   reason: string | null;
+  operation: PendingOperation;
+  proposedRawText: string | null;
   occurredAt: Date;
   expectedRecordVersion: number;
+  previousEntityId: number | null;
+  lineEditId: number | null;
   candidates: WorklogConfirmationCandidate[];
   recordRawText: string;
+  currentOccurredAt: Date;
+  currentEntityId: number | null;
   recordEligible: boolean;
   expiresAt: Date | null;
   createdAt: Date;
 };
 
 /**
- * Safe durable resolver for already-paid AI title ambiguity.
+ * Safe durable resolver for already-paid AI ambiguity.
  *
- * It never calls AI. Existing-title resolution performs Record mutation first inside a
- * single SQL statement and only then persists an Alias/CONFIRMED state, so a stale
- * Record cannot leave behind a new Alias. New-title creation uses guarded mutation and
- * removes a just-created unused Entity if a concurrent Record change wins the race.
+ * CREATE_TITLE confirmations attach the first title to an unresolved AI-created Record.
+ * LINE_AI_EDIT confirmations are different: the provider call and point settlement are
+ * already durable, so resolving the title must atomically apply the complete proposed
+ * edit (raw text / occurred_at / one Entity), append an immutable Revision and finish
+ * worklog_line_ai_edits. No confirmation path calls AI or consumes more points.
  */
 export class DrizzleWorklogConfirmationRepository implements WorklogConfirmationRepository {
   constructor(private readonly db: Database) {}
@@ -50,6 +59,8 @@ export class DrizzleWorklogConfirmationRepository implements WorklogConfirmation
         c.proposed_name,
         c.payload,
         r.raw_text AS record_raw_text,
+        r.occurred_at AS current_occurred_at,
+        r.entity_id::text AS current_entity_id,
         c.expires_at,
         c.created_at
       FROM worklog_ai_confirmations c
@@ -80,18 +91,29 @@ export class DrizzleWorklogConfirmationRepository implements WorklogConfirmation
 
     const entity = await this.entity(input.sourceId, input.entityId);
     if (!entity) return { status: 'ENTITY_NOT_ALLOWED' };
-    if (state.confirmationType === 'ALIAS_MATCH' && state.proposedName) {
+    const createAlias = state.confirmationType === 'ALIAS_MATCH' && Boolean(state.proposedName);
+    if (createAlias && state.proposedName) {
       const conflict = await this.titleConflict(input.sourceId, state.proposedName, input.entityId);
       if (conflict) return { status: 'TITLE_CONFLICT' };
+    }
+
+    if (state.operation === 'LINE_AI_EDIT') {
+      return this.applyLineEditDecision({
+        state,
+        targetEntityId: input.entityId,
+        targetTitle: entity.name,
+        createdEntity: false,
+        createAlias,
+        at: input.at,
+      });
     }
 
     const result = await this.db.execute(sql`
       WITH updated_record AS (
         UPDATE worklog_records record
-        SET
-          entity_id = ${input.entityId},
-          occurred_at = ${state.occurredAt},
-          updated_at = ${input.at}
+        SET entity_id = ${input.entityId},
+            occurred_at = ${state.occurredAt},
+            updated_at = ${input.at}
         WHERE record.id = ${state.recordId}
           AND record.source_id = ${state.sourceId}
           AND record.status = 'ACTIVE'
@@ -106,16 +128,10 @@ export class DrizzleWorklogConfirmationRepository implements WorklogConfirmation
           ${state.sourceId}, ${input.entityId}, BTRIM(${state.proposedName}),
           ${input.requestedUserId}, 'AI_CONFIRMATION', ${input.at}, ${input.at}
         FROM updated_record
-        WHERE ${state.confirmationType} = 'ALIAS_MATCH'
+        WHERE ${createAlias}
           AND ${state.proposedName}::text IS NOT NULL
           AND BTRIM(${state.proposedName}) <> ''
           AND LOWER(BTRIM(${state.proposedName})) <> LOWER(BTRIM(${entity.name}))
-          AND NOT EXISTS (
-            SELECT 1 FROM worklog_entity_aliases alias
-            WHERE alias.source_id = ${state.sourceId}
-              AND alias.entity_id = ${input.entityId}
-              AND LOWER(BTRIM(alias.alias)) = LOWER(BTRIM(${state.proposedName}))
-          )
         ON CONFLICT (source_id, alias) DO NOTHING
         RETURNING id
       ), resolved AS (
@@ -129,9 +145,8 @@ export class DrizzleWorklogConfirmationRepository implements WorklogConfirmation
           AND confirmation.status = 'PENDING'
         RETURNING confirmation.id
       )
-      SELECT
-        updated_record.id::text AS record_id,
-        EXISTS (SELECT 1 FROM alias_insert) AS alias_created
+      SELECT updated_record.id::text AS record_id,
+             EXISTS (SELECT 1 FROM alias_insert) AS alias_created
       FROM updated_record
       INNER JOIN resolved ON resolved.id = ${state.id}
       LIMIT 1
@@ -183,13 +198,25 @@ export class DrizzleWorklogConfirmationRepository implements WorklogConfirmation
     }
     if (!target) return { status: 'TITLE_CONFLICT' };
 
+    if (state.operation === 'LINE_AI_EDIT') {
+      const resolved = await this.applyLineEditDecision({
+        state,
+        targetEntityId: target.id,
+        targetTitle: target.name,
+        createdEntity,
+        createAlias: false,
+        at: input.at,
+      });
+      if (resolved.status !== 'CONFIRMED' && createdEntity) await this.deleteUnusedEntity(target.id);
+      return resolved;
+    }
+
     const result = await this.db.execute(sql`
       WITH updated_record AS (
         UPDATE worklog_records record
-        SET
-          entity_id = ${target.id},
-          occurred_at = ${state.occurredAt},
-          updated_at = ${input.at}
+        SET entity_id = ${target.id},
+            occurred_at = ${state.occurredAt},
+            updated_at = ${input.at}
         WHERE record.id = ${state.recordId}
           AND record.source_id = ${state.sourceId}
           AND record.status = 'ACTIVE'
@@ -235,17 +262,47 @@ export class DrizzleWorklogConfirmationRepository implements WorklogConfirmation
     at: Date;
   }): Promise<WorklogConfirmationResolution> {
     const result = await this.db.execute(sql`
-      UPDATE worklog_ai_confirmations
-      SET status = 'REJECTED',
-          resolved_at = ${input.at},
-          resolved_by_user_id = ${input.requestedUserId},
-          updated_at = ${input.at}
-      WHERE id = ${input.confirmationId}
-        AND requested_user_id = ${input.requestedUserId}
-        AND source_id = ${input.sourceId}
-        AND status = 'PENDING'
-        AND (expires_at IS NULL OR expires_at > ${input.at})
-      RETURNING id::text AS id, record_id::text AS record_id
+      WITH rejected AS (
+        UPDATE worklog_ai_confirmations confirmation
+        SET status = 'REJECTED',
+            resolved_at = ${input.at},
+            resolved_by_user_id = ${input.requestedUserId},
+            updated_at = ${input.at}
+        WHERE confirmation.id = ${input.confirmationId}
+          AND confirmation.requested_user_id = ${input.requestedUserId}
+          AND confirmation.source_id = ${input.sourceId}
+          AND confirmation.status = 'PENDING'
+          AND (confirmation.expires_at IS NULL OR confirmation.expires_at > ${input.at})
+          AND (
+            COALESCE(confirmation.payload->>'operation', '') <> 'LINE_AI_EDIT'
+            OR EXISTS (
+              SELECT 1 FROM worklog_line_ai_edits edit
+              WHERE edit.id = CASE
+                WHEN (confirmation.payload->>'lineEditId') ~ '^[0-9]+$'
+                THEN (confirmation.payload->>'lineEditId')::bigint
+                ELSE -1
+              END
+                AND edit.confirmation_id = confirmation.id
+                AND edit.status = 'PENDING_CONFIRMATION'
+            )
+          )
+        RETURNING confirmation.id, confirmation.record_id, confirmation.payload
+      ), failed_edit AS (
+        UPDATE worklog_line_ai_edits edit
+        SET status = 'FAILED',
+            last_error_code = 'AI_EDIT_CONFIRMATION_REJECTED',
+            last_error_detail = 'User rejected the already-paid LINE AI edit confirmation.',
+            completed_at = COALESCE(edit.completed_at, ${input.at}),
+            updated_at = ${input.at}
+        FROM rejected
+        WHERE rejected.payload->>'operation' = 'LINE_AI_EDIT'
+          AND (rejected.payload->>'lineEditId') ~ '^[0-9]+$'
+          AND edit.id = (rejected.payload->>'lineEditId')::bigint
+          AND edit.confirmation_id = rejected.id
+          AND edit.status = 'PENDING_CONFIRMATION'
+        RETURNING edit.id
+      )
+      SELECT id::text AS id, record_id::text AS record_id FROM rejected LIMIT 1
     `);
     const row = result.rows[0] as { id?: string; record_id?: string } | undefined;
     if (row?.id && row.record_id) {
@@ -256,6 +313,204 @@ export class DrizzleWorklogConfirmationRepository implements WorklogConfirmation
       };
     }
     return this.terminalResult(input.confirmationId, input.requestedUserId, input.sourceId);
+  }
+
+  private async applyLineEditDecision(input: {
+    state: PendingState;
+    targetEntityId: number;
+    targetTitle: string;
+    createdEntity: boolean;
+    createAlias: boolean;
+    at: Date;
+  }): Promise<WorklogConfirmationResolution> {
+    const { state } = input;
+    if (!state.lineEditId || state.proposedRawText === null) return { status: 'RECORD_CHANGED' };
+    const nextVersion = state.expectedRecordVersion + 1;
+    const changed = state.proposedRawText !== state.recordRawText
+      || state.occurredAt.getTime() !== state.currentOccurredAt.getTime()
+      || input.targetEntityId !== state.currentEntityId;
+
+    const result = changed
+      ? await this.db.execute(sql`
+          WITH eligible AS MATERIALIZED (
+            SELECT record.id
+            FROM worklog_records record
+            INNER JOIN worklog_ai_confirmations confirmation
+              ON confirmation.id = ${state.id}
+             AND confirmation.record_id = record.id
+             AND confirmation.source_id = record.source_id
+             AND confirmation.status = 'PENDING'
+            INNER JOIN worklog_line_ai_edits edit
+              ON edit.id = ${state.lineEditId}
+             AND edit.record_id = record.id
+             AND edit.source_id = record.source_id
+             AND edit.confirmation_id = confirmation.id
+             AND edit.status = 'PENDING_CONFIRMATION'
+            WHERE record.id = ${state.recordId}
+              AND record.source_id = ${state.sourceId}
+              AND record.status = 'ACTIVE'
+              AND record.version = ${state.expectedRecordVersion}
+              AND record.entity_id IS NOT DISTINCT FROM ${state.previousEntityId}
+              AND EXISTS (
+                SELECT 1 FROM worklog_entities entity
+                WHERE entity.id = ${input.targetEntityId}
+                  AND entity.source_id = record.source_id
+                  AND entity.status = 'ACTIVE'
+              )
+            FOR UPDATE OF record, confirmation, edit
+          ), updated_record AS (
+            UPDATE worklog_records record
+            SET raw_text = ${state.proposedRawText},
+                occurred_at = ${state.occurredAt},
+                entity_id = ${input.targetEntityId},
+                version = ${nextVersion},
+                updated_at = ${input.at}
+            FROM eligible
+            WHERE record.id = eligible.id
+            RETURNING record.id, record.version
+          ), revision AS (
+            INSERT INTO worklog_record_revisions (
+              record_id, version, editor_user_id, channel,
+              previous_raw_text, new_raw_text,
+              previous_occurred_at, new_occurred_at,
+              previous_entity_id, new_entity_id,
+              previous_status, new_status, created_at
+            )
+            SELECT
+              ${state.recordId}, ${nextVersion}, ${state.requestedUserId}, 'LINE_AI_EDIT',
+              ${state.recordRawText}, ${state.proposedRawText},
+              ${state.currentOccurredAt}, ${state.occurredAt},
+              ${state.currentEntityId}, ${input.targetEntityId},
+              'ACTIVE', 'ACTIVE', ${input.at}
+            FROM updated_record
+            RETURNING id
+          ), alias_insert AS (
+            INSERT INTO worklog_entity_aliases (
+              source_id, entity_id, alias, created_by_user_id, created_via, created_at, updated_at
+            )
+            SELECT
+              ${state.sourceId}, ${input.targetEntityId}, BTRIM(${state.proposedName}),
+              ${state.requestedUserId}, 'AI_CONFIRMATION', ${input.at}, ${input.at}
+            FROM updated_record
+            WHERE ${input.createAlias}
+              AND ${state.proposedName}::text IS NOT NULL
+              AND BTRIM(${state.proposedName}) <> ''
+              AND LOWER(BTRIM(${state.proposedName})) <> LOWER(BTRIM(${input.targetTitle}))
+            ON CONFLICT (source_id, alias) DO NOTHING
+            RETURNING id
+          ), resolved AS (
+            UPDATE worklog_ai_confirmations confirmation
+            SET status = 'CONFIRMED',
+                resolved_at = ${input.at},
+                resolved_by_user_id = ${state.requestedUserId},
+                updated_at = ${input.at}
+            FROM updated_record, revision
+            WHERE confirmation.id = ${state.id}
+              AND confirmation.status = 'PENDING'
+            RETURNING confirmation.id
+          ), finished AS (
+            UPDATE worklog_line_ai_edits edit
+            SET status = 'SUCCEEDED',
+                applied_record_version = ${nextVersion},
+                applied_entity_id = ${input.targetEntityId},
+                completed_at = ${input.at},
+                updated_at = ${input.at}
+            FROM updated_record, resolved
+            WHERE edit.id = ${state.lineEditId}
+              AND edit.confirmation_id = resolved.id
+              AND edit.status = 'PENDING_CONFIRMATION'
+            RETURNING edit.applied_record_version
+          )
+          SELECT updated_record.id::text AS record_id,
+                 EXISTS (SELECT 1 FROM alias_insert) AS alias_created
+          FROM updated_record
+          INNER JOIN resolved ON resolved.id = ${state.id}
+          INNER JOIN finished ON finished.applied_record_version = ${nextVersion}
+          LIMIT 1
+        `)
+      : await this.db.execute(sql`
+          WITH eligible AS MATERIALIZED (
+            SELECT record.id
+            FROM worklog_records record
+            INNER JOIN worklog_ai_confirmations confirmation
+              ON confirmation.id = ${state.id}
+             AND confirmation.record_id = record.id
+             AND confirmation.source_id = record.source_id
+             AND confirmation.status = 'PENDING'
+            INNER JOIN worklog_line_ai_edits edit
+              ON edit.id = ${state.lineEditId}
+             AND edit.record_id = record.id
+             AND edit.source_id = record.source_id
+             AND edit.confirmation_id = confirmation.id
+             AND edit.status = 'PENDING_CONFIRMATION'
+            WHERE record.id = ${state.recordId}
+              AND record.source_id = ${state.sourceId}
+              AND record.status = 'ACTIVE'
+              AND record.version = ${state.expectedRecordVersion}
+              AND record.entity_id IS NOT DISTINCT FROM ${state.previousEntityId}
+              AND EXISTS (
+                SELECT 1 FROM worklog_entities entity
+                WHERE entity.id = ${input.targetEntityId}
+                  AND entity.source_id = record.source_id
+                  AND entity.status = 'ACTIVE'
+              )
+            FOR UPDATE OF record, confirmation, edit
+          ), alias_insert AS (
+            INSERT INTO worklog_entity_aliases (
+              source_id, entity_id, alias, created_by_user_id, created_via, created_at, updated_at
+            )
+            SELECT
+              ${state.sourceId}, ${input.targetEntityId}, BTRIM(${state.proposedName}),
+              ${state.requestedUserId}, 'AI_CONFIRMATION', ${input.at}, ${input.at}
+            FROM eligible
+            WHERE ${input.createAlias}
+              AND ${state.proposedName}::text IS NOT NULL
+              AND BTRIM(${state.proposedName}) <> ''
+              AND LOWER(BTRIM(${state.proposedName})) <> LOWER(BTRIM(${input.targetTitle}))
+            ON CONFLICT (source_id, alias) DO NOTHING
+            RETURNING id
+          ), resolved AS (
+            UPDATE worklog_ai_confirmations confirmation
+            SET status = 'CONFIRMED',
+                resolved_at = ${input.at},
+                resolved_by_user_id = ${state.requestedUserId},
+                updated_at = ${input.at}
+            FROM eligible
+            WHERE confirmation.id = ${state.id}
+              AND confirmation.status = 'PENDING'
+            RETURNING confirmation.id
+          ), finished AS (
+            UPDATE worklog_line_ai_edits edit
+            SET status = 'SUCCEEDED',
+                applied_record_version = ${state.expectedRecordVersion},
+                applied_entity_id = ${input.targetEntityId},
+                completed_at = ${input.at},
+                updated_at = ${input.at}
+            FROM eligible, resolved
+            WHERE edit.id = ${state.lineEditId}
+              AND edit.confirmation_id = resolved.id
+              AND edit.status = 'PENDING_CONFIRMATION'
+            RETURNING edit.applied_record_version
+          )
+          SELECT eligible.id::text AS record_id,
+                 EXISTS (SELECT 1 FROM alias_insert) AS alias_created
+          FROM eligible
+          INNER JOIN resolved ON resolved.id = ${state.id}
+          INNER JOIN finished ON finished.applied_record_version = ${state.expectedRecordVersion}
+          LIMIT 1
+        `);
+
+    const row = result.rows[0] as { record_id?: string; alias_created?: boolean } | undefined;
+    if (!row?.record_id) return { status: 'RECORD_CHANGED' };
+    return {
+      status: 'CONFIRMED',
+      confirmationId: state.id,
+      recordId: positiveNumber(row.record_id, 'record id'),
+      entityId: input.targetEntityId,
+      title: input.targetTitle,
+      createdEntity: input.createdEntity,
+      aliasCreated: Boolean(row.alias_created),
+    };
   }
 
   private async pendingState(
@@ -275,11 +530,12 @@ export class DrizzleWorklogConfirmationRepository implements WorklogConfirmation
         c.proposed_name,
         c.payload,
         r.raw_text AS record_raw_text,
+        r.occurred_at AS current_occurred_at,
+        r.entity_id::text AS current_entity_id,
         c.expires_at,
         c.created_at,
         (
           r.status = 'ACTIVE'
-          AND r.entity_id IS NULL
           AND r.version = COALESCE(
             CASE
               WHEN c.payload ? 'recordVersion' AND (c.payload->>'recordVersion') ~ '^[0-9]+$'
@@ -287,6 +543,29 @@ export class DrizzleWorklogConfirmationRepository implements WorklogConfirmation
               ELSE NULL
             END,
             1
+          )
+          AND (
+            (
+              c.payload->>'operation' = 'LINE_AI_EDIT'
+              AND r.entity_id IS NOT DISTINCT FROM CASE
+                WHEN (c.payload->>'previousEntityId') ~ '^[0-9]+$'
+                THEN (c.payload->>'previousEntityId')::bigint
+                ELSE NULL
+              END
+              AND EXISTS (
+                SELECT 1 FROM worklog_line_ai_edits edit
+                WHERE edit.id = CASE
+                  WHEN (c.payload->>'lineEditId') ~ '^[0-9]+$'
+                  THEN (c.payload->>'lineEditId')::bigint
+                  ELSE -1
+                END
+                  AND edit.source_id = c.source_id
+                  AND edit.record_id = c.record_id
+                  AND edit.confirmation_id = c.id
+                  AND edit.status = 'PENDING_CONFIRMATION'
+              )
+            )
+            OR (COALESCE(c.payload->>'operation', '') <> 'LINE_AI_EDIT' AND r.entity_id IS NULL)
           )
         ) AS record_eligible
       FROM worklog_ai_confirmations c
@@ -343,29 +622,69 @@ export class DrizzleWorklogConfirmationRepository implements WorklogConfirmation
 
   private async expireInvalid(requestedUserId: number, sourceId: number, at: Date): Promise<void> {
     await this.db.execute(sql`
-      UPDATE worklog_ai_confirmations c
-      SET status = 'EXPIRED', resolved_at = ${at}, updated_at = ${at}
-      WHERE c.requested_user_id = ${requestedUserId}
-        AND c.source_id = ${sourceId}
-        AND c.status = 'PENDING'
-        AND (
-          (c.expires_at IS NOT NULL AND c.expires_at <= ${at})
-          OR NOT EXISTS (
-            SELECT 1 FROM worklog_records r
-            WHERE r.id = c.record_id
-              AND r.source_id = c.source_id
-              AND r.status = 'ACTIVE'
-              AND r.entity_id IS NULL
-              AND r.version = COALESCE(
-                CASE
-                  WHEN c.payload ? 'recordVersion' AND (c.payload->>'recordVersion') ~ '^[0-9]+$'
-                  THEN (c.payload->>'recordVersion')::integer
-                  ELSE NULL
-                END,
-                1
-              )
+      WITH expired AS (
+        UPDATE worklog_ai_confirmations c
+        SET status = 'EXPIRED', resolved_at = ${at}, updated_at = ${at}
+        WHERE c.requested_user_id = ${requestedUserId}
+          AND c.source_id = ${sourceId}
+          AND c.status = 'PENDING'
+          AND (
+            (c.expires_at IS NOT NULL AND c.expires_at <= ${at})
+            OR NOT EXISTS (
+              SELECT 1 FROM worklog_records r
+              WHERE r.id = c.record_id
+                AND r.source_id = c.source_id
+                AND r.status = 'ACTIVE'
+                AND r.version = COALESCE(
+                  CASE
+                    WHEN c.payload ? 'recordVersion' AND (c.payload->>'recordVersion') ~ '^[0-9]+$'
+                    THEN (c.payload->>'recordVersion')::integer
+                    ELSE NULL
+                  END,
+                  1
+                )
+                AND (
+                  (
+                    c.payload->>'operation' = 'LINE_AI_EDIT'
+                    AND r.entity_id IS NOT DISTINCT FROM CASE
+                      WHEN (c.payload->>'previousEntityId') ~ '^[0-9]+$'
+                      THEN (c.payload->>'previousEntityId')::bigint
+                      ELSE NULL
+                    END
+                    AND EXISTS (
+                      SELECT 1 FROM worklog_line_ai_edits edit
+                      WHERE edit.id = CASE
+                        WHEN (c.payload->>'lineEditId') ~ '^[0-9]+$'
+                        THEN (c.payload->>'lineEditId')::bigint
+                        ELSE -1
+                      END
+                        AND edit.source_id = c.source_id
+                        AND edit.record_id = c.record_id
+                        AND edit.confirmation_id = c.id
+                        AND edit.status = 'PENDING_CONFIRMATION'
+                    )
+                  )
+                  OR (COALESCE(c.payload->>'operation', '') <> 'LINE_AI_EDIT' AND r.entity_id IS NULL)
+                )
+            )
           )
-        )
+        RETURNING c.id, c.payload
+      ), failed_edits AS (
+        UPDATE worklog_line_ai_edits edit
+        SET status = 'FAILED',
+            last_error_code = 'AI_EDIT_CONFIRMATION_EXPIRED_OR_STALE',
+            last_error_detail = 'Pending LINE AI edit confirmation expired or its Record changed before resolution.',
+            completed_at = COALESCE(edit.completed_at, ${at}),
+            updated_at = ${at}
+        FROM expired
+        WHERE expired.payload->>'operation' = 'LINE_AI_EDIT'
+          AND (expired.payload->>'lineEditId') ~ '^[0-9]+$'
+          AND edit.id = (expired.payload->>'lineEditId')::bigint
+          AND edit.confirmation_id = expired.id
+          AND edit.status = 'PENDING_CONFIRMATION'
+        RETURNING edit.id
+      )
+      SELECT COUNT(*) FROM expired
     `);
   }
 
@@ -449,6 +768,8 @@ function pendingFromRow(value: unknown): WorklogPendingConfirmation {
     candidateTitle,
     proposedName: state.proposedName,
     reason: state.reason,
+    operation: state.operation,
+    proposedRawText: state.proposedRawText,
     occurredAt: state.occurredAt,
     expectedRecordVersion: state.expectedRecordVersion,
     candidates: state.candidates,
@@ -469,10 +790,16 @@ function stateFromRow(row: Record<string, unknown>): PendingState {
     candidateEntityId: optionalPositiveNumber(row.candidate_entity_id, 'candidate entity id'),
     proposedName: optionalText(row.proposed_name),
     reason: payload.reason,
+    operation: payload.operation,
+    proposedRawText: payload.proposedRawText,
     occurredAt: payload.occurredAt,
     expectedRecordVersion: payload.recordVersion,
+    previousEntityId: payload.previousEntityId,
+    lineEditId: payload.lineEditId,
     candidates: payload.candidates,
     recordRawText: requiredText(row.record_raw_text, 'record raw text'),
+    currentOccurredAt: row.current_occurred_at ? dateValue(row.current_occurred_at, 'current occurred at') : payload.occurredAt,
+    currentEntityId: optionalPositiveNumber(row.current_entity_id, 'current entity id'),
     recordEligible: Boolean(row.record_eligible),
     expiresAt: row.expires_at == null ? null : dateValue(row.expires_at, 'expires at'),
     createdAt: dateValue(row.created_at, 'created at'),
@@ -494,10 +821,15 @@ function payloadValue(value: unknown) {
         return [{ entityId, name, matchedVia }];
       })
     : [];
+  const operation: PendingOperation = row.operation === 'LINE_AI_EDIT' ? 'LINE_AI_EDIT' : 'CREATE_TITLE';
   return {
     reason: optionalText(row.reason),
+    operation,
+    proposedRawText: operation === 'LINE_AI_EDIT' ? optionalText(row.proposedRawText) : null,
     occurredAt: row.occurredAt ? dateValue(row.occurredAt, 'occurred at') : new Date(0),
     recordVersion: optionalPositiveNumber(row.recordVersion, 'record version') ?? 1,
+    previousEntityId: optionalPositiveNumber(row.previousEntityId, 'previous entity id'),
+    lineEditId: optionalPositiveNumber(row.lineEditId, 'line edit id'),
     candidates,
   };
 }
