@@ -10,7 +10,7 @@ import {
   type WorklogPersistedLineEditPayload,
 } from './line-record-edit';
 import type { WorklogAiRuntimeConfigSnapshot } from './text-normalization';
-import type { WorklogAiUsageCommit } from './subscription';
+import type { WorklogAiUsageCommit } from './ai-provider-usage';
 
 type EditStatus =
   | 'PROCESSING'
