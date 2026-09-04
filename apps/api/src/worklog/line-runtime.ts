@@ -1,7 +1,7 @@
 import type { BufferedGroupMessage } from '../line/events';
 import type { GroupAiAuthorizationResult } from './ai-responsibility';
 import { worklogAttachmentRuntime } from './attachment-runtime';
-import type { GroupBootstrapResult, GroupOwnerBindResult } from './bootstrap';
+import type { GroupAiResponsibilityBindResult, GroupBootstrapResult } from './bootstrap';
 import type { GroupAccessAuthorizationResult } from './collaboration';
 import { parseWorklogCommand } from './command';
 import { historyFiltersFromText, type WorklogHistoryFilters } from './history-navigation';
@@ -21,13 +21,13 @@ export interface WorklogLineBootstrapPort {
     displayName?: string | null;
     at?: Date;
   }): Promise<GroupBootstrapResult>;
-  bindGroupOwner(input: {
+  claimGroupAiResponsibility(input: {
     lineGroupId: string;
-    ownerLineUserId: string;
-    ownerDisplayName?: string | null;
+    lineUserId: string;
+    displayName?: string | null;
     evidence: 'RELIABLE_JOIN_ACTOR' | 'EXPLICIT_CLAIM';
     at?: Date;
-  }): Promise<GroupOwnerBindResult>;
+  }): Promise<GroupAiResponsibilityBindResult>;
 }
 
 export interface WorklogLineCollaborationPort {
@@ -102,13 +102,13 @@ export type WorklogLineRuntimeResult =
   | { status: 'EDITED'; recordId: number; recordVersion: number; replyText: string }
   | { status: 'EDIT_CONFIRMATION_PENDING'; recordId: number; confirmationId: number; replyText: string }
   | { status: 'EDIT_IN_PROGRESS'; replyText: string }
-  | { status: 'OWNER_BOUND'; sourceId: number; replyText: string }
+  | { status: 'AI_RESPONSIBILITY_BOUND'; sourceId: number; replyText: string }
   | { status: 'QUOTED_NOT_READY'; replyText: string }
   | {
       status: 'REJECTED';
       reason:
         | 'USER_UNKNOWN'
-        | 'OWNER_CONFLICT'
+        | 'AI_RESPONSIBILITY_CONFLICT'
         | 'GROUP_NOT_FOUND'
         | 'GROUP_INACTIVE'
         | 'AI_RESPONSIBLE_USER_UNBOUND'
@@ -159,21 +159,21 @@ export class WorklogLineRuntime {
         lineUserId: message.lineUserId,
         at: message.lineTimestamp,
       });
-      const bound = await this.bootstrap.bindGroupOwner({
+      const bound = await this.bootstrap.claimGroupAiResponsibility({
         lineGroupId: message.lineGroupId,
-        ownerLineUserId: message.lineUserId,
+        lineUserId: message.lineUserId,
         evidence: 'EXPLICIT_CLAIM',
         at: message.lineTimestamp,
       });
-      if (bound.status === 'OWNER_CONFLICT') {
+      if (bound.status === 'RESPONSIBILITY_CONFLICT') {
         return {
           status: 'REJECTED',
-          reason: 'OWNER_CONFLICT',
+          reason: 'AI_RESPONSIBILITY_CONFLICT',
           replyText: '這個群組目前已有其他 AI 額度負責人；這次不會覆蓋既有設定。',
         };
       }
       return {
-        status: 'OWNER_BOUND',
+        status: 'AI_RESPONSIBILITY_BOUND',
         sourceId: bound.sourceId,
         replyText: bound.status === 'ALREADY_BOUND'
           ? '你目前已是這個群組的 AI 額度負責人。'
