@@ -75,7 +75,19 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
   useEffect(() => {
     if (!session || !scope) return;
     localStorage.setItem(ACTIVE_SCOPE_KEY, JSON.stringify(scope));
+    // Every editor/history state below is bound to one Source. Closing all of it on a
+    // Source switch prevents a user who belongs to multiple groups from accidentally
+    // editing a Record from the previous group while looking at the newly selected one.
     setSelected(new Set());
+    setBatchTitle('');
+    setCreateOpen(false);
+    setCreateDraft({ ...EMPTY_RECORD, occurredAt: nowLocalValue() });
+    setEditing(null);
+    setEditDraft(null);
+    setMoving(null);
+    setMoveTitle('');
+    setHistoryRecord(null);
+    setRevisions([]);
     setPersonalFunding(null);
     setGroupFunding(null);
     setConfirmations([]);
@@ -213,9 +225,19 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
     setScope(null);
     setRecords([]);
     setEntities([]);
+    setRecordPage(null);
     setPersonalFunding(null);
     setGroupFunding(null);
     setConfirmations([]);
+    setSelected(new Set());
+    setBatchTitle('');
+    setCreateOpen(false);
+    setEditing(null);
+    setEditDraft(null);
+    setMoving(null);
+    setMoveTitle('');
+    setHistoryRecord(null);
+    setRevisions([]);
   }
 
   function applyFilters() {
@@ -421,7 +443,11 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
   return <main className="shell worklog-shell">
     <div className="topbar">
       <div><p className="eyebrow">AFTERTRACE</p><h1>工作紀錄</h1></div>
-      <button className="ghost" onClick={clearSession}>登出</button>
+      <div className="filter-actions">
+        <button className="ghost" onClick={() => { window.location.href = '/subscription'; }}>方案</button>
+        <button className="ghost" onClick={() => { window.location.href = '/help'; }}>使用說明</button>
+        <button className="ghost" onClick={clearSession}>登出</button>
+      </div>
     </div>
 
     {error ? <div className="error">{error}</div> : null}
@@ -548,15 +574,20 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
       busy={loading}
       onSubmit={async (text) => {
         if (!session) return;
-        await api.submitFeedback(session, text, {
-          page: window.location.pathname,
-          viewport: `${window.innerWidth}x${window.innerHeight}`,
-          userAgent: navigator.userAgent,
-          appVersion: 'worklog-mvp',
-          scopeType: scope?.type ?? 'NONE',
-          sourceId: scope?.sourceId ?? 0,
-        });
-        setNotice('意見已送出，謝謝。');
+        try {
+          await api.submitFeedback(session, text, {
+            page: window.location.pathname,
+            viewport: `${window.innerWidth}x${window.innerHeight}`,
+            userAgent: navigator.userAgent,
+            appVersion: 'worklog-mvp',
+            scopeType: scope?.type ?? 'NONE',
+            sourceId: scope?.sourceId ?? 0,
+          });
+          setNotice('意見已送出，謝謝。');
+        } catch (cause) {
+          setError(message(cause, '意見送出失敗'));
+          throw cause;
+        }
       }}
     /> : null}
   </main>;
@@ -855,7 +886,7 @@ function FeedbackPanel({ busy, onSubmit }: { busy: boolean; onSubmit: (text: str
     <p className="eyebrow">FEEDBACK</p><h2>告訴我們哪裡不好用</h2>
     <p className="muted">送出時會附上目前頁面、畫面尺寸、瀏覽器與目前紀錄範圍，方便排查；不會附上你的原始工作紀錄內容。</p>
     <textarea rows={7} value={text} onChange={(event) => setText(event.target.value)} placeholder="例如：群組紀錄篩選很難找、某個附件一直失敗…" />
-    <button disabled={busy || !text.trim()} onClick={() => void onSubmit(text.trim()).then(() => setText(''))}>送出意見</button>
+    <button disabled={busy || !text.trim()} onClick={() => void onSubmit(text.trim()).then(() => setText('')).catch(() => undefined)}>送出意見</button>
   </section>;
 }
 
