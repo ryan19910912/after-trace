@@ -111,7 +111,6 @@ export class WorklogSubscriptionPeriodService {
 
       const retryGrant = await this.resolveActivePeriodRetry({
         userId,
-        plan,
         current,
         source: input.source,
         requestedStart: input.currentPeriodStart,
@@ -171,7 +170,6 @@ export class WorklogSubscriptionPeriodService {
 
   private async resolveActivePeriodRetry(input: {
     userId: number;
-    plan: WorklogSubscriptionPlanTemplate;
     current: WorklogSubscriptionPeriodSnapshot;
     source: WorklogSubscriptionSource;
     requestedStart?: Date;
@@ -197,8 +195,8 @@ export class WorklogSubscriptionPeriodService {
       return undefined;
     }
 
-    const points = nonNegativeInteger(input.plan.subscriptionPeriodPoints, 'subscriptionPeriodPoints');
-    if (input.plan.priceTwd <= 0 || points === 0) return null;
+    // FREE lifecycle rows do not create recurring subscription-period grants here.
+    if (input.current.source === 'FREE') return null;
 
     const originKey = subscriptionPeriodOriginKey({
       userId: input.userId,
@@ -211,9 +209,12 @@ export class WorklogSubscriptionPeriodService {
       originKey,
     });
     if (!grant) return undefined;
+
+    // Historical grants are immutable period facts. Idempotent replay must not compare
+    // their original points with today's editable plan template, otherwise changing the
+    // template for future renewals would make an already-created period look invalid.
     if (
-      grant.originalPoints !== points
-      || grant.effectiveAt.getTime() !== input.current.currentPeriodStart.getTime()
+      grant.effectiveAt.getTime() !== input.current.currentPeriodStart.getTime()
       || !sameNullableDate(grant.expiresAt, input.current.currentPeriodEnd)
     ) {
       return undefined;
