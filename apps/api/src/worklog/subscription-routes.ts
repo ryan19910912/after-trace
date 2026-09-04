@@ -60,7 +60,7 @@ export function createWorklogSubscriptionRoutes() {
         plan.display_name,
         plan.price_twd::text AS price_twd,
         plan.rank,
-        plan.ai_allowance_units,
+        plan.subscription_period_points,
         plan.capabilities,
         CASE WHEN ${user.effectiveState} = 'ACTIVE' AND ${user.planCode} = plan.code THEN TRUE ELSE FALSE END AS current
       FROM worklog_subscription_plans plan
