@@ -771,6 +771,7 @@ function pendingFromRow(value: unknown): WorklogPendingConfirmation {
     operation: state.operation,
     proposedRawText: state.proposedRawText,
     occurredAt: state.occurredAt,
+    recordOccurredAt: state.currentOccurredAt,
     expectedRecordVersion: state.expectedRecordVersion,
     candidates: state.candidates,
     recordRawText: state.recordRawText,
