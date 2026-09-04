@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
-import type { WorklogAiUsageCommit } from './subscription';
+import type { WorklogAiUsageCommit } from './ai-provider-usage';
 import {
   normalizeWorklogTextOutput,
   type WorklogAiRuntimeConfigSnapshot,
@@ -740,7 +740,6 @@ function parseUsageCommit(value: unknown): WorklogAiUsageCommit {
   }
   const row = value as Record<string, unknown>;
   return {
-    actualUnits: nonNegativeIntegerValue(row.actualUnits, 'actualUnits'),
     workspaceId: optionalPositiveIntegerValue(row.workspaceId, 'workspaceId'),
     recordId: optionalPositiveIntegerValue(row.recordId, 'recordId'),
     operation: optionalTextValue(row.operation, 'operation', 64),
