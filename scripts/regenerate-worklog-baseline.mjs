@@ -33,21 +33,35 @@ try {
   rmSync(drizzleDir, { recursive: true, force: true });
   mkdirSync(drizzleDir, { recursive: true });
 
-  run(
-    'pnpm',
-    [
-      '--filter',
-      '@aftertrace/api',
-      'exec',
-      'drizzle-kit',
-      'generate',
-      '--config=../../drizzle.config.ts',
-      '--name=worklog_baseline',
-    ],
-    'Drizzle baseline generation',
-    process.platform === 'win32',
-  );
+  try {
+    run(
+      'pnpm',
+      [
+        '--filter',
+        '@aftertrace/api',
+        'exec',
+        'drizzle-kit',
+        'generate',
+        '--config=../../drizzle.config.ts',
+        '--name=worklog_baseline',
+      ],
+      'Drizzle baseline generation',
+      process.platform === 'win32',
+    );
+  } catch (error) {
+    // Generation itself failed, so the partially-created directory is not useful and
+    // may be structurally incomplete. Restore the previous checked-in artifacts.
+    rmSync(drizzleDir, { recursive: true, force: true });
+    cpSync(backupDir, drizzleDir, { recursive: true });
+    console.error('Baseline generation failed. The previous drizzle directory was restored in full.');
+    throw error;
+  }
 
+  // Once Drizzle successfully produced a coherent artifact set, keep it even if the
+  // AFTERTRACE guard finds a real product/schema mismatch. Those generated files are
+  // exactly what the developer needs to inspect/fix. Deployment stays blocked because
+  // the command exits non-zero, but we must not hide the drift by restoring the known
+  // stale baseline.
   run(
     process.execPath,
     [resolve(root, 'scripts/check-worklog-baseline.mjs')],
@@ -56,11 +70,6 @@ try {
 
   console.log('Prelaunch baseline regenerated and guard passed.');
   console.log('Next: inspect the generated diff and apply it to a fresh disposable PostgreSQL database before any deployment.');
-} catch (error) {
-  rmSync(drizzleDir, { recursive: true, force: true });
-  cpSync(backupDir, drizzleDir, { recursive: true });
-  console.error('Baseline regeneration failed. The previous drizzle directory was restored in full.');
-  throw error;
 } finally {
   rmSync(backupRoot, { recursive: true, force: true });
 }
