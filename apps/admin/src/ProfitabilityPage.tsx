@@ -147,11 +147,15 @@ export function ProfitabilityPage({ api }: Props) {
 
         <article className="card">
           <h2>目前有效 Grant Inventory</h2>
-          <p className="muted">只統計已生效、尚未到期且未撤銷的 Grant；這是目前庫存狀態，不是假設為所選期間內的營收。</p>
-          <table><thead><tr><th>Grant</th><th>筆數</th><th>用完</th><th>原始點數</th><th>剩餘點數</th><th>使用率</th><th>耗盡率</th></tr></thead><tbody>
+          <p className="muted">
+            只統計已生效、尚未到期且未撤銷的 Grant。使用率只計已 commit 的 used points；
+            reserved points 是進行中 request 的暫時 hold，不會混入已使用比例。
+          </p>
+          <table><thead><tr><th>Grant</th><th>筆數</th><th>耗盡</th><th>原始點數</th><th>已使用</th><th>保留中</th><th>可用餘額</th><th>使用率</th><th>耗盡率</th></tr></thead><tbody>
             {report.grantInventory.map((row) => <tr key={row.grantType}>
               <td>{row.grantType}</td><td>{row.grants.toLocaleString()}</td><td>{row.exhaustedGrants.toLocaleString()}</td>
-              <td>{row.originalPoints.toLocaleString()}</td><td>{row.remainingPoints.toLocaleString()}</td>
+              <td>{row.originalPoints.toLocaleString()}</td><td>{row.usedPoints.toLocaleString()}</td>
+              <td>{row.reservedPoints.toLocaleString()}</td><td>{row.remainingPoints.toLocaleString()}</td>
               <td>{percent(row.utilizationPercent)}</td><td>{percent(row.exhaustionPercent)}</td>
             </tr>)}
           </tbody></table>
