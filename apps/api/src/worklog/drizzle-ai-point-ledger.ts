@@ -198,6 +198,11 @@ export class DrizzleWorklogAiPointLedgerRepository implements WorklogAiPointLedg
       ), grant_hold AS (
         UPDATE worklog_ai_grants grant
         SET remaining_points = grant.remaining_points - nonzero.points_reserved,
+            status = CASE
+              WHEN grant.remaining_points - nonzero.points_reserved = 0
+                THEN 'EXHAUSTED'::worklog_ai_grant_status
+              ELSE 'ACTIVE'::worklog_ai_grant_status
+            END,
             updated_at = ${input.at}
         FROM nonzero
         WHERE grant.id = nonzero.grant_id
