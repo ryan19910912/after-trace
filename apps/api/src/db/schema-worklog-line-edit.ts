@@ -50,10 +50,7 @@ export const worklogLineAiEdits = pgTable(
     expectedRecordVersion: integer('expected_record_version').notNull(),
     status: varchar('status', { length: 32 }).default('PROCESSING').notNull(),
     claimToken: varchar('claim_token', { length: 64 }).notNull(),
-    reservationToken: varchar('reservation_token', { length: 64 }).references(
-      () => worklogAiPointReservations.token,
-      { onDelete: 'restrict' },
-    ),
+    reservationToken: varchar('reservation_token', { length: 64 }),
     resultJson: jsonb('result_json'),
     usageCommitJson: jsonb('usage_commit_json'),
     providerResponseId: varchar('provider_response_id', { length: 255 }),
@@ -80,6 +77,11 @@ export const worklogLineAiEdits = pgTable(
       columns: [table.sourceId, table.recordId],
       foreignColumns: [worklogRecords.sourceId, worklogRecords.id],
       name: 'worklog_line_ai_edit_source_record_fk',
+    }).onDelete('restrict'),
+    foreignKey({
+      columns: [table.sourceId, table.reservationToken],
+      foreignColumns: [worklogAiPointReservations.sourceId, worklogAiPointReservations.token],
+      name: 'worklog_line_ai_edit_source_reservation_fk',
     }).onDelete('restrict'),
     foreignKey({
       columns: [table.sourceId, table.confirmationId],
