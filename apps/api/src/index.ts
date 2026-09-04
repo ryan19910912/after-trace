@@ -68,9 +68,6 @@ app.get('/health/ready', async (c) => {
 
   const database = createDatabase(c.env.DATABASE_URL);
   try {
-    // Probe multiple rebuilt-only tables/columns instead of merely checking connectivity
-    // or worklog_users. The known stale pre-rebuild baseline also contains worklog_users,
-    // so a single-table probe would produce a dangerous false-positive readiness result.
     await database.execute(sql`
       SELECT
         (SELECT COUNT(*) FROM worklog_users WHERE FALSE) AS users_probe,
@@ -93,9 +90,6 @@ app.get('/health/ready', async (c) => {
   }
 
   try {
-    // Schema readiness is not enough for this product: all shipped AI CREATE/EDIT/media
-    // paths require one DB-backed immutable-pricing source row. Fresh schema with no
-    // runtime config would otherwise report ready while every AI operation fails closed.
     const runtime = await database.execute(sql`
       SELECT provider, model, output_usd_per_million
       FROM worklog_ai_runtime_config
@@ -133,9 +127,6 @@ app.get('/health/ready', async (c) => {
   }
 
   try {
-    // FREE has a frozen launch contract: it is a zero-price plan shell while the
-    // one-time 400k acquisition Grant is provisioned separately by bootstrap. Do not
-    // invent PRO/TEAM included-point values here; those remain explicit Admin config.
     const free = await database.execute(sql`
       SELECT price_twd, subscription_period_points, enabled
       FROM worklog_subscription_plans
@@ -322,7 +313,7 @@ function launchConfigErrors(env: Bindings): string[] {
   required(env.LINE_LOGIN_CHANNEL_ID) || missing.push('LINE_LOGIN_CHANNEL_ID');
   required(env.LINE_LOGIN_CHANNEL_SECRET) || missing.push('LINE_LOGIN_CHANNEL_SECRET');
   required(env.ADMIN_USERNAME) || missing.push('ADMIN_USERNAME');
-  required(env.ADMIN_PASSWORD) || missing.push('ADMIN_PASSWORD');
+  adminPassword(env.ADMIN_PASSWORD) || missing.push('ADMIN_PASSWORD');
   secret(env.ADMIN_SESSION_SECRET) || missing.push('ADMIN_SESSION_SECRET');
   exactHttpsOrigin(env.ADMIN_WEB_ORIGIN) || missing.push('ADMIN_WEB_ORIGIN');
   return [...new Set(missing)];
@@ -330,6 +321,10 @@ function launchConfigErrors(env: Bindings): string[] {
 
 function required(value: string | undefined): boolean {
   return Boolean(value?.trim());
+}
+
+function adminPassword(value: string | undefined): boolean {
+  return Boolean(value && value.length >= 16 && value.length <= 512);
 }
 
 function secret(value: string | undefined): boolean {
