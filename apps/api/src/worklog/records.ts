@@ -47,6 +47,22 @@ export type StoredTextRecordIdentity = {
   rawText: string;
 };
 
+export type WorklogReplyEditTarget = {
+  id: number;
+  sourceId: number;
+  authorUserId: number | null;
+  entityId: number | null;
+  rawText: string;
+  occurredAt: string;
+  version: number;
+};
+
+export type WorklogReplyEditTargetResolution =
+  | { status: 'FOUND'; record: WorklogReplyEditTarget }
+  | { status: 'NOT_FOUND' }
+  | { status: 'AMBIGUOUS' }
+  | { status: 'DELETED' };
+
 export interface WorklogRecordWriteRepository extends WorklogLineTextCacheRepository {
   insertTextRecord(input: {
     sourceId: number;
@@ -60,6 +76,10 @@ export interface WorklogRecordWriteRepository extends WorklogLineTextCacheReposi
     | { status: 'EXISTING'; record: StoredTextRecordIdentity }
     | { status: 'SOURCE_NOT_FOUND' }
   >;
+  resolveReplyEditTarget(
+    sourceId: number,
+    quotedLineMessageId: string,
+  ): Promise<WorklogReplyEditTargetResolution>;
 }
 
 export type WorklogTextRecordWriteResult =
@@ -91,6 +111,16 @@ export class WorklogRecordWriteService {
     now?: Date,
   ): Promise<CachedLineText | null> {
     return this.textCache.resolve(lineGroupId, quotedLineMessageId, now);
+  }
+
+  async resolveReplyEditTarget(
+    sourceId: number,
+    quotedLineMessageId: string,
+  ): Promise<WorklogReplyEditTargetResolution> {
+    return this.repository.resolveReplyEditTarget(
+      positiveInteger(sourceId, 'source id'),
+      requiredTrimmed(quotedLineMessageId, 'quoted LINE message id', 64),
+    );
   }
 
   async recordText(input: {
