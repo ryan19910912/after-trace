@@ -5,6 +5,8 @@ import './worklog.css';
 const SESSION_KEY = 'aftertrace.worklog.session';
 const RETURN_KEY = 'aftertrace.worklog.returnTo';
 
+type PlanWithLaunchGrant = SubscriptionPlan & { one_time_initial_points?: number };
+
 export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
   const api = useMemo(() => new WorklogApi(apiBaseUrl), [apiBaseUrl]);
   const [session, setSession] = useState<string | null>(() => localStorage.getItem(SESSION_KEY));
@@ -95,6 +97,7 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
     <section className="subscription-grid">
       {data?.plans.map((plan) => {
         const paid = Number(plan.price_twd) > 0;
+        const oneTimeInitialPoints = Number((plan as PlanWithLaunchGrant).one_time_initial_points ?? 0);
         const checkoutUnavailable = paid && !data.checkoutEnabled;
         const disabled = busy || plan.current || !paid || checkoutUnavailable;
         const buttonLabel = plan.current
@@ -115,7 +118,9 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
           <strong className="subscription-price">
             {!paid ? '免費' : `NT$ ${Number(plan.price_twd).toLocaleString('zh-TW')}`}
           </strong>
-          <p>訂閱週期 AI 點數：{Number(plan.subscription_period_points).toLocaleString('zh-TW')}</p>
+          {plan.code === 'FREE'
+            ? <p>首次贈送 AI 點數：{oneTimeInitialPoints.toLocaleString('zh-TW')}（一次性、不重置、不因日曆到期）</p>
+            : <p>每訂閱週期 AI 點數：{Number(plan.subscription_period_points).toLocaleString('zh-TW')}</p>}
           <small>✓ 群組數量不限；手動 PWA 功能不依訂閱解鎖</small>
           {capabilitySummary(plan.capabilities).map((item) => <small key={item}>✓ {item}</small>)}
           <button disabled={disabled} onClick={() => void choose(plan)}>{buttonLabel}</button>
