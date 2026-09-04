@@ -67,10 +67,21 @@ app.get('/health/ready', async (c) => {
   }
 
   try {
-    // This deliberately touches an accepted rebuilt core table, not merely SELECT 1.
-    // A Worker with reachable PostgreSQL but an unapplied/stale schema must not be
-    // reported ready for launch.
-    await createDatabase(c.env.DATABASE_URL).execute(sql`SELECT id FROM worklog_users LIMIT 1`);
+    // Probe multiple rebuilt-only tables/columns instead of merely checking connectivity
+    // or worklog_users. The known stale pre-rebuild baseline also contains worklog_users,
+    // so a single-table probe would produce a dangerous false-positive readiness result.
+    await createDatabase(c.env.DATABASE_URL).execute(sql`
+      SELECT
+        (SELECT COUNT(*) FROM worklog_users WHERE FALSE) AS users_probe,
+        (SELECT COUNT(*) FROM worklog_entities WHERE FALSE) AS entities_probe,
+        (SELECT COUNT(*) FROM worklog_entity_aliases WHERE FALSE) AS aliases_probe,
+        (SELECT COUNT(*) FROM worklog_record_revisions WHERE FALSE) AS revisions_probe,
+        (SELECT COUNT(*) FROM worklog_ai_confirmations WHERE FALSE) AS confirmations_probe,
+        (SELECT COUNT(*) FROM worklog_ai_grants WHERE FALSE) AS grants_probe,
+        (SELECT COUNT(customer_points_charged) FROM worklog_ai_usage_events WHERE FALSE) AS charged_points_probe,
+        (SELECT COUNT(platform_subsidized_points) FROM worklog_ai_usage_events WHERE FALSE) AS subsidy_points_probe,
+        (SELECT COUNT(*) FROM worklog_source_ai_responsibility WHERE FALSE) AS responsibility_probe
+    `);
   } catch {
     return c.json({
       service: 'after-trace-api',
