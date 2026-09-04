@@ -42,10 +42,12 @@ function Assert-PostgresUrl([string]$Value) {
 }
 
 function Read-ReadinessError($Failure) {
+    if ($null -eq $Failure -or $null -eq $Failure.ErrorDetails) { return $null }
     $message = $Failure.ErrorDetails.Message
     if (-not $message) { return $null }
     try {
         $parsed = $message | ConvertFrom-Json
+        if ($null -eq $parsed -or -not $parsed.error) { return $null }
         return [string]$parsed.error
     }
     catch {
