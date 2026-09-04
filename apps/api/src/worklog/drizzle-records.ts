@@ -123,6 +123,34 @@ export class DrizzleWorklogRecordWriteRepository implements WorklogRecordWriteRe
     return { status: 'SOURCE_NOT_FOUND' };
   }
 
+  async rememberBotReplyTarget(recordId: number, botLineMessageId: string): Promise<void> {
+    const inserted = await this.db.execute(sql`
+      INSERT INTO worklog_line_record_reply_targets (
+        record_id,
+        bot_line_message_id,
+        created_at
+      )
+      SELECT record.id, ${botLineMessageId}, NOW()
+      FROM worklog_records AS record
+      WHERE record.id = ${recordId}
+      ON CONFLICT (bot_line_message_id) DO NOTHING
+      RETURNING record_id::text AS record_id
+    `);
+    if (inserted.rows.length > 0) return;
+
+    const existing = await this.db.execute(sql`
+      SELECT record_id::text AS record_id
+      FROM worklog_line_record_reply_targets
+      WHERE bot_line_message_id = ${botLineMessageId}
+      LIMIT 1
+    `);
+    const mappedRecordId = (existing.rows[0] as { record_id?: string } | undefined)?.record_id;
+    if (!mappedRecordId) throw new Error('cannot map bot LINE reply to missing Record');
+    if (Number(mappedRecordId) !== recordId) {
+      throw new Error('bot LINE reply message id already maps to a different Record');
+    }
+  }
+
   async resolveReplyEditTarget(
     sourceId: number,
     quotedLineMessageId: string,
@@ -141,6 +169,12 @@ export class DrizzleWorklogRecordWriteRepository implements WorklogRecordWriteRe
         AND (
           record.line_message_id = ${quotedLineMessageId}
           OR record.quoted_line_message_id = ${quotedLineMessageId}
+          OR EXISTS (
+            SELECT 1
+            FROM worklog_line_record_reply_targets AS reply_target
+            WHERE reply_target.record_id = record.id
+              AND reply_target.bot_line_message_id = ${quotedLineMessageId}
+          )
         )
       ORDER BY CASE WHEN record.status = 'ACTIVE' THEN 0 ELSE 1 END, record.id DESC
       LIMIT 3
