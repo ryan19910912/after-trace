@@ -102,7 +102,7 @@ export type WorklogTextProviderResponse = {
 
 export interface WorklogTextNormalizationProvider {
   /** Conservative customer-point hold estimate; positive balance is still sufficient to start. */
-  reservationUnits(input: WorklogTextProviderInput, config: WorklogAiRuntimeConfigSnapshot): number;
+  reservationPoints(input: WorklogTextProviderInput, config: WorklogAiRuntimeConfigSnapshot): number;
   normalize(input: WorklogTextProviderInput, config: WorklogAiRuntimeConfigSnapshot): Promise<WorklogTextProviderResponse>;
 }
 
@@ -180,7 +180,7 @@ export class WorklogTextNormalizationService {
     let requestedPoints: number;
     try {
       requestedPoints = positiveInteger(
-        this.provider.reservationUnits(providerInput, config),
+        this.provider.reservationPoints(providerInput, config),
         'requested AI points',
       );
     } catch (error) {
