@@ -180,7 +180,10 @@ export function App({ api }: Props) {
     ['全部工作紀錄', overview.records],
     ['今日新增紀錄', overview.recordsToday],
     ['今日 AI 呼叫次數', overview.aiCallsToday],
+    ['今日客戶實扣 AI 點數', overview.aiPointsToday],
+    ['今日平台補貼 AI 點數', overview.platformSubsidizedPointsToday],
     ['今日 AI 成本', `NT$ ${Number(overview.aiCostTwdToday).toFixed(4)}`],
+    ['今日平台補貼成本', `NT$ ${Number(overview.platformSubsidizedCostTwdToday).toFixed(4)}`],
     ['待處理異常', overview.openAnomalies],
     ['附件處理失敗', overview.failedAttachments],
     ['文字整理失敗', overview.failedNormalizations],
@@ -257,7 +260,7 @@ function PlanEditor({ plan, definitions, busy, onSave }: { plan: AdminPlan | nul
   const [priceTwd, setPriceTwd] = useState(plan?.price_twd ?? '0');
   const [rank, setRank] = useState(String(plan?.rank ?? 0));
   const [enabled, setEnabled] = useState(plan?.enabled ?? true);
-  const [allowance, setAllowance] = useState(String(plan?.ai_allowance_units ?? 0));
+  const [allowance, setAllowance] = useState(String(plan?.subscription_period_points ?? 0));
   const [capabilities, setCapabilities] = useState<Record<string, boolean | number | string>>(() => capabilityDefaults(definitions, plan?.capabilities));
 
   useEffect(() => {
@@ -270,7 +273,7 @@ function PlanEditor({ plan, definitions, busy, onSave }: { plan: AdminPlan | nul
       if (definition.type === 'boolean') value = Boolean(raw);
       else if (definition.type === 'number') value = raw === '' ? 0 : Number(raw);
       else value = String(raw);
-      return { ...current, [definition.key]: value;
+      return { ...current, [definition.key]: value };
     });
   }
 
@@ -281,7 +284,7 @@ function PlanEditor({ plan, definitions, busy, onSave }: { plan: AdminPlan | nul
       priceTwd: priceTwd.trim(),
       rank: Number(rank),
       enabled,
-      aiAllowanceUnits: Number(allowance),
+      subscriptionPeriodPoints: Number(allowance),
       capabilities,
     });
   }
@@ -393,7 +396,7 @@ function capabilityDefaults(definitions: AdminCapabilityDefinition[], current?: 
 
 const COLUMN_LABELS: Record<string, string> = {
   id: '編號', user_id: '使用者編號', display_name: '顯示名稱', line_user_id: 'LINE 使用者 ID', line_group_id: 'LINE 群組 ID',
-  plan_code: '方案', user_type: '使用者類型', status: '狀態', source_id: '來源編號',
+  plan_code: '方案', subscription_period_points: '訂閱週期 AI 點數', user_type: '使用者類型', status: '狀態', source_id: '來源編號',
   ai_responsible_user_id: 'AI 額度負責人編號', ai_responsible_display_name: 'AI 額度負責人', ai_responsible_plan_code: '負責人方案',
   ai_granted_points: '累計發放 AI 點數', ai_available_points: '可用 AI 點數', ai_reserved_points: '保留中 AI 點數', ai_used_points: '已扣 AI 點數',
   group_ai_used_points: '群組已扣 AI 點數', platform_subsidized_points: '平台補貼點數', group_ai_cost_twd: '群組 AI 成本', ai_cost_twd: 'AI 成本', provider_cost_twd: '供應商成本',
