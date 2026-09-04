@@ -64,6 +64,13 @@ try {
         git pull --ff-only
     }
 
+    # This guard needs only Node and checked-in artifacts, so run it before dependency
+    # installation/build/test. A known-stale prelaunch baseline should fail immediately
+    # instead of wasting a full release validation cycle before migration is rejected.
+    Invoke-CommandChecked 'Reject stale Worklog migration baseline' {
+        node scripts/check-worklog-baseline.mjs
+    }
+
     if (-not $SkipInstall) {
         Invoke-CommandChecked 'Install dependencies from lockfile' {
             pnpm install --frozen-lockfile
@@ -84,10 +91,6 @@ try {
 
     Invoke-CommandChecked 'API Worker production build / dry-run' {
         pnpm --filter @aftertrace/api build
-    }
-
-    Invoke-CommandChecked 'Reject stale Worklog migration baseline' {
-        pnpm db:baseline:guard
     }
 
     Invoke-CommandChecked 'Drizzle schema check' {
