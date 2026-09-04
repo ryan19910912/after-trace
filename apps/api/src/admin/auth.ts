@@ -1,5 +1,6 @@
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+const ADMIN_PASSWORD_MIN_LENGTH = 16;
 
 export type AdminAccessEnv = {
   ADMIN_USERNAME?: string;
@@ -108,7 +109,7 @@ export function bearerToken(header: string | undefined): string | null {
 function adminConfig(env: AdminAccessEnv): { username: string; password: string; sessionSecret: string } {
   return {
     username: required(env.ADMIN_USERNAME, 'ADMIN_USERNAME', 128),
-    password: required(env.ADMIN_PASSWORD, 'ADMIN_PASSWORD', 512),
+    password: requiredAdminPassword(env.ADMIN_PASSWORD),
     sessionSecret: requiredSecret(env.ADMIN_SESSION_SECRET),
   };
 }
@@ -127,6 +128,14 @@ function normalizePassword(value: string): string {
 function required(value: string | undefined, field: string, max: number): string {
   const normalized = value?.trim() ?? '';
   if (!normalized || normalized.length > max) throw new Error(`${field}_NOT_CONFIGURED`);
+  return normalized;
+}
+
+function requiredAdminPassword(value: string | undefined): string {
+  const normalized = value ?? '';
+  if (normalized.length < ADMIN_PASSWORD_MIN_LENGTH || normalized.length > 512) {
+    throw new Error('ADMIN_PASSWORD_NOT_CONFIGURED');
+  }
   return normalized;
 }
 
