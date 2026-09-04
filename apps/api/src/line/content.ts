@@ -54,9 +54,11 @@ export class LineMessageContentResolver {
     const declaredLength = Number(response.headers.get('content-length') ?? '0');
     if (Number.isFinite(declaredLength) && declaredLength > maxBytes) throw codedError('LINE_CONTENT_TOO_LARGE');
 
-    const bytes = new Uint8Array(await response.arrayBuffer());
+    // Content-Length is not guaranteed. Read the response body incrementally and stop
+    // immediately once the product limit is crossed instead of buffering an unbounded
+    // attachment into Worker memory and checking the limit afterwards.
+    const bytes = await boundedResponseBytes(response, maxBytes);
     if (bytes.byteLength === 0) throw codedError('LINE_CONTENT_EMPTY');
-    if (bytes.byteLength > maxBytes) throw codedError('LINE_CONTENT_TOO_LARGE');
 
     return {
       lineMessageId: id,
@@ -81,6 +83,41 @@ export function base64ToUtf8(dataBase64: string): string {
   const binary = atob(dataBase64);
   const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
   return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+}
+
+async function boundedResponseBytes(response: Response, maxBytes: number): Promise<Uint8Array> {
+  if (!response.body) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > maxBytes) throw codedError('LINE_CONTENT_TOO_LARGE');
+    return bytes;
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value || value.byteLength === 0) continue;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        try { await reader.cancel('LINE_CONTENT_TOO_LARGE'); } catch { /* best-effort cancellation */ }
+        throw codedError('LINE_CONTENT_TOO_LARGE');
+      }
+      chunks.push(value);
+    }
+  } finally {
+    try { reader.releaseLock(); } catch { /* already released/cancelled */ }
+  }
+
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
 }
 
 function codedError(code: string): Error & { code: string } {
