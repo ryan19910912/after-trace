@@ -15,184 +15,178 @@ Read first every run, in this order:
 
 The latest product/development documents above are the only product specification. Do not revive old Customer/Project/Finance/Owner/aggregate-quota assumptions from older code, migrations, or tests.
 
-## Current execution checkpoint — 2026-09-04 final launch blocker / fail-closed production audit
+## Current execution checkpoint — 2026-09-04 PRIVATE AI parity + plan semantics + first-deploy bootstrap
 
-This run continued from the latest Source/Grant DB-integrity checkpoint and **did not redo** the completed composite Source/Grant constraints, attachment quota-schema cleanup, PWA optimistic concurrency, LINE CREATE/HISTORY/Reply EDIT, Grant accounting, Admin profitability or migration guard work.
+This run continued from the fail-closed production audit and preceding Source/Grant database-integrity work. It did **not** redo the completed Source/Entity/Record/PWA/LINE Reply EDIT/Grant accounting/Admin profitability/composite-FK/baseline-guard work.
 
-The goal was to find only concrete issues that could make a seemingly successful Workers deployment unsafe or misleading.
-
-The run fixed several launch-level gaps:
-
-- `/health/ready` no longer accepts the obsolete baseline merely because `worklog_users` exists; it probes rebuilt-only Entity/Alias/Revision/Confirmation/Grant/AI-charge/subsidy/responsibility structures;
-- readiness also refuses a schema-only fresh DB until DB-backed AI runtime pricing is initialized and an enabled zero-price `FREE` plan shell exists;
-- release preflight now requires the actual HTTPS `AFTERTRACE_API_URL` and forces Web/Admin production builds to use it as `VITE_API_BASE_URL`;
-- Admin passwords now require at least 16 characters and readiness enforces the same rule;
-- production migration no longer risks silently reading the local/dev `.env.local` database: `worker-deploy.ps1` requires explicit `AFTERTRACE_PROD_DATABASE_URL` / `-DatabaseUrl`;
-- paid plan buttons and the checkout API both fail closed while the payment provider is disabled, preventing useless `PENDING_PROVIDER` intent growth;
-- users with no effective paid subscription now see the FREE plan consistently marked as the current plan;
-- LINE binary fetching is bounded while streaming even when LINE omits `Content-Length`, preventing an oversized unknown-length response from being fully buffered before the 10/20 MiB product limit is enforced;
-- deployment documentation now distinguishes repository local env from Cloudflare production bindings and documents the first fresh-DB bootstrap sequence.
+The focus was concrete launch correctness around PRIVATE AI eligibility, customer plan semantics and the first fresh-database Worker deployment path.
 
 ## Scanned this run
 
 - all eight required durable documents;
-- latest branch checkpoint after concurrent Source/Grant integrity work;
-- API liveness/readiness and Worker routing;
-- root release preflight and production deploy helpers;
-- `.env.example` / `.gitignore` / Drizzle env behavior;
-- Web/Admin Static Assets SPA fallback and representative deep links;
-- subscription plan UI, provider-neutral checkout boundary and subscription effective-state handling;
-- Admin auth/session configuration;
-- Web LINE Login callback, bot-entry/session token lifecycle and open-redirect/token-removal behavior;
-- FREE initial Grant bootstrap/idempotency;
-- LINE content fetch size/202/expired behavior and attachment provider-settlement state machine;
-- GROUP TEXT cache TTL/cap pruning;
-- current export capability declaration vs actual customer export implementation;
-- checked-in migration baseline state from the prior checkpoint.
+- latest `revive/line-worklog` checkpoint/source before each write;
+- PRIVATE OA runtime CREATE/QUERY/Reply EDIT/attachment handling;
+- production OA runtime wiring in `index.ts`;
+- GROUP AI authorization for parity comparison;
+- AI Grant service positive-balance contract;
+- text-normalization reservation timing and raw-first persistence behavior;
+- customer PWA handling of unresolved `entity_id = NULL` Records;
+- Admin plan capability definitions and customer plan capability payload;
+- subscription page FREE/paid point presentation;
+- payment-disabled checkout boundary;
+- API first-deploy readiness and production deployment helper;
+- attachment runtime production configuration in `worker.ts`;
+- existing OA/runtime/subscription/readiness test sources.
 
 ## Files changed this run
 
-Launch readiness / release safety:
+PRIVATE AI contract/tests:
 
-- `apps/api/src/index.ts`
-- `apps/api/src/index-readiness.test.ts`
-- `scripts/release-preflight.mjs`
-- `worker-deploy.ps1`
-- `.env.example`
+- `apps/api/src/worklog/oa-runtime.test.ts`
 
-Admin security:
+Plan/capability semantics:
 
-- `apps/api/src/admin/auth.ts`
-- `apps/api/src/admin/auth.test.ts`
-
-Subscription / payment fail-closed behavior:
-
+- `apps/api/src/admin/capabilities.ts`
+- `apps/api/src/admin/capabilities.test.ts` — new
 - `apps/api/src/worklog/subscription-routes.ts`
-- `apps/api/src/worklog/subscription-routes.test.ts` — new
 - `apps/web/src/SubscriptionRoot.tsx`
 
-LINE attachment safety:
+Production first-deploy flow:
 
-- `apps/api/src/line/content.ts`
-- `apps/api/src/line/content.test.ts`
+- `worker-deploy.ps1`
 
 Durable docs:
 
 - `docs/WORKLOG_DEPLOYMENT.md`
 - `docs/WORKLOG_REBUILD_PROGRESS.md`
 
-## Completed / fixed this run
+## Completed / confirmed this run
 
-### 1. Readiness cannot false-positive on the obsolete migration baseline
+### 1. PRIVATE LINE AI zero-balance behavior now has production + test contract parity
 
-The known stale baseline also contains `worklog_users`, so the previous single-table readiness query was not a sufficient rebuilt-schema test.
+Latest production source already had the correct wiring and was re-verified:
 
-`/health/ready` now probes rebuilt-only structures including:
+- `WorklogOaRuntime` accepts a `WorklogOaAiGrantPort`;
+- `index.ts` injects the actual `WorklogAiGrantService`;
+- QUERY/history navigation returns before any AI point check and remains free;
+- direct PRIVATE CREATE and quoted attachment paths require positive eligible PRIVATE Grant points before Record/AI work begins;
+- Reply EDIT first resolves the deterministic same-Source target, then checks positive PRIVATE Grant points before entering the AI editor;
+- failure/missing Grant service fails closed;
+- the point ledger still performs the final atomic reservation immediately before provider execution.
 
-- Entity/Alias;
-- Revision/Pending Confirmation;
-- AI Grants;
-- `customer_points_charged`;
-- `platform_subsidized_points`;
-- GROUP AI responsibility.
+The old OA runtime tests did not inject a Grant port and therefore no longer represented production behavior. They were updated to cover:
 
-A reachable PostgreSQL created from the old pre-rebuild baseline should therefore fail `WORKLOG_DATABASE_OR_SCHEMA_UNAVAILABLE` instead of reporting ready.
+- positive-point CREATE;
+- zero-point CREATE with **no Record write**;
+- QUERY with zero points and no Grant lookup;
+- deterministic Reply target resolution before zero-point edit rejection and no AI editor call;
+- positive/zero-point quoted attachment preflight;
+- existing idempotency behavior after preflight.
 
-### 2. Fresh schema is not considered ready until operator configuration exists
+These are test-source changes only; Vitest was not executed here.
 
-Schema migration does not seed model pricing or commercial plan configuration.
+### 2. Retired AI subscription capability gates were removed
 
-Readiness now additionally requires:
+Accepted product policy is Grant-backed AI eligibility. Subscription feature flags must not form a second AI entitlement system.
 
-- `worklog_ai_runtime_config.id = 1` with non-empty provider/model and positive output-token reference price;
-- enabled `FREE` plan with price `0` and `subscription_period_points = 0`.
+Removed from current Admin capability definitions:
 
-The one-time 400,000 FREE acquisition points remain provisioned separately by the idempotent bootstrap Grant flow; they are **not** recurring FREE plan-template points.
+- `privateOaRecording`;
+- `aiTextRecording`;
+- `aiMediaIngestion`.
 
-PRO/TEAM point amounts remain explicit Admin configuration and are not invented in migration/readiness code.
+`export` remains the only current non-AI plan capability definition, but it is `shipped: false` and cannot be enabled yet.
 
-### 3. Release preflight builds frontends against the actual production API origin
+Customer `/subscription/plans` also strips stale historical AI capability keys from prelaunch JSON rows and forces `export=false` until the actual export feature ships.
 
-`pnpm release:preflight` now:
+Customer Subscription UI no longer displays AI modes as plan-specific capabilities.
 
-- loads root `.env.local` / `.env` for local tooling only;
-- requires a valid absolute HTTPS `AFTERTRACE_API_URL`;
-- exports that value as `VITE_API_BASE_URL` before Web/Admin production builds.
+A focused Admin capability source test now locks:
 
-This prevents a build from passing while the deployed frontend would contain a missing/local API base URL.
+- only `export` remains;
+- retired AI keys do not revive entitlement behavior;
+- unshipped Export remains fail-closed.
 
-### 4. Production DB migration cannot silently use the local development DB
+### 3. FREE plan display now matches the actual 400,000-point product contract
 
-`worker-deploy.ps1` now requires:
+FREE correctly has `subscription_period_points = 0`; it is not a monthly allowance.
 
-- `AFTERTRACE_PROD_DATABASE_URL`, or
-- explicit `-DatabaseUrl`.
+Previously the customer plan card displayed that raw field as `訂閱週期 AI 點數：0`, which misleadingly implied FREE receives no AI allowance.
 
-It validates `postgresql://` / `postgres://`, temporarily sets that value as `DATABASE_URL` only for the migration command, and restores the previous process value afterwards.
+The customer plans API now returns:
 
-A production deploy must not fall back to repository `.env.local` for migration.
+- `one_time_initial_points = 400000` for FREE;
+- `0` for other plan shells.
 
-`.env.example` documents local `DATABASE_URL` and production migration URL separately.
+The FREE card now says the points are:
 
-### 5. Admin credential configuration is stronger and internally consistent
+- 400,000 once;
+- not calendar-refreshed;
+- not calendar-expiring.
 
-`ADMIN_PASSWORD` now requires at least 16 characters in Admin auth configuration.
+PRO/TEAM continue to display per-subscription-period points from their explicit Admin-configured templates.
 
-`/health/ready` uses the same minimum instead of accepting any non-empty password. Source tests cover the weak-password rejection contract.
+The durable FREE Grant itself remains provisioned by the existing idempotent bootstrap flow; the UI field does not create or resize Grants.
 
-Admin HMAC session behavior remains unchanged: default 12h, maximum 24h, session secret >=32 chars.
+### 4. First fresh-database API deployment no longer has an impossible readiness loop
 
-For broad public exposure, use a Cloudflare edge rate-limit/WAF rule for `/api/v1/admin/login`; do not rely on per-isolate in-memory counters as global protection.
+The documented fresh-DB sequence requires the API to exist before Admin can initialize:
 
-### 6. Payment-disabled product state is now fail-closed at both UI and API
+- DB-backed AI runtime pricing;
+- the FREE plan shell.
 
-Payment provider is still intentionally unimplemented.
+But `worker-deploy.ps1` previously required `/health/ready=ready` immediately after API deploy, making a first fresh DB helper run inevitably fail before Admin configuration could occur.
 
-While disabled:
+The helper now has an explicit:
 
-- paid plan buttons display `尚未開放` and cannot call checkout;
-- `POST /checkout-intents` returns `503 CHECKOUT_NOT_ENABLED` **before database persistence**;
-- direct authenticated API calls therefore cannot fill the DB with never-progressing `PENDING_PROVIDER` rows.
+`-AllowInitialBootstrapNotReady`
 
-When there is no effective paid subscription, the FREE plan row is now marked `current=true`, matching `currentPlanCode = FREE` and customer UI wording.
+switch.
 
-### 7. LINE content limits are enforced while streaming
+Default behavior remains strict. The bootstrap exception may tolerate **only**:
 
-The existing product limits remain:
+- `AI_RUNTIME_CONFIG_NOT_INITIALIZED`;
+- `FREE_PLAN_NOT_INITIALIZED`.
 
-- image: 10 MiB;
-- general attachment: 20 MiB.
+It still fails on:
 
-Previously, when LINE omitted `Content-Length`, `response.arrayBuffer()` could buffer an arbitrarily large body before the application checked the final length.
+- missing/invalid Worker secrets or origins;
+- DB connectivity problems;
+- old/unapplied schema;
+- any other readiness error.
 
-The resolver now reads the body incrementally, tracks total bytes and cancels the stream immediately when the configured ceiling is exceeded. Original binaries remain in-memory only and are never persisted.
+The helper clearly reports that an API deployed in initial-bootstrap mode is **NOT ready for public launch**. After Admin initialization, `/health/ready=ready` remains mandatory.
 
-A focused test source covers chunked/no-Content-Length overflow. It has **not been executed** here.
+Readiness HTTP error parsing was also hardened for PowerShell StrictMode when an exception does not expose `ErrorDetails`.
 
-### 8. Web auth/token lifecycle was re-audited and did not need changes
+### 5. Attachment runtime production wiring was re-audited and is real
 
-Confirmed current behavior:
+`apps/api/src/worker.ts` calls `configureWorklogAttachmentRuntime(...)` on each Worker fetch with current environment bindings and wires:
 
-- bot Web-entry tokens default to 5 minutes and max 15 minutes;
-- entry nonce is durably consumed once;
-- GROUP exchange re-checks actual LINE membership;
-- PRIVATE entry revalidates PRIVATE Source access;
-- Web session default TTL is 30 days and max 90 days;
-- callback session hash and one-time `t` query token are removed from the browser URL after persistence/exchange;
-- Rich Menu return destination is restricted to a local allowlist (`/subscription`, `/feedback`) rather than arbitrary redirect input.
+- current production DB;
+- Grant-backed AI point ledger;
+- LINE access token content resolver;
+- Gemini attachment normalizer.
 
-### 9. GROUP TEXT cache cleanup was re-audited and did not need changes
+Therefore GROUP/OA quoted attachment behavior is not test-only or accidentally unconfigured at runtime.
 
-Every remembered GROUP text triggers pruning that:
+### 6. Raw-first CREATE reservation race remains a known bounded behavior, not a silent accounting bug
 
-- removes all globally expired cache rows;
-- keeps only the newest 1000 rows for that group.
+LINE direct TEXT CREATE intentionally persists raw durable text before AI title/time interpretation where practical.
 
-Private ordinary text and attachment binaries remain outside this temporary cache as required.
+A positive preflight is not a balance lock. A concurrent request can consume the last points before normalization reaches its final atomic reservation. In that case:
 
-## Stable completed foundation — do not redo without a real regression
+- no provider call starts without a successful reservation;
+- no customer balance becomes negative;
+- raw Record data remains durable;
+- the Record may remain `entity_id = NULL` while normalization is deferred;
+- PWA already renders that state as `待確認` and allows an authorized user to manually move it to a title.
 
-- Source + single Entity/title + Alias + Record + immutable Revision + Pending Confirmation;
+Do not invent a cross-layer reservation handoff merely to eliminate this race without a dedicated design/runtime batch. A future UX follow-up may make LINE replies more explicit when title normalization is deferred, but data/accounting safety is already fail-closed.
+
+## Stable completed foundation — do not redo without a concrete regression
+
+- Source + single Entity/title + Alias + Record + immutable Revision + durable Pending Confirmation;
 - DB-enforced Source identity and Source-scoped Entity/Record/Confirmation/LINE-edit/attachment relations;
 - DB-enforced PRIVATE Web-entry Source ownership and Grant/grant-scope funding consistency;
 - Customer/Project/Transaction/Finance/category/normalized-summary removed from customer core;
@@ -200,30 +194,33 @@ Private ordinary text and attachment binaries remain outside this temporary cach
 - GROUP manual authorization = active membership only;
 - early route-level + final DB optimistic version checks;
 - deterministic HISTORY filtered PWA links;
-- deterministic Reply-targeted PRIVATE/GROUP LINE AI EDIT and bot-success reply mapping;
-- title ambiguity durable confirmation without second AI charge;
+- deterministic Reply-targeted PRIVATE/GROUP LINE AI EDIT and bot-success Reply mapping;
+- title ambiguity confirmation without second AI charge;
 - FREE 400,000 one-time user Grant;
 - user-owned Grants/scopes/caps + separate GROUP AI 額度負責人;
 - provider full-cost -> output-price-equivalent AI points;
 - platform subsidy for post-start overage;
-- subscription-period immutable/idempotent Grants;
-- stale aggregate quota/`ai_units_consumed`/`actualUnits` removed from active accounting contract;
+- immutable/idempotent subscription-period Grants;
+- aggregate quota/`ai_units_consumed`/`actualUnits` removed from active accounting contract;
 - factual Admin profitability;
 - provider `reservationPoints` vocabulary;
-- old Owner/group-paid-gate/recording-preference assumptions removed from current execution contract;
+- stale Owner/group paid-gate/recording-preference assumptions removed;
+- bounded LINE attachment streaming + no permanent binaries;
 - safe baseline regeneration/guard;
 - release preflight;
+- explicit production migration DB URL;
 - API liveness/readiness split;
+- payment-disabled checkout fail-closed;
 - Web/Admin SPA deep-link deployment checks;
 - hard-coded workers.dev account hostname removed.
 
-## Current hard blocker — checked-in baseline is still stale
+## Current hard blocker — checked-in Drizzle baseline is still stale
 
 The checked-in `drizzle/0000_worklog_baseline.sql` remains from the pre-rebuild world and MUST NOT be applied.
 
-The latest TypeScript schema also includes the newer Source/Grant composite constraints from the preceding checkpoint, so manually editing old SQL/snapshot is especially unsafe.
+The authoritative TypeScript schema now also includes newer Source/Grant composite constraints, so manually editing the old SQL/snapshot is unsafe.
 
-The next useful work requires the actual pinned project toolchain.
+This is still the primary launch blocker and requires the actual pinned project toolchain.
 
 ## Remaining / blocking work
 
@@ -235,40 +232,42 @@ From a real latest checkout:
 2. verify pinned `pnpm --version`
 3. `pnpm db:baseline:regenerate --confirm-prelaunch-reset`
 4. inspect generated SQL/snapshot/journal
-5. fix real Drizzle errors/drift exposed by the new composite FKs/check constraints
+5. fix actual Drizzle/type errors exposed by the latest composite FKs/checks
 6. `pnpm db:baseline:guard` until green
 
-Do not hand-fabricate Drizzle snapshot metadata.
+Do not hand-fabricate Drizzle metadata.
 
 ### 2. Apply to fresh PostgreSQL and validate invariants
 
-Use a fresh disposable DB first. Validate:
+Validate at minimum:
 
 - generated FK/check/index/type names;
-- malformed PRIVATE/GROUP Source rejection;
+- PRIVATE/GROUP Source shape;
 - cross-Source Entity/Record/Alias/Confirmation/LINE-edit/attachment rejection;
 - PRIVATE Web-entry user/Source mismatch rejection;
 - reservation Source mismatch rejection;
 - Grant/grant-scope attribution mismatch rejection;
-- normal Record CRUD/revision/confirmation paths under those constraints;
+- normal CRUD/revision/confirmation paths under constraints;
 - Grant reserve/commit/release/expire/subsidy/concurrency state.
 
 Then initialize AI runtime config + FREE plan and confirm `/health/ready` becomes green.
 
 ### 3. Entity/Alias case-collision behavior
 
-Runtime resolution uses case-insensitive `lower(...)` while current DB uniqueness is case-sensitive. Reproduce this against real PostgreSQL and choose the smallest normalization/index/collation fix only after observing actual behavior.
+Runtime matching uses case-insensitive `lower(...)` while database uniqueness remains case-sensitive. Reproduce on real PostgreSQL before choosing normalization/expression-index/collation behavior. Do not guess from static source.
 
 ### 4. Run real release validation
 
 After fresh PostgreSQL is green:
 
 - `pnpm release:preflight`;
-- authenticated PWA CRUD/version/group-membership browser/API smoke;
+- updated PRIVATE zero-point/OA tests;
+- Admin capability tests;
+- authenticated PWA CRUD/version/group-membership smoke;
 - Admin login + `/profitability`;
-- LINE Login and one-time scoped entry;
-- LINE CREATE/HISTORY/Reply EDIT/confirmation;
-- attachment TEXT/image/audio/file limits/expiry/202;
+- LINE Login/one-time entry;
+- PRIVATE/GROUP CREATE/HISTORY/Reply EDIT/confirmation;
+- attachment text/image/audio/file limits/expiry/202;
 - real Gemini pricing/usage/point settlement;
 - API `/health` + `/health/ready`;
 - Web/Admin deep links;
@@ -276,37 +275,37 @@ After fresh PostgreSQL is green:
 
 ### 5. Full paid MVP still has separate gaps
 
-Payment provider, recurring payment success/failure, TOP_UP purchase lifecycle/refunds/proration remain intentionally unfinished and must not be invented from current plan state.
+Payment provider, recurring payment success/failure, TOP_UP purchase lifecycle/refunds/proration remain unfinished by explicit product decision.
 
-**Export is still defined by the product spec as MVP and initially paid, but the current branch has no customer export endpoint/UI.** Do not advertise `export=true` on launch plans until the feature and entitlement checks exist. GROUP export data authorization must remain active-membership based; do not conflate a paid export entitlement with AI 額度負責人 without an explicit product decision.
+Export is still specified as an initially paid MVP capability but has no customer endpoint/UI. It is deliberately fail-closed and cannot be advertised/enabled yet.
 
-This means:
+Therefore:
 
-- free/manual + AI-recording launch path can be evaluated once the migration/runtime blockers are green;
-- full paid-MVP launch is not complete until payment and paid Export scope are resolved/implemented.
+- free/manual + AI-recording launch can be evaluated after migration/runtime gates turn green;
+- full paid-MVP launch still requires payment + paid Export work.
 
 ## Next implementation target
 
-Continue from this exact checkpoint. Do not redo the launch fail-closed fixes above or the DB integrity constraints from the preceding checkpoint.
+Continue from this exact checkpoint. Do not redo PRIVATE Grant preflight, removal of AI plan flags, FREE one-time point presentation, first-deploy bootstrap mode, DB integrity constraints or prior release gates.
 
-Highest priority:
+Highest priority next run:
 
 1. obtain/use a real latest checkout with pinned pnpm/Drizzle;
-2. regenerate baseline immediately;
-3. fix any actual TypeScript/Drizzle errors from the latest schema;
-4. pass baseline guard;
+2. regenerate the baseline immediately;
+3. fix actual TypeScript/Drizzle errors from the current schema;
+4. pass the baseline guard;
 5. apply to fresh PostgreSQL and execute integrity probes;
 6. initialize AI runtime config + FREE plan;
 7. run `pnpm release:preflight`;
 8. run browser/LINE/Gemini/Worker smoke.
 
-If local execution remains unavailable, only continue static audit for concrete launch blockers; do not broaden into speculative redesign.
+If local execution remains unavailable, continue static audit only for concrete launch blockers; do not broaden into speculative redesign.
 
 ## Validation status
 
 This run performed source/document audit and direct GitHub source edits only.
 
-No checked-out local project/toolchain became available in this environment, so source tests authored in this and prior batches were **not executed**.
+No checked-out local project/toolchain became available in this environment. Source tests were updated/added, but **none were executed**.
 
 **Not executed:**
 
@@ -332,13 +331,13 @@ No GitHub Actions workflow was executed, dispatched, rerun, enabled, modified, o
 
 **NOT READY yet.**
 
-Static/source-level launch safety is substantially stronger, and the remaining blockers are now sharply defined. The decisive next step is no longer another broad refactor: it is real migration generation + PostgreSQL + preflight/runtime validation.
+The remaining free/manual + AI-recording launch blockers are now operational validation blockers rather than broad product refactors: regenerated migration artifacts, fresh PostgreSQL, real preflight and runtime smoke.
 
 ## Rough remaining work
 
-Assuming the next environment has a current checkout/toolchain and disposable PostgreSQL:
+Assuming a current checkout/toolchain and disposable PostgreSQL are available:
 
 - baseline regeneration + fix actual generated-schema/type errors: **1 focused batch**;
 - fresh PostgreSQL/integrity/concurrency validation: **1 focused batch**;
 - release preflight + browser/LINE/Gemini/Workers smoke: **1 focused validation batch**;
-- payment + paid Export: separate full-paid-MVP work unless first public launch is explicitly scoped before those features.
+- payment + paid Export: separate full-paid-MVP work.
