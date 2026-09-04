@@ -28,10 +28,7 @@ export const worklogAttachmentIngestions = pgTable(
       .notNull()
       .references(() => worklogUsers.id, { onDelete: 'restrict' }),
     status: varchar('status', { length: 32 }).notNull(),
-    reservationToken: varchar('reservation_token', { length: 64 }).references(
-      () => worklogAiPointReservations.token,
-      { onDelete: 'restrict' },
-    ),
+    reservationToken: varchar('reservation_token', { length: 64 }),
     recordId: bigint('record_id', { mode: 'number' }),
     usageCommitJson: jsonb('usage_commit_json'),
     lastErrorCode: varchar('last_error_code', { length: 128 }),
@@ -43,6 +40,11 @@ export const worklogAttachmentIngestions = pgTable(
     uniqueIndex('worklog_attachment_ingestion_command_uq').on(table.commandLineMessageId),
     index('worklog_attachment_ingestion_source_status_idx').on(table.sourceId, table.status),
     index('worklog_attachment_ingestion_quoted_idx').on(table.quotedLineMessageId),
+    foreignKey({
+      columns: [table.sourceId, table.reservationToken],
+      foreignColumns: [worklogAiPointReservations.sourceId, worklogAiPointReservations.token],
+      name: 'worklog_attachment_ingestion_source_reservation_fk',
+    }).onDelete('restrict'),
     foreignKey({
       columns: [table.sourceId, table.recordId],
       foreignColumns: [worklogRecords.sourceId, worklogRecords.id],
