@@ -130,9 +130,6 @@ export function worklogTextReservationTokenUpperBound(
   return total;
 }
 
-/** Backward-compatible export name for tests/tools that only inspect the upper bound. */
-export const worklogTextReservationUnits = worklogTextReservationTokenUpperBound;
-
 export class GeminiWorklogTextNormalizer implements WorklogTextNormalizationProvider {
   private readonly fetchFn: typeof fetch;
   private readonly endpoint: string;
@@ -144,7 +141,7 @@ export class GeminiWorklogTextNormalizer implements WorklogTextNormalizationProv
     this.maxOutputTokens = positiveInteger(options.maxOutputTokens ?? 256, 'maxOutputTokens');
   }
 
-  reservationUnits(input: WorklogTextProviderInput, config: WorklogAiRuntimeConfigSnapshot): number {
+  reservationPoints(input: WorklogTextProviderInput, config: WorklogAiRuntimeConfigSnapshot): number {
     this.assertConfig(config);
     const upperBound = worklogTextReservationTokenUpperBound(input, this.maxOutputTokens);
     // Price every conservative upper-bound unit at the more expensive of input/output
