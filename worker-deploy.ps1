@@ -4,7 +4,7 @@ param(
     [switch]$AllowNonMain,
     [switch]$AllowInitialBootstrapNotReady,
     [string]$WorkerUrl = $env:AFTERTRACE_API_URL,
-    [string]$DatabaseUrl = $env:AFTERTRACE_PROD_DATABASE_URL
+    [string]$DatabaseUrl = $env:DATABASE_URL
 )
 
 Set-StrictMode -Version Latest
@@ -32,11 +32,11 @@ function Invoke-CommandChecked {
 
 function Assert-PostgresUrl([string]$Value) {
     if (-not $Value.Trim()) {
-        throw 'AFTERTRACE_PROD_DATABASE_URL (or -DatabaseUrl) is required for production migration. The deploy helper must never fall back to repository .env.local.'
+        throw 'DATABASE_URL (or -DatabaseUrl) is required for production migration. Load the intended production environment before deployment; worker-deploy.ps1 does not load repository .env.local.'
     }
     $uri = $null
     if (-not [Uri]::TryCreate($Value, [UriKind]::Absolute, [ref]$uri) -or ($uri.Scheme -ne 'postgresql' -and $uri.Scheme -ne 'postgres')) {
-        throw 'Production DatabaseUrl must be an absolute postgresql:// or postgres:// URL.'
+        throw 'DatabaseUrl must be an absolute postgresql:// or postgres:// URL.'
     }
     return $Value.Trim()
 }
@@ -122,8 +122,8 @@ try {
         pnpm db:schema:check
     }
 
-    # Production migration must use an explicitly supplied production DB URL. Never let
-    # drizzle.config.ts silently fall back to local .env.local during a production deploy.
+    # Production migration uses the explicit DATABASE_URL already loaded into the
+    # deployment process. This helper never loads repository .env.local itself.
     $previousDatabaseUrl = $env:DATABASE_URL
     try {
         $env:DATABASE_URL = $DatabaseUrl
