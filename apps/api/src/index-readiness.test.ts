@@ -42,6 +42,32 @@ describe('API launch readiness', () => {
     });
   });
 
+  it('rejects Web URL and CORS origin that do not resolve to the same origin', async () => {
+    const response = await app.request('/health/ready', {}, env({
+      WEB_APP_URL: 'https://aftertrace-web.example.test',
+      WEB_APP_ORIGIN: 'https://other-web.example.test',
+    }));
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      status: 'not_ready',
+      missing: expect.arrayContaining(['WEB_APP_URL', 'WEB_APP_ORIGIN']),
+    });
+  });
+
+  it('rejects origin bindings with path, query, hash, or credentials', async () => {
+    const response = await app.request('/health/ready', {}, env({
+      WEB_APP_URL: 'https://aftertrace-web.example.test/?preview=1',
+      ADMIN_WEB_ORIGIN: 'https://admin:secret@aftertrace-admin.example.test',
+    }));
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      status: 'not_ready',
+      missing: expect.arrayContaining(['WEB_APP_URL', 'ADMIN_WEB_ORIGIN']),
+    });
+  });
+
   it('keeps liveness independent from launch configuration', async () => {
     const response = await app.request('/health', {}, env({ WEB_AUTH_SECRET: undefined }));
 
