@@ -64,7 +64,7 @@ export type WorklogLineRecordEditBeginResult =
   | { status: 'PROVIDER_SUCCEEDED'; payload: WorklogPersistedLineEditPayload }
   | { status: 'USAGE_COMMITTED'; payload: WorklogPersistedLineEditPayload }
   | { status: 'PENDING_CONFIRMATION'; confirmationId: number }
-  | { status: 'SUCCEEDED'; recordVersion: number }
+  | { status: 'SUCCEEDED'; recordVersion: number; entityId: number }
   | { status: 'RECORD_CHANGED' }
   | { status: 'FAILED'; reason: string }
   | { status: 'IDEMPOTENCY_CONFLICT' }
@@ -164,7 +164,7 @@ export class WorklogLineRecordEditService {
 
     if (begin.status === 'PROCESSING') return { status: 'IN_PROGRESS' };
     if (begin.status === 'PENDING_CONFIRMATION') return begin;
-    if (begin.status === 'SUCCEEDED') return { status: 'EDITED', recordVersion: begin.recordVersion, entityId: target.entityId ?? 0 };
+    if (begin.status === 'SUCCEEDED') return { status: 'EDITED', recordVersion: begin.recordVersion, entityId: begin.entityId };
     if (begin.status === 'RECORD_CHANGED') return { status: 'RECORD_CHANGED' };
     if (begin.status === 'FAILED') return { status: 'FAILED', reason: begin.reason };
     if (begin.status === 'IDEMPOTENCY_CONFLICT') return { status: 'IDEMPOTENCY_CONFLICT' };
