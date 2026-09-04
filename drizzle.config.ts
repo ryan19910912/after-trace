@@ -5,8 +5,17 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'drizzle-kit';
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
-const envPath = resolve(rootDir, '.env');
-if (existsSync(envPath)) loadEnvFile(envPath);
+const localEnvPath = resolve(rootDir, '.env.local');
+const fallbackEnvPath = resolve(rootDir, '.env');
+
+// Local API development uses repository-root .env.local as the single source of
+// truth. Drizzle tooling must read the same file so migration/export commands do not
+// disagree with Wrangler local runtime. Preserve .env as a compatibility fallback and
+// never override an explicitly supplied DATABASE_URL.
+if (!process.env.DATABASE_URL) {
+  if (existsSync(localEnvPath)) loadEnvFile(localEnvPath);
+  else if (existsSync(fallbackEnvPath)) loadEnvFile(fallbackEnvPath);
+}
 
 const drizzlePath = (...segments: string[]) => resolve(rootDir, ...segments).replaceAll('\\', '/');
 const databaseUrl = process.env.DATABASE_URL?.trim();
