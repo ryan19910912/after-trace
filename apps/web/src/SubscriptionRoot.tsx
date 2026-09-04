@@ -56,8 +56,6 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
         location.href = intent.checkout_url;
         return;
       }
-      // The page never starts checkout while checkoutEnabled is false. Keep this
-      // response guard for a provider/config race between plan load and click.
       setNotice(intent.message || '付款服務目前無法使用，請稍後再試。');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '付款流程建立失敗');
@@ -139,9 +137,8 @@ function checkoutRequestKey() {
 
 function capabilitySummary(value: Record<string, unknown>) {
   const result: string[] = [];
-  if (value.privateOaRecording === true) result.push('個人 LINE AI 紀錄');
-  if (value.aiTextRecording === true) result.push('文字 AI 處理');
-  if (value.aiMediaIngestion === true) result.push('圖片 / 音檔 / 檔案 AI');
+  // AI CREATE/EDIT/media availability is determined by eligible Grant points, not by
+  // subscription feature flags. Keep only independently shipped paid capabilities here.
   if (value.export === true) result.push('資料匯出');
   return result;
 }
