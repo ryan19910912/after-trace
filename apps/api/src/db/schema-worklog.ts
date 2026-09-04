@@ -157,9 +157,9 @@ export const worklogSubscriptionPlans = pgTable(
     priceTwd: numeric('price_twd', { precision: 12, scale: 2 }).default('0').notNull(),
     rank: integer('rank').default(0).notNull(),
     enabled: boolean('enabled').default(true).notNull(),
-    // Plan-template included points frozen into each future SUBSCRIPTION_PERIOD Grant.
-    // This is not a live aggregate balance; the physical column name is transitional.
-    aiAllowanceUnits: integer('ai_allowance_units').default(0).notNull(),
+    // Plan-template points frozen into each future SUBSCRIPTION_PERIOD Grant.
+    // This is a template value, never a live aggregate balance.
+    subscriptionPeriodPoints: integer('subscription_period_points').default(0).notNull(),
     capabilities: jsonb('capabilities').default({}).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
