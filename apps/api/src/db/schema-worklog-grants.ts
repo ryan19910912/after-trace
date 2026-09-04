@@ -9,6 +9,7 @@ import {
   pgEnum,
   pgTable,
   timestamp,
+  unique,
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/pg-core';
@@ -103,7 +104,7 @@ export const worklogAiGrantScopes = pgTable(
     uniqueIndex('worklog_ai_grant_scope_uq').on(table.grantId, table.sourceId),
     // Composite funding FKs below use this key so a funding row cannot pair grant A
     // with a scope owned by grant B.
-    uniqueIndex('worklog_ai_grant_scope_grant_id_uq').on(table.grantId, table.id),
+    unique('worklog_ai_grant_scope_grant_id_uq').on(table.grantId, table.id),
     index('worklog_ai_grant_scope_source_enabled_idx').on(table.sourceId, table.enabled),
   ],
 );
@@ -181,7 +182,7 @@ export const worklogAiPointReservations = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    uniqueIndex('worklog_ai_point_reservation_source_token_uq').on(table.sourceId, table.token),
+    unique('worklog_ai_point_reservation_source_token_uq').on(table.sourceId, table.token),
     index('worklog_ai_point_reservation_user_status_idx').on(table.chargedUserId, table.status, table.expiresAt),
     index('worklog_ai_point_reservation_source_idx').on(table.sourceId, table.createdAt),
   ],
