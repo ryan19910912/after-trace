@@ -37,7 +37,6 @@ function repository(): WorklogAiPointLedgerRepository {
 }
 
 const usage = {
-  actualUnits: 999, // ignored for authoritative point conversion
   workspaceId: null,
   recordId: 33,
   operation: 'TEXT_RECORD_CREATE',
@@ -64,7 +63,7 @@ describe('WorklogAiPointLedgerService', () => {
       chargedUserId: 9,
       actorUserId: 7,
       sourceId: 20,
-      requestedUnits: 500,
+      requestedPoints: 500,
       at: now,
     })).resolves.toMatchObject({
       status: 'RESERVED',
@@ -87,7 +86,7 @@ describe('WorklogAiPointLedgerService', () => {
       chargedUserId: 9,
       actorUserId: 7,
       sourceId: 20,
-      requestedUnits: 500,
+      requestedPoints: 500,
       at: now,
     })).resolves.toEqual({ status: 'AI_POINTS_EXHAUSTED' });
   });
