@@ -4,7 +4,7 @@ import type {
   WorklogAiPointLedgerRepository,
   WorklogAiPointReservationSnapshot,
 } from './ai-point-ledger';
-import type { WorklogAiUsageCommit } from './subscription';
+import type { WorklogAiUsageCommit } from './ai-provider-usage';
 
 type ReservationRow = {
   id: string | number;
@@ -378,7 +378,6 @@ export class DrizzleWorklogAiPointLedgerRepository implements WorklogAiPointLedg
           platform_subsidized_points,
           platform_subsidized_cost_usd,
           platform_subsidized_cost_twd,
-          ai_units_consumed,
           created_at
         )
         SELECT
@@ -422,7 +421,6 @@ export class DrizzleWorklogAiPointLedgerRepository implements WorklogAiPointLedg
               ) / ${usage.providerCostUsd}::numeric
             )
           END,
-          ${input.actualPoints},
           ${input.at}
         FROM transitioned
         ON CONFLICT (reservation_token) DO NOTHING
