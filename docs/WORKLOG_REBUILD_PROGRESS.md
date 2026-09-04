@@ -15,212 +15,271 @@ Read first every run, in this order:
 
 The latest product/development documents above are the only product specification. Do not revive old Customer/Project/Finance/Owner/aggregate-quota assumptions from older code, migrations, or tests.
 
-## Current execution checkpoint — 2026-09-04 PRIVATE AI parity + plan semantics + first-deploy bootstrap
+## Current execution checkpoint — 2026-09-04 customer PWA + Admin launch-audit batch
 
-This run continued from the fail-closed production audit and preceding Source/Grant database-integrity work. It did **not** redo the completed Source/Entity/Record/PWA/LINE Reply EDIT/Grant accounting/Admin profitability/composite-FK/baseline-guard work.
+This run re-read all eight durable documents and continued from the PRIVATE-AI/first-deploy checkpoint. It did **not** redo completed Source/Entity/Record/LINE Reply EDIT/Grant accounting/composite-FK/baseline-guard work.
 
-The focus was concrete launch correctness around PRIVATE AI eligibility, customer plan semantics and the first fresh-database Worker deployment path.
+The focus was an explicit front-end + back-end/Admin audit for launch-facing bugs: stale sessions, cross-Source UI state, asynchronous stale responses, Grant hold visibility, Admin plan/pricing safety, cost-report completeness and stale plan-as-AI-entitlement presentation.
 
 ## Scanned this run
 
-- all eight required durable documents;
-- latest `revive/line-worklog` checkpoint/source before each write;
-- PRIVATE OA runtime CREATE/QUERY/Reply EDIT/attachment handling;
-- production OA runtime wiring in `index.ts`;
-- GROUP AI authorization for parity comparison;
-- AI Grant service positive-balance contract;
-- text-normalization reservation timing and raw-first persistence behavior;
-- customer PWA handling of unresolved `entity_id = NULL` Records;
-- Admin plan capability definitions and customer plan capability payload;
-- subscription page FREE/paid point presentation;
-- payment-disabled checkout boundary;
-- API first-deploy readiness and production deployment helper;
-- attachment runtime production configuration in `worker.ts`;
-- existing OA/runtime/subscription/readiness test sources.
+Customer Web/PWA:
+
+- `apps/web/src/WorklogRoot.tsx`
+- `apps/web/src/worklog-api.ts`
+- `apps/web/src/SubscriptionRoot.tsx`
+- `apps/web/src/FeedbackRoot.tsx`
+- current Source switch/filter/delete/recycle/create/edit/move/history/confirmation/funding flows;
+- LINE-entry/session persistence and expiry behavior;
+- FREE one-time point presentation;
+- Group/Private funding display and in-flight reservation behavior.
+
+Admin/API:
+
+- `apps/admin/src/App.tsx`
+- `apps/admin/src/api.ts`
+- `apps/admin/src/ProfitabilityPage.tsx`
+- `apps/api/src/admin/routes.ts`
+- `apps/api/src/admin/repository.ts`
+- `apps/api/src/admin/grant-repository.ts`
+- Admin plan editor, manual plan assignment, AI runtime pricing editor, overview/profitability, anomaly/audit/detail views;
+- FREE plan invariants and subscription-period behavior;
+- group/user Grant available/reserved accounting;
+- current plan-capability definitions.
+
+Also re-checked the execution environment. A GitHub network command was retried and still failed DNS resolution (`Could not resolve host: github.com`), so there was still no usable checked-out project/toolchain for pnpm/Drizzle/PostgreSQL/runtime execution.
 
 ## Files changed this run
 
-PRIVATE AI contract/tests:
+Customer Web/PWA:
 
-- `apps/api/src/worklog/oa-runtime.test.ts`
-
-Plan/capability semantics:
-
-- `apps/api/src/admin/capabilities.ts`
-- `apps/api/src/admin/capabilities.test.ts` — new
-- `apps/api/src/worklog/subscription-routes.ts`
+- `apps/web/src/WorklogRoot.tsx`
+- `apps/web/src/worklog-api.ts`
 - `apps/web/src/SubscriptionRoot.tsx`
+- `apps/web/src/FeedbackRoot.tsx`
 
-Production first-deploy flow:
+Funding/accounting presentation:
 
-- `worker-deploy.ps1`
+- `apps/api/src/worklog/funding-routes.ts`
 
-Durable docs:
+Admin API/repository:
 
-- `docs/WORKLOG_DEPLOYMENT.md`
+- `apps/api/src/admin/repository.ts`
+- `apps/api/src/admin/grant-repository.ts`
+- `apps/api/src/admin/routes.ts`
+- `apps/api/src/admin/routes.test.ts`
+
+Admin Web:
+
+- `apps/admin/src/App.tsx`
+- `apps/admin/src/ProfitabilityPage.tsx`
+- `apps/admin/src/api.ts`
+
+Durable handoff:
+
 - `docs/WORKLOG_REBUILD_PROGRESS.md`
 
-## Completed / confirmed this run
+## Completed / fixed this run
 
-### 1. PRIVATE LINE AI zero-balance behavior now has production + test contract parity
+### 1. Customer Web sessions now recover consistently after expiry
 
-Latest production source already had the correct wiring and was re-verified:
+Previously only the initial Worklog bootstrap reliably cleared an expired Web session. A user who left the PWA open until the session expired could receive `INVALID_WEB_SESSION` during CRUD/funding/confirmation calls while the UI still looked logged in.
 
-- `WorklogOaRuntime` accepts a `WorklogOaAiGrantPort`;
-- `index.ts` injects the actual `WorklogAiGrantService`;
-- QUERY/history navigation returns before any AI point check and remains free;
-- direct PRIVATE CREATE and quoted attachment paths require positive eligible PRIVATE Grant points before Record/AI work begins;
-- Reply EDIT first resolves the deterministic same-Source target, then checks positive PRIVATE Grant points before entering the AI editor;
-- failure/missing Grant service fails closed;
-- the point ledger still performs the final atomic reservation immediately before provider execution.
+`apps/web/src/worklog-api.ts` now centralizes the exact session failure contract:
 
-The old OA runtime tests did not inject a Grant port and therefore no longer represented production behavior. They were updated to cover:
+- only HTTP 401 with `INVALID_WEB_SESSION` or `WEB_SESSION_REQUIRED` clears the Web session;
+- active stored Source scope is cleared too;
+- the current page reloads to the normal LINE-login state;
+- 403 authorization failures, 409 version conflicts and 5xx failures do **not** cause automatic logout.
 
-- positive-point CREATE;
-- zero-point CREATE with **no Record write**;
-- QUERY with zero points and no Grant lookup;
-- deterministic Reply target resolution before zero-point edit rejection and no AI editor call;
-- positive/zero-point quoted attachment preflight;
-- existing idempotency behavior after preflight.
+`SubscriptionRoot` and the standalone `FeedbackRoot` also provide friendly expired-login messages rather than leaving the user in a broken authenticated-looking state.
 
-These are test-source changes only; Vitest was not executed here.
+### 2. PWA Source switching no longer leaves Record-bound editors from the previous Source
 
-### 2. Retired AI subscription capability gates were removed
+A serious UX/data-safety issue existed when a user belonged to multiple groups:
 
-Accepted product policy is Grant-backed AI eligibility. Subscription feature flags must not form a second AI entitlement system.
+- open edit/move/history/create state in Source A;
+- switch UI to Source B;
+- the old A-bound editor could remain visible.
 
-Removed from current Admin capability definitions:
+Because the user may legitimately be authorized to both Sources, the backend cannot infer that the user intended B rather than A.
 
-- `privateOaRecording`;
-- `aiTextRecording`;
-- `aiMediaIngestion`.
+The PWA now resets all Source-bound transient state when Source/filter/recycle context changes:
 
-`export` remains the only current non-AI plan capability definition, but it is `shipped: false` and cannot be enabled yet.
+- selected rows and batch target;
+- manual create editor/draft;
+- edit editor/draft;
+- move editor/target;
+- revision-history panel;
+- funding and pending-confirmation state before reload.
 
-Customer `/subscription/plans` also strips stale historical AI capability keys from prelaunch JSON rows and forces `export=false` until the actual export feature ships.
+This prevents a visible B context from retaining an actionable A Record editor.
 
-Customer Subscription UI no longer displays AI modes as plan-specific capabilities.
+### 3. PWA drops stale asynchronous responses after rapid Source/filter changes
 
-A focused Admin capability source test now locks:
+A second cross-Source race existed independently of the editor state:
 
-- only `export` remains;
-- retired AI keys do not revive entitlement behavior;
-- unshipped Export remains fail-closed.
+- request A starts for Group A;
+- user quickly switches to Group B and request B starts;
+- request B returns first;
+- slower request A could return later and overwrite B's records/entities/funding/confirmations.
 
-### 3. FREE plan display now matches the actual 400,000-point product contract
+`WorklogRoot` now uses a request generation counter. Every Source/filter/recycle context transition invalidates prior generations. Old-generation responses and errors are ignored instead of writing React state. Logout invalidates all pending generation-bound work as well.
 
-FREE correctly has `subscription_period_points = 0`; it is not a monthly allowance.
+This protects records, Entity options, funding and pending confirmations from stale cross-Source UI overwrite.
 
-Previously the customer plan card displayed that raw field as `訂閱週期 AI 點數：0`, which misleadingly implied FREE receives no AI allowance.
+### 4. PWA navigation and feedback behavior are less brittle
 
-The customer plans API now returns:
+The Worklog topbar now exposes direct customer navigation to:
 
-- `one_time_initial_points = 400000` for FREE;
-- `0` for other plan shells.
+- `/subscription`;
+- `/help`;
+- logout.
 
-The FREE card now says the points are:
+The embedded feedback form now catches submission failure and keeps the text instead of producing an unhandled rejected Promise or clearing the user's draft on failure.
 
-- 400,000 once;
-- not calendar-refreshed;
-- not calendar-expiring.
+The standalone feedback page likewise recovers expired sessions cleanly.
 
-PRO/TEAM continue to display per-subscription-period points from their explicit Admin-configured templates.
+### 5. In-flight final-point holds are visible in PRIVATE/GROUP funding views
 
-The durable FREE Grant itself remains provisioned by the existing idempotent bootstrap flow; the UI field does not create or resize Grants.
+The point ledger may temporarily mark a Grant `EXHAUSTED` when an in-flight reservation holds its final available point. That state does **not** mean `reserved_points` vanished.
 
-### 4. First fresh-database API deployment no longer has an impossible readiness loop
+Customer funding aggregation previously selected only `grant.status = 'ACTIVE'`, causing a last-balance hold to appear as:
 
-The documented fresh-DB sequence requires the API to exist before Admin can initialize:
+- available = 0;
+- reserved = 0;
 
-- DB-backed AI runtime pricing;
-- the FREE plan shell.
+while the request was actually holding points.
 
-But `worker-deploy.ps1` previously required `/health/ready=ready` immediately after API deploy, making a first fresh DB helper run inevitably fail before Admin configuration could occur.
+PRIVATE and GROUP funding views now include currently effective, non-expired `ACTIVE` **and** `EXHAUSTED` Grants in availability/reservation aggregation. `remaining_points = 0` naturally keeps available at zero while `reserved_points` remains visible.
 
-The helper now has an explicit:
+### 6. Admin group/user funding views follow the same Grant-hold semantics
 
-`-AllowInitialBootstrapNotReady`
+`DrizzleGrantAdminRepository` now uses the same current Grant state boundary for user/group available and reserved reporting.
 
-switch.
+GROUP list/detail no longer hides reservation amounts merely because a final-point hold temporarily changed the Grant status to `EXHAUSTED`.
 
-Default behavior remains strict. The bootstrap exception may tolerate **only**:
+The group list also no longer joins/displays the AI 額度負責人的 current subscription plan as if that were a group AI entitlement fact. Group AI eligibility remains:
 
-- `AI_RUNTIME_CONFIG_NOT_INITIALIZED`;
-- `FREE_PLAN_NOT_INITIALIZED`.
+- current AI 額度負責人;
+- active requesting member;
+- explicitly scoped eligible user-owned Grant points.
 
-It still fails on:
+Plan state is not a substitute for Grant eligibility.
 
-- missing/invalid Worker secrets or origins;
-- DB connectivity problems;
-- old/unapplied schema;
-- any other readiness error.
+### 7. Admin Overview no longer presents partial TWD cost as complete cost
 
-The helper clearly reports that an API deployed in initial-bootstrap mode is **NOT ready for public launch**. After Admin initialization, `/health/ready=ready` remains mandatory.
+Admin Overview now includes:
 
-Readiness HTTP error parsing was also hardened for PowerShell StrictMode when an exception does not expose `ErrorDetails`.
+- `missingAiCostTwdRequestsToday`;
+- `missingSubsidyCostTwdRequestsToday`.
 
-### 5. Attachment runtime production wiring was re-audited and is real
+If selected usage lacks a TWD conversion snapshot, the Admin homepage labels the TWD number as partial and shows a warning. This brings Overview in line with the already stricter Profitability report instead of silently treating NULL conversion facts as complete zero-cost coverage.
 
-`apps/api/src/worker.ts` calls `configureWorklogAttachmentRuntime(...)` on each Worker fetch with current environment bindings and wires:
+### 8. Admin AI modality pricing can now be configured correctly
 
-- current production DB;
-- Grant-backed AI point ledger;
-- LINE access token content resolver;
-- Gemini attachment normalizer.
+A concrete provider-cost bug existed in the Admin Web UI:
 
-Therefore GROUP/OA quoted attachment behavior is not test-only or accidentally unconfigured at runtime.
+- API/domain supported separate `audio_usd_per_million` and `image_usd_per_million`;
+- the editor did not expose those fields;
+- saving the form overwrote both with the general input price.
 
-### 6. Raw-first CREATE reservation race remains a known bounded behavior, not a silent accounting bug
+The editor now has independent optional audio and image pricing fields.
 
-LINE direct TEXT CREATE intentionally persists raw durable text before AI title/time interpretation where practical.
+Rules:
 
-A positive preflight is not a balance lock. A concurrent request can consume the last points before normalization reaches its final atomic reservation. In that case:
+- explicit value persists that modality's price;
+- blank persists `NULL`, allowing provider-cost code to fall back to ordinary input pricing where appropriate;
+- output reference price must be positive because the frozen AI-point conversion requires it;
+- input/modality/FX values must be non-negative when supplied.
 
-- no provider call starts without a successful reservation;
-- no customer balance becomes negative;
-- raw Record data remains durable;
-- the Record may remain `entity_id = NULL` while normalization is deferred;
-- PWA already renders that state as `待確認` and allows an authorized user to manually move it to a title.
+Backend `aiRuntimeInput()` now independently rejects zero output reference price with `AI_OUTPUT_PRICE_MUST_BE_POSITIVE`, so this invariant is not UI-only.
 
-Do not invent a cross-layer reservation handoff merely to eliminate this race without a dedicated design/runtime batch. A future UX follow-up may make LINE replies more explicit when title normalization is deferred, but data/accounting safety is already fail-closed.
+### 9. FREE plan invariants are enforced before persistence
+
+The frozen launch contract is now enforced directly in Admin plan input validation:
+
+- `FREE.price_twd` must be `0`;
+- `FREE.subscription_period_points` must be `0`.
+
+This prevents an operator from saving an invalid FREE shell and only discovering the mistake later via `/health/ready`.
+
+Focused test source covers nonzero FREE price/period points and zero AI output reference price. The tests were authored but **not executed**.
+
+### 10. Admin PlanEditor is fail-closed for unfinished/invalid configuration
+
+Plan editor hardening includes:
+
+- unshipped capabilities such as Export are visible as unavailable but disabled;
+- invalid price/rank/point numeric input disables save;
+- disabled plans are not offered as new manual assignments;
+- a currently assigned disabled plan may remain visible for diagnosis, but cannot be newly applied;
+- AI plan flags removed in prior work remain absent; AI availability is Grant-backed.
+
+### 11. Admin session expiry is handled during normal operations, not only initial page load
+
+The Admin main app now clears the Admin session when ordinary API actions return `ADMIN_SESSION_REQUIRED` or `ADMIN_SESSION_INVALID`.
+
+The standalone `/profitability` page likewise removes its expired session and asks the operator to log in again instead of keeping a stale authenticated-looking report page.
+
+### 12. Admin client TypeScript contracts now include the new facts
+
+`apps/admin/src/api.ts` now explicitly types:
+
+- Overview missing-TWD coverage counts;
+- capability `shipped?: boolean`.
+
+This avoids depending on page-local casts for newly enforced Admin contracts.
+
+## Confirmed / not changed this run
+
+### FREE manual assignment lifecycle
+
+The Admin manual subscription path was traced through `WorklogSubscriptionPeriodService`.
+
+Assigning the FREE plan does **not** create a zero-point recurring `SUBSCRIPTION_PERIOD` Grant. The one-time 400,000 FREE points remain exclusively the initial bootstrap Grant. An active paid period still cannot be silently switched mid-period to FREE because proration/change policy is intentionally undefined.
+
+No product behavior was invented here.
+
+### Payment and Export
+
+Payment remains fail-closed and Export remains `shipped:false`. This run did not invent payment provider/refund/proration/export rules.
 
 ## Stable completed foundation — do not redo without a concrete regression
 
 - Source + single Entity/title + Alias + Record + immutable Revision + durable Pending Confirmation;
 - DB-enforced Source identity and Source-scoped Entity/Record/Confirmation/LINE-edit/attachment relations;
 - DB-enforced PRIVATE Web-entry Source ownership and Grant/grant-scope funding consistency;
-- Customer/Project/Transaction/Finance/category/normalized-summary removed from customer core;
+- no Customer/Project/Transaction/Finance/category/normalized-summary customer core;
 - free PWA manual CRUD/search/title move/batch move/delete/recycle/restore/revision history;
 - GROUP manual authorization = active membership only;
-- early route-level + final DB optimistic version checks;
+- optimistic concurrency at route + DB layers;
 - deterministic HISTORY filtered PWA links;
-- deterministic Reply-targeted PRIVATE/GROUP LINE AI EDIT and bot-success Reply mapping;
-- title ambiguity confirmation without second AI charge;
-- FREE 400,000 one-time user Grant;
-- user-owned Grants/scopes/caps + separate GROUP AI 額度負責人;
-- provider full-cost -> output-price-equivalent AI points;
-- platform subsidy for post-start overage;
+- deterministic Reply-targeted PRIVATE/GROUP LINE AI EDIT + bot reply mapping;
+- durable ambiguity confirmation without second AI charge;
+- PRIVATE/GROUP positive Grant preflight with final atomic ledger reservation;
+- FREE 400,000 one-time Grant;
+- user-owned Grants/scopes/caps + GROUP AI 額度負責人 separation;
+- provider actual cost -> output-price-equivalent points + platform subsidy;
 - immutable/idempotent subscription-period Grants;
-- aggregate quota/`ai_units_consumed`/`actualUnits` removed from active accounting contract;
+- aggregate quota/`ai_units_consumed`/`actualUnits` removed from active accounting;
 - factual Admin profitability;
-- provider `reservationPoints` vocabulary;
-- stale Owner/group paid-gate/recording-preference assumptions removed;
-- bounded LINE attachment streaming + no permanent binaries;
+- stale AI plan capability gates removed;
+- bounded LINE attachment streaming/no permanent binaries;
 - safe baseline regeneration/guard;
 - release preflight;
 - explicit production migration DB URL;
-- API liveness/readiness split;
+- liveness/readiness split + fresh-DB bootstrap mode;
 - payment-disabled checkout fail-closed;
-- Web/Admin SPA deep-link deployment checks;
-- hard-coded workers.dev account hostname removed.
+- Web/Admin SPA deep-link deployment checks.
 
 ## Current hard blocker — checked-in Drizzle baseline is still stale
 
 The checked-in `drizzle/0000_worklog_baseline.sql` remains from the pre-rebuild world and MUST NOT be applied.
 
-The authoritative TypeScript schema now also includes newer Source/Grant composite constraints, so manually editing the old SQL/snapshot is unsafe.
+The authoritative TypeScript schema includes the newer composite Source/Grant integrity constraints, so hand-editing the old SQL/snapshot remains unsafe.
 
-This is still the primary launch blocker and requires the actual pinned project toolchain.
+This is still the decisive launch blocker and requires the actual pinned project toolchain.
 
 ## Remaining / blocking work
 
@@ -232,10 +291,10 @@ From a real latest checkout:
 2. verify pinned `pnpm --version`
 3. `pnpm db:baseline:regenerate --confirm-prelaunch-reset`
 4. inspect generated SQL/snapshot/journal
-5. fix actual Drizzle/type errors exposed by the latest composite FKs/checks
+5. fix actual TypeScript/Drizzle errors exposed by the current composite FK/check schema
 6. `pnpm db:baseline:guard` until green
 
-Do not hand-fabricate Drizzle metadata.
+Do not fabricate Drizzle metadata.
 
 ### 2. Apply to fresh PostgreSQL and validate invariants
 
@@ -247,83 +306,82 @@ Validate at minimum:
 - PRIVATE Web-entry user/Source mismatch rejection;
 - reservation Source mismatch rejection;
 - Grant/grant-scope attribution mismatch rejection;
-- normal CRUD/revision/confirmation paths under constraints;
-- Grant reserve/commit/release/expire/subsidy/concurrency state.
+- normal CRUD/revision/confirmation SQL under constraints;
+- Grant reserve/commit/release/expire/subsidy/concurrency state;
+- customer/Admin final-held-point reserved reporting;
+- Entity/Alias case-insensitive collision behavior.
 
-Then initialize AI runtime config + FREE plan and confirm `/health/ready` becomes green.
+Then initialize AI runtime config + FREE plan and require `/health/ready=ready`.
 
-### 3. Entity/Alias case-collision behavior
-
-Runtime matching uses case-insensitive `lower(...)` while database uniqueness remains case-sensitive. Reproduce on real PostgreSQL before choosing normalization/expression-index/collation behavior. Do not guess from static source.
-
-### 4. Run real release validation
+### 3. Real local/runtime validation remains mandatory
 
 After fresh PostgreSQL is green:
 
 - `pnpm release:preflight`;
-- updated PRIVATE zero-point/OA tests;
-- Admin capability tests;
-- authenticated PWA CRUD/version/group-membership smoke;
-- Admin login + `/profitability`;
+- TypeScript typecheck, ESLint, Vitest and production builds through that gate;
+- customer PWA Source-switch race/session-expiry/CRUD/version/group-membership browser smoke;
+- Admin plan/AI pricing/session/Overview/Profitability browser smoke;
 - LINE Login/one-time entry;
 - PRIVATE/GROUP CREATE/HISTORY/Reply EDIT/confirmation;
-- attachment text/image/audio/file limits/expiry/202;
+- attachment text/image/audio/file size/expiry/202;
 - real Gemini pricing/usage/point settlement;
-- API `/health` + `/health/ready`;
-- Web/Admin deep links;
-- Workers dry-run/runtime deploy checks.
+- Workers `/health` + `/health/ready` and deployment helpers.
 
-### 5. Full paid MVP still has separate gaps
+### 4. Remaining non-blocking source/UX follow-up
 
-Payment provider, recurring payment success/failure, TOP_UP purchase lifecycle/refunds/proration remain unfinished by explicit product decision.
+The raw-first LINE TEXT CREATE pipeline can still preserve a Record with `entity_id = NULL` when a positive preflight loses a later reservation race or AI normalization is deferred. Data/accounting remain safe and PWA shows `待確認`; a future UX batch may make the LINE success message explicitly distinguish “raw saved, title pending”. Do not redesign reservation ownership without runtime evidence.
 
-Export is still specified as an initially paid MVP capability but has no customer endpoint/UI. It is deliberately fail-closed and cannot be advertised/enabled yet.
+Admin main navigation can also add an explicit shortcut to `/profitability`; the report itself is already routed and deploy-smoked. This is useful UX, not a launch-safety blocker.
+
+### 5. Full paid MVP remains separate
+
+Payment provider, recurring payment lifecycle, TOP_UP purchase/refund/proration and paid Export remain unfinished by explicit product decision.
 
 Therefore:
 
-- free/manual + AI-recording launch can be evaluated after migration/runtime gates turn green;
-- full paid-MVP launch still requires payment + paid Export work.
+- free/manual + AI-recording launch can be evaluated once migration/runtime gates are green;
+- full paid MVP still requires payment + Export implementation/validation.
 
 ## Next implementation target
 
-Continue from this exact checkpoint. Do not redo PRIVATE Grant preflight, removal of AI plan flags, FREE one-time point presentation, first-deploy bootstrap mode, DB integrity constraints or prior release gates.
+Continue from this exact checkpoint. Do not redo the PWA session/Source generation fixes, Grant hold visibility, Admin modality pricing/FREE invariants, removed AI plan gates or previous DB integrity work.
 
 Highest priority next run:
 
 1. obtain/use a real latest checkout with pinned pnpm/Drizzle;
-2. regenerate the baseline immediately;
+2. regenerate baseline immediately;
 3. fix actual TypeScript/Drizzle errors from the current schema;
-4. pass the baseline guard;
-5. apply to fresh PostgreSQL and execute integrity probes;
+4. pass baseline guard;
+5. apply to fresh PostgreSQL and execute integrity/concurrency probes;
 6. initialize AI runtime config + FREE plan;
 7. run `pnpm release:preflight`;
-8. run browser/LINE/Gemini/Worker smoke.
+8. run customer/Admin browser + LINE/Gemini/Worker smoke.
 
 If local execution remains unavailable, continue static audit only for concrete launch blockers; do not broaden into speculative redesign.
 
 ## Validation status
 
-This run performed source/document audit and direct GitHub source edits only.
+This run performed document/source audit and direct GitHub source edits only.
 
-No checked-out local project/toolchain became available in this environment. Source tests were updated/added, but **none were executed**.
+A network attempt for a local GitHub checkout/access was retried and failed DNS resolution for `github.com`. No current local project/toolchain was available.
 
 **Not executed:**
 
 - `pnpm install`;
 - baseline regeneration/guard;
-- release preflight;
+- `pnpm release:preflight`;
 - TypeScript typecheck;
 - ESLint;
 - Vitest;
-- production builds/Worker dry-run;
+- API/Web/Admin production builds;
 - Drizzle generation/export/migration;
 - PostgreSQL;
 - browser/PWA/Admin runtime;
-- Cloudflare Worker deploy/runtime;
+- Cloudflare Worker dry-run/deploy/runtime;
 - LINE runtime;
 - Gemini runtime.
 
-Therefore no test/build/migration/runtime result is claimed as passing.
+The new/updated tests are source contract only until executed by the real local/runtime toolchain. No test/build/migration/runtime result is claimed as passing.
 
 No GitHub Actions workflow was executed, dispatched, rerun, enabled, modified, or used as validation.
 
@@ -331,13 +389,13 @@ No GitHub Actions workflow was executed, dispatched, rerun, enabled, modified, o
 
 **NOT READY yet.**
 
-The remaining free/manual + AI-recording launch blockers are now operational validation blockers rather than broad product refactors: regenerated migration artifacts, fresh PostgreSQL, real preflight and runtime smoke.
+Static/source-level customer and Admin launch safety is substantially tighter after this batch. The remaining free/manual + AI-recording launch blockers are now overwhelmingly operational validation blockers: regenerate the migration artifacts, run fresh PostgreSQL, pass the real preflight, then run browser/LINE/Gemini/Workers smoke.
 
 ## Rough remaining work
 
-Assuming a current checkout/toolchain and disposable PostgreSQL are available:
+Assuming a current checkout/toolchain and disposable PostgreSQL become available:
 
-- baseline regeneration + fix actual generated-schema/type errors: **1 focused batch**;
+- baseline regeneration + fix generated-schema/type errors: **1 focused substantial batch**;
 - fresh PostgreSQL/integrity/concurrency validation: **1 focused batch**;
-- release preflight + browser/LINE/Gemini/Workers smoke: **1 focused validation batch**;
+- release preflight + customer/Admin/LINE/Gemini/Workers smoke: **1 focused validation batch**;
 - payment + paid Export: separate full-paid-MVP work.
