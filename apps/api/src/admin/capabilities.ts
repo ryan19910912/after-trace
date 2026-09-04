@@ -9,31 +9,16 @@ export type AdminCapabilityDefinition = {
   shipped?: boolean;
 };
 
+/**
+ * Plan capabilities are reserved for non-AI product features.
+ *
+ * LINE AI CREATE/EDIT/media eligibility is governed by positive eligible user-owned
+ * Grant points (plus GROUP AI responsibility/scope), not by a subscription feature
+ * flag. Keeping aiTextRecording/privateOaRecording/aiMediaIngestion here would create
+ * a false second entitlement system that the accepted product policy explicitly does
+ * not use.
+ */
 export const ADMIN_CAPABILITY_DEFINITIONS: AdminCapabilityDefinition[] = [
-  {
-    key: 'privateOaRecording',
-    label: 'LINE 私人聊天記錄',
-    type: 'boolean',
-    defaultValue: true,
-    shipped: true,
-    description: '允許從 LINE 官方帳號私人聊天室使用 AI 建立工作紀錄。PWA 手動紀錄不受此方案能力限制。',
-  },
-  {
-    key: 'aiTextRecording',
-    label: 'AI 文字紀錄',
-    type: 'boolean',
-    defaultValue: true,
-    shipped: true,
-    description: '允許使用 AI 解析文字紀錄；實際執行仍需有可用 AI 點數。',
-  },
-  {
-    key: 'aiMediaIngestion',
-    label: 'AI 語音／圖片／檔案處理',
-    type: 'boolean',
-    defaultValue: true,
-    shipped: true,
-    description: '允許 AI 處理語音、圖片與檔案附件；實際執行仍需有可用 AI 點數。',
-  },
   {
     key: 'export',
     label: '匯出功能（尚未上線）',
