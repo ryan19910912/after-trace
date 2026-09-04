@@ -16,6 +16,53 @@ export type AdminOverview = {
   feedback30d: number;
 };
 
+export type AdminProfitabilityPeriod = 'TODAY' | '7D' | '30D' | 'BILLING_MONTH';
+
+export type AdminProfitabilityBreakdownRow = {
+  key: string;
+  requests: number;
+  chargedUsers: number;
+  customerPointsCharged: number;
+  platformSubsidizedPoints: number;
+  providerCostUsd: string;
+  providerCostTwd: string;
+};
+
+export type AdminProfitabilityReport = {
+  summary: {
+    period: AdminProfitabilityPeriod;
+    from: string;
+    to: string;
+    requests: number;
+    chargedUsers: number;
+    customerPointsCharged: number;
+    platformSubsidizedPoints: number;
+    providerCostUsd: string;
+    providerCostTwd: string;
+    platformSubsidizedCostUsd: string;
+    platformSubsidizedCostTwd: string;
+    averagePointsPerRequest: number;
+    averageProviderCostTwdPerRequest: string;
+    averagePointsPerChargedUser: number;
+    averageProviderCostTwdPerChargedUser: string;
+    revenueTwd: null;
+    realizedAiCostRatio: null;
+    realizedGrossMargin: null;
+    revenueStatus: 'UNAVAILABLE_NO_SUCCESSFUL_PAYMENT_FACT';
+  };
+  byModel: AdminProfitabilityBreakdownRow[];
+  byOperation: AdminProfitabilityBreakdownRow[];
+  bySourceType: AdminProfitabilityBreakdownRow[];
+  byGrantType: Array<{ grantType: string; requests: number; pointsCharged: number }>;
+  grantInventory: Array<{
+    grantType: string;
+    grants: number;
+    exhaustedGrants: number;
+    originalPoints: number;
+    remainingPoints: number;
+  }>;
+};
+
 export type Row = Record<string, unknown>;
 
 export type AdminCapabilityDefinition = {
@@ -90,6 +137,12 @@ export class AdminApi {
 
   async overview(): Promise<AdminOverview> {
     return (await this.request<{ overview: AdminOverview }>('/overview')).overview;
+  }
+
+  async profitability(period: AdminProfitabilityPeriod = 'TODAY'): Promise<AdminProfitabilityReport> {
+    return (await this.request<{ report: AdminProfitabilityReport }>(
+      `/profitability?period=${encodeURIComponent(period)}`,
+    )).report;
   }
 
   async users(filters: UserListFilters = {}): Promise<Row[]> {
