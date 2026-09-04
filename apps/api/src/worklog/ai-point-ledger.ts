@@ -86,14 +86,14 @@ export class WorklogAiPointLedgerService {
     chargedUserId: number;
     actorUserId: number;
     sourceId?: number | null;
-    requestedUnits: number;
+    requestedPoints: number;
     at?: Date;
     ttlMs?: number;
   }): Promise<AiPointReservationResult> {
     const chargedUserId = positiveInteger(input.chargedUserId, 'chargedUserId');
     const actorUserId = positiveInteger(input.actorUserId, 'actorUserId');
     const sourceId = positiveInteger(input.sourceId, 'sourceId');
-    const requestedPoints = positiveInteger(input.requestedUnits, 'requestedPoints');
+    const requestedPoints = positiveInteger(input.requestedPoints, 'requestedPoints');
     const at = validDate(input.at ?? new Date(), 'at');
     const ttlMs = positiveInteger(input.ttlMs ?? 10 * 60_000, 'ttlMs');
 
