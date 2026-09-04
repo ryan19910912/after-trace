@@ -1,4 +1,5 @@
 import app, { type Bindings } from './index';
+import { createAdminProfitabilityRoutes } from './admin/profitability-routes';
 import { createAdminRoutes } from './admin/routes';
 import { createDatabase } from './db/client';
 import { LineMessageContentResolver } from './line/content';
@@ -23,6 +24,7 @@ type ExecutionContextLike = { waitUntil(promise: Promise<unknown>): void };
 type ApiBoundary = 'ADMIN_API' | 'SUBSCRIPTION_API' | 'WORKLOG_WEB_API';
 
 const adminRoutes = createAdminRoutes();
+const adminProfitabilityRoutes = createAdminProfitabilityRoutes();
 const worklogRoutes = createWorklogRoutes();
 const worklogConfirmationRoutes = createWorklogConfirmationRoutes();
 const worklogFundingRoutes = createWorklogFundingRoutes();
@@ -106,6 +108,16 @@ export default {
 
     if (legacyRoute(url.pathname)) {
       return Response.json({ ok: false, error: 'LEGACY_AFTERTRACE_RUNTIME_DISABLED' }, { status: 410 });
+    }
+    if (
+      url.pathname === '/api/v1/admin/profitability'
+      || url.pathname.startsWith('/api/v1/admin/profitability/')
+    ) {
+      const rewritten = new URL(request.url);
+      rewritten.pathname = url.pathname.slice('/api/v1/admin/profitability'.length) || '/';
+      const routedRequest = new Request(rewritten, request);
+      return withApiAnomalyBoundary('ADMIN_API', request, env, () =>
+        adminProfitabilityRoutes.fetch(routedRequest, env as never, executionContext as never));
     }
     if (url.pathname === '/api/v1/admin' || url.pathname.startsWith('/api/v1/admin/')) {
       const rewritten = new URL(request.url);
