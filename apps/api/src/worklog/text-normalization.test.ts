@@ -80,7 +80,7 @@ function baseAiPoints(): WorklogTextNormalizationAiPointPort {
 
 function baseProvider(): WorklogTextNormalizationProvider {
   return {
-    reservationUnits: vi.fn().mockReturnValue(500),
+    reservationPoints: vi.fn().mockReturnValue(500),
     normalize: vi.fn().mockResolvedValue({
       output: {
         title: '晴空案',
@@ -112,7 +112,7 @@ describe('WorklogTextNormalizationService', () => {
       entityId: 71,
       createdEntity: true,
     });
-    expect(provider.reservationUnits).toHaveBeenCalledWith(
+    expect(provider.reservationPoints).toHaveBeenCalledWith(
       {
         text: '王先生今天在晴空案換了兩顆燈泡',
         referenceOccurredAt: now.toISOString(),
