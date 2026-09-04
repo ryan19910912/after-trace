@@ -10,6 +10,8 @@ export type AdminOverview = {
   platformSubsidizedPointsToday: number;
   aiCostTwdToday: string;
   platformSubsidizedCostTwdToday: string;
+  missingAiCostTwdRequestsToday: number;
+  missingSubsidyCostTwdRequestsToday: number;
   openAnomalies: number;
   failedAttachments: number;
   failedNormalizations: number;
@@ -86,6 +88,7 @@ export type AdminCapabilityDefinition = {
   min?: number;
   max?: number;
   description?: string;
+  shipped?: boolean;
 };
 
 export type AdminPlan = {
