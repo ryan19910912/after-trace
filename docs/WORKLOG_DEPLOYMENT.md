@@ -110,45 +110,64 @@ Configure exact deployed hosts into:
 
 Do not hard-code an account subdomain in the repository before the actual Cloudflare account deployment confirms it.
 
+Deployment helpers follow the same rule:
+
+- `worker-deploy.ps1` reads the target API URL from `AFTERTRACE_API_URL` or explicit `-WorkerUrl`;
+- `web-worker-deploy.ps1` and `admin-worker-deploy.ps1` read the API origin from `AFTERTRACE_API_URL` or explicit `-ApiOrigin`;
+- a missing/invalid target URL must fail deployment rather than silently falling back to an old account hostname.
+
 ## Prelaunch database / migration policy
 
 AFTERTRACE is not live yet. The user has explicitly confirmed that both development and production databases may be destructively rebuilt while the schema is being finalized.
 
-Current repository migration state:
+Current checked-in migration files are:
 
 - `drizzle/0000_worklog_baseline.sql`
 - `drizzle/meta/0000_snapshot.json`
 - `drizzle/meta/_journal.json`
 
-The consolidated `0000_worklog_baseline` is the current authoritative baseline until the current domain refactor replaces it with the final prelaunch schema.
+**These checked-in baseline/snapshot files are currently known stale and MUST NOT be applied.** They still contain pre-rebuild Customer/Project/Transaction/category/aggregate-AI structures and do not represent the accepted Source + Entity/Alias + Record/Revision/Confirmation + Grant model.
+
+`apps/api/src/db/schema-all.ts` is the authoritative Drizzle schema export surface. `drizzle.config.ts` must point to that single export so newly split schema modules cannot be silently omitted and deleted compatibility modules cannot be retained.
+
+Before any migration or API Worker deployment:
+
+1. Regenerate `0000_worklog_baseline.sql`, `meta/0000_snapshot.json`, and `_journal.json` together from the current `schema-all.ts` using the actual checked-out project toolchain.
+2. Run `pnpm db:baseline:guard`. It is intentionally expected to fail against the currently stale checked-in baseline and must pass only after all three generated artifacts agree with the accepted schema.
+3. Apply the regenerated baseline to a fresh disposable PostgreSQL database.
+4. Run schema drift / SQL validation and fix every real mismatch before treating the migration set as deployable.
+
+Do not hand-edit or fabricate Drizzle snapshot metadata merely to make the guard pass.
 
 ### Current rule
 
 - Old dev/prod migration history does **not** need reconciliation merely to preserve empty/non-live environments.
-- If an environment was created from an obsolete migration history, drop/recreate or otherwise rebuild it from the current repository baseline.
+- If an environment was created from an obsolete migration history, drop/recreate or otherwise rebuild it from the newly regenerated prelaunch baseline.
 - New schema work may destructively replace/refactor the prelaunch baseline without carrying Customer/Project/Finance or aggregate-quota compatibility solely for empty databases.
 - Before any destructive reset, confirm that there is still no real user/business data that must be preserved.
 - Once the service is live with real production data, this rule ends immediately: migrations then become forward-only and destructive reset is no longer acceptable.
 
-`worker-deploy.ps1` may continue to execute the repository's current migration flow only after the target database has been rebuilt/aligned with the current journal.
+`worker-deploy.ps1` runs the stale-baseline guard before schema checks/migration so a known-invalid baseline fails closed instead of being applied to production.
 
 ## External configuration still required
 
 1. Actual Cloudflare account `workers.dev` subdomain / deployed hosts.
 2. `WEB_APP_URL` / `WEB_APP_ORIGIN`.
 3. `ADMIN_WEB_ORIGIN`.
-4. API secrets/vars for Admin, LINE, Gemini and DB.
-5. Web/Admin builds with correct `VITE_API_BASE_URL`.
-6. LINE OA Rich Menu configuration.
-7. Payment provider selection and recurring-payment lifecycle implementation.
-8. Final database rebuild from the then-current migration baseline before launch.
-9. Concentrated local build/typecheck/test/schema/migration/browser/Worker/LINE/Gemini validation.
+4. `AFTERTRACE_API_URL` (or explicit deployment-script URL argument).
+5. API secrets/vars for Admin, LINE, Gemini and DB.
+6. Web/Admin builds with correct `VITE_API_BASE_URL`.
+7. LINE OA Rich Menu configuration.
+8. Payment provider selection and recurring-payment lifecycle implementation.
+9. Final database rebuild from the then-current regenerated migration baseline before launch.
+10. Concentrated local build/typecheck/test/schema/migration/browser/Worker/LINE/Gemini validation.
 
 ## Validation expectations before launch
 
 Validate locally/runtime, not through GitHub Actions unless explicitly requested:
 
 - API/Web/Admin builds and typecheck/tests;
+- `pnpm db:baseline:guard` against the regenerated migration artifacts;
 - fresh database migration from current repository journal;
 - schema drift;
 - Admin authentication/CORS;
