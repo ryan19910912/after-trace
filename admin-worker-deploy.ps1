@@ -114,6 +114,7 @@ try {
         Write-Step 'Verify Admin Worker and SPA deep links'
         Assert-AdminPath $url '/'
         Assert-AdminPath $url '/profitability'
+        Assert-AdminPath $url '/pricing-calculator'
     }
 
     Write-Host ''
