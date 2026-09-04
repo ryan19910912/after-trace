@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { sql } from 'drizzle-orm';
 import { verifyWebSessionToken } from '../auth/token';
 import { createDatabase } from '../db/client';
+import { FREE_INITIAL_AI_POINTS } from './ai-points';
 
 type Bindings = { DATABASE_URL: string; WEB_AUTH_SECRET?: string; WEB_APP_ORIGIN?: string };
 type Env = { Bindings: Bindings; Variables: { lineUserId: string } };
@@ -63,6 +64,7 @@ export function createWorklogSubscriptionRoutes() {
         plan.price_twd::text AS price_twd,
         plan.rank,
         plan.subscription_period_points,
+        CASE WHEN plan.code = 'FREE' THEN ${FREE_INITIAL_AI_POINTS} ELSE 0 END AS one_time_initial_points,
         -- AI CREATE/EDIT/media availability is Grant-backed, not a plan capability.
         -- Strip retired pre-Grant flags from historical prelaunch rows. Export is also
         -- forced false until the paid export endpoint/UI is actually shipped.
