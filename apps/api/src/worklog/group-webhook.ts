@@ -36,7 +36,7 @@ export type WorklogGroupWebhookCounters = {
   worklogDuplicateRecords: number;
   worklogRejected: number;
   worklogQueries: number;
-  worklogOwnerClaims: number;
+  worklogAiResponsibilityClaims: number;
   worklogOrdinaryMessages: number;
   worklogErrors: number;
 };
@@ -58,7 +58,7 @@ function emptyCounters(): WorklogGroupWebhookCounters {
     worklogDuplicateRecords: 0,
     worklogRejected: 0,
     worklogQueries: 0,
-    worklogOwnerClaims: 0,
+    worklogAiResponsibilityClaims: 0,
     worklogOrdinaryMessages: 0,
     worklogErrors: 0,
   };
@@ -282,8 +282,8 @@ export async function processWorklogGroupWebhook(input: {
       if (result.duplicate) counters.worklogDuplicateRecords += 1;
     } else if (result.status === 'QUERY') {
       counters.worklogQueries += 1;
-    } else if (result.status === 'OWNER_BOUND') {
-      counters.worklogOwnerClaims += 1;
+    } else if (result.status === 'AI_RESPONSIBILITY_BOUND') {
+      counters.worklogAiResponsibilityClaims += 1;
     } else if (
       result.status !== 'EDITED'
       && result.status !== 'EDIT_CONFIRMATION_PENDING'
