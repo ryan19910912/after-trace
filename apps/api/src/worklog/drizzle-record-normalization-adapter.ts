@@ -110,7 +110,7 @@ export class DrizzleWorklogRecordNormalizationRepository implements WorklogTextN
 
       const winner = await this.loadState(recordId);
       if (!winner) return { status: 'NOT_ELIGIBLE' };
-      if (winner.status === 'PENDING') return { status: 'IN_PROGRESS' };
+      if (winner.status === 'PENDING') return { status: 'PENDING' };
       return this.base.begin(recordId, claimToken);
     }
 
@@ -130,7 +130,7 @@ export class DrizzleWorklogRecordNormalizationRepository implements WorklogTextN
 
     const winner = await this.loadState(recordId);
     if (!winner) return { status: 'NOT_ELIGIBLE' };
-    if (winner.status === 'PENDING') return { status: 'IN_PROGRESS' };
+    if (winner.status === 'PENDING') return { status: 'PENDING' };
     return this.base.begin(recordId, claimToken);
   }
 
