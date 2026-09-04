@@ -8,7 +8,8 @@ import {
   type WorklogAttachmentRepository,
 } from './attachment-ingestion';
 import type { WorklogAiPointReservationSnapshot } from './ai-point-ledger';
-import type { WorklogAiUsageCommit } from './subscription';
+import { providerCostToAiPoints } from './ai-points';
+import type { WorklogAiUsageCommit } from './ai-provider-usage';
 import type { WorklogAiRuntimeConfigSnapshot } from './text-normalization';
 
 const config: WorklogAiRuntimeConfigSnapshot = {
@@ -65,8 +66,8 @@ class AiPoints {
   reserveCalls = 0;
   commitCalls = 0;
   releaseCalls = 0;
-  committedActualUnits: number[] = [];
-  async reserveAi(input: { chargedUserId: number; actorUserId: number; sourceId?: number | null; requestedUnits: number }) {
+  committedPoints: number[] = [];
+  async reserveAi(input: { chargedUserId: number; actorUserId: number; sourceId?: number | null; requestedPoints: number }) {
     this.reserveCalls += 1;
     const reservation: WorklogAiPointReservationSnapshot = {
       id: 1,
@@ -74,7 +75,7 @@ class AiPoints {
       chargedUserId: input.chargedUserId,
       actorUserId: input.actorUserId,
       sourceId: input.sourceId ?? 20,
-      pointsReserved: input.requestedUnits,
+      pointsReserved: input.requestedPoints,
       pointsCommitted: 0,
       platformSubsidizedPoints: 0,
       status: 'RESERVED',
@@ -84,13 +85,17 @@ class AiPoints {
   }
   async commitAiUsage(_token?: string, usage?: WorklogAiUsageCommit) {
     this.commitCalls += 1;
-    if (usage) this.committedActualUnits.push(usage.actualUnits);
+    const actualPoints = usage ? providerCostToAiPoints({
+      providerCostUsd: usage.providerCostUsd,
+      outputUsdPerMillion: usage.outputUsdPerMillion,
+    }) : 0;
+    if (usage) this.committedPoints.push(actualPoints);
     const reservation: WorklogAiPointReservationSnapshot = {
       id: 1, token: 'reservation-1', chargedUserId: 9, actorUserId: 7, sourceId: 20,
-      pointsReserved: 500, pointsCommitted: usage?.actualUnits ?? 0, platformSubsidizedPoints: 0,
+      pointsReserved: 500, pointsCommitted: actualPoints, platformSubsidizedPoints: 0,
       status: 'COMMITTED', expiresAt: new Date('2026-09-02T01:00:00Z'),
     };
-    return { status: 'COMMITTED' as const, reservation, actualPoints: usage?.actualUnits ?? 0 };
+    return { status: 'COMMITTED' as const, reservation, actualPoints };
   }
   async releaseAi() {
     this.releaseCalls += 1;
@@ -140,6 +145,11 @@ const input = {
   sourceTimestamp: new Date('2026-09-02T00:00:00Z'),
 };
 
+const durableUsage: WorklogAiUsageCommit = {
+  provider: 'GOOGLE', model: 'gemini-test', inputTokens: 100, outputTokens: 50,
+  inputUsdPerMillion: 0.1, outputUsdPerMillion: 0.4, providerCostUsd: 0.00003,
+};
+
 describe('WorklogAttachmentIngestionService', () => {
   it('fetches, holds points, analyzes, atomically stores state and commits a quoted attachment once', async () => {
     const repo = new Repo(); const aiPoints = new AiPoints(); const resolver = new ContentResolver(); const provider = new Provider();
@@ -148,7 +158,8 @@ describe('WorklogAttachmentIngestionService', () => {
     expect(resolver.calls).toBe(1); expect(provider.calls).toBe(1); expect(aiPoints.reserveCalls).toBe(1); expect(aiPoints.commitCalls).toBe(1);
     expect(repo.saved?.usage.recordId).toBe(33);
     expect(repo.saved?.usage.operation).toBe('IMAGE_RECORD_CREATE');
-    expect(aiPoints.committedActualUnits).toEqual([75]);
+    expect(repo.saved?.usage).not.toHaveProperty('actualUnits');
+    expect(aiPoints.committedPoints).toEqual([75]);
   });
 
   it('commits full actual provider point cost when attachment usage exceeds the conservative reservation', async () => {
@@ -157,7 +168,7 @@ describe('WorklogAttachmentIngestionService', () => {
 
     await expect(service.ingest(input)).resolves.toEqual({ status: 'RECORDED', recordId: 33, duplicate: false });
     expect(aiPoints.releaseCalls).toBe(0);
-    expect(aiPoints.committedActualUnits).toEqual([213]);
+    expect(aiPoints.committedPoints).toEqual([213]);
   });
 
   it('settles provider cost and never releases points if the source disappears after Gemini succeeds', async () => {
@@ -177,10 +188,7 @@ describe('WorklogAttachmentIngestionService', () => {
     repo.state = {
       status: 'PROVIDER_SUCCEEDED',
       reservationToken: 'reservation-1',
-      usage: {
-        actualUnits: 75, provider: 'GOOGLE', model: 'gemini-test', inputTokens: 100, outputTokens: 50,
-        inputUsdPerMillion: 0.1, outputUsdPerMillion: 0.4, providerCostUsd: 0.00003,
-      },
+      usage: durableUsage,
       failureReason: 'SOURCE_NOT_FOUND',
     };
     const aiPoints = new AiPoints(); const resolver = new ContentResolver(); const provider = new Provider();
@@ -232,8 +240,8 @@ describe('WorklogAttachmentIngestionService', () => {
   it('resumes point settlement from RECORD_CREATED without a second provider call', async () => {
     const repo = new Repo();
     repo.state = { status: 'RECORD_CREATED', recordId: 33, reservationToken: 'reservation-1', usage: {
-      actualUnits: 75, recordId: 33, provider: 'GOOGLE', model: 'gemini-test', inputTokens: 100, outputTokens: 50,
-      inputUsdPerMillion: 0.1, outputUsdPerMillion: 0.4, providerCostUsd: 0.00003,
+      ...durableUsage,
+      recordId: 33,
     } };
     const aiPoints = new AiPoints(); const resolver = new ContentResolver(); const provider = new Provider();
     const service = new WorklogAttachmentIngestionService(repo, aiPoints, resolver, provider);
