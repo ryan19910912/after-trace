@@ -58,27 +58,13 @@ export function hasCapability(capabilities: PlanCapabilities, key: string): bool
 }
 
 /**
- * Group/manual collaboration is baseline product functionality and is no longer a
- * paid plan capability. Keep this compatibility helper temporarily while legacy
- * callers are removed; it must never be used to block group access.
+ * Immutable provider-cost snapshot for one AI call.
+ *
+ * Customer AI eligibility and point consumption do not live in this module. They are
+ * handled by user-owned Grant scopes and the AI point ledger. Keeping provider-cost
+ * accounting separate prevents plan capabilities from turning back into an aggregate
+ * quota or GROUP authorization gate.
  */
-export function canUseGroupCollaboration(_planCode: string, _capabilities: PlanCapabilities): boolean {
-  return true;
-}
-
-export function remainingAiAllowance(allowanceUnits: number, consumedUnits: number): number {
-  return Math.max(0, integerAtLeastZero(allowanceUnits) - integerAtLeastZero(consumedUnits));
-}
-
-export function canConsumeAiUnits(
-  allowanceUnits: number,
-  consumedUnits: number,
-  requestedUnits: number,
-): boolean {
-  const requested = integerAtLeastZero(requestedUnits);
-  return requested > 0 && remainingAiAllowance(allowanceUnits, consumedUnits) >= requested;
-}
-
 export function snapshotAiUsage(pricing: AiPricing, usage: AiMeteredUsage): AiUsageSnapshot {
   const inputTokens = integerAtLeastZero(usage.inputTokens);
   const outputTokens = integerAtLeastZero(usage.outputTokens);
@@ -127,7 +113,7 @@ function optionalPrice(value: number | null | undefined): number | null {
 }
 
 function integerAtLeastZero(value: number): number {
-  if (!Number.isFinite(value)) throw new Error('usage/quota value must be finite');
+  if (!Number.isFinite(value)) throw new Error('usage value must be finite');
   return Math.max(0, Math.floor(value));
 }
 
