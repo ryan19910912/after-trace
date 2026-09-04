@@ -26,6 +26,7 @@ export type AdminProfitabilityBreakdownRow = {
   platformSubsidizedPoints: number;
   providerCostUsd: string;
   providerCostTwd: string;
+  missingProviderCostTwdRequests: number;
 };
 
 export type AdminProfitabilityReport = {
@@ -41,6 +42,8 @@ export type AdminProfitabilityReport = {
     providerCostTwd: string;
     platformSubsidizedCostUsd: string;
     platformSubsidizedCostTwd: string;
+    missingProviderCostTwdRequests: number;
+    missingSubsidyCostTwdRequests: number;
     averagePointsPerRequest: number;
     averageProviderCostTwdPerRequest: string;
     averagePointsPerChargedUser: number;
