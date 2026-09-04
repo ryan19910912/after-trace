@@ -57,15 +57,8 @@ app.get('/health', (c) => c.json({ service: 'after-trace-api', product: 'worklog
 app.get('/health/ready', async (c) => {
   const missing = launchConfigErrors(c.env);
   if (missing.length > 0) {
-    return c.json({
-      service: 'after-trace-api',
-      product: 'worklog',
-      status: 'not_ready',
-      error: 'RUNTIME_CONFIG_INCOMPLETE',
-      missing,
-    }, 503);
+    return c.json({ service: 'after-trace-api', product: 'worklog', status: 'not_ready', error: 'RUNTIME_CONFIG_INCOMPLETE', missing }, 503);
   }
-
   const database = createDatabase(c.env.DATABASE_URL);
   try {
     await database.execute(sql`
@@ -81,84 +74,31 @@ app.get('/health/ready', async (c) => {
         (SELECT COUNT(*) FROM worklog_source_ai_responsibility WHERE FALSE) AS responsibility_probe
     `);
   } catch {
-    return c.json({
-      service: 'after-trace-api',
-      product: 'worklog',
-      status: 'not_ready',
-      error: 'WORKLOG_DATABASE_OR_SCHEMA_UNAVAILABLE',
-    }, 503);
+    return c.json({ service: 'after-trace-api', product: 'worklog', status: 'not_ready', error: 'WORKLOG_DATABASE_OR_SCHEMA_UNAVAILABLE' }, 503);
   }
-
   try {
     const runtime = await database.execute(sql`
-      SELECT provider, model, output_usd_per_million
-      FROM worklog_ai_runtime_config
-      WHERE id = 1
-      LIMIT 1
+      SELECT provider, model, output_usd_per_million FROM worklog_ai_runtime_config WHERE id = 1 LIMIT 1
     `);
-    const row = runtime.rows[0] as {
-      provider?: unknown;
-      model?: unknown;
-      output_usd_per_million?: unknown;
-    } | undefined;
+    const row = runtime.rows[0] as { provider?: unknown; model?: unknown; output_usd_per_million?: unknown } | undefined;
     const outputPrice = Number(row?.output_usd_per_million ?? 0);
-    if (
-      typeof row?.provider !== 'string'
-      || !row.provider.trim()
-      || typeof row.model !== 'string'
-      || !row.model.trim()
-      || !Number.isFinite(outputPrice)
-      || outputPrice <= 0
-    ) {
-      return c.json({
-        service: 'after-trace-api',
-        product: 'worklog',
-        status: 'not_ready',
-        error: 'AI_RUNTIME_CONFIG_NOT_INITIALIZED',
-      }, 503);
+    if (typeof row?.provider !== 'string' || !row.provider.trim() || typeof row.model !== 'string' || !row.model.trim() || !Number.isFinite(outputPrice) || outputPrice <= 0) {
+      return c.json({ service: 'after-trace-api', product: 'worklog', status: 'not_ready', error: 'AI_RUNTIME_CONFIG_NOT_INITIALIZED' }, 503);
     }
   } catch {
-    return c.json({
-      service: 'after-trace-api',
-      product: 'worklog',
-      status: 'not_ready',
-      error: 'AI_RUNTIME_CONFIG_NOT_INITIALIZED',
-    }, 503);
+    return c.json({ service: 'after-trace-api', product: 'worklog', status: 'not_ready', error: 'AI_RUNTIME_CONFIG_NOT_INITIALIZED' }, 503);
   }
-
   try {
     const free = await database.execute(sql`
-      SELECT price_twd, subscription_period_points, enabled
-      FROM worklog_subscription_plans
-      WHERE code = 'FREE'
-      LIMIT 1
+      SELECT price_twd, subscription_period_points, enabled FROM worklog_subscription_plans WHERE code = 'FREE' LIMIT 1
     `);
-    const row = free.rows[0] as {
-      price_twd?: unknown;
-      subscription_period_points?: unknown;
-      enabled?: unknown;
-    } | undefined;
-    if (
-      row?.enabled !== true
-      || Number(row.price_twd ?? -1) !== 0
-      || Number(row.subscription_period_points ?? -1) !== 0
-    ) {
-      return c.json({
-        service: 'after-trace-api',
-        product: 'worklog',
-        status: 'not_ready',
-        error: 'FREE_PLAN_NOT_INITIALIZED',
-      }, 503);
+    const row = free.rows[0] as { price_twd?: unknown; subscription_period_points?: unknown; enabled?: unknown } | undefined;
+    if (row?.enabled !== true || Number(row.price_twd ?? -1) !== 0 || Number(row.subscription_period_points ?? -1) !== 0) {
+      return c.json({ service: 'after-trace-api', product: 'worklog', status: 'not_ready', error: 'FREE_PLAN_NOT_INITIALIZED' }, 503);
     }
   } catch {
-    return c.json({
-      service: 'after-trace-api',
-      product: 'worklog',
-      status: 'not_ready',
-      error: 'FREE_PLAN_NOT_INITIALIZED',
-    }, 503);
+    return c.json({ service: 'after-trace-api', product: 'worklog', status: 'not_ready', error: 'FREE_PLAN_NOT_INITIALIZED' }, 503);
   }
-
   return c.json({ service: 'after-trace-api', product: 'worklog', status: 'ready' });
 });
 
@@ -168,14 +108,8 @@ app.post('/webhooks/line', async (c) => {
   if (!signature || !(await verifyLineSignature(rawBody, signature, c.env.LINE_CHANNEL_SECRET))) {
     return c.json({ ok: false, error: 'INVALID_LINE_SIGNATURE' }, 401);
   }
-
   let payload: unknown;
-  try {
-    payload = JSON.parse(rawBody) as unknown;
-  } catch {
-    return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
-  }
-
+  try { payload = JSON.parse(rawBody) as unknown; } catch { return c.json({ ok: false, error: 'INVALID_JSON' }, 400); }
   const parsedGroup = parseLineWebhook(payload);
   const parsedOa = parseOaWebhook(payload);
   if (parsedGroup.events.length === 0 && parsedOa.events.length === 0) {
@@ -205,35 +139,20 @@ app.post('/webhooks/line', async (c) => {
   const webAppUrl = c.env.WEB_APP_URL?.trim();
   const webAuthSecret = c.env.WEB_AUTH_SECRET?.trim();
   const webAuthService = webAppUrl && webAuthSecret
-    ? new WebAuthService(
-        new DrizzleWebAuthRepository(database),
-        c.env.LINE_CHANNEL_ACCESS_TOKEN,
-        webAuthSecret,
-      )
+    ? new WebAuthService(new DrizzleWebAuthRepository(database), c.env.LINE_CHANNEL_ACCESS_TOKEN, webAuthSecret)
     : null;
   const lineReplyClient = new LineMessagingReplyClient(c.env.LINE_CHANNEL_ACCESS_TOKEN);
   const worklogAnomalies = new DrizzleWorklogAnomalyRepository(database);
   const worklogAiGrants = new WorklogAiGrantService(new DrizzleWorklogAiGrantRepository(database));
   const worklogAiPoints = new WorklogAiPointLedgerService(new DrizzleWorklogAiPointLedgerRepository(database));
-  const worklogAiResponsibility = new WorklogAiResponsibilityService(
-    new DrizzleWorklogAiResponsibilityRepository(database),
-    worklogAiGrants,
-  );
-  const worklogBootstrapService = new WorklogBootstrapService(
-    new DrizzleWorklogBootstrapRepository(database),
-    worklogAiGrants,
-    worklogAiResponsibility,
-  );
+  const worklogAiResponsibility = new WorklogAiResponsibilityService(new DrizzleWorklogAiResponsibilityRepository(database), worklogAiGrants);
+  const worklogBootstrapService = new WorklogBootstrapService(new DrizzleWorklogBootstrapRepository(database), worklogAiGrants, worklogAiResponsibility);
   const worklogRecordWriteService = new WorklogRecordWriteService(new DrizzleWorklogRecordWriteRepository(database));
   const worklogTextNormalizationService = new WorklogTextNormalizationService(
-    new DrizzleWorklogTextNormalizationRepository(database),
-    worklogAiPoints,
-    new GeminiWorklogTextNormalizer({ apiKey: c.env.GEMINI_API_KEY }),
+    new DrizzleWorklogTextNormalizationRepository(database), worklogAiPoints, new GeminiWorklogTextNormalizer({ apiKey: c.env.GEMINI_API_KEY }),
   );
   const worklogLineRecordEditService = new WorklogLineRecordEditService(
-    new DrizzleWorklogLineRecordEditRepository(database),
-    worklogAiPoints,
-    new GeminiWorklogLineRecordEditor({ apiKey: c.env.GEMINI_API_KEY }),
+    new DrizzleWorklogLineRecordEditRepository(database), worklogAiPoints, new GeminiWorklogLineRecordEditor({ apiKey: c.env.GEMINI_API_KEY }),
   );
   const worklogManualCollaboration = new WorklogCollaborationService(new DrizzleWorklogCollaborationRepository(database));
   const worklogLineRuntime = new WorklogLineRuntime(
@@ -248,6 +167,7 @@ app.post('/webhooks/line', async (c) => {
     worklogRecordWriteService,
     worklogTextNormalizationService,
     worklogLineRecordEditService,
+    worklogAiGrants,
   );
 
   const [groupCounters, oaCounters] = await Promise.all([
@@ -260,12 +180,7 @@ app.post('/webhooks/line', async (c) => {
       anomalies: worklogAnomalies,
       createQueryUrl: webAuthService && webAppUrl
         ? async (target) => appendHistoryFilters(
-            await webAuthService.createBotEntry({
-              webAppUrl,
-              lineUserId: target.lineUserId,
-              lineGroupId: target.lineGroupId,
-              at: target.at,
-            }),
+            await webAuthService.createBotEntry({ webAppUrl, lineUserId: target.lineUserId, lineGroupId: target.lineGroupId, at: target.at }),
             target.filters,
           )
         : undefined,
@@ -278,19 +193,12 @@ app.post('/webhooks/line', async (c) => {
       anomalies: worklogAnomalies,
       createQueryUrl: webAuthService && webAppUrl
         ? async (target) => appendHistoryFilters(
-            await webAuthService.createPrivateBotEntry({
-              webAppUrl,
-              lineUserId: target.lineUserId,
-              userId: target.userId,
-              sourceId: target.sourceId,
-              at: target.at,
-            }),
+            await webAuthService.createPrivateBotEntry({ webAppUrl, lineUserId: target.lineUserId, userId: target.userId, sourceId: target.sourceId, at: target.at }),
             target.filters,
           )
         : undefined,
     }),
   ]);
-
   return c.json({ ok: true, ...groupCounters, ...oaCounters });
 });
 
@@ -300,15 +208,11 @@ function launchConfigErrors(env: Bindings): string[] {
   required(env.LINE_CHANNEL_SECRET) || missing.push('LINE_CHANNEL_SECRET');
   required(env.LINE_CHANNEL_ACCESS_TOKEN) || missing.push('LINE_CHANNEL_ACCESS_TOKEN');
   required(env.GEMINI_API_KEY) || missing.push('GEMINI_API_KEY');
-
   const webAppUrl = exactHttpsOrigin(env.WEB_APP_URL);
   const webAppOrigin = exactHttpsOrigin(env.WEB_APP_ORIGIN);
   if (!webAppUrl) missing.push('WEB_APP_URL');
   if (!webAppOrigin) missing.push('WEB_APP_ORIGIN');
-  if (webAppUrl && webAppOrigin && webAppUrl !== webAppOrigin) {
-    missing.push('WEB_APP_URL', 'WEB_APP_ORIGIN');
-  }
-
+  if (webAppUrl && webAppOrigin && webAppUrl !== webAppOrigin) missing.push('WEB_APP_URL', 'WEB_APP_ORIGIN');
   secret(env.WEB_AUTH_SECRET) || missing.push('WEB_AUTH_SECRET');
   required(env.LINE_LOGIN_CHANNEL_ID) || missing.push('LINE_LOGIN_CHANNEL_ID');
   required(env.LINE_LOGIN_CHANNEL_SECRET) || missing.push('LINE_LOGIN_CHANNEL_SECRET');
@@ -319,37 +223,17 @@ function launchConfigErrors(env: Bindings): string[] {
   return [...new Set(missing)];
 }
 
-function required(value: string | undefined): boolean {
-  return Boolean(value?.trim());
-}
-
-function adminPassword(value: string | undefined): boolean {
-  return Boolean(value && value.length >= 16 && value.length <= 512);
-}
-
-function secret(value: string | undefined): boolean {
-  return Boolean(value?.trim() && value.trim().length >= 32);
-}
+function required(value: string | undefined): boolean { return Boolean(value?.trim()); }
+function adminPassword(value: string | undefined): boolean { return Boolean(value && value.length >= 16 && value.length <= 512); }
+function secret(value: string | undefined): boolean { return Boolean(value?.trim() && value.trim().length >= 32); }
 
 function exactHttpsOrigin(value: string | undefined): string | null {
   if (!value?.trim()) return null;
   try {
     const url = new URL(value.trim());
-    if (
-      url.protocol !== 'https:'
-      || !url.host
-      || url.username
-      || url.password
-      || url.pathname !== '/'
-      || url.search
-      || url.hash
-    ) {
-      return null;
-    }
+    if (url.protocol !== 'https:' || !url.host || url.username || url.password || url.pathname !== '/' || url.search || url.hash) return null;
     return url.origin;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 function appendHistoryFilters(url: string | null, filters: WorklogHistoryFilters): string | null {
