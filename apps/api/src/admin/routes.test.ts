@@ -58,4 +58,28 @@ describe('admin route input validation', () => {
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({ ok: false, error });
   });
+
+  it('rejects the retired aggregate allowance plan field before touching persistence', async () => {
+    const response = await createAdminRoutes().request('/plans/PRO', {
+      method: 'PUT',
+      headers: {
+        authorization: await authorization(),
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        displayName: 'Pro',
+        priceTwd: '299',
+        rank: 10,
+        enabled: true,
+        aiAllowanceUnits: 1_000_000,
+        capabilities: {},
+      }),
+    }, env);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      error: 'INVALID_SUBSCRIPTION_PERIOD_POINTS',
+    });
+  });
 });
