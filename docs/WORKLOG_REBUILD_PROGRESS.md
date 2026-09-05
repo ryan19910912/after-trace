@@ -15,16 +15,16 @@ Read first every run, in this exact order:
 
 The latest documents above are the only product/development specification. Do not revive Customer/Project/Finance/Owner/aggregate-quota assumptions from legacy code, migrations, README history or old tests.
 
-## Current execution checkpoint — 2026-09-05 dev/prod Worker split prepared, runtime smoke pending
+## Current execution checkpoint — 2026-09-05 dev/prod Worker targets aligned, runtime smoke pending
 
 The prelaunch baseline rebuild, fresh PostgreSQL integrity stage, and complete local static/test/build validation are green. Deployment configuration is intentionally simplified: `DATABASE_URL` is the single database variable for migration/runtime inside each environment, and `VITE_API_BASE_URL` is the single API base URL used by Web/Admin builds and deployment helpers. `AFTERTRACE_PROD_DATABASE_URL` and `AFTERTRACE_API_URL` are retired.
 
-Cloudflare deployment is now explicitly split into manual Dev / Prod targets. No Git push, non-production branch build, or GitHub Actions workflow is used as an automatic deployment trigger.
+Cloudflare deployment is explicitly split into manual Dev / Prod targets. No Git push, non-production branch build, or GitHub Actions workflow is used as an automatic deployment trigger.
 
-Worker names:
+Actual Cloudflare Worker names are frozen to the six Workers already created in the account:
 
 - Dev: `after-trace-api-dev`, `after-trace-web-dev`, `after-trace-admin-dev`.
-- Prod: `after-trace-api`, `after-trace-web`, `after-trace-admin`.
+- Prod: `after-trace-api-prod`, `after-trace-web-prod`, `after-trace-admin-prod`.
 
 Root deployment inputs:
 
@@ -32,7 +32,7 @@ Root deployment inputs:
 - `.env.prod` is authoritative for `pnpm deploy:prod`.
 - `.env.local` remains local development only.
 
-The manual deployment command loads the selected environment file, validates workers.dev host names against the selected target, applies that environment's DB migration before API deployment, then deploys the selected API/Web/Admin Wrangler environment. Cloudflare runtime Variables/Secrets remain configured separately on the corresponding Worker and are not uploaded from `.env.dev` / `.env.prod` by the deploy command.
+The manual deployment command loads the selected environment file, validates workers.dev host names against the exact selected Worker names, applies that environment's DB migration before API deployment, and passes an explicit Wrangler `--name` for each target. It does not rely on Wrangler automatically appending environment suffixes. Cloudflare runtime Variables/Secrets remain configured separately on the corresponding Worker and are not uploaded from `.env.dev` / `.env.prod` by the deploy command.
 
 ## 已完成 / 已實際驗證
 
@@ -144,9 +144,8 @@ Do not mark the `release:preflight` wrapper itself as PASS until a real deployed
 - Web/Admin Workers SPA fallback/deep-link checks;
 - deployment database environment simplified to a single `DATABASE_URL` per environment;
 - API base URL configuration simplified to a single `VITE_API_BASE_URL` per environment;
-- Worker deployment slugs normalized to `after-trace-*`;
-- explicit Wrangler `dev` / `prod` targets added for all three Workers;
-- manual `pnpm deploy:dev` / `pnpm deploy:prod` flow added, with per-component variants and environment-host mismatch protection.
+- Worker deployment slugs normalized to the six actual `after-trace-*-dev` / `after-trace-*-prod` Workers;
+- manual `pnpm deploy:dev` / `pnpm deploy:prod` flow with per-component variants, exact `--name` targeting, and environment-host mismatch protection.
 
 ## Remaining P0 before free/manual + AI-recording launch
 
@@ -221,7 +220,7 @@ Previously executed locally during prelaunch verification:
 - fresh PostgreSQL integrity probes;
 - case-insensitive Entity/Alias collision reproduction and final rejection validation.
 
-This Dev/Prod deployment-target change was configuration/script/documentation work only. The previously green test/static suite was not rerun because no application-domain regression was introduced.
+This Worker-name alignment was configuration/script/documentation work only. The previously green test/static suite was not rerun because no application-domain regression was introduced.
 
 Not yet executed:
 
@@ -239,4 +238,4 @@ No GitHub Actions workflow was executed, dispatched, rerun, enabled, modified, t
 
 **NOT READY yet.**
 
-The codebase and deployment configuration are prepared for explicit manual Dev / Prod Workers, but the real Dev/Prod Cloudflare bindings, environment files, Worker deployment smoke, LINE runtime configuration, Gemini runtime smoke, browser smoke, and final readiness checks are still pending.
+The codebase and deployment configuration are prepared for the six explicit manual Dev / Prod Workers, but the real Dev/Prod Cloudflare bindings, environment files, Worker deployment smoke, LINE runtime configuration, Gemini runtime smoke, browser smoke, and final readiness checks are still pending.
