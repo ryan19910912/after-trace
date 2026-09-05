@@ -7,7 +7,7 @@ import type { WorklogAiRuntimeConfigSnapshot } from './text-normalization';
 
 const config: WorklogAiRuntimeConfigSnapshot = {
   provider: 'GOOGLE',
-  model: 'gemini-3.5-flash',
+  model: 'gemini-3.5-flash-lite',
   inputUsdPerMillion: 0.1,
   outputUsdPerMillion: 0.4,
   audioUsdPerMillion: null,
@@ -35,7 +35,7 @@ describe('GeminiWorklogTextNormalizer', () => {
     expect(serialized).not.toContain('"summary"');
   });
 
-  it('parses one title and nullable occurred time while preserving provider usage', async () => {
+  it('uses the configured model and preserves provider usage', async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({
       responseId: 'provider-response-1',
       candidates: [{
@@ -72,6 +72,7 @@ describe('GeminiWorklogTextNormalizer', () => {
       latencyMs: expect.any(Number),
     });
     expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(String(fetchFn.mock.calls[0]?.[0])).toContain('/models/gemini-3.5-flash-lite:generateContent');
   });
 
   it('accepts a null title when the provider explicitly marks it for confirmation', async () => {
