@@ -1,4 +1,4 @@
-name = "after-trace-api"
+name = "after-trace-api-prod"
 main = "src/worker.ts"
 compatibility_date = "2026-08-29"
 compatibility_flags = ["nodejs_compat"]
@@ -7,11 +7,8 @@ keep_vars = true
 # Runtime Variables/Secrets are configured separately on each Cloudflare Worker.
 # Local development reads them from .env.local. Dev/prod deployment does not share
 # LINE credentials, database bindings, Web/Admin origins, or auth secrets.
+# Manual deployment scripts always pass the exact --name target so Dev and Prod
+# map to after-trace-api-dev / after-trace-api-prod respectively.
 
 [observability]
 enabled = true
-
-# Production uses the top-level Worker name: after-trace-api.
-# Wrangler automatically deploys this environment as after-trace-api-dev.
-[env.dev]
-workers_dev = true
