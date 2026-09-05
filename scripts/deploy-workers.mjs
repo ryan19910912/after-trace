@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { parseEnv } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -32,10 +33,14 @@ const workerNames = {
 
 const apiOrigin = requireOrigin('VITE_API_BASE_URL');
 const webOrigin = requireOrigin('WEB_APP_URL');
+const webAppOrigin = requireOrigin('WEB_APP_ORIGIN');
 const adminOrigin = requireOrigin('ADMIN_WEB_ORIGIN');
 assertEnvironmentHost(apiOrigin, workerNames.api);
 assertEnvironmentHost(webOrigin, workerNames.web);
 assertEnvironmentHost(adminOrigin, workerNames.admin);
+if (webOrigin !== webAppOrigin) {
+  fail(`WEB_APP_URL and WEB_APP_ORIGIN must be identical in .env.${environment}.`);
+}
 
 console.log(`AFTERTRACE manual deployment target: ${environment.toUpperCase()}`);
 console.log(`API   : ${workerNames.api} -> ${apiOrigin}`);
@@ -43,13 +48,28 @@ console.log(`Web   : ${workerNames.web} -> ${webOrigin}`);
 console.log(`Admin : ${workerNames.admin} -> ${adminOrigin}`);
 
 if (component === 'all' || component === 'api') {
-  if (!process.env.DATABASE_URL?.trim()) {
-    fail(`DATABASE_URL is required in .env.${environment} before API deployment.`);
-  }
+  const apiRuntimeBindings = requireApiRuntimeBindings();
   run('Apply database migrations', 'pnpm', ['--filter', '@aftertrace/api', 'db:deploy:migrate']);
-  run('Deploy API Worker', 'pnpm', [
-    '--filter', '@aftertrace/api', 'exec', 'wrangler', 'deploy', '--name', workerNames.api,
-  ]);
+
+  const secretsFile = resolve(
+    tmpdir(),
+    `aftertrace-${environment}-${process.pid}-${Date.now()}-worker-secrets.json`,
+  );
+  writeFileSync(secretsFile, `${JSON.stringify(apiRuntimeBindings, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
+  try {
+    run('Deploy API Worker + runtime bindings', 'pnpm', [
+      '--filter', '@aftertrace/api', 'exec', 'wrangler', 'deploy',
+      '--name', workerNames.api,
+      '--secrets-file', secretsFile,
+    ]);
+  } finally {
+    try { unlinkSync(secretsFile); } catch {}
+  }
+
+  await verifyApiDeployment(apiOrigin);
 }
 
 if (component === 'all' || component === 'web') {
@@ -68,7 +88,43 @@ if (component === 'all' || component === 'admin') {
 
 console.log('');
 console.log(`AFTERTRACE ${environment.toUpperCase()} deployment completed.`);
-console.log('Runtime Variables/Secrets are environment-specific Cloudflare Worker configuration and are not uploaded from the local env file by this command.');
+if (component === 'all' || component === 'api') {
+  console.log(`API runtime bindings were uploaded from .env.${environment} using a temporary Wrangler secrets file and the temporary file was deleted after deployment.`);
+}
+
+function requireApiRuntimeBindings() {
+  const names = [
+    'DATABASE_URL',
+    'LINE_CHANNEL_SECRET',
+    'LINE_CHANNEL_ACCESS_TOKEN',
+    'GEMINI_API_KEY',
+    'WEB_APP_URL',
+    'WEB_APP_ORIGIN',
+    'WEB_AUTH_SECRET',
+    'LINE_LOGIN_CHANNEL_ID',
+    'LINE_LOGIN_CHANNEL_SECRET',
+    'ADMIN_USERNAME',
+    'ADMIN_PASSWORD',
+    'ADMIN_SESSION_SECRET',
+    'ADMIN_WEB_ORIGIN',
+  ];
+  const values = {};
+  for (const name of names) {
+    const value = process.env[name]?.trim();
+    if (!value) fail(`${name} is required in .env.${environment} before API deployment.`);
+    values[name] = value;
+  }
+  if (values.WEB_AUTH_SECRET.length < 32) {
+    fail(`WEB_AUTH_SECRET must be at least 32 characters in .env.${environment}.`);
+  }
+  if (values.ADMIN_PASSWORD.length < 8) {
+    fail(`ADMIN_PASSWORD must be at least 8 characters in .env.${environment}.`);
+  }
+  if (values.ADMIN_SESSION_SECRET.length < 32) {
+    fail(`ADMIN_SESSION_SECRET must be at least 32 characters in .env.${environment}.`);
+  }
+  return values;
+}
 
 function requireOrigin(name) {
   const value = process.env[name]?.trim();
@@ -101,6 +157,43 @@ function assertEnvironmentHost(origin, expectedWorkerName) {
   }
 }
 
+async function verifyApiDeployment(origin) {
+  console.log('');
+  console.log('==> Verify API Worker liveness');
+  let health;
+  try {
+    const response = await fetch(`${origin}/health`);
+    health = await response.json();
+    if (!response.ok || health?.status !== 'ok') {
+      fail(`API /health failed: HTTP ${response.status} ${JSON.stringify(health)}`);
+    }
+  } catch (error) {
+    fail(`API /health request failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  console.log(`API liveness: ${health.status}`);
+
+  console.log('');
+  console.log('==> Verify API Worker readiness');
+  try {
+    const response = await fetch(`${origin}/health/ready`);
+    const body = await response.json();
+    if (response.ok && body?.status === 'ready') {
+      console.log('API readiness: ready');
+      return;
+    }
+    const expectedBootstrapPending = response.status === 503
+      && ['AI_RUNTIME_CONFIG_NOT_INITIALIZED', 'FREE_PLAN_NOT_INITIALIZED'].includes(body?.error);
+    if (expectedBootstrapPending) {
+      console.warn(`API is live; first-environment bootstrap is still pending: ${body.error}`);
+      return;
+    }
+    fail(`API /health/ready failed: HTTP ${response.status} ${JSON.stringify(body)}`);
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('AFTERTRACE deploy failed:')) throw error;
+    fail(`API /health/ready request failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 function run(label, command, args) {
   console.log('');
   console.log(`==> ${label}`);
@@ -115,6 +208,7 @@ function run(label, command, args) {
 }
 
 function fail(message) {
-  console.error(`AFTERTRACE deploy failed: ${message}`);
-  process.exit(1);
+  const text = `AFTERTRACE deploy failed: ${message}`;
+  console.error(text);
+  throw new Error(text);
 }
