@@ -4,7 +4,10 @@ import { AdminApi } from './api';
 import { App } from './App';
 import { PricingCalculatorPage } from './PricingCalculatorPage';
 import { ProfitabilityPage } from './ProfitabilityPage';
+import { installTaipeiDateDisplayPolicy } from './time-display';
 import './styles.css';
+
+installTaipeiDateDisplayPolicy();
 
 const root = createRoot(document.getElementById('root')!);
 const baseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
