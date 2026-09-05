@@ -234,7 +234,7 @@ function launchConfigErrors(env: Bindings): string[] {
 }
 
 function required(value: string | undefined): boolean { return Boolean(value?.trim()); }
-function adminPassword(value: string | undefined): boolean { return Boolean(value && value.length >= 16 && value.length <= 512); }
+function adminPassword(value: string | undefined): boolean { return Boolean(value && value.length >= 8 && value.length <= 512); }
 function secret(value: string | undefined): boolean { return Boolean(value?.trim() && value.trim().length >= 32); }
 
 function exactAppOrigin(value: string | undefined): string | null {
