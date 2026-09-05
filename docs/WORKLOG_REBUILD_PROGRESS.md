@@ -15,294 +15,201 @@ Read first every run, in this exact order:
 
 The latest documents above are the only product/development specification. Do not revive Customer/Project/Finance/Owner/aggregate-quota assumptions from legacy code, migrations, README history or old tests.
 
-## Current execution checkpoint — 2026-09-05 Dev API runtime deploy smoke in progress
+## Current execution checkpoint — 2026-09-05 Dev deployment/bootstrap in progress
 
-The prelaunch baseline rebuild, fresh PostgreSQL integrity stage, and complete local static/test/build validation are green. Deployment configuration is intentionally simplified: `DATABASE_URL` is the single database variable for migration/runtime inside each environment, and `VITE_API_BASE_URL` is the single API base URL used by Web/Admin builds and deployment helpers. `AFTERTRACE_PROD_DATABASE_URL` and `AFTERTRACE_API_URL` are retired.
-
-Cloudflare deployment is explicitly split into manual Dev / Prod targets. No Git push, non-production branch build, or GitHub Actions workflow is used as an automatic deployment trigger.
-
-Actual Cloudflare Worker names are frozen to the six Workers already created in the account:
+Cloudflare deployment is manual and split into the six explicit Workers:
 
 - Dev: `after-trace-api-dev`, `after-trace-web-dev`, `after-trace-admin-dev`.
 - Prod: `after-trace-api-prod`, `after-trace-web-prod`, `after-trace-admin-prod`.
 
-Root deployment inputs:
+Root environment inputs:
 
-- `.env.dev` is authoritative for `pnpm deploy:dev` and Dev API runtime bindings.
-- `.env.prod` is authoritative for `pnpm deploy:prod` and Prod API runtime bindings.
-- `.env.local` remains local development only.
+- `.env.local` — local only.
+- `.env.dev` — Dev migration/deploy/API runtime binding source.
+- `.env.prod` — Prod migration/deploy/API runtime binding source.
 
-The manual API deployment command now loads the selected environment file, validates the selected Worker origins, applies that environment's DB migration, whitelists the required API runtime bindings, uploads them alongside the API Worker through Wrangler `--secrets-file`, deletes the temporary JSON, deploys to the exact `--name`, then verifies `/health` and `/health/ready`. `VITE_API_BASE_URL` remains build/deploy input only and is not uploaded as an API runtime binding.
+Root deployment helper loads exactly the selected environment, validates Worker origins, applies the selected DB migration before API deployment, uploads only whitelisted API runtime bindings using a temporary Wrangler secrets file, deploys to the exact Worker name, deletes the temporary file, and verifies API health/readiness.
 
-### Dev API deployment smoke observed
+`workers_dev = true` and `preview_urls = false` are explicit in API/Web/Admin Wrangler configuration so the intended workers.dev URLs stay enabled without per-deployment Preview URLs.
 
-The first real Dev API deployment command reached Cloudflare successfully:
+### Dev API runtime — verified so far
 
-- `.env.dev` target validation — PASS.
-- Dev database migration — PASS (`AFTERTRACE database migrations applied successfully`).
-- API Worker upload — PASS.
-- `after-trace-api-dev` deployment — PASS.
-- resulting Worker URL — `https://after-trace-api-dev.a0955625660.workers.dev`.
-- first runtime request returned Cloudflare **Error 1101 / Worker threw exception**.
+Real Dev deployment has established:
 
-Root cause identified from current code/config contract:
+- Dev database migration — PASS.
+- API Worker upload/deploy to `after-trace-api-dev` — PASS.
+- API runtime bindings from `.env.dev` — visible on the deployed Worker.
+- `GET /health` — PASS with `status: ok`.
+- `GET /health/ready` — reached the expected fresh-environment blocker `AI_RUNTIME_CONFIG_NOT_INITIALIZED`.
 
-1. the previous root deploy helper intentionally did **not** upload `.env.dev` runtime bindings, so the remote Worker did not have the required DB/LINE/Gemini/Web/Admin bindings even though the local file was complete;
-2. `worker.ts` eagerly initialized DB/Gemini/attachment runtime before dispatching `/health` or `/health/ready`, so a missing binding threw before readiness could return `RUNTIME_CONFIG_INCOMPLETE`.
+The earlier first-request Cloudflare Error 1101 was resolved by ensuring deployed runtime bindings are carried by the manual API deploy and by keeping health/readiness dispatch ahead of eager Worklog DB/Gemini runtime construction.
 
-Fixes committed:
+### Dev Admin runtime — verified so far
 
-- `/health` and `/health/ready` now bypass eager Worklog runtime initialization so liveness/readiness stay diagnosable even with incomplete runtime configuration;
-- root `deploy:dev:api` / `deploy:prod:api` now upload the whitelisted runtime binding set from the selected root env file in the same Wrangler deploy using a temporary `--secrets-file`;
-- temporary secrets JSON is deleted after deploy;
-- API deployment now verifies `/health` and `/health/ready` automatically;
-- first-environment readiness may continue only for `AI_RUNTIME_CONFIG_NOT_INITIALIZED` or `FREE_PLAN_NOT_INITIALIZED`; runtime config/schema failures abort.
+- Admin production build — PASS during real deployment.
+- static asset upload — PASS.
+- Worker deploy to `after-trace-admin-dev` — PASS.
+- Admin URL: `https://after-trace-admin-dev.a0955625660.workers.dev`.
 
-The user must `git pull` and rerun `pnpm deploy:dev:api` to validate these fixes against Cloudflare. Do not claim the Error 1101 fix is runtime-verified until that rerun succeeds.
+The first attempt to save `gemini-3.5-flash-lite` exposed a real configuration bug: Admin/runtime/provider code had incorrectly hard-coded `gemini-3.5-flash` and returned `AI_MODEL_NOT_SUPPORTED`.
 
-### Local runtime smoke already completed
+That hard-coded model contract is now removed in the branch:
 
-- `pnpm dev:api` starts Wrangler on `http://127.0.0.1:8787`.
-- `pnpm dev:web` starts Vite on `http://localhost:5173`.
-- `pnpm dev:admin` starts Vite on `http://localhost:5174`.
-- all three local surfaces opened successfully in the browser.
-- readiness exposed a real validation mismatch: local loopback HTTP origins were incorrectly rejected even though `.env.example` documents localhost HTTP. Readiness now accepts HTTP only for loopback hosts (`localhost`, `127.0.0.1`, `::1`) while retaining HTTPS-only behavior for non-loopback deployed origins.
-- user explicitly changed the Admin operator password minimum from 16 to **8 characters**. Admin auth, readiness validation, tests, `.env.example`, and deployment documentation now use the same 8-character minimum.
-- frontend timestamp presentation is standardized to **Asia/Taipei (UTC+8)** with display format **`yyyy-MM-dd HH:mm:ss`**. API/DB timestamps remain UTC/ISO; only Admin/Web presentation is converted. PostgreSQL timestamptz strings such as `2026-09-05 13:35:17.936087+00` are normalized before display.
+- provider implementation is currently `GOOGLE` and may remain provider-restricted because the adapter is provider-specific;
+- model is an operator-configured non-empty identifier, not a code allowlist;
+- Admin no longer rejects a new Gemini model merely because the string was unknown when AFTERTRACE was compiled;
+- readiness checks provider + non-empty model + valid positive output reference pricing, not equality to one model name;
+- text normalization, LINE AI edit, and attachment Gemini requests use the configured model identifier;
+- real Gemini calls are responsible for reporting model-not-found, permission, or feature compatibility errors;
+- current intended model is `gemini-3.5-flash-lite`, but future compatible Gemini model identifiers must be selectable without a code deployment.
 
-## 已完成 / 已實際驗證
+These configurable-model changes and their test updates were committed but have **not been executed locally/runtime yet**. Do not claim them PASS until the user pulls/redeploys and completes runtime smoke.
 
-以下項目均已在本機或 fresh Neon PostgreSQL 實際執行並成功，不是僅做靜態閱讀或推測：
+## Previously completed / actually verified foundation
 
-### Local toolchain / static validation
+Do not redo these without a concrete regression:
 
 - `pnpm install --frozen-lockfile` — PASS.
-- API TypeScript typecheck — PASS.
-- Web TypeScript typecheck — PASS.
-- Admin TypeScript typecheck — PASS.
-- API ESLint — PASS.
-- Web ESLint — PASS.
-- Admin ESLint — PASS.
-- API Worker `wrangler deploy --dry-run` build — PASS.
+- API/Web/Admin TypeScript typecheck — PASS before the latest deployment/model hotfixes.
+- API/Web/Admin ESLint — PASS before the latest deployment/model hotfixes.
+- API Vitest — 42 files / 240 tests PASS before the latest hotfixes.
+- Admin Vitest — 3 files / 11 tests PASS before the latest hotfixes.
+- Web test command with no tests / passWithNoTests — PASS.
+- API Worker dry-run — PASS.
 - Web production build — PASS.
-- Admin production build — PASS.
-- `pnpm db:schema:check` Drizzle schema export — PASS.
+- Admin production build — PASS, and also PASS in the real Dev Admin deployment.
+- Drizzle baseline regeneration and guard — PASS.
+- Drizzle schema export/check — PASS.
+- fresh Neon PostgreSQL migration — PASS.
+- fresh PostgreSQL integrity probes — PASS.
+- Source/Grant cross-boundary DB constraints — verified.
+- Source-scoped case-insensitive Entity/Alias uniqueness — verified.
+- Source + single Entity/title + Alias + Record + immutable Revision + durable Pending Confirmation.
+- free PWA manual CRUD/search/filter/title move/batch move/delete/recycle/restore/history.
+- GROUP manual authorization = active membership only.
+- optimistic Record version checks + stale conflict handling.
+- deterministic LINE HISTORY -> filtered PWA.
+- Reply-targeted PRIVATE/GROUP LINE AI EDIT.
+- attachment extraction -> durable text -> title/time normalization wiring.
+- FREE 400,000 one-time Grant policy.
+- user-owned Grant scopes/caps + GROUP AI 額度負責人.
+- positive-balance AI preflight + final atomic reservation.
+- provider actual cost -> output-price-equivalent AI points + platform subsidy.
+- retired aggregate quota / legacy Customer/Project/Finance assumptions removed from accepted core.
+- factual Admin profitability + pricing calculator.
+- payment-disabled checkout and unshipped Export fail closed.
+- bounded attachment streaming / no permanent LINE binaries.
+- local API/Web/Admin startup and browser open — PASS.
+- local Admin password minimum aligned to 8 characters.
+- Admin/Web display time standardized to Asia/Taipei `yyyy-MM-dd HH:mm:ss` while DB/API remain UTC/ISO.
 
-### Automated tests
+## Current model/runtime rule — frozen until explicitly changed
 
-- API Vitest: **42 test files / 240 tests passed**.
-- Admin Vitest: **3 test files / 11 tests passed**.
-- Web: no test files; configured `passWithNoTests` completed successfully.
+The current provider adapter is Google Gemini, but **Gemini model names are runtime data, not compile-time entitlement**.
 
-### Drizzle baseline
+- `provider = GOOGLE` is accepted because that is the implemented provider adapter.
+- `model` must be non-empty and bounded in length; do not maintain an `AI_MODEL_NOT_SUPPORTED` allowlist for model IDs.
+- current intended model: `gemini-3.5-flash-lite`.
+- pricing snapshot entered in Admin must correspond to the actual selected model.
+- changing the active model affects future requests only; historical usage/pricing snapshots remain auditable.
+- an incompatible/non-existent model fails on the real provider request and should surface a truthful provider/model error rather than requiring an AFTERTRACE release just to enter the model name.
 
-- Windows-safe baseline regeneration flow fixed and verified.
-- `pnpm db:baseline:regenerate --confirm-prelaunch-reset` — PASS.
-- `pnpm db:baseline:guard` — PASS after final schema changes.
-- regenerated `drizzle/0000_worklog_baseline.sql` — committed.
-- regenerated `drizzle/meta/0000_snapshot.json` — committed.
-- regenerated `drizzle/meta/_journal.json` — committed.
-- retired Customer/Project/Transaction/category/aggregate-quota/recording schema markers are no longer accepted by the baseline guard.
+## Remaining P0 — immediate next actions
 
-### Fresh PostgreSQL migration
+### 1. Pull and redeploy Dev API
 
-- migration tooling loads repository-root `.env.local` for local tooling.
-- local migration uses the Neon HTTP Drizzle migrator instead of the failing Drizzle Kit WebSocket CLI path.
-- migration against a freshly reset Neon PostgreSQL database — PASS.
-- composite FK referenced keys required by PostgreSQL were changed to real UNIQUE constraints where needed.
-- fresh re-migration after the final Entity/Alias uniqueness fix — PASS.
+The model validation/runtime changes live in the API Worker, so the next operator steps are:
 
-### Fresh PostgreSQL integrity probes
+```text
+git pull
+pnpm deploy:dev:api
+```
 
-`pnpm db:integrity` — PASS.
+Expected API deployment result:
 
-Database constraints were actually verified to reject:
-
-- mixed PRIVATE/GROUP Source identity;
-- cross-Source Alias -> Entity;
-- cross-Source Record -> Entity;
-- cross-Source Pending Confirmation -> Record;
-- PRIVATE Web entry user/Source mismatch;
-- cross-Source LINE AI edit target Record;
-- cross-Source attachment Record;
-- cross-Source attachment reservation;
-- reservation funding Grant/Scope mismatch;
-- usage funding Grant/Scope mismatch.
-
-Entity/Alias case behavior was reproduced against real PostgreSQL and fixed. Final verified behavior:
-
-- Entity case-only duplicate rejected within the same Source;
-- the same Entity spelling is allowed in another Source;
-- Alias case-only duplicate rejected within the same Source;
-- the same Alias spelling is allowed in another Source.
-
-### Release-preflight-equivalent local checks
-
-`pnpm release:preflight` itself was invoked, but correctly stopped before its internal checks because deployment policy requires a real absolute HTTPS `VITE_API_BASE_URL`.
-
-The checks that can be executed before deployment were then run directly and all passed:
-
-- TypeScript;
-- ESLint;
-- Vitest;
-- API Worker dry-run build;
-- Web production build;
-- Admin production build;
-- baseline guard;
-- Drizzle schema export.
-
-Do not mark the `release:preflight` wrapper itself as PASS until a real deployed API Worker HTTPS origin exists in `VITE_API_BASE_URL` and the wrapper is rerun.
-
-## Stable completed foundation — do not redo without a concrete regression
-
-- Source + single Entity/title + Alias + Record + immutable Revision + durable Pending Confirmation;
-- free PWA manual CRUD/search/filter/title move/batch move/delete/recycle/restore/history;
-- GROUP manual authorization = active membership only;
-- optimistic Record version checks + PWA stale-conflict recovery;
-- deterministic LINE HISTORY -> filtered PWA;
-- Reply-targeted PRIVATE/GROUP LINE AI EDIT;
-- truthful raw-first TEXT normalization replies;
-- attachment extract -> durable text -> title/time normalization source wiring;
-- FREE 400,000 one-time Grant;
-- user-owned Grant scopes/caps + separate GROUP AI 額度負責人;
-- positive-balance preflight + final atomic reservation;
-- provider actual cost -> output-price-equivalent points + platform subsidy;
-- immutable/idempotent subscription-period Grants;
-- retired aggregate quota / `ai_units_consumed` / `actualUnits` removed;
-- factual Admin profitability + pricing calculator;
-- Admin/runtime/readiness agree on `GOOGLE + gemini-3.5-flash`;
-- payment-disabled checkout and unshipped Export fail closed;
-- bounded attachment streaming / no permanent binaries;
-- safe baseline regeneration/guard;
-- fresh PostgreSQL migration + Source/Grant integrity validation;
-- Source-scoped case-insensitive Entity/Alias uniqueness;
-- liveness/readiness + first-fresh-DB bootstrap mode;
-- Web/Admin Workers SPA fallback/deep-link checks;
-- deployment database environment simplified to a single `DATABASE_URL` per environment;
-- API base URL configuration simplified to a single `VITE_API_BASE_URL` per environment;
-- Worker deployment slugs normalized to the six actual `after-trace-*-dev` / `after-trace-*-prod` Workers;
-- manual `pnpm deploy:dev` / `pnpm deploy:prod` flow with per-component variants, exact `--name` targeting, and environment-host mismatch protection;
-- local readiness origin validation allows only loopback HTTP and deployed HTTPS;
-- Admin password minimum aligned to 8 characters across auth/readiness/config docs;
-- Admin/Web displayed timestamps use Asia/Taipei UTC+8 and `yyyy-MM-dd HH:mm:ss`, while durable/API time remains UTC/ISO;
-- API health endpoints no longer depend on eager Worklog runtime initialization;
-- root API deploy flow now carries the whitelisted selected-environment runtime bindings with the deployment.
-
-## Remaining P0 before free/manual + AI-recording launch
-
-### 1. Rerun real Dev API deployment after Error 1101 fix
-
-From the updated checkout:
-
-- `git pull`
-- `pnpm deploy:dev:api`
-
-Expected flow:
-
-- migration succeeds;
-- API code + whitelisted `.env.dev` runtime bindings deploy together;
+- migration remains successful;
+- Worker deploy succeeds;
 - `/health` returns `ok`;
-- `/health/ready` either returns `ready`, or reports only `AI_RUNTIME_CONFIG_NOT_INITIALIZED` / `FREE_PLAN_NOT_INITIALIZED` while the fresh Dev DB still needs Admin bootstrap.
+- `/health/ready` may still report `AI_RUNTIME_CONFIG_NOT_INITIALIZED` until Admin saves the runtime config.
 
-Do not move to Dev Web/Admin runtime smoke until the Dev API no longer returns Error 1101.
+### 2. Save Dev AI runtime config in Admin
 
-### 2. Deploy Dev Web/Admin
+Use the Dev Admin and configure the intended current model:
 
-After Dev API liveness is green:
+- provider: `GOOGLE`;
+- model: `gemini-3.5-flash-lite`;
+- model-specific input/output/media pricing snapshot;
+- positive `output_usd_per_million`;
+- applicable USD/TWD rate.
 
-- `pnpm deploy:dev:web`
-- `pnpm deploy:dev:admin`
+Then recheck `/health/ready`.
 
-Then initialize Dev AI runtime/FREE plan through Admin if readiness is still in expected first-bootstrap state, and rerun `/health/ready` until `ready`.
+The next expected first-bootstrap blocker is `FREE_PLAN_NOT_INITIALIZED` if the AI runtime row is now valid.
 
-### 3. Real release preflight against Dev API origin
+### 3. Initialize FREE plan shell
 
-After Dev API is live:
+Create/enable FREE through Admin with:
 
-- run `pnpm release:preflight` with the real HTTPS Dev API origin as required by the current wrapper.
+- code `FREE`;
+- price `0`;
+- `subscription_period_points = 0`;
+- enabled `true`.
 
-### 4. Runtime / browser / provider smoke
+The frozen 400,000 FREE acquisition Grant is separate from the recurring plan template field.
 
-After deployment/runtime configuration is intentionally started:
+Recheck `/health/ready` until it returns `ready`.
 
-- `/health` + `/health/ready`;
-- PWA CRUD/version/group-membership/Source-switch/session browser smoke;
-- Admin plans/pricing/Overview/Profitability/session browser smoke;
-- LINE Login + one-time entry;
-- PRIVATE/GROUP TEXT CREATE/HISTORY/Reply EDIT/confirmations;
-- image/audio/PDF/text-file extraction + automatic title/time resolution;
-- attachment expiry/202/size/duplicate flows;
-- real Gemini usage/pricing/point settlement;
-- Worker runtime smoke.
+### 4. Deploy Dev Web
 
-### 5. Prod only after Dev is green
+After Dev API readiness is green:
 
-Use the same root flow with `.env.prod` and the `*-prod` Workers only after the complete Dev smoke is green.
+```text
+pnpm deploy:dev:web
+```
 
-## P1 — useful polish after P0
+Then continue full Dev browser/runtime smoke.
 
-- Customer AI usage percentage/progress UI still needs a denominator that does not mix expired/capped/lifetime facts.
-- Admin main navigation can add shortcuts to `/profitability` and `/pricing-calculator`.
-- Attachment LINE success text can later expose title-normalization pending/confirmation state more explicitly.
+### 5. Runtime/provider smoke
 
-## P2 — full paid MVP remains separate
+Before Prod:
 
-- payment provider;
-- successful-payment durable ledger;
+- Admin login/CORS and AI runtime save.
+- real Gemini call using the configured model.
+- LINE Login + one-time Web entry.
+- PRIVATE/GROUP TEXT CREATE/HISTORY/Reply EDIT/confirmations.
+- image/audio/PDF/text-file extraction.
+- attachment expiry/202/size/duplicate flows.
+- AI point/pricing/provider-cost settlement.
+- PWA CRUD/version/group membership/source switch.
+- Admin Overview/Plans/Pricing/Profitability.
+- successful `pnpm release:preflight` against the real deployed HTTPS API origin.
+
+### 6. Prod only after Dev is green
+
+Use `.env.prod` and the `*-prod` Workers only after complete Dev smoke is green.
+
+## P1
+
+- Customer AI usage percentage/progress denominator polish.
+- Admin main navigation shortcuts to profitability/pricing calculator.
+- Attachment LINE success copy can expose pending title-normalization state more explicitly.
+
+## P2 / paid full-MVP gaps
+
+- payment provider selection/integration;
+- successful-payment ledger;
 - recurring renewal success/failure + idempotent webhooks;
 - TOP_UP purchase/refund lifecycle;
 - paid Export endpoint/UI;
 - proration/mid-period paid-plan change policy;
-- advanced subscriber profitability/conversion analytics requiring payment facts.
+- advanced paid-cohort profitability/conversion analytics.
 
 ## Attachment coverage limitation
 
-Image, audio, PDF and text-like files are active. DOCX/XLSX/legacy Office MIME types remain explicitly `ATTACHMENT_UNSUPPORTED`; this is a clear fail-closed limitation, not silent corruption.
+Image, audio, PDF and text-like files are active. DOCX/XLSX/legacy Office MIME types remain explicitly `ATTACHMENT_UNSUPPORTED`; this is fail-closed, not silent corruption.
 
-## Validation status
+## Validation status for latest changes
 
-Previously executed locally during prelaunch verification:
+The latest configurable-model code/tests/docs were **not rerun by the assistant**. GitHub Actions were not executed, dispatched, rerun, enabled, modified, triggered, or used as validation.
 
-- install;
-- API/Web/Admin typecheck;
-- ESLint;
-- Vitest;
-- API/Web/Admin production builds / Worker dry-run;
-- baseline regeneration;
-- baseline guard;
-- Drizzle schema export;
-- fresh Neon PostgreSQL migration;
-- fresh PostgreSQL integrity probes;
-- case-insensitive Entity/Alias collision reproduction and final rejection validation.
-
-Executed during current runtime/deployment smoke:
-
-- local API startup — PASS;
-- local Web startup — PASS;
-- local Admin startup — PASS;
-- browser open for all three local surfaces — PASS;
-- first Dev DB migration via `pnpm deploy:dev:api` — PASS;
-- first Dev API Worker upload/deploy to `after-trace-api-dev` — PASS;
-- first Dev API runtime request — FAIL with Cloudflare Error 1101 before current fixes.
-
-Current Error 1101 fixes changed runtime/deployment code and docs but were **not yet rerun by the user**. Do not claim them runtime-verified until `pnpm deploy:dev:api` is rerun successfully.
-
-Not yet executed after current fixes:
-
-- successful Dev API `/health`;
-- Dev API `/health/ready` bootstrap result;
-- Dev Web deployment;
-- Dev Admin deployment;
-- successful `pnpm release:preflight` with a real deployed HTTPS API origin;
-- full browser/PWA/Admin Dev smoke;
-- LINE Dev runtime smoke;
-- real Gemini Dev runtime smoke;
-- Prod deployment/runtime smoke.
-
-No GitHub Actions workflow was executed, dispatched, rerun, enabled, modified, triggered or used as validation.
-
-## Deployment status
-
-**NOT READY yet.**
-
-The first real Dev API code upload and DB migration succeeded, but runtime returned Error 1101 because remote bindings were absent and health routes eagerly initialized runtime. Both issues are now corrected in the branch; the decisive next action is to pull and rerun `pnpm deploy:dev:api`, then continue with Dev Web/Admin only after Dev API liveness is green.
+Current deployment status: **DEV BOOTSTRAP IN PROGRESS — NOT READY FOR PROD**.
