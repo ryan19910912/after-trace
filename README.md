@@ -37,8 +37,8 @@ The universal Worklog model does **not** use Customer/Project/Finance/Transactio
 AFTERTRACE uses three independent Cloudflare Workers, not Pages:
 
 - `after-trace-api` — Hono/TypeScript API, LINE webhooks, Worklog runtime, auth, PWA/Admin APIs, PostgreSQL/Drizzle and AI orchestration.
-- `aftertrace-web` — React/Vite customer PWA via Workers Static Assets.
-- `aftertrace-admin` — React/Vite internal Admin via Workers Static Assets.
+- `after-trace-web` — React/Vite customer PWA via Workers Static Assets.
+- `after-trace-admin` — React/Vite internal Admin via Workers Static Assets.
 
 PostgreSQL is the durable store. Production Workers use Cloudflare Variables/Secrets; repository `.env.local` is local/tooling input only.
 
