@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
 import type {
+  WorklogPlanType,
   WorklogSubscriptionPeriodGrantSnapshot,
   WorklogSubscriptionPeriodRepository,
   WorklogSubscriptionPeriodSnapshot,
@@ -9,10 +10,11 @@ import type {
 
 type PlanRow = {
   code: string;
+  plan_type: WorklogPlanType;
   display_name: string;
   enabled: boolean;
   price_twd: string | number;
-  subscription_period_points: string | number;
+  grant_points: string | number;
 };
 
 type SubscriptionRow = {
@@ -44,19 +46,12 @@ type AssignmentRow = SubscriptionRow & {
   grant_origin_key: string | null;
 };
 
-/**
- * Subscription lifecycle + paid-period grant creation in one PostgreSQL statement.
- *
- * subscription_period_points is only the plan-template point count frozen into a
- * newly-created SUBSCRIPTION_PERIOD grant. It is never a live aggregate balance and
- * this repository never reads or writes aggregate quota.
- */
 export class DrizzleWorklogSubscriptionPeriodRepository implements WorklogSubscriptionPeriodRepository {
   constructor(private readonly db: Database) {}
 
   async getPlan(planCode: string): Promise<WorklogSubscriptionPlanTemplate | null> {
     const result = await this.db.execute(sql`
-      SELECT code, display_name, enabled, price_twd::text AS price_twd, subscription_period_points
+      SELECT code, plan_type, display_name, enabled, price_twd::text AS price_twd, grant_points
       FROM worklog_subscription_plans
       WHERE code = ${planCode}
       LIMIT 1
@@ -129,10 +124,11 @@ export class DrizzleWorklogSubscriptionPeriodRepository implements WorklogSubscr
     const metadataJson = JSON.stringify(input.metadata);
     const result = await this.db.execute(sql`
       WITH selected_plan AS (
-        SELECT code, enabled
+        SELECT code, enabled, plan_type
         FROM worklog_subscription_plans
         WHERE code = ${input.planCode}
           AND enabled = TRUE
+          AND plan_type IN ('FREE','SUBSCRIPTION')
       ),
       previous AS MATERIALIZED (
         SELECT plan_code
@@ -175,7 +171,8 @@ export class DrizzleWorklogSubscriptionPeriodRepository implements WorklogSubscr
         WHERE
           ${input.subscriptionPeriodPoints} = 0
           OR (
-            ${input.privateSourceId}::bigint IS NOT NULL
+            selected_plan.plan_type = 'SUBSCRIPTION'
+            AND ${input.privateSourceId}::bigint IS NOT NULL
             AND ${input.originKey}::text IS NOT NULL
             AND (
               NOT EXISTS (SELECT 1 FROM preexisting_grant)
@@ -358,12 +355,17 @@ export class DrizzleWorklogSubscriptionPeriodRepository implements WorklogSubscr
 }
 
 function planFromRow(row: PlanRow): WorklogSubscriptionPlanTemplate {
+  const planType = row.plan_type;
+  if (planType !== 'FREE' && planType !== 'SUBSCRIPTION' && planType !== 'ONE_TIME') {
+    throw new Error('invalid plan type');
+  }
   return {
     code: requiredText(row.code, 'plan code'),
+    planType,
     displayName: requiredText(row.display_name, 'plan display name'),
     enabled: Boolean(row.enabled),
     priceTwd: nonNegativeFinite(row.price_twd, 'plan price'),
-    subscriptionPeriodPoints: nonNegativeInteger(row.subscription_period_points, 'subscription period points'),
+    grantPoints: nonNegativeInteger(row.grant_points, 'plan grant points'),
   };
 }
 
