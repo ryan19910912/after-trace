@@ -115,8 +115,16 @@ async function withApiAnomalyBoundary(
 
 export default {
   async fetch(request: Request, env: Bindings, executionContext: ExecutionContextLike) {
-    configureWorklogRuntime(env);
     const url = new URL(request.url);
+
+    // Liveness/readiness must remain reachable even when a runtime binding is missing.
+    // Readiness itself reports the exact configuration/schema/bootstrap blocker instead
+    // of letting eager DB/Gemini initialization turn a diagnosable 503 into Error 1101.
+    if (url.pathname === '/health' || url.pathname === '/health/ready') {
+      return app.fetch(request, env, executionContext as never);
+    }
+
+    configureWorklogRuntime(env);
 
     if (legacyRoute(url.pathname)) {
       return Response.json({ ok: false, error: 'LEGACY_AFTERTRACE_RUNTIME_DISABLED' }, { status: 410 });
