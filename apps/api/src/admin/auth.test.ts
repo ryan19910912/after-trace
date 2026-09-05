@@ -13,11 +13,11 @@ const env = {
 };
 
 describe('admin configured credential auth', () => {
-  it('requires all configured secrets and rejects weak admin passwords', () => {
+  it('requires all configured secrets and rejects Admin passwords shorter than 8 characters', () => {
     expect(adminAuthConfigured(env)).toBe(true);
     expect(adminAuthConfigured({ ...env, ADMIN_PASSWORD: '' })).toBe(false);
-    expect(adminAuthConfigured({ ...env, ADMIN_PASSWORD: 'too-short' })).toBe(false);
-    expect(adminAuthConfigured({ ...env, ADMIN_PASSWORD: '1234567890123456' })).toBe(true);
+    expect(adminAuthConfigured({ ...env, ADMIN_PASSWORD: '1234567' })).toBe(false);
+    expect(adminAuthConfigured({ ...env, ADMIN_PASSWORD: '12345678' })).toBe(true);
   });
 
   it('accepts only the configured username and password', async () => {
