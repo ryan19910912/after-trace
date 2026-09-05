@@ -23,7 +23,6 @@ export type GeminiWorklogAttachmentOptions = {
   fetchFn?: typeof fetch;
 };
 
-const STABLE_WORKLOG_MODEL = 'gemini-3.5-flash';
 const THINKING_LEVEL = 'low';
 
 const outputSchema = z.object({
@@ -71,10 +70,6 @@ export class GeminiWorklogAttachmentNormalizer implements WorklogAttachmentProvi
 
   reservationPoints(content: LineMessageContent, config: WorklogAiRuntimeConfigSnapshot): number {
     this.assertConfig(config);
-    // The binary byte length is intentionally treated as a conservative input-token
-    // upper bound. Add request/output/thinking overhead, then price the whole upper
-    // bound at the most expensive configured modality. This only sizes the hold;
-    // actual customer points come from real provider cost after success.
     const outputBudget = this.maxOutputTokens;
     const upperBoundUnits = content.byteLength + 8_000 + outputBudget + outputBudget;
     if (!Number.isSafeInteger(upperBoundUnits) || upperBoundUnits <= 0) {
@@ -104,7 +99,7 @@ export class GeminiWorklogAttachmentNormalizer implements WorklogAttachmentProvi
     const startedAt = Date.now();
     let response: Response;
     try {
-      response = await this.fetchFn(`${this.endpoint}/models/${encodeURIComponent(config.model)}:generateContent`, {
+      response = await this.fetchFn(`${this.endpoint}/models/${encodeURIComponent(config.model.trim())}:generateContent`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -142,8 +137,6 @@ export class GeminiWorklogAttachmentNormalizer implements WorklogAttachmentProvi
     const output: WorklogAttachmentOutput = {
       inputType,
       rawText: parsed.raw_text,
-      // Useful source metadata is kept only in the provider result while processing;
-      // the MVP does not persist an attachment library/binary/summary metadata on Record.
       attachmentMetadata: {
         mimeType: content.mimeType,
         byteLength: content.byteLength,
@@ -168,8 +161,9 @@ export class GeminiWorklogAttachmentNormalizer implements WorklogAttachmentProvi
     if (!this.options.apiKey.trim()) {
       throw new WorklogAttachmentProviderError('GEMINI_CONFIG_INVALID', 'Gemini API key required');
     }
-    if (config.model.trim() !== STABLE_WORKLOG_MODEL) {
-      throw new WorklogAttachmentProviderError('GEMINI_CONFIG_INVALID', `Worklog currently supports only ${STABLE_WORKLOG_MODEL}`);
+    const model = config.model.trim();
+    if (!model || model.length > 255) {
+      throw new WorklogAttachmentProviderError('GEMINI_CONFIG_INVALID', 'Gemini model name is required');
     }
     nonNegativeFinite(config.inputUsdPerMillion, 'inputUsdPerMillion');
     positiveFinite(config.outputUsdPerMillion, 'outputUsdPerMillion');
