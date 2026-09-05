@@ -32,8 +32,8 @@ describe('API launch readiness', () => {
     });
   });
 
-  it('rejects a weak Admin password before database access', async () => {
-    const response = await app.request('/health/ready', {}, env({ ADMIN_PASSWORD: 'too-short' }));
+  it('rejects an Admin password shorter than 8 characters before database access', async () => {
+    const response = await app.request('/health/ready', {}, env({ ADMIN_PASSWORD: '1234567' }));
 
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toMatchObject({
