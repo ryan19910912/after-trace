@@ -44,15 +44,17 @@ Manual deployment is the accepted operating model. `pnpm deploy:dev` and `pnpm d
 
 ## Environment configuration source
 
-**Cloudflare deployed Workers do not read repository `.env.local`, `.env.dev`, or `.env.prod` as runtime bindings.**
+**Cloudflare deployed Workers do not read repository `.env.local`, `.env.dev`, or `.env.prod` directly at request time.**
 
-Repository files are operator/local inputs:
+Repository files are operator/deployment inputs:
 
 - `.env.local` — local development/tooling only.
-- `.env.dev` — authoritative input for manual Dev deployment tooling.
-- `.env.prod` — authoritative input for manual Prod deployment tooling.
+- `.env.dev` — authoritative input for manual Dev deployment tooling and Dev API runtime bindings.
+- `.env.prod` — authoritative input for manual Prod deployment tooling and Prod API runtime bindings.
 
-Cloudflare API Worker runtime values come from the Variables/Secrets configured on each corresponding Worker plus checked-in non-secret Wrangler configuration. Dev and Prod use separate runtime configuration.
+For API deployment, the root manual deploy script whitelists only the required API runtime keys from the selected `.env.dev` / `.env.prod`, writes them to a temporary JSON secrets file, passes that file to `wrangler deploy --secrets-file`, and deletes the temporary file immediately after deployment. The whole environment file is never uploaded. `VITE_API_BASE_URL` remains deployment/build input only and is not uploaded as an API runtime binding.
+
+This makes the selected root environment file the single operator source for both migration and API Worker runtime configuration, while still keeping Dev and Prod isolated. Manual dashboard duplication is not required for the normal root deploy flow.
 
 Required API bindings include:
 
@@ -63,10 +65,10 @@ Required API bindings include:
 - `WEB_APP_URL` — exact deployed Web HTTPS origin for the same environment.
 - `WEB_APP_ORIGIN` — same exact Web HTTPS origin.
 - `WEB_AUTH_SECRET` — >= 32 chars, secret.
-- `LINE_LOGIN_CHANNEL_ID` — public variable.
+- `LINE_LOGIN_CHANNEL_ID` — public identifier, uploaded as a protected Worker binding by the manual deploy flow.
 - `LINE_LOGIN_CHANNEL_SECRET` — secret.
-- `ADMIN_USERNAME` — configured Admin identity.
-- `ADMIN_PASSWORD` — **at least 8 characters**; Dev/Prod should still use distinct non-reused values and store them as Cloudflare Secrets.
+- `ADMIN_USERNAME` — configured Admin identity, uploaded as a protected Worker binding by the manual deploy flow.
+- `ADMIN_PASSWORD` — **at least 8 characters**; Dev/Prod should still use distinct non-reused values.
 - `ADMIN_SESSION_SECRET` — >= 32 characters, secret.
 - `ADMIN_WEB_ORIGIN` — exact deployed Admin HTTPS origin for the same environment.
 
@@ -77,13 +79,17 @@ Web/Admin use the public build-time API origin `VITE_API_BASE_URL`.
 ## Deployment helper target variables
 
 - `VITE_API_BASE_URL` = the single canonical API Worker base URL used by Web/Admin builds and deployment helpers in the selected environment.
-- `DATABASE_URL` = the intended PostgreSQL URL for that environment. The same variable name is used by deployment migration and API runtime configuration, but the Worker secret must still be configured separately in Cloudflare.
+- `DATABASE_URL` = the intended PostgreSQL URL for that environment. The same value is used by deployment migration and uploaded as the API Worker runtime binding by the root manual deploy flow.
 
 `AFTERTRACE_API_URL` and `AFTERTRACE_PROD_DATABASE_URL` are intentionally not used.
 
-The manual deploy script loads only the selected `.env.dev` or `.env.prod`, validates workers.dev host names against the exact environment Worker names, and rejects an obvious Dev/Prod host mismatch before deployment.
+The manual deploy script loads only the selected `.env.dev` or `.env.prod`, validates `VITE_API_BASE_URL`, `WEB_APP_URL`, `WEB_APP_ORIGIN`, and `ADMIN_WEB_ORIGIN`, rejects an obvious Dev/Prod host mismatch, validates minimum secret/password shape, migrates the same selected database, and deploys the API with the whitelisted runtime binding set.
 
-Operators must still verify that the `DATABASE_URL` used for migration and the `DATABASE_URL` configured on the target Worker identify the same intended database. Post-deploy readiness catches missing/unmigrated schema but cannot infer operator intent.
+Post-deploy verification is part of API manual deployment:
+
+- `/health` must return liveness `ok`;
+- `/health/ready` must return `ready`, or on a first fresh environment may temporarily return only `AI_RUNTIME_CONFIG_NOT_INITIALIZED` or `FREE_PLAN_NOT_INITIALIZED` while Admin bootstrap is still pending;
+- runtime binding/schema failures remain deployment failures.
 
 ## workers.dev launch direction
 
@@ -91,17 +97,15 @@ A purchased custom domain is not required for initial launch.
 
 Expected Dev shape:
 
-- API: `https://after-trace-api-dev.<account-subdomain>.workers.dev`
-- Web: `https://after-trace-web-dev.<account-subdomain>.workers.dev`
-- Admin: `https://after-trace-admin-dev.<account-subdomain>.workers.dev`
+- API: `https://after-trace-api-dev.a0955625660.workers.dev`
+- Web: `https://after-trace-web-dev.a0955625660.workers.dev`
+- Admin: `https://after-trace-admin-dev.a0955625660.workers.dev`
 
 Expected Prod shape:
 
-- API: `https://after-trace-api-prod.<account-subdomain>.workers.dev`
-- Web: `https://after-trace-web-prod.<account-subdomain>.workers.dev`
-- Admin: `https://after-trace-admin-prod.<account-subdomain>.workers.dev`
-
-Do not hard-code one account subdomain into source/deployment defaults before the actual Cloudflare account confirms it.
+- API: `https://after-trace-api-prod.a0955625660.workers.dev`
+- Web: `https://after-trace-web-prod.a0955625660.workers.dev`
+- Admin: `https://after-trace-admin-prod.a0955625660.workers.dev`
 
 ## Manual Dev / Prod deployment commands
 
@@ -126,10 +130,12 @@ pnpm deploy:prod:admin
 The deployment script:
 
 1. loads the selected `.env.dev` or `.env.prod` as authoritative process values;
-2. validates `VITE_API_BASE_URL`, `WEB_APP_URL`, and `ADMIN_WEB_ORIGIN` against the exact selected workers.dev names when using workers.dev;
+2. validates `VITE_API_BASE_URL`, `WEB_APP_URL`, `WEB_APP_ORIGIN`, and `ADMIN_WEB_ORIGIN` against the exact selected workers.dev names when using workers.dev;
 3. applies the selected environment's PostgreSQL migration before API deployment;
-4. deploys with explicit `wrangler deploy --name after-trace-<component>-<environment>` targets;
-5. does not upload `.env.dev` / `.env.prod` as Worker runtime secrets.
+4. whitelists the required API runtime bindings and deploys them together with API code through Wrangler `--secrets-file`;
+5. deletes the temporary secrets JSON immediately after the Wrangler command;
+6. deploys with explicit `wrangler deploy --name after-trace-<component>-<environment>` targets;
+7. verifies API liveness/readiness after API deployment.
 
 ## Web / LINE destinations
 
@@ -205,17 +211,18 @@ A migration creates schema, not business/operator configuration.
 Before `/health/ready` can become green on a brand-new DB:
 
 1. Apply the regenerated baseline to the intended environment DB.
-2. Configure target API Worker Variables/Secrets.
-3. Deploy API Worker. For the **first** fresh DB only, the existing production helper may use the explicit `-AllowInitialBootstrapNotReady` switch if Admin configuration must happen after the API exists. This exception may tolerate only `AI_RUNTIME_CONFIG_NOT_INITIALIZED` or `FREE_PLAN_NOT_INITIALIZED`; missing secrets, DB/schema errors, or any other readiness failure still abort deployment.
-4. Deploy/open Admin against that API.
-5. Initialize DB-backed AI runtime pricing through Admin `/ai-runtime` with the chosen provider/model/pricing/FX snapshot. `output_usd_per_million` must be positive.
-6. Create/enable the `FREE` plan through Admin with:
+2. Ensure the selected `.env.dev` / `.env.prod` has all required API runtime values.
+3. Run the root API deploy command; it migrates, uploads the whitelisted runtime bindings, deploys API code, then checks liveness/readiness.
+4. On a first fresh DB, readiness may temporarily report only `AI_RUNTIME_CONFIG_NOT_INITIALIZED` or `FREE_PLAN_NOT_INITIALIZED`; this means API is live but Admin bootstrap is still required.
+5. Deploy/open Admin against that API.
+6. Initialize DB-backed AI runtime pricing through Admin `/ai-runtime` with the chosen provider/model/pricing/FX snapshot. `output_usd_per_million` must be positive.
+7. Create/enable the `FREE` plan through Admin with:
    - code `FREE`;
    - price `0`;
    - `subscription_period_points = 0` because the frozen one-time 400,000 FREE Grant is provisioned separately by bootstrap;
    - no stale AI capability flags.
-7. Configure PRO/TEAM only with explicitly approved/Admin-entered point amounts. Do not invent them during migration.
-8. Recheck `/health/ready` until it returns `ready`. **Do not expose the product publicly while the initial-bootstrap deploy remains not-ready.**
+8. Configure PRO/TEAM only with explicitly approved/Admin-entered point amounts. Do not invent them during migration.
+9. Recheck `/health/ready` until it returns `ready`. **Do not expose the product publicly while first-environment bootstrap remains not-ready.**
 
 The API/Admin routes remain available while readiness is 503 specifically so first-deploy operator configuration can be completed. A readiness 503 is not equivalent to Worker liveness failure.
 
@@ -235,8 +242,8 @@ PRO/TEAM cards use `subscription_period_points` because their included points ar
 
 ## API liveness vs launch readiness
 
-- `GET /health` = Worker liveness only.
-- `GET /health/ready` = launch readiness.
+- `GET /health` = Worker liveness only and must not require eager DB/Gemini runtime initialization.
+- `GET /health/ready` = launch readiness and must remain reachable even when bindings are incomplete, so it can report a diagnosable 503 instead of Cloudflare Error 1101.
 
 Readiness fails with HTTP 503 when any required launch binding is missing/invalid, Admin password is shorter than the configured 8-character minimum, rebuilt schema probes fail, AI runtime pricing row is absent/invalid, or the frozen FREE plan shell is not initialized correctly.
 
@@ -360,8 +367,7 @@ Validate locally/runtime, never substitute GitHub Actions unless explicitly requ
 ## External configuration still required
 
 - actual Dev/Prod Cloudflare workers.dev hosts;
-- Worker Variables/Secrets for both API Workers;
-- `.env.dev` / `.env.prod` with matching public origins and DB migration targets;
+- `.env.dev` / `.env.prod` with complete matching runtime values and DB migration targets;
 - LINE OA webhook and LINE Login callback URLs for each environment;
 - LINE OA Rich Menu;
 - initialized AI runtime pricing row;
