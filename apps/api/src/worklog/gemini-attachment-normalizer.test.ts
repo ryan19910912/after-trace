@@ -1,11 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { LineMessageContent } from '../line/content';
 import { GeminiWorklogAttachmentNormalizer } from './gemini-attachment-normalizer';
 import type { WorklogAiRuntimeConfigSnapshot } from './text-normalization';
 
 const config: WorklogAiRuntimeConfigSnapshot = {
   provider: 'GOOGLE',
-  model: 'gemini-3.5-flash',
+  model: 'gemini-3.5-flash-lite',
   inputUsdPerMillion: 0.25,
   outputUsdPerMillion: 1.5,
   audioUsdPerMillion: 0.5,
@@ -40,17 +40,18 @@ function fetchJson(body: unknown): typeof fetch {
 }
 
 describe('GeminiWorklogAttachmentNormalizer modality usage', () => {
-  it('keeps total prompt tokens for quota while exposing IMAGE as a subset for pricing', async () => {
+  it('uses the configured model while exposing IMAGE usage for pricing', async () => {
+    const fetchFn = vi.fn(fetchJson(providerBody({
+      promptTokenCount: 1200,
+      candidatesTokenCount: 100,
+      promptTokensDetails: [
+        { modality: 'TEXT', tokenCount: 200 },
+        { modality: 'IMAGE', tokenCount: 1000 },
+      ],
+    })));
     const normalizer = new GeminiWorklogAttachmentNormalizer({
       apiKey: 'test-key',
-      fetchFn: fetchJson(providerBody({
-        promptTokenCount: 1200,
-        candidatesTokenCount: 100,
-        promptTokensDetails: [
-          { modality: 'TEXT', tokenCount: 200 },
-          { modality: 'IMAGE', tokenCount: 1000 },
-        ],
-      })),
+      fetchFn: fetchFn as typeof fetch,
     });
 
     await expect(normalizer.analyze(image, config)).resolves.toMatchObject({
@@ -60,6 +61,7 @@ describe('GeminiWorklogAttachmentNormalizer modality usage', () => {
       audioInputUnits: 0,
       imageInputUnits: 1000,
     });
+    expect(String(fetchFn.mock.calls[0]?.[0])).toContain('/models/gemini-3.5-flash-lite:generateContent');
   });
 
   it('does not invent a media split when Gemini omits promptTokensDetails', async () => {
