@@ -66,16 +66,23 @@ app.get('/health/ready', async (c) => {
     await database.execute(sql`
       SELECT
         (SELECT COUNT(*) FROM worklog_users WHERE FALSE) AS users_probe,
+        (SELECT COUNT(*) FROM worklog_source_members WHERE FALSE) AS members_probe,
+        (SELECT COUNT(*) FROM worklog_user_subscriptions WHERE FALSE) AS subscriptions_probe,
+        (SELECT COUNT(plan_type) FROM worklog_subscription_plans WHERE FALSE) AS plan_type_probe,
+        (SELECT COUNT(grant_points) FROM worklog_subscription_plans WHERE FALSE) AS plan_points_probe,
         (SELECT COUNT(*) FROM worklog_entities WHERE FALSE) AS entities_probe,
         (SELECT COUNT(*) FROM worklog_entity_aliases WHERE FALSE) AS aliases_probe,
         (SELECT COUNT(*) FROM worklog_record_revisions WHERE FALSE) AS revisions_probe,
         (SELECT COUNT(*) FROM worklog_ai_confirmations WHERE FALSE) AS confirmations_probe,
         (SELECT COUNT(*) FROM worklog_ai_grants WHERE FALSE) AS grants_probe,
+        (SELECT COUNT(*) FROM worklog_ai_grant_scopes WHERE FALSE) AS grant_scopes_probe,
+        (SELECT COUNT(*) FROM worklog_ai_point_reservations WHERE FALSE) AS reservations_probe,
         (SELECT COUNT(customer_points_charged) FROM worklog_ai_usage_events WHERE FALSE) AS charged_points_probe,
         (SELECT COUNT(platform_subsidized_points) FROM worklog_ai_usage_events WHERE FALSE) AS subsidy_points_probe,
         (SELECT COUNT(*) FROM worklog_source_ai_responsibility WHERE FALSE) AS responsibility_probe
     `);
-  } catch {
+  } catch (error) {
+    console.error('WORKLOG_READINESS_SCHEMA_PROBE_FAILED', error);
     return c.json({ service: 'after-trace-api', product: 'worklog', status: 'not_ready', error: 'WORKLOG_DATABASE_OR_SCHEMA_UNAVAILABLE' }, 503);
   }
   try {
@@ -99,10 +106,20 @@ app.get('/health/ready', async (c) => {
   }
   try {
     const free = await database.execute(sql`
-      SELECT price_twd, subscription_period_points, enabled FROM worklog_subscription_plans WHERE code = 'FREE' LIMIT 1
+      SELECT plan_type, price_twd, grant_points, enabled
+      FROM worklog_subscription_plans
+      WHERE code = 'FREE'
+      LIMIT 1
     `);
-    const row = free.rows[0] as { price_twd?: unknown; subscription_period_points?: unknown; enabled?: unknown } | undefined;
-    if (row?.enabled !== true || Number(row.price_twd ?? -1) !== 0 || Number(row.subscription_period_points ?? -1) !== 0) {
+    const row = free.rows[0] as { plan_type?: unknown; price_twd?: unknown; grant_points?: unknown; enabled?: unknown } | undefined;
+    const grantPoints = Number(row?.grant_points ?? -1);
+    if (
+      row?.enabled !== true
+      || row.plan_type !== 'FREE'
+      || Number(row.price_twd ?? -1) !== 0
+      || !Number.isSafeInteger(grantPoints)
+      || grantPoints < 0
+    ) {
       return c.json({ service: 'after-trace-api', product: 'worklog', status: 'not_ready', error: 'FREE_PLAN_NOT_INITIALIZED' }, 503);
     }
   } catch {
