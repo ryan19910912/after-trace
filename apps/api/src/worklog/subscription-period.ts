@@ -1,12 +1,14 @@
 export type WorklogSubscriptionStatus = 'ACTIVE' | 'PAST_DUE' | 'CANCELED' | 'EXPIRED';
 export type WorklogSubscriptionSource = 'FREE' | 'PAYMENT' | 'ADMIN';
+export type WorklogPlanType = 'FREE' | 'SUBSCRIPTION' | 'ONE_TIME';
 
 export type WorklogSubscriptionPlanTemplate = {
   code: string;
+  planType: WorklogPlanType;
   displayName: string;
   enabled: boolean;
   priceTwd: number;
-  subscriptionPeriodPoints: number;
+  grantPoints: number;
 };
 
 export type WorklogSubscriptionPeriodSnapshot = {
@@ -70,12 +72,10 @@ export type WorklogSubscriptionPeriodAssignmentResult =
 /**
  * Subscription lifecycle is intentionally separate from AI point accounting.
  *
- * A successful paid period freezes the plan template's included points into one
+ * A successful SUBSCRIPTION period freezes the plan template's grantPoints into one
  * immutable SUBSCRIPTION_PERIOD grant. FREE does not create a recurring grant here;
- * its frozen one-time 400,000-point launch grant is provisioned by WorklogAiGrantService.
- * GROUP scopes are never created here: subscription-period points are automatically
- * scoped only to the user's PRIVATE Source and may later be explicitly allocated to a
- * selected GROUP by the AI 額度負責人.
+ * its one-time amount is provisioned from the current FREE plan by WorklogAiGrantService.
+ * ONE_TIME products are purchase products and are never assignable through this service.
  */
 export class WorklogSubscriptionPeriodService {
   constructor(private readonly repository: WorklogSubscriptionPeriodRepository) {}
@@ -85,7 +85,6 @@ export class WorklogSubscriptionPeriodService {
     planCode: string;
     source: WorklogSubscriptionSource;
     actor?: string | null;
-    /** Evaluation time for an existing lifecycle row. Kept separate from effectiveAt for deterministic tests/webhooks. */
     at?: Date;
     effectiveAt?: Date;
     currentPeriodStart?: Date;
@@ -95,7 +94,7 @@ export class WorklogSubscriptionPeriodService {
     const userId = positiveInteger(input.userId, 'userId');
     const planCode = normalizePlanCode(input.planCode);
     const plan = await this.repository.getPlan(planCode);
-    if (!plan?.enabled) return { status: 'PLAN_NOT_AVAILABLE' };
+    if (!plan?.enabled || plan.planType === 'ONE_TIME') return { status: 'PLAN_NOT_AVAILABLE' };
 
     const actor = input.actor?.trim() || null;
     if (input.source === 'ADMIN' && !actor) throw new Error('admin period assignment requires actor');
@@ -129,14 +128,16 @@ export class WorklogSubscriptionPeriodService {
 
     const currentPeriodStart = validDate(input.currentPeriodStart ?? effectiveAt, 'currentPeriodStart');
     const currentPeriodEnd = input.currentPeriodEnd === undefined
-      ? (plan.priceTwd > 0 ? addOneCalendarMonth(currentPeriodStart) : null)
+      ? (plan.planType === 'SUBSCRIPTION' ? addOneCalendarMonth(currentPeriodStart) : null)
       : input.currentPeriodEnd === null
         ? null
         : validDate(input.currentPeriodEnd, 'currentPeriodEnd');
     validatePeriod(plan, currentPeriodStart, currentPeriodEnd);
 
-    const subscriptionPeriodPoints = nonNegativeInteger(plan.subscriptionPeriodPoints, 'subscriptionPeriodPoints');
-    const createsPaidGrant = plan.priceTwd > 0 && subscriptionPeriodPoints > 0;
+    const subscriptionPeriodPoints = plan.planType === 'SUBSCRIPTION'
+      ? nonNegativeInteger(plan.grantPoints, 'grantPoints')
+      : 0;
+    const createsPaidGrant = plan.planType === 'SUBSCRIPTION' && subscriptionPeriodPoints > 0;
     const privateSourceId = createsPaidGrant ? await this.repository.getPrivateSourceId(userId) : null;
     if (createsPaidGrant && privateSourceId === null) return { status: 'PRIVATE_SOURCE_NOT_FOUND' };
 
@@ -160,7 +161,7 @@ export class WorklogSubscriptionPeriodService {
       currentPeriodStart,
       currentPeriodEnd,
       privateSourceId,
-      subscriptionPeriodPoints: createsPaidGrant ? subscriptionPeriodPoints : 0,
+      subscriptionPeriodPoints,
       originKey,
       metadata,
     });
@@ -184,8 +185,6 @@ export class WorklogSubscriptionPeriodService {
         ? null
         : validDate(input.requestedEnd, 'currentPeriodEnd');
 
-    // A retry must identify the exact active period. A plan-only ADMIN click is not
-    // enough evidence to infer that an old lifecycle row already has its frozen grant.
     if (
       requestedStart === null
       || requestedStart.getTime() !== input.current.currentPeriodStart.getTime()
@@ -195,7 +194,6 @@ export class WorklogSubscriptionPeriodService {
       return undefined;
     }
 
-    // FREE lifecycle rows do not create recurring subscription-period grants here.
     if (input.current.source === 'FREE') return null;
 
     const originKey = subscriptionPeriodOriginKey({
@@ -210,9 +208,6 @@ export class WorklogSubscriptionPeriodService {
     });
     if (!grant) return undefined;
 
-    // Historical grants are immutable period facts. Idempotent replay must not compare
-    // their original points with today's editable plan template, otherwise changing the
-    // template for future renewals would make an already-created period look invalid.
     if (
       grant.effectiveAt.getTime() !== input.current.currentPeriodStart.getTime()
       || !sameNullableDate(grant.expiresAt, input.current.currentPeriodEnd)
@@ -265,9 +260,10 @@ function subscriptionPeriodMetadata(input: {
     ...(input.metadata ?? {}),
     grantPolicy: 'SUBSCRIPTION_PERIOD_V1',
     planCode: input.planCode,
+    planType: input.plan.planType,
     planDisplayName: input.plan.displayName,
     priceTwd: input.plan.priceTwd,
-    includedAiPoints: nonNegativeInteger(input.plan.subscriptionPeriodPoints, 'subscriptionPeriodPoints'),
+    includedAiPoints: input.plan.planType === 'SUBSCRIPTION' ? nonNegativeInteger(input.plan.grantPoints, 'grantPoints') : 0,
     periodStart: input.currentPeriodStart.toISOString(),
     periodEnd: input.currentPeriodEnd?.toISOString() ?? null,
   };
@@ -281,7 +277,8 @@ function validatePeriod(
   if (end !== null && end.getTime() <= start.getTime()) {
     throw new Error('subscription period end must be after period start');
   }
-  if (plan.priceTwd > 0 && end === null) throw new Error('paid subscription period requires period end');
+  if (plan.planType === 'SUBSCRIPTION' && end === null) throw new Error('subscription plan requires period end');
+  if (plan.planType === 'FREE' && end !== null) throw new Error('FREE plan does not use a recurring period end');
 }
 
 function sameNullableDate(left: Date | null, right: Date | null): boolean {
