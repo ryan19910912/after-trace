@@ -42,6 +42,7 @@ Local runtime smoke has started successfully:
 - all three local surfaces opened successfully in the browser.
 - readiness exposed a real validation mismatch: local loopback HTTP origins were incorrectly rejected even though `.env.example` documents localhost HTTP. Readiness now accepts HTTP only for loopback hosts (`localhost`, `127.0.0.1`, `::1`) while retaining HTTPS-only behavior for non-loopback deployed origins.
 - user explicitly changed the Admin operator password minimum from 16 to **8 characters**. Admin auth, readiness validation, tests, `.env.example`, and deployment documentation now use the same 8-character minimum.
+- frontend timestamp presentation is now standardized to **Asia/Taipei (UTC+8)** with display format **`yyyy-MM-dd HH:mm:ss`**. API/DB timestamps remain UTC/ISO; only Admin/Web presentation is converted.
 - local `/health/ready` must be rerun after pulling these fixes; AI runtime/FREE-plan readiness may still be the next expected blocker.
 
 ## 已完成 / 已實際驗證
@@ -157,7 +158,8 @@ Do not mark the `release:preflight` wrapper itself as PASS until a real deployed
 - Worker deployment slugs normalized to the six actual `after-trace-*-dev` / `after-trace-*-prod` Workers;
 - manual `pnpm deploy:dev` / `pnpm deploy:prod` flow with per-component variants, exact `--name` targeting, and environment-host mismatch protection;
 - local readiness origin validation allows only loopback HTTP and deployed HTTPS;
-- Admin password minimum aligned to 8 characters across auth/readiness/config docs.
+- Admin password minimum aligned to 8 characters across auth/readiness/config docs;
+- Admin/Web displayed timestamps use Asia/Taipei UTC+8 and `yyyy-MM-dd HH:mm:ss`, while durable/API time remains UTC/ISO.
 
 ## Remaining P0 before free/manual + AI-recording launch
 
@@ -166,8 +168,10 @@ Do not mark the `release:preflight` wrapper itself as PASS until a real deployed
 After pulling the latest fixes:
 
 - restart `pnpm dev:api`;
+- refresh local Admin/Web so the UTC+8 display policy is loaded;
 - rerun `http://127.0.0.1:8787/health/ready`;
 - confirm Admin login no longer reports `ADMIN_AUTH_NOT_CONFIGURED` when `ADMIN_PASSWORD` is at least 8 characters;
+- confirm visible timestamps render in `yyyy-MM-dd HH:mm:ss` using UTC+8;
 - continue through AI runtime/FREE-plan initialization if readiness reaches those expected blockers.
 
 ### 2. Real environment configuration + deployment smoke
@@ -250,11 +254,12 @@ Executed during current runtime smoke:
 - `/health` local liveness — PASS by successful API availability;
 - `/health/ready` exposed configuration validation mismatches before the latest fixes.
 
-The localhost-origin and 8-character Admin-password changes updated code/tests/docs, but their tests were **not rerun by the assistant**. The user should pull/restart and rerun local readiness; do not claim these new changes are validated until that happens.
+The localhost-origin, 8-character Admin-password, and UTC+8 frontend timestamp changes updated code/tests/docs, but their tests were **not rerun by the assistant**. The user should pull/restart/refresh and rerun local readiness; do not claim these new changes are validated until that happens.
 
 Not yet executed:
 
 - successful local `/health/ready` after the latest fixes;
+- visual confirmation of UTC+8 `yyyy-MM-dd HH:mm:ss` timestamp rendering;
 - `pnpm deploy:dev` against real Dev Workers;
 - `pnpm deploy:prod` against real Prod Workers;
 - successful `pnpm release:preflight` with a real deployed HTTPS API origin in `VITE_API_BASE_URL`;
@@ -269,4 +274,4 @@ No GitHub Actions workflow was executed, dispatched, rerun, enabled, modified, t
 
 **NOT READY yet.**
 
-Local startup is green and readiness validation bugs/policy mismatches have been corrected in code, but local readiness must be rerun before moving to Dev. Real Dev/Prod Cloudflare bindings, Worker deployment smoke, LINE runtime configuration, Gemini runtime smoke, browser smoke, and final readiness checks are still pending.
+Local startup is green and readiness validation bugs/policy mismatches have been corrected in code, but local readiness and the new UTC+8 frontend timestamp display must be rerun/visually confirmed before moving to Dev. Real Dev/Prod Cloudflare bindings, Worker deployment smoke, LINE runtime configuration, Gemini runtime smoke, browser smoke, and final readiness checks are still pending.
