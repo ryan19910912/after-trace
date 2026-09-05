@@ -22,6 +22,21 @@ type GrantRow = {
 export class DrizzleWorklogAiGrantRepository implements WorklogAiGrantRepository {
   constructor(private readonly db: Database) {}
 
+  async getFreePlanGrantPoints(): Promise<number | null> {
+    const result = await this.db.execute(sql`
+      SELECT grant_points
+      FROM worklog_subscription_plans
+      WHERE code = 'FREE'
+        AND plan_type = 'FREE'
+        AND enabled = TRUE
+        AND price_twd = 0
+      LIMIT 1
+    `);
+    const value = (result.rows[0] as { grant_points?: unknown } | undefined)?.grant_points;
+    if (value === undefined) return null;
+    return nonNegativeInteger(value, 'FREE plan grant points');
+  }
+
   async ensureGrant(input: {
     ownerUserId: number;
     type: WorklogAiGrantType;
