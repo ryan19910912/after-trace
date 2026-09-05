@@ -36,22 +36,24 @@ console.log(`API   : ${apiOrigin}`);
 console.log(`Web   : ${webOrigin}`);
 console.log(`Admin : ${adminOrigin}`);
 
+const wranglerEnvironmentArgs = environment === 'dev' ? ['--env', 'dev'] : [];
+
 if (component === 'all' || component === 'api') {
   if (!process.env.DATABASE_URL?.trim()) {
     fail(`DATABASE_URL is required in .env.${environment} before API deployment.`);
   }
   run('Apply database migrations', 'pnpm', ['--filter', '@aftertrace/api', 'db:deploy:migrate']);
-  run('Deploy API Worker', 'pnpm', ['--filter', '@aftertrace/api', 'exec', 'wrangler', 'deploy', '--env', environment]);
+  run('Deploy API Worker', 'pnpm', ['--filter', '@aftertrace/api', 'exec', 'wrangler', 'deploy', ...wranglerEnvironmentArgs]);
 }
 
 if (component === 'all' || component === 'web') {
   run('Build Web', 'pnpm', ['--filter', '@aftertrace/web', 'build']);
-  run('Deploy Web Worker', 'pnpm', ['--filter', '@aftertrace/web', 'exec', 'wrangler', 'deploy', '--env', environment]);
+  run('Deploy Web Worker', 'pnpm', ['--filter', '@aftertrace/web', 'exec', 'wrangler', 'deploy', ...wranglerEnvironmentArgs]);
 }
 
 if (component === 'all' || component === 'admin') {
   run('Build Admin', 'pnpm', ['--filter', '@aftertrace/admin', 'build']);
-  run('Deploy Admin Worker', 'pnpm', ['--filter', '@aftertrace/admin', 'exec', 'wrangler', 'deploy', '--env', environment]);
+  run('Deploy Admin Worker', 'pnpm', ['--filter', '@aftertrace/admin', 'exec', 'wrangler', 'deploy', ...wranglerEnvironmentArgs]);
 }
 
 console.log('');
