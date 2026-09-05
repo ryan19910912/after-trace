@@ -16,6 +16,7 @@ import { presentAdminPayload } from './presentation';
 import type {
   AdminAiRuntimeInput,
   AdminPlanInput,
+  AdminPlanType,
   AdminUserQuery,
 } from './repository';
 
@@ -53,7 +54,7 @@ export function createAdminRoutes() {
     if (!origin || !allowedOrigin || origin !== allowedOrigin) return c.body(null, 403);
     c.header('Access-Control-Allow-Origin', origin);
     c.header('Access-Control-Allow-Headers', 'Authorization, Content-Type');
-    c.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, OPTIONS');
+    c.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     c.header('Access-Control-Max-Age', '600');
     c.header('Vary', 'Origin');
     return c.body(null, 204);
@@ -107,7 +108,12 @@ export function createAdminRoutes() {
       sortUpdated: sort(c.req.query('sort')),
       limit: limit(c.req.query('limit')),
     };
-    return c.json({ ok: true, users: presentAdminPayload(await repository(c).users(input)) });
+    try {
+      return c.json({ ok: true, users: presentAdminPayload(await repository(c).users(input)) });
+    } catch (error) {
+      console.error('ADMIN_USERS_QUERY_FAILED', error);
+      return c.json({ ok: false, error: 'ADMIN_USERS_QUERY_FAILED' }, 500);
+    }
   });
 
   app.get('/users/:id', async (c) => {
@@ -168,7 +174,13 @@ export function createAdminRoutes() {
   });
 
   app.get('/groups', async (c) => {
-    return c.json({ ok: true, groups: presentAdminPayload(await repository(c).groups(query(c.req.query('q')), limit(c.req.query('limit')))) });
+    try {
+      const groups = await repository(c).groups(query(c.req.query('q')), limit(c.req.query('limit')));
+      return c.json({ ok: true, groups: presentAdminPayload(groups) });
+    } catch (error) {
+      console.error('ADMIN_GROUPS_QUERY_FAILED', error);
+      return c.json({ ok: false, error: 'ADMIN_GROUPS_QUERY_FAILED' }, 500);
+    }
   });
 
   app.get('/groups/:id', async (c) => {
@@ -197,6 +209,20 @@ export function createAdminRoutes() {
     } catch (error) {
       return c.json({ ok: false, error: safeError(error, 'PLAN_UPDATE_FAILED') }, 400);
     }
+  });
+
+  app.delete('/plans/:code', async (c) => {
+    let code: string;
+    try {
+      code = requiredPlanCode(c.req.param('code'));
+    } catch (error) {
+      return c.json({ ok: false, error: safeError(error, 'INVALID_PLAN_CODE') }, 400);
+    }
+    if (code === 'FREE') return c.json({ ok: false, error: 'FREE_PLAN_CANNOT_BE_DELETED' }, 409);
+    const result = await repository(c).deletePlan(code, c.get('adminUsername'));
+    if (result === 'NOT_FOUND') return c.json({ ok: false, error: 'PLAN_NOT_FOUND' }, 404);
+    if (result === 'IN_USE') return c.json({ ok: false, error: 'PLAN_IN_USE' }, 409);
+    return c.json({ ok: true });
   });
 
   app.get('/ai-runtime', async (c) => c.json({ ok: true, config: presentAdminPayload(await repository(c).aiRuntimeConfig()) }));
@@ -289,22 +315,25 @@ function sort(value: string | undefined): 'ASC' | 'DESC' {
 
 function planInput(codeRaw: string, body: Record<string, unknown>): AdminPlanInput {
   const code = requiredPlanCode(codeRaw);
+  const planType = planTypeValue(body.planType);
   const displayName = requiredText(body.displayName, 'INVALID_DISPLAY_NAME', 255);
   const priceTwd = decimal(body.priceTwd, 'INVALID_PRICE_TWD');
   const rank = integer(body.rank, 'INVALID_PLAN_RANK', -100000, 100000);
   const enabled = boolean(body.enabled, 'INVALID_PLAN_ENABLED');
-  const subscriptionPeriodPoints = integer(
-    body.subscriptionPeriodPoints,
-    'INVALID_SUBSCRIPTION_PERIOD_POINTS',
-    0,
-    2_000_000_000,
-  );
+  const grantPoints = integer(body.grantPoints, 'INVALID_GRANT_POINTS', 0, 2_000_000_000);
   const capabilities = validateAdminCapabilities(body.capabilities);
   if (code === 'FREE') {
+    if (planType !== 'FREE') throw new Error('FREE_PLAN_REQUIRES_FREE_TYPE');
     if (Number(priceTwd) !== 0) throw new Error('FREE_PLAN_REQUIRES_ZERO_PRICE');
-    if (subscriptionPeriodPoints !== 0) throw new Error('FREE_PLAN_REQUIRES_ZERO_PERIOD_POINTS');
+  } else if (planType === 'FREE') {
+    throw new Error('FREE_TYPE_REQUIRES_FREE_CODE');
   }
-  return { code, displayName, priceTwd, rank, enabled, subscriptionPeriodPoints, capabilities };
+  return { code, planType, displayName, priceTwd, rank, enabled, grantPoints, capabilities };
+}
+
+function planTypeValue(value: unknown): AdminPlanType {
+  if (value !== 'FREE' && value !== 'SUBSCRIPTION' && value !== 'ONE_TIME') throw new Error('INVALID_PLAN_TYPE');
+  return value;
 }
 
 function aiRuntimeInput(body: Record<string, unknown>): AdminAiRuntimeInput {
