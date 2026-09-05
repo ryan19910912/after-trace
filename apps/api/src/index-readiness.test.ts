@@ -53,6 +53,19 @@ describe('API launch readiness', () => {
     });
   });
 
+  it('accepts loopback HTTP origins used by local development', async () => {
+    const response = await app.request('/health/ready', {}, env({
+      WEB_APP_URL: 'http://localhost:5173',
+      WEB_APP_ORIGIN: 'http://localhost:5173',
+      ADMIN_WEB_ORIGIN: 'http://localhost:5174',
+    }));
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.not.toMatchObject({
+      error: 'RUNTIME_CONFIG_INCOMPLETE',
+    });
+  });
+
   it('rejects Web URL and CORS origin that do not resolve to the same origin', async () => {
     const response = await app.request('/health/ready', {}, env({
       WEB_APP_URL: 'https://aftertrace-web.example.test',
