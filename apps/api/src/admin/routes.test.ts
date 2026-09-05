@@ -141,7 +141,7 @@ describe('admin route input validation', () => {
       },
       body: JSON.stringify({
         provider: 'GOOGLE',
-        model: 'gemini-3.5-flash',
+        model: 'gemini-3.5-flash-lite',
         inputUsdPerMillion: '0.1',
         outputUsdPerMillion: '0',
         audioUsdPerMillion: null,
@@ -157,29 +157,47 @@ describe('admin route input validation', () => {
     });
   });
 
-  it.each([
-    [{ provider: 'OTHER', model: 'gemini-3.5-flash' }, 'AI_PROVIDER_NOT_SUPPORTED'],
-    [{ provider: 'GOOGLE', model: 'gemini-other' }, 'AI_MODEL_NOT_SUPPORTED'],
-  ])('rejects AI runtime settings that the shipped Worklog provider cannot execute', async (override, error) => {
-    const body = Object.assign({
-      provider: 'GOOGLE',
-      model: 'gemini-3.5-flash',
-      inputUsdPerMillion: '0.1',
-      outputUsdPerMillion: '0.4',
-      audioUsdPerMillion: null,
-      imageUsdPerMillion: null,
-      usdTwdRate: '30',
-    }, override);
+  it('rejects an AI provider that the shipped Worklog runtime cannot execute', async () => {
     const response = await createAdminRoutes().request('/ai-runtime', {
       method: 'PUT',
       headers: {
         authorization: await authorization(),
         'content-type': 'application/json',
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        provider: 'OTHER',
+        model: 'future-model-name',
+        inputUsdPerMillion: '0.1',
+        outputUsdPerMillion: '0.4',
+        audioUsdPerMillion: null,
+        imageUsdPerMillion: null,
+        usdTwdRate: '30',
+      }),
     }, env);
 
     expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toMatchObject({ ok: false, error });
+    await expect(response.json()).resolves.toMatchObject({ ok: false, error: 'AI_PROVIDER_NOT_SUPPORTED' });
+  });
+
+  it('requires a non-empty AI model identifier without allowlisting model names', async () => {
+    const response = await createAdminRoutes().request('/ai-runtime', {
+      method: 'PUT',
+      headers: {
+        authorization: await authorization(),
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        provider: 'GOOGLE',
+        model: '   ',
+        inputUsdPerMillion: '0.1',
+        outputUsdPerMillion: '0.4',
+        audioUsdPerMillion: null,
+        imageUsdPerMillion: null,
+        usdTwdRate: '30',
+      }),
+    }, env);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ ok: false, error: 'INVALID_AI_MODEL' });
   });
 });
