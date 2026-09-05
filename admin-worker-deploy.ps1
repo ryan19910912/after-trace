@@ -105,7 +105,7 @@ try {
         pnpm --filter @aftertrace/admin build
     }
 
-    Invoke-CommandChecked 'Deploy aftertrace-admin Worker' {
+    Invoke-CommandChecked 'Deploy after-trace-admin Worker' {
         & $WranglerCmd deploy --config $WranglerConfig
     }
 
