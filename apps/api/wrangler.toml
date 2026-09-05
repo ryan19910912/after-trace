@@ -14,3 +14,7 @@ preview_urls = false
 
 [observability]
 enabled = true
+
+[observability.logs]
+enabled = true
+invocation_logs = true
