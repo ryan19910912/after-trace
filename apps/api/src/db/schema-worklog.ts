@@ -36,6 +36,7 @@ export const worklogSubscriptionSourceEnum = pgEnum('worklog_subscription_source
   'PAYMENT',
   'ADMIN',
 ]);
+export const worklogPlanTypeEnum = pgEnum('worklog_plan_type', ['FREE', 'SUBSCRIPTION', 'ONE_TIME']);
 export const worklogFeedbackChannelEnum = pgEnum('worklog_feedback_channel', ['LINE_OA', 'PWA']);
 export const worklogAnomalySeverityEnum = pgEnum('worklog_anomaly_severity', [
   'INFO',
@@ -146,23 +147,40 @@ export const worklogSourceMembers = pgTable(
   ],
 );
 
+/**
+ * Commercial offer template.
+ *
+ * FREE: exactly code FREE, price zero, grant_points = one-time acquisition grant.
+ * SUBSCRIPTION: grant_points are frozen into each successful subscription-period Grant.
+ * ONE_TIME: grant_points are frozen into one successful one-time purchase Grant.
+ * Existing Grants are immutable historical facts when this template changes.
+ */
 export const worklogSubscriptionPlans = pgTable(
   'worklog_subscription_plans',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
     code: varchar('code', { length: 64 }).notNull().unique('worklog_subscription_plan_code_uq'),
+    planType: worklogPlanTypeEnum('plan_type').notNull(),
     displayName: varchar('display_name', { length: 255 }).notNull(),
     priceTwd: numeric('price_twd', { precision: 12, scale: 2 }).default('0').notNull(),
     rank: integer('rank').default(0).notNull(),
     enabled: boolean('enabled').default(true).notNull(),
-    // Plan-template points frozen into each future SUBSCRIPTION_PERIOD Grant.
-    // This is a template value, never a live aggregate balance.
-    subscriptionPeriodPoints: integer('subscription_period_points').default(0).notNull(),
+    grantPoints: integer('grant_points').default(0).notNull(),
     capabilities: jsonb('capabilities').default({}).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  () => [],
+  (table) => [
+    check(
+      'worklog_plan_free_identity_ck',
+      sql`(
+        (${table.code} = 'FREE' AND ${table.planType} = 'FREE' AND ${table.priceTwd} = 0)
+        OR
+        (${table.code} <> 'FREE' AND ${table.planType} <> 'FREE')
+      )`,
+    ),
+    check('worklog_plan_grant_points_ck', sql`${table.grantPoints} >= 0`),
+  ],
 );
 
 export const worklogUserSubscriptions = pgTable(
