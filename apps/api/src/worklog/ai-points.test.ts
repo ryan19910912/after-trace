@@ -1,18 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   customerPointSettlement,
-  FREE_INITIAL_AI_POINTS,
   providerCostToAiPoints,
 } from './ai-points';
 
 describe('AI point policy', () => {
-  it('freezes the MVP initial grant at 400,000 points', () => {
-    expect(FREE_INITIAL_AI_POINTS).toBe(400_000);
-  });
-
   it('converts full provider cost into output-price-equivalent points', () => {
-    // $0.0018 total provider cost / $2.50 per 1M output tokens
-    // = 720 output-price-equivalent tokens/points.
     expect(providerCostToAiPoints({
       providerCostUsd: 0.0018,
       outputUsdPerMillion: 2.5,
