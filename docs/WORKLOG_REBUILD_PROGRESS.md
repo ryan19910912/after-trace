@@ -15,7 +15,7 @@ Read first every run, in this exact order:
 
 The latest documents above are the only product/development specification. Do not revive Customer/Project/Finance/Owner/aggregate-quota assumptions from legacy code, migrations, README history or old tests.
 
-## Current execution checkpoint — 2026-09-05 local runtime smoke in progress; dev/prod deployment pending
+## Current execution checkpoint — 2026-09-05 Dev API runtime deploy smoke in progress
 
 The prelaunch baseline rebuild, fresh PostgreSQL integrity stage, and complete local static/test/build validation are green. Deployment configuration is intentionally simplified: `DATABASE_URL` is the single database variable for migration/runtime inside each environment, and `VITE_API_BASE_URL` is the single API base URL used by Web/Admin builds and deployment helpers. `AFTERTRACE_PROD_DATABASE_URL` and `AFTERTRACE_API_URL` are retired.
 
@@ -28,13 +28,39 @@ Actual Cloudflare Worker names are frozen to the six Workers already created in 
 
 Root deployment inputs:
 
-- `.env.dev` is authoritative for `pnpm deploy:dev`.
-- `.env.prod` is authoritative for `pnpm deploy:prod`.
+- `.env.dev` is authoritative for `pnpm deploy:dev` and Dev API runtime bindings.
+- `.env.prod` is authoritative for `pnpm deploy:prod` and Prod API runtime bindings.
 - `.env.local` remains local development only.
 
-The manual deployment command loads the selected environment file, validates workers.dev host names against the exact selected Worker names, applies that environment's DB migration before API deployment, and passes an explicit Wrangler `--name` for each target. It does not rely on Wrangler automatically appending environment suffixes. Cloudflare runtime Variables/Secrets remain configured separately on the corresponding Worker and are not uploaded from `.env.dev` / `.env.prod` by the deploy command.
+The manual API deployment command now loads the selected environment file, validates the selected Worker origins, applies that environment's DB migration, whitelists the required API runtime bindings, uploads them alongside the API Worker through Wrangler `--secrets-file`, deletes the temporary JSON, deploys to the exact `--name`, then verifies `/health` and `/health/ready`. `VITE_API_BASE_URL` remains build/deploy input only and is not uploaded as an API runtime binding.
 
-Local runtime smoke has started successfully:
+### Dev API deployment smoke observed
+
+The first real Dev API deployment command reached Cloudflare successfully:
+
+- `.env.dev` target validation — PASS.
+- Dev database migration — PASS (`AFTERTRACE database migrations applied successfully`).
+- API Worker upload — PASS.
+- `after-trace-api-dev` deployment — PASS.
+- resulting Worker URL — `https://after-trace-api-dev.a0955625660.workers.dev`.
+- first runtime request returned Cloudflare **Error 1101 / Worker threw exception**.
+
+Root cause identified from current code/config contract:
+
+1. the previous root deploy helper intentionally did **not** upload `.env.dev` runtime bindings, so the remote Worker did not have the required DB/LINE/Gemini/Web/Admin bindings even though the local file was complete;
+2. `worker.ts` eagerly initialized DB/Gemini/attachment runtime before dispatching `/health` or `/health/ready`, so a missing binding threw before readiness could return `RUNTIME_CONFIG_INCOMPLETE`.
+
+Fixes committed:
+
+- `/health` and `/health/ready` now bypass eager Worklog runtime initialization so liveness/readiness stay diagnosable even with incomplete runtime configuration;
+- root `deploy:dev:api` / `deploy:prod:api` now upload the whitelisted runtime binding set from the selected root env file in the same Wrangler deploy using a temporary `--secrets-file`;
+- temporary secrets JSON is deleted after deploy;
+- API deployment now verifies `/health` and `/health/ready` automatically;
+- first-environment readiness may continue only for `AI_RUNTIME_CONFIG_NOT_INITIALIZED` or `FREE_PLAN_NOT_INITIALIZED`; runtime config/schema failures abort.
+
+The user must `git pull` and rerun `pnpm deploy:dev:api` to validate these fixes against Cloudflare. Do not claim the Error 1101 fix is runtime-verified until that rerun succeeds.
+
+### Local runtime smoke already completed
 
 - `pnpm dev:api` starts Wrangler on `http://127.0.0.1:8787`.
 - `pnpm dev:web` starts Vite on `http://localhost:5173`.
@@ -42,8 +68,7 @@ Local runtime smoke has started successfully:
 - all three local surfaces opened successfully in the browser.
 - readiness exposed a real validation mismatch: local loopback HTTP origins were incorrectly rejected even though `.env.example` documents localhost HTTP. Readiness now accepts HTTP only for loopback hosts (`localhost`, `127.0.0.1`, `::1`) while retaining HTTPS-only behavior for non-loopback deployed origins.
 - user explicitly changed the Admin operator password minimum from 16 to **8 characters**. Admin auth, readiness validation, tests, `.env.example`, and deployment documentation now use the same 8-character minimum.
-- frontend timestamp presentation is now standardized to **Asia/Taipei (UTC+8)** with display format **`yyyy-MM-dd HH:mm:ss`**. API/DB timestamps remain UTC/ISO; only Admin/Web presentation is converted.
-- local `/health/ready` must be rerun after pulling these fixes; AI runtime/FREE-plan readiness may still be the next expected blocker.
+- frontend timestamp presentation is standardized to **Asia/Taipei (UTC+8)** with display format **`yyyy-MM-dd HH:mm:ss`**. API/DB timestamps remain UTC/ISO; only Admin/Web presentation is converted. PostgreSQL timestamptz strings such as `2026-09-05 13:35:17.936087+00` are normalized before display.
 
 ## 已完成 / 已實際驗證
 
@@ -159,46 +184,47 @@ Do not mark the `release:preflight` wrapper itself as PASS until a real deployed
 - manual `pnpm deploy:dev` / `pnpm deploy:prod` flow with per-component variants, exact `--name` targeting, and environment-host mismatch protection;
 - local readiness origin validation allows only loopback HTTP and deployed HTTPS;
 - Admin password minimum aligned to 8 characters across auth/readiness/config docs;
-- Admin/Web displayed timestamps use Asia/Taipei UTC+8 and `yyyy-MM-dd HH:mm:ss`, while durable/API time remains UTC/ISO.
+- Admin/Web displayed timestamps use Asia/Taipei UTC+8 and `yyyy-MM-dd HH:mm:ss`, while durable/API time remains UTC/ISO;
+- API health endpoints no longer depend on eager Worklog runtime initialization;
+- root API deploy flow now carries the whitelisted selected-environment runtime bindings with the deployment.
 
 ## Remaining P0 before free/manual + AI-recording launch
 
-### 1. Finish local runtime readiness/browser smoke
+### 1. Rerun real Dev API deployment after Error 1101 fix
 
-After pulling the latest fixes:
+From the updated checkout:
 
-- restart `pnpm dev:api`;
-- refresh local Admin/Web so the UTC+8 display policy is loaded;
-- rerun `http://127.0.0.1:8787/health/ready`;
-- confirm Admin login no longer reports `ADMIN_AUTH_NOT_CONFIGURED` when `ADMIN_PASSWORD` is at least 8 characters;
-- confirm visible timestamps render in `yyyy-MM-dd HH:mm:ss` using UTC+8;
-- continue through AI runtime/FREE-plan initialization if readiness reaches those expected blockers.
+- `git pull`
+- `pnpm deploy:dev:api`
 
-### 2. Real environment configuration + deployment smoke
+Expected flow:
 
-Create and verify the actual environment files and Cloudflare runtime bindings:
+- migration succeeds;
+- API code + whitelisted `.env.dev` runtime bindings deploy together;
+- `/health` returns `ok`;
+- `/health/ready` either returns `ready`, or reports only `AI_RUNTIME_CONFIG_NOT_INITIALIZED` / `FREE_PLAN_NOT_INITIALIZED` while the fresh Dev DB still needs Admin bootstrap.
 
-- `.env.dev` + Dev Worker Variables/Secrets;
-- `.env.prod` + Prod Worker Variables/Secrets.
+Do not move to Dev Web/Admin runtime smoke until the Dev API no longer returns Error 1101.
 
-Then manually deploy and verify each environment. The standard commands are:
+### 2. Deploy Dev Web/Admin
 
-- `pnpm deploy:dev`
-- `pnpm deploy:prod`
+After Dev API liveness is green:
 
-Per-component commands are available as `deploy:dev:api|web|admin` and `deploy:prod:api|web|admin`.
+- `pnpm deploy:dev:web`
+- `pnpm deploy:dev:admin`
 
-### 3. Real release preflight against actual API origin
+Then initialize Dev AI runtime/FREE plan through Admin if readiness is still in expected first-bootstrap state, and rerun `/health/ready` until `ready`.
 
-After the intended API Worker HTTPS origin exists, set that environment's actual URL in `VITE_API_BASE_URL` and run:
+### 3. Real release preflight against Dev API origin
 
-- `pnpm release:preflight`
+After Dev API is live:
+
+- run `pnpm release:preflight` with the real HTTPS Dev API origin as required by the current wrapper.
 
 ### 4. Runtime / browser / provider smoke
 
 After deployment/runtime configuration is intentionally started:
 
-- initialize AI runtime pricing row and FREE plan on the intended fresh environment;
 - `/health` + `/health/ready`;
 - PWA CRUD/version/group-membership/Source-switch/session browser smoke;
 - Admin plans/pricing/Overview/Profitability/session browser smoke;
@@ -208,6 +234,10 @@ After deployment/runtime configuration is intentionally started:
 - attachment expiry/202/size/duplicate flows;
 - real Gemini usage/pricing/point settlement;
 - Worker runtime smoke.
+
+### 5. Prod only after Dev is green
+
+Use the same root flow with `.env.prod` and the `*-prod` Workers only after the complete Dev smoke is green.
 
 ## P1 — useful polish after P0
 
@@ -245,28 +275,29 @@ Previously executed locally during prelaunch verification:
 - fresh PostgreSQL integrity probes;
 - case-insensitive Entity/Alias collision reproduction and final rejection validation.
 
-Executed during current runtime smoke:
+Executed during current runtime/deployment smoke:
 
 - local API startup — PASS;
 - local Web startup — PASS;
 - local Admin startup — PASS;
 - browser open for all three local surfaces — PASS;
-- `/health` local liveness — PASS by successful API availability;
-- `/health/ready` exposed configuration validation mismatches before the latest fixes.
+- first Dev DB migration via `pnpm deploy:dev:api` — PASS;
+- first Dev API Worker upload/deploy to `after-trace-api-dev` — PASS;
+- first Dev API runtime request — FAIL with Cloudflare Error 1101 before current fixes.
 
-The localhost-origin, 8-character Admin-password, and UTC+8 frontend timestamp changes updated code/tests/docs, but their tests were **not rerun by the assistant**. The user should pull/restart/refresh and rerun local readiness; do not claim these new changes are validated until that happens.
+Current Error 1101 fixes changed runtime/deployment code and docs but were **not yet rerun by the user**. Do not claim them runtime-verified until `pnpm deploy:dev:api` is rerun successfully.
 
-Not yet executed:
+Not yet executed after current fixes:
 
-- successful local `/health/ready` after the latest fixes;
-- visual confirmation of UTC+8 `yyyy-MM-dd HH:mm:ss` timestamp rendering;
-- `pnpm deploy:dev` against real Dev Workers;
-- `pnpm deploy:prod` against real Prod Workers;
-- successful `pnpm release:preflight` with a real deployed HTTPS API origin in `VITE_API_BASE_URL`;
-- full browser/PWA/Admin runtime smoke;
-- LINE runtime smoke;
-- real Gemini runtime smoke;
-- final `/health/ready` on initialized launch environments.
+- successful Dev API `/health`;
+- Dev API `/health/ready` bootstrap result;
+- Dev Web deployment;
+- Dev Admin deployment;
+- successful `pnpm release:preflight` with a real deployed HTTPS API origin;
+- full browser/PWA/Admin Dev smoke;
+- LINE Dev runtime smoke;
+- real Gemini Dev runtime smoke;
+- Prod deployment/runtime smoke.
 
 No GitHub Actions workflow was executed, dispatched, rerun, enabled, modified, triggered or used as validation.
 
@@ -274,4 +305,4 @@ No GitHub Actions workflow was executed, dispatched, rerun, enabled, modified, t
 
 **NOT READY yet.**
 
-Local startup is green and readiness validation bugs/policy mismatches have been corrected in code, but local readiness and the new UTC+8 frontend timestamp display must be rerun/visually confirmed before moving to Dev. Real Dev/Prod Cloudflare bindings, Worker deployment smoke, LINE runtime configuration, Gemini runtime smoke, browser smoke, and final readiness checks are still pending.
+The first real Dev API code upload and DB migration succeeded, but runtime returned Error 1101 because remote bindings were absent and health routes eagerly initialized runtime. Both issues are now corrected in the branch; the decisive next action is to pull and rerun `pnpm deploy:dev:api`, then continue with Dev Web/Admin only after Dev API liveness is green.
