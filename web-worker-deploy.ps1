@@ -105,7 +105,7 @@ try {
         pnpm --filter @aftertrace/web build
     }
 
-    Invoke-CommandChecked 'Deploy aftertrace-web Worker' {
+    Invoke-CommandChecked 'Deploy after-trace-web Worker' {
         & $WranglerCmd deploy --config $WranglerConfig
     }
 
