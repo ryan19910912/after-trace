@@ -10,18 +10,20 @@ import {
 
 const PRO: WorklogSubscriptionPlanTemplate = {
   code: 'PRO',
+  planType: 'SUBSCRIPTION',
   displayName: 'Pro',
   enabled: true,
   priceTwd: 299,
-  subscriptionPeriodPoints: 800_000,
+  grantPoints: 800_000,
 };
 
 const FREE: WorklogSubscriptionPlanTemplate = {
   code: 'FREE',
+  planType: 'FREE',
   displayName: 'Free',
   enabled: true,
   priceTwd: 0,
-  subscriptionPeriodPoints: 0,
+  grantPoints: 400_000,
 };
 
 const ACTIVE_AT = new Date('2026-09-10T00:00:00.000Z');
@@ -33,22 +35,10 @@ class FakeRepository implements WorklogSubscriptionPeriodRepository {
   grants = new Map<string, WorklogSubscriptionPeriodGrantSnapshot>();
   assigned: Parameters<WorklogSubscriptionPeriodRepository['assignPeriodAtomic']>[0][] = [];
 
-  async getPlan(planCode: string) {
-    return this.plans.get(planCode) ?? null;
-  }
-
-  async getCurrentSubscription() {
-    return this.current;
-  }
-
-  async getPrivateSourceId() {
-    return this.privateSourceId;
-  }
-
-  async getGrantByOrigin(input: { ownerUserId: number; originKey: string }) {
-    void input.ownerUserId;
-    return this.grants.get(input.originKey) ?? null;
-  }
+  async getPlan(planCode: string) { return this.plans.get(planCode) ?? null; }
+  async getCurrentSubscription() { return this.current; }
+  async getPrivateSourceId() { return this.privateSourceId; }
+  async getGrantByOrigin(input: { ownerUserId: number; originKey: string }) { void input.ownerUserId; return this.grants.get(input.originKey) ?? null; }
 
   async assignPeriodAtomic(input: Parameters<WorklogSubscriptionPeriodRepository['assignPeriodAtomic']>[0]) {
     this.assigned.push(input);
@@ -92,58 +82,27 @@ function active(planCode = 'PRO'): WorklogSubscriptionPeriodSnapshot {
 }
 
 describe('WorklogSubscriptionPeriodService', () => {
-  it('freezes paid period points into one private-scoped grant request', async () => {
+  it('freezes subscription plan points into one private-scoped grant request', async () => {
     const repository = new FakeRepository();
     const service = new WorklogSubscriptionPeriodService(repository);
     const start = new Date('2026-09-04T00:00:00.000Z');
     const end = new Date('2026-10-04T00:00:00.000Z');
 
-    const result = await service.assignPeriod({
-      userId: 1,
-      planCode: 'pro',
-      source: 'ADMIN',
-      actor: 'admin',
-      at: start,
-      effectiveAt: start,
-      currentPeriodStart: start,
-      currentPeriodEnd: end,
-    });
+    const result = await service.assignPeriod({ userId: 1, planCode: 'pro', source: 'ADMIN', actor: 'admin', at: start, effectiveAt: start, currentPeriodStart: start, currentPeriodEnd: end });
 
     expect(result.status).toBe('ASSIGNED');
     expect(repository.assigned).toHaveLength(1);
-    expect(repository.assigned[0]).toMatchObject({
-      userId: 1,
-      planCode: 'PRO',
-      privateSourceId: 42,
-      subscriptionPeriodPoints: 800_000,
-      currentPeriodStart: start,
-      currentPeriodEnd: end,
-    });
-    expect(repository.assigned[0]?.originKey).toBe(
-      'subscription-period:admin:1:PRO:2026-09-04T00:00:00.000Z',
-    );
-    expect(repository.assigned[0]?.metadata).toMatchObject({
-      grantPolicy: 'SUBSCRIPTION_PERIOD_V1',
-      planCode: 'PRO',
-      includedAiPoints: 800_000,
-      priceTwd: 299,
-    });
+    expect(repository.assigned[0]).toMatchObject({ userId: 1, planCode: 'PRO', privateSourceId: 42, subscriptionPeriodPoints: 800_000, currentPeriodStart: start, currentPeriodEnd: end });
+    expect(repository.assigned[0]?.originKey).toBe('subscription-period:admin:1:PRO:2026-09-04T00:00:00.000Z');
+    expect(repository.assigned[0]?.metadata).toMatchObject({ grantPolicy: 'SUBSCRIPTION_PERIOD_V1', planCode: 'PRO', planType: 'SUBSCRIPTION', includedAiPoints: 800_000, priceTwd: 299 });
   });
 
-  it('does not create a recurring grant for FREE', async () => {
+  it('does not create a recurring grant for FREE even though FREE has a one-time grant template', async () => {
     const repository = new FakeRepository();
     const service = new WorklogSubscriptionPeriodService(repository);
     const start = new Date('2026-09-04T00:00:00.000Z');
 
-    const result = await service.assignPeriod({
-      userId: 1,
-      planCode: 'FREE',
-      source: 'ADMIN',
-      actor: 'admin',
-      at: start,
-      effectiveAt: start,
-      currentPeriodStart: start,
-    });
+    const result = await service.assignPeriod({ userId: 1, planCode: 'FREE', source: 'ADMIN', actor: 'admin', at: start, effectiveAt: start, currentPeriodStart: start });
 
     expect(result.status).toBe('ASSIGNED');
     expect(repository.assigned[0]?.subscriptionPeriodPoints).toBe(0);
@@ -152,157 +111,70 @@ describe('WorklogSubscriptionPeriodService', () => {
     expect(repository.assigned[0]?.currentPeriodEnd).toBeNull();
   });
 
+  it('rejects ONE_TIME products from the subscription lifecycle', async () => {
+    const repository = new FakeRepository();
+    repository.plans.set('PACK', { code: 'PACK', planType: 'ONE_TIME', displayName: 'Pack', enabled: true, priceTwd: 99, grantPoints: 500_000 });
+    const service = new WorklogSubscriptionPeriodService(repository);
+    const result = await service.assignPeriod({ userId: 1, planCode: 'PACK', source: 'ADMIN', actor: 'admin' });
+    expect(result.status).toBe('PLAN_NOT_AVAILABLE');
+    expect(repository.assigned).toHaveLength(0);
+  });
+
   it('treats an exact active-period retry as idempotent only when its frozen grant exists', async () => {
     const repository = new FakeRepository();
     repository.current = active();
-    const originKey = subscriptionPeriodOriginKey({
-      userId: 1,
-      planCode: 'PRO',
-      source: 'ADMIN',
-      currentPeriodStart: repository.current.currentPeriodStart,
-    });
-    repository.grants.set(originKey, {
-      grantId: 77,
-      originalPoints: 800_000,
-      remainingPoints: 650_000,
-      effectiveAt: repository.current.currentPeriodStart,
-      expiresAt: repository.current.currentPeriodEnd,
-      originKey,
-    });
+    const originKey = subscriptionPeriodOriginKey({ userId: 1, planCode: 'PRO', source: 'ADMIN', currentPeriodStart: repository.current.currentPeriodStart });
+    repository.grants.set(originKey, { grantId: 77, originalPoints: 800_000, remainingPoints: 650_000, effectiveAt: repository.current.currentPeriodStart, expiresAt: repository.current.currentPeriodEnd, originKey });
     const service = new WorklogSubscriptionPeriodService(repository);
 
-    const result = await service.assignPeriod({
-      userId: 1,
-      planCode: 'PRO',
-      source: 'ADMIN',
-      actor: 'admin',
-      at: ACTIVE_AT,
-      effectiveAt: ACTIVE_AT,
-      currentPeriodStart: new Date('2026-09-01T00:00:00.000Z'),
-      currentPeriodEnd: new Date('2026-10-01T00:00:00.000Z'),
-    });
+    const result = await service.assignPeriod({ userId: 1, planCode: 'PRO', source: 'ADMIN', actor: 'admin', at: ACTIVE_AT, effectiveAt: ACTIVE_AT, currentPeriodStart: new Date('2026-09-01T00:00:00.000Z'), currentPeriodEnd: new Date('2026-10-01T00:00:00.000Z') });
 
-    expect(result).toMatchObject({
-      status: 'ASSIGNED',
-      idempotent: true,
-      grant: { grantId: 77, remainingPoints: 650_000 },
-    });
+    expect(result).toMatchObject({ status: 'ASSIGNED', idempotent: true, grant: { grantId: 77, remainingPoints: 650_000 } });
     expect(repository.assigned).toHaveLength(0);
   });
 
   it('keeps an existing period retry idempotent after the future plan template point count changes', async () => {
     const repository = new FakeRepository();
     repository.current = active();
-    repository.plans.set('PRO', { ...PRO, subscriptionPeriodPoints: 1_200_000 });
-    const originKey = subscriptionPeriodOriginKey({
-      userId: 1,
-      planCode: 'PRO',
-      source: 'ADMIN',
-      currentPeriodStart: repository.current.currentPeriodStart,
-    });
-    repository.grants.set(originKey, {
-      grantId: 77,
-      originalPoints: 800_000,
-      remainingPoints: 650_000,
-      effectiveAt: repository.current.currentPeriodStart,
-      expiresAt: repository.current.currentPeriodEnd,
-      originKey,
-    });
+    repository.plans.set('PRO', { ...PRO, grantPoints: 1_200_000 });
+    const originKey = subscriptionPeriodOriginKey({ userId: 1, planCode: 'PRO', source: 'ADMIN', currentPeriodStart: repository.current.currentPeriodStart });
+    repository.grants.set(originKey, { grantId: 77, originalPoints: 800_000, remainingPoints: 650_000, effectiveAt: repository.current.currentPeriodStart, expiresAt: repository.current.currentPeriodEnd, originKey });
     const service = new WorklogSubscriptionPeriodService(repository);
 
-    const result = await service.assignPeriod({
-      userId: 1,
-      planCode: 'PRO',
-      source: 'ADMIN',
-      actor: 'admin',
-      at: ACTIVE_AT,
-      currentPeriodStart: new Date('2026-09-01T00:00:00.000Z'),
-      currentPeriodEnd: new Date('2026-10-01T00:00:00.000Z'),
-    });
+    const result = await service.assignPeriod({ userId: 1, planCode: 'PRO', source: 'ADMIN', actor: 'admin', at: ACTIVE_AT, currentPeriodStart: new Date('2026-09-01T00:00:00.000Z'), currentPeriodEnd: new Date('2026-10-01T00:00:00.000Z') });
 
-    expect(result).toMatchObject({
-      status: 'ASSIGNED',
-      idempotent: true,
-      grant: { grantId: 77, originalPoints: 800_000, remainingPoints: 650_000 },
-    });
+    expect(result).toMatchObject({ status: 'ASSIGNED', idempotent: true, grant: { grantId: 77, originalPoints: 800_000, remainingPoints: 650_000 } });
     expect(repository.assigned).toHaveLength(0);
   });
 
   it('does not infer a missing historical grant from an active lifecycle row', async () => {
-    const repository = new FakeRepository();
-    repository.current = active();
+    const repository = new FakeRepository(); repository.current = active();
     const service = new WorklogSubscriptionPeriodService(repository);
-
-    const result = await service.assignPeriod({
-      userId: 1,
-      planCode: 'PRO',
-      source: 'ADMIN',
-      actor: 'admin',
-      at: ACTIVE_AT,
-      effectiveAt: ACTIVE_AT,
-      currentPeriodStart: new Date('2026-09-01T00:00:00.000Z'),
-      currentPeriodEnd: new Date('2026-10-01T00:00:00.000Z'),
-    });
-
+    const result = await service.assignPeriod({ userId: 1, planCode: 'PRO', source: 'ADMIN', actor: 'admin', at: ACTIVE_AT, effectiveAt: ACTIVE_AT, currentPeriodStart: new Date('2026-09-01T00:00:00.000Z'), currentPeriodEnd: new Date('2026-10-01T00:00:00.000Z') });
     expect(result.status).toBe('ACTIVE_PERIOD_EXISTS');
     expect(repository.assigned).toHaveLength(0);
   });
 
   it('refuses a mid-period plan switch until proration policy is defined', async () => {
-    const repository = new FakeRepository();
-    repository.plans.set('PLUS', { ...PRO, code: 'PLUS', displayName: 'Plus' });
-    repository.current = active('PRO');
+    const repository = new FakeRepository(); repository.plans.set('PLUS', { ...PRO, code: 'PLUS', displayName: 'Plus' }); repository.current = active('PRO');
     const service = new WorklogSubscriptionPeriodService(repository);
-
-    const result = await service.assignPeriod({
-      userId: 1,
-      planCode: 'PLUS',
-      source: 'ADMIN',
-      actor: 'admin',
-      at: ACTIVE_AT,
-      effectiveAt: ACTIVE_AT,
-    });
-
+    const result = await service.assignPeriod({ userId: 1, planCode: 'PLUS', source: 'ADMIN', actor: 'admin', at: ACTIVE_AT, effectiveAt: ACTIVE_AT });
     expect(result.status).toBe('ACTIVE_PERIOD_CHANGE_POLICY_UNDEFINED');
     expect(repository.assigned).toHaveLength(0);
   });
 
   it('refuses mutating an existing active period under the same plan', async () => {
-    const repository = new FakeRepository();
-    repository.current = active();
+    const repository = new FakeRepository(); repository.current = active();
     const service = new WorklogSubscriptionPeriodService(repository);
-
-    const result = await service.assignPeriod({
-      userId: 1,
-      planCode: 'PRO',
-      source: 'ADMIN',
-      actor: 'admin',
-      at: ACTIVE_AT,
-      effectiveAt: ACTIVE_AT,
-      currentPeriodStart: new Date('2026-09-01T00:00:00.000Z'),
-      currentPeriodEnd: new Date('2026-10-15T00:00:00.000Z'),
-    });
-
+    const result = await service.assignPeriod({ userId: 1, planCode: 'PRO', source: 'ADMIN', actor: 'admin', at: ACTIVE_AT, effectiveAt: ACTIVE_AT, currentPeriodStart: new Date('2026-09-01T00:00:00.000Z'), currentPeriodEnd: new Date('2026-10-15T00:00:00.000Z') });
     expect(result.status).toBe('ACTIVE_PERIOD_EXISTS');
     expect(repository.assigned).toHaveLength(0);
   });
 
-  it('does not create paid period points without a PRIVATE source', async () => {
-    const repository = new FakeRepository();
-    repository.privateSourceId = null;
+  it('does not create subscription period points without a PRIVATE source', async () => {
+    const repository = new FakeRepository(); repository.privateSourceId = null;
     const service = new WorklogSubscriptionPeriodService(repository);
-
-    const result = await service.assignPeriod({
-      userId: 1,
-      planCode: 'PRO',
-      source: 'ADMIN',
-      actor: 'admin',
-      at: new Date('2026-09-04T00:00:00.000Z'),
-      effectiveAt: new Date('2026-09-04T00:00:00.000Z'),
-      currentPeriodStart: new Date('2026-09-04T00:00:00.000Z'),
-      currentPeriodEnd: new Date('2026-10-04T00:00:00.000Z'),
-    });
-
+    const result = await service.assignPeriod({ userId: 1, planCode: 'PRO', source: 'ADMIN', actor: 'admin', at: new Date('2026-09-04T00:00:00.000Z'), effectiveAt: new Date('2026-09-04T00:00:00.000Z'), currentPeriodStart: new Date('2026-09-04T00:00:00.000Z'), currentPeriodEnd: new Date('2026-10-04T00:00:00.000Z') });
     expect(result.status).toBe('PRIVATE_SOURCE_NOT_FOUND');
     expect(repository.assigned).toHaveLength(0);
   });
