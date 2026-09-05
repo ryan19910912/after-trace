@@ -1,4 +1,4 @@
-import { FREE_INITIAL_AI_POINTS, FREE_INITIAL_GRANT_ORIGIN_KEY } from './ai-points';
+import { FREE_INITIAL_GRANT_ORIGIN_KEY } from './ai-points';
 
 export type WorklogAiGrantType = 'FREE_INITIAL' | 'SUBSCRIPTION_PERIOD' | 'TOP_UP' | 'ADMIN';
 export type WorklogAiGrantStatus = 'ACTIVE' | 'EXHAUSTED' | 'REVOKED';
@@ -30,6 +30,8 @@ export type WorklogAiEligibleBalance = {
 };
 
 export interface WorklogAiGrantRepository {
+  getFreePlanGrantPoints(): Promise<number | null>;
+
   ensureGrant(input: {
     ownerUserId: number;
     type: WorklogAiGrantType;
@@ -59,10 +61,10 @@ export class WorklogAiGrantService {
   constructor(private readonly repository: WorklogAiGrantRepository) {}
 
   /**
-   * Idempotently provisions the frozen one-time FREE launch grant and PRIVATE scope.
-   * GROUP allocation is deliberately not implicit here: group scopes are selected by
-   * explicit product/allocation behavior so a user-owned grant never leaks to unrelated
-   * Sources by default.
+   * Idempotently provisions the current Admin-configured FREE one-time grant and PRIVATE scope.
+   * The amount is read from the durable FREE plan template when the user first receives the
+   * grant. Later Admin changes affect only users who have not received FREE_INITIAL yet;
+   * existing grants remain immutable historical facts.
    */
   async ensureInitialFreeGrant(input: {
     userId: number;
@@ -72,14 +74,18 @@ export class WorklogAiGrantService {
     const userId = positiveInteger(input.userId, 'userId');
     const privateSourceId = positiveInteger(input.privateSourceId, 'privateSourceId');
     const at = validDate(input.at ?? new Date(), 'at');
+    const freePoints = await this.repository.getFreePlanGrantPoints();
+    if (freePoints === null) throw new Error('FREE_PLAN_NOT_INITIALIZED');
+    if (!Number.isSafeInteger(freePoints) || freePoints < 0) throw new Error('FREE_PLAN_GRANT_POINTS_INVALID');
+
     const grant = await this.repository.ensureGrant({
       ownerUserId: userId,
       type: 'FREE_INITIAL',
-      originalPoints: FREE_INITIAL_AI_POINTS,
+      originalPoints: freePoints,
       effectiveAt: at,
       expiresAt: null,
       originKey: FREE_INITIAL_GRANT_ORIGIN_KEY,
-      metadata: { launchPolicy: 'MVP_2026_09' },
+      metadata: { planCode: 'FREE', configuredGrantPoints: freePoints },
     });
     await this.repository.ensureScope({
       grantId: grant.id,
