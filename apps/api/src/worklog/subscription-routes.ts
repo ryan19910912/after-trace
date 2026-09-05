@@ -2,7 +2,6 @@ import { Hono } from 'hono';
 import { sql } from 'drizzle-orm';
 import { verifyWebSessionToken } from '../auth/token';
 import { createDatabase } from '../db/client';
-import { FREE_INITIAL_AI_POINTS } from './ai-points';
 
 type Bindings = { DATABASE_URL: string; WEB_AUTH_SECRET?: string; WEB_APP_ORIGIN?: string };
 type Env = { Bindings: Bindings; Variables: { lineUserId: string } };
@@ -60,27 +59,29 @@ export function createWorklogSubscriptionRoutes() {
     const result = await db.execute(sql`
       SELECT
         plan.code,
+        plan.plan_type,
         plan.display_name,
         plan.price_twd::text AS price_twd,
         plan.rank,
-        plan.subscription_period_points,
-        CASE WHEN plan.code = 'FREE' THEN ${FREE_INITIAL_AI_POINTS} ELSE 0 END AS one_time_initial_points,
-        -- AI CREATE/EDIT/media availability is Grant-backed, not a plan capability.
-        -- Strip retired pre-Grant flags from historical prelaunch rows. Export is also
-        -- forced false until the paid export endpoint/UI is actually shipped.
+        plan.grant_points,
+        CASE WHEN plan.plan_type = 'SUBSCRIPTION' THEN plan.grant_points ELSE 0 END AS subscription_period_points,
+        CASE WHEN plan.plan_type = 'FREE' THEN plan.grant_points ELSE 0 END AS one_time_initial_points,
+        CASE WHEN plan.plan_type = 'ONE_TIME' THEN plan.grant_points ELSE 0 END AS one_time_purchase_points,
         ((COALESCE(plan.capabilities, '{}'::jsonb)
           - 'privateOaRecording'
           - 'aiTextRecording'
           - 'aiMediaIngestion'
           - 'export') || jsonb_build_object('export', FALSE)) AS capabilities,
         CASE
+          WHEN plan.plan_type = 'ONE_TIME' THEN FALSE
           WHEN ${user.effectiveState} = 'ACTIVE' AND ${user.planCode} = plan.code THEN TRUE
           WHEN ${user.effectiveState} <> 'ACTIVE' AND plan.code = 'FREE' THEN TRUE
           ELSE FALSE
         END AS current
       FROM worklog_subscription_plans plan
       WHERE plan.enabled = TRUE
-      ORDER BY plan.rank ASC, plan.price_twd ASC, plan.code ASC
+      ORDER BY CASE plan.plan_type WHEN 'FREE' THEN 0 WHEN 'SUBSCRIPTION' THEN 1 ELSE 2 END,
+               plan.rank ASC, plan.price_twd ASC, plan.code ASC
     `);
 
     return c.json({
@@ -93,9 +94,6 @@ export function createWorklogSubscriptionRoutes() {
   });
 
   app.post('/checkout-intents', async (c) => {
-    // Provider-neutral persistence stays in place for the future payment integration,
-    // but until that integration is explicitly enabled do not let direct API clients
-    // create unbounded PENDING_PROVIDER rows that can never progress.
     if (!CHECKOUT_ENABLED) return c.json({ ok: false, error: 'CHECKOUT_NOT_ENABLED' }, 503);
 
     const db = createDatabase(c.env.DATABASE_URL);
@@ -113,14 +111,16 @@ export function createWorklogSubscriptionRoutes() {
     if (!/^[A-Za-z0-9_-]{16,64}$/.test(requestKey)) return c.json({ ok: false, error: 'INVALID_REQUEST_KEY' }, 400);
 
     const planResult = await db.execute(sql`
-      SELECT code, display_name, price_twd::text AS price_twd, enabled
+      SELECT code, plan_type, display_name, price_twd::text AS price_twd, enabled
       FROM worklog_subscription_plans
       WHERE code = ${planCode}
       LIMIT 1
     `);
-    const plan = planResult.rows[0] as { code?: string; display_name?: string; price_twd?: string; enabled?: boolean } | undefined;
+    const plan = planResult.rows[0] as { code?: string; plan_type?: string; display_name?: string; price_twd?: string; enabled?: boolean } | undefined;
     if (!plan?.code || !plan.enabled) return c.json({ ok: false, error: 'PLAN_NOT_AVAILABLE' }, 404);
-    if (Number(plan.price_twd ?? 0) <= 0) return c.json({ ok: false, error: 'FREE_PLAN_DOES_NOT_REQUIRE_CHECKOUT' }, 409);
+    if (plan.plan_type === 'FREE') return c.json({ ok: false, error: 'FREE_PLAN_DOES_NOT_REQUIRE_CHECKOUT' }, 409);
+    if (plan.plan_type !== 'SUBSCRIPTION' && plan.plan_type !== 'ONE_TIME') return c.json({ ok: false, error: 'PLAN_TYPE_NOT_PURCHASABLE' }, 409);
+    if (Number(plan.price_twd ?? 0) <= 0) return c.json({ ok: false, error: 'PAID_PLAN_REQUIRES_POSITIVE_PRICE' }, 409);
 
     const inserted = await db.execute(sql`
       INSERT INTO worklog_checkout_intents (user_id, plan_code, request_key, status, created_at, updated_at)
