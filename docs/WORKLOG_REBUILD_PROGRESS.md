@@ -15,7 +15,7 @@ Read first every run, in this exact order:
 
 The latest documents above are the only product/development specification. Do not revive Customer/Project/Finance/Owner/aggregate-quota assumptions from legacy code, migrations, README history or old tests.
 
-## Current execution checkpoint — 2026-09-05 dev/prod Worker targets aligned, runtime smoke pending
+## Current execution checkpoint — 2026-09-05 local runtime smoke in progress; dev/prod deployment pending
 
 The prelaunch baseline rebuild, fresh PostgreSQL integrity stage, and complete local static/test/build validation are green. Deployment configuration is intentionally simplified: `DATABASE_URL` is the single database variable for migration/runtime inside each environment, and `VITE_API_BASE_URL` is the single API base URL used by Web/Admin builds and deployment helpers. `AFTERTRACE_PROD_DATABASE_URL` and `AFTERTRACE_API_URL` are retired.
 
@@ -33,6 +33,16 @@ Root deployment inputs:
 - `.env.local` remains local development only.
 
 The manual deployment command loads the selected environment file, validates workers.dev host names against the exact selected Worker names, applies that environment's DB migration before API deployment, and passes an explicit Wrangler `--name` for each target. It does not rely on Wrangler automatically appending environment suffixes. Cloudflare runtime Variables/Secrets remain configured separately on the corresponding Worker and are not uploaded from `.env.dev` / `.env.prod` by the deploy command.
+
+Local runtime smoke has started successfully:
+
+- `pnpm dev:api` starts Wrangler on `http://127.0.0.1:8787`.
+- `pnpm dev:web` starts Vite on `http://localhost:5173`.
+- `pnpm dev:admin` starts Vite on `http://localhost:5174`.
+- all three local surfaces opened successfully in the browser.
+- readiness exposed a real validation mismatch: local loopback HTTP origins were incorrectly rejected even though `.env.example` documents localhost HTTP. Readiness now accepts HTTP only for loopback hosts (`localhost`, `127.0.0.1`, `::1`) while retaining HTTPS-only behavior for non-loopback deployed origins.
+- user explicitly changed the Admin operator password minimum from 16 to **8 characters**. Admin auth, readiness validation, tests, `.env.example`, and deployment documentation now use the same 8-character minimum.
+- local `/health/ready` must be rerun after pulling these fixes; AI runtime/FREE-plan readiness may still be the next expected blocker.
 
 ## 已完成 / 已實際驗證
 
@@ -145,11 +155,22 @@ Do not mark the `release:preflight` wrapper itself as PASS until a real deployed
 - deployment database environment simplified to a single `DATABASE_URL` per environment;
 - API base URL configuration simplified to a single `VITE_API_BASE_URL` per environment;
 - Worker deployment slugs normalized to the six actual `after-trace-*-dev` / `after-trace-*-prod` Workers;
-- manual `pnpm deploy:dev` / `pnpm deploy:prod` flow with per-component variants, exact `--name` targeting, and environment-host mismatch protection.
+- manual `pnpm deploy:dev` / `pnpm deploy:prod` flow with per-component variants, exact `--name` targeting, and environment-host mismatch protection;
+- local readiness origin validation allows only loopback HTTP and deployed HTTPS;
+- Admin password minimum aligned to 8 characters across auth/readiness/config docs.
 
 ## Remaining P0 before free/manual + AI-recording launch
 
-### 1. Real environment configuration + deployment smoke
+### 1. Finish local runtime readiness/browser smoke
+
+After pulling the latest fixes:
+
+- restart `pnpm dev:api`;
+- rerun `http://127.0.0.1:8787/health/ready`;
+- confirm Admin login no longer reports `ADMIN_AUTH_NOT_CONFIGURED` when `ADMIN_PASSWORD` is at least 8 characters;
+- continue through AI runtime/FREE-plan initialization if readiness reaches those expected blockers.
+
+### 2. Real environment configuration + deployment smoke
 
 Create and verify the actual environment files and Cloudflare runtime bindings:
 
@@ -163,13 +184,13 @@ Then manually deploy and verify each environment. The standard commands are:
 
 Per-component commands are available as `deploy:dev:api|web|admin` and `deploy:prod:api|web|admin`.
 
-### 2. Real release preflight against actual API origin
+### 3. Real release preflight against actual API origin
 
 After the intended API Worker HTTPS origin exists, set that environment's actual URL in `VITE_API_BASE_URL` and run:
 
 - `pnpm release:preflight`
 
-### 3. Runtime / browser / provider smoke
+### 4. Runtime / browser / provider smoke
 
 After deployment/runtime configuration is intentionally started:
 
@@ -220,14 +241,24 @@ Previously executed locally during prelaunch verification:
 - fresh PostgreSQL integrity probes;
 - case-insensitive Entity/Alias collision reproduction and final rejection validation.
 
-This Worker-name alignment was configuration/script/documentation work only. The previously green test/static suite was not rerun because no application-domain regression was introduced.
+Executed during current runtime smoke:
+
+- local API startup — PASS;
+- local Web startup — PASS;
+- local Admin startup — PASS;
+- browser open for all three local surfaces — PASS;
+- `/health` local liveness — PASS by successful API availability;
+- `/health/ready` exposed configuration validation mismatches before the latest fixes.
+
+The localhost-origin and 8-character Admin-password changes updated code/tests/docs, but their tests were **not rerun by the assistant**. The user should pull/restart and rerun local readiness; do not claim these new changes are validated until that happens.
 
 Not yet executed:
 
+- successful local `/health/ready` after the latest fixes;
 - `pnpm deploy:dev` against real Dev Workers;
 - `pnpm deploy:prod` against real Prod Workers;
 - successful `pnpm release:preflight` with a real deployed HTTPS API origin in `VITE_API_BASE_URL`;
-- browser/PWA/Admin runtime smoke;
+- full browser/PWA/Admin runtime smoke;
 - LINE runtime smoke;
 - real Gemini runtime smoke;
 - final `/health/ready` on initialized launch environments.
@@ -238,4 +269,4 @@ No GitHub Actions workflow was executed, dispatched, rerun, enabled, modified, t
 
 **NOT READY yet.**
 
-The codebase and deployment configuration are prepared for the six explicit manual Dev / Prod Workers, but the real Dev/Prod Cloudflare bindings, environment files, Worker deployment smoke, LINE runtime configuration, Gemini runtime smoke, browser smoke, and final readiness checks are still pending.
+Local startup is green and readiness validation bugs/policy mismatches have been corrected in code, but local readiness must be rerun before moving to Dev. Real Dev/Prod Cloudflare bindings, Worker deployment smoke, LINE runtime configuration, Gemini runtime smoke, browser smoke, and final readiness checks are still pending.
