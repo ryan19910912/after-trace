@@ -32,6 +32,7 @@ const forbidden = [
   ['worklog_ai_quota', 'retired aggregate AI quota schema/table marker'],
   ['subscription_owner_user_id', 'retired subscription Owner binding'],
   ['recording_enabled', 'retired GROUP recording preference'],
+  ['subscription_period_points', 'retired subscription-only plan point template column'],
 ];
 
 const required = [
@@ -44,6 +45,10 @@ const required = [
   ['worklog_ai_point_reservations', 'Grant-backed AI point reservation table'],
   ['worklog_ai_usage_funding', 'exact usage-to-Grant funding attribution'],
   ['worklog_source_ai_responsibility', 'GROUP AI responsibility table'],
+  ['worklog_plan_type', 'FREE/SUBSCRIPTION/ONE_TIME plan type enum'],
+  ['plan_type', 'typed commercial plan discriminator'],
+  ['grant_points', 'generic plan/product AI Grant template amount'],
+  ['worklog_plan_free_identity_ck', 'single FREE identity/price shape constraint'],
   ['customer_points_charged', 'customer point charge fact'],
   ['platform_subsidized_points', 'platform subsidy fact'],
   ['worklog_line_ai_edits', 'durable Reply-targeted LINE edit state'],
@@ -74,11 +79,8 @@ for (const [sourceName, source] of sources) {
 
 let journal;
 if (journalText !== null) {
-  try {
-    journal = JSON.parse(journalText);
-  } catch {
-    failures.push('Drizzle journal is not valid JSON');
-  }
+  try { journal = JSON.parse(journalText); }
+  catch { failures.push('Drizzle journal is not valid JSON'); }
 }
 if (journal) {
   if (journal.dialect !== 'postgresql') failures.push('Drizzle journal dialect must be postgresql');
@@ -102,30 +104,14 @@ if (failures.length > 0) {
 console.log('AFTERTRACE Worklog baseline + Drizzle metadata guard passed.');
 
 function checkArtifactShape() {
-  if (!existsSync(drizzleDir)) {
-    failures.push('missing drizzle directory');
-    return;
-  }
-
+  if (!existsSync(drizzleDir)) { failures.push('missing drizzle directory'); return; }
   const rootEntries = readdirSync(drizzleDir).sort();
   const expectedRoot = ['0000_worklog_baseline.sql', 'meta'];
-  if (!sameEntries(rootEntries, expectedRoot)) {
-    failures.push(
-      `prelaunch drizzle directory must contain exactly ${expectedRoot.join(', ')}; found ${rootEntries.join(', ') || '(empty)'}`,
-    );
-  }
-
-  if (!existsSync(metaDir)) {
-    failures.push('missing drizzle/meta directory');
-    return;
-  }
+  if (!sameEntries(rootEntries, expectedRoot)) failures.push(`prelaunch drizzle directory must contain exactly ${expectedRoot.join(', ')}; found ${rootEntries.join(', ') || '(empty)'}`);
+  if (!existsSync(metaDir)) { failures.push('missing drizzle/meta directory'); return; }
   const metaEntries = readdirSync(metaDir).sort();
   const expectedMeta = ['0000_snapshot.json', '_journal.json'];
-  if (!sameEntries(metaEntries, expectedMeta)) {
-    failures.push(
-      `prelaunch drizzle/meta must contain exactly ${expectedMeta.join(', ')}; found ${metaEntries.join(', ') || '(empty)'}`,
-    );
-  }
+  if (!sameEntries(metaEntries, expectedMeta)) failures.push(`prelaunch drizzle/meta must contain exactly ${expectedMeta.join(', ')}; found ${metaEntries.join(', ') || '(empty)'}`);
 }
 
 function sameEntries(actual, expected) {
