@@ -17,7 +17,7 @@ The latest documents above are the only product/development specification. Do no
 
 ## Current execution checkpoint — 2026-09-05 production Worker runtime smoke pending
 
-The prelaunch baseline rebuild, fresh PostgreSQL integrity stage, and complete local static/test/build validation are green. The deployment path is now intentionally simplified to one production database variable: `DATABASE_URL` is used both as the Cloudflare Worker runtime database binding and by `worker-deploy.ps1` for deployment migration. `AFTERTRACE_PROD_DATABASE_URL` is retired. The deploy helper does not load repository `.env.local` itself; the operator must load the intended production environment before deployment.
+The prelaunch baseline rebuild, fresh PostgreSQL integrity stage, and complete local static/test/build validation are green. Deployment configuration is intentionally simplified: `DATABASE_URL` is the single production database variable for migration/runtime, and `VITE_API_BASE_URL` is the single API base URL used by Web/Admin builds, `release:preflight`, and deployment helpers. `AFTERTRACE_PROD_DATABASE_URL` and `AFTERTRACE_API_URL` are retired. The deploy helper does not load repository `.env.local` itself; the operator must load the intended production environment before deployment.
 
 ## 已完成 / 已實際驗證
 
@@ -87,7 +87,7 @@ Entity/Alias case behavior was reproduced against real PostgreSQL and fixed. Fin
 
 ### Release-preflight-equivalent local checks
 
-`pnpm release:preflight` itself was invoked, but correctly stopped before its internal checks because deployment policy requires a real absolute HTTPS `AFTERTRACE_API_URL`.
+`pnpm release:preflight` itself was invoked, but correctly stopped before its internal checks because deployment policy requires a real absolute HTTPS `VITE_API_BASE_URL`.
 
 The checks that can be executed before deployment were then run directly and all passed:
 
@@ -100,7 +100,7 @@ The checks that can be executed before deployment were then run directly and all
 - baseline guard;
 - Drizzle schema export.
 
-Do not mark the `release:preflight` wrapper itself as PASS until a real deployed API Worker HTTPS origin exists and the wrapper is rerun with that real origin.
+Do not mark the `release:preflight` wrapper itself as PASS until a real deployed API Worker HTTPS origin exists in `VITE_API_BASE_URL` and the wrapper is rerun.
 
 ## Stable completed foundation — do not redo without a concrete regression
 
@@ -127,17 +127,16 @@ Do not mark the `release:preflight` wrapper itself as PASS until a real deployed
 - Source-scoped case-insensitive Entity/Alias uniqueness;
 - liveness/readiness + first-fresh-DB bootstrap mode;
 - Web/Admin Workers SPA fallback/deep-link checks;
-- deployment database environment simplified to a single `DATABASE_URL`.
+- deployment database environment simplified to a single `DATABASE_URL`;
+- API base URL configuration simplified to a single `VITE_API_BASE_URL`.
 
 ## Remaining P0 before free/manual + AI-recording launch
 
 ### 1. Real release preflight against actual API origin
 
-After an API Worker HTTPS origin exists, run:
+After an API Worker HTTPS origin exists, set the actual URL in `VITE_API_BASE_URL` and run:
 
 - `pnpm release:preflight`
-
-with the actual `AFTERTRACE_API_URL`.
 
 ### 2. Runtime / browser / provider smoke
 
@@ -192,7 +191,7 @@ Executed locally during this prelaunch verification sequence:
 
 Not yet executed:
 
-- successful `pnpm release:preflight` with a real deployed HTTPS API origin;
+- successful `pnpm release:preflight` with a real deployed HTTPS API origin in `VITE_API_BASE_URL`;
 - browser/PWA/Admin runtime smoke;
 - Cloudflare Worker runtime/deploy smoke;
 - LINE runtime smoke;
