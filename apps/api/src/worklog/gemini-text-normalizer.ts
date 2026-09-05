@@ -35,7 +35,6 @@ type GeminiGenerateContentResponse = {
   };
 };
 
-const STABLE_WORKLOG_MODEL = 'gemini-3.5-flash';
 const THINKING_LEVEL = 'low';
 const PRODUCT_TIME_ZONE = 'Asia/Taipei';
 
@@ -144,8 +143,6 @@ export class GeminiWorklogTextNormalizer implements WorklogTextNormalizationProv
   reservationPoints(input: WorklogTextProviderInput, config: WorklogAiRuntimeConfigSnapshot): number {
     this.assertConfig(config);
     const upperBound = worklogTextReservationTokenUpperBound(input, this.maxOutputTokens);
-    // Price every conservative upper-bound unit at the more expensive of input/output
-    // pricing. This is deliberately a hold estimate, not customer billing.
     const conservativeCostUsd =
       (upperBound / 1_000_000) * Math.max(config.inputUsdPerMillion, config.outputUsdPerMillion);
     return Math.max(1, providerCostToAiPoints({
@@ -166,7 +163,7 @@ export class GeminiWorklogTextNormalizer implements WorklogTextNormalizationProv
     let response: Response;
     try {
       response = await this.fetchFn(
-        `${this.endpoint}/models/${encodeURIComponent(config.model)}:generateContent`,
+        `${this.endpoint}/models/${encodeURIComponent(config.model.trim())}:generateContent`,
         {
           method: 'POST',
           headers: {
@@ -252,8 +249,9 @@ export class GeminiWorklogTextNormalizer implements WorklogTextNormalizationProv
     if (!this.options.apiKey.trim()) {
       throw new WorklogTextProviderError('GEMINI_CONFIG_INVALID', 'Gemini API key is required for Worklog AI interpretation');
     }
-    if (config.model.trim() !== STABLE_WORKLOG_MODEL) {
-      throw new WorklogTextProviderError('GEMINI_CONFIG_INVALID', `Worklog currently supports only ${STABLE_WORKLOG_MODEL}`);
+    const model = config.model.trim();
+    if (!model || model.length > 255) {
+      throw new WorklogTextProviderError('GEMINI_CONFIG_INVALID', 'Gemini model name is required');
     }
     nonNegativeFinite(config.inputUsdPerMillion, 'inputUsdPerMillion');
     positiveFinite(config.outputUsdPerMillion, 'outputUsdPerMillion');
