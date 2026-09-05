@@ -2,13 +2,17 @@ name = "after-trace-api"
 main = "src/worker.ts"
 compatibility_date = "2026-08-29"
 compatibility_flags = ["nodejs_compat"]
+keep_vars = true
 
-[vars]
-# WEB_APP_URL and WEB_APP_ORIGIN must point to the independently deployed
-# after-trace-web Worker Static Assets origin for each environment. Configure them
-# in the deployment environment rather than committing the obsolete Pages URL.
-# WEB_AUTH_SECRET and LINE_LOGIN_CHANNEL_SECRET stay in Cloudflare Worker secrets.
-LINE_LOGIN_CHANNEL_ID = "2011322889"
+# Runtime Variables/Secrets are configured separately on each Cloudflare Worker.
+# Local development reads them from .env.local. Dev/prod deployment does not share
+# LINE credentials, database bindings, Web/Admin origins, or auth secrets.
 
 [observability]
 enabled = true
+
+[env.dev]
+name = "after-trace-api-dev"
+
+[env.prod]
+name = "after-trace-api"
