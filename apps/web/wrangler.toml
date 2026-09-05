@@ -5,8 +5,7 @@ compatibility_date = "2026-09-02"
 directory = "./dist"
 not_found_handling = "single-page-application"
 
+# Production uses the top-level Worker name: after-trace-web.
+# Wrangler automatically deploys this environment as after-trace-web-dev.
 [env.dev]
-name = "after-trace-web-dev"
-
-[env.prod]
-name = "after-trace-web"
+workers_dev = true
