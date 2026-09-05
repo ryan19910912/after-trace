@@ -135,7 +135,7 @@ try {
         $env:DATABASE_URL = $previousDatabaseUrl
     }
 
-    Invoke-CommandChecked 'Deploy aftertrace-api Worker' {
+    Invoke-CommandChecked 'Deploy after-trace-api Worker' {
         pnpm --filter @aftertrace/api exec wrangler deploy
     }
 
