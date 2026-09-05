@@ -13,18 +13,26 @@ AFTERTRACE deploys as three independent Cloudflare Workers. Do not reintroduce C
 - Config: `apps/api/wrangler.toml`.
 - Production helper: `worker-deploy.ps1`.
 
-### `aftertrace-web`
+### `after-trace-web`
 
 - React/Vite customer PWA through Workers Static Assets.
 - Config: `apps/web/wrangler.toml`.
 - `not_found_handling = "single-page-application"` is required so authenticated/history deep links survive direct refresh.
 
-### `aftertrace-admin`
+### `after-trace-admin`
 
 - React/Vite internal Admin through Workers Static Assets.
 - Config: `apps/admin/wrangler.toml`.
 - Includes `/profitability` factual AI point/provider-cost reporting.
 - `not_found_handling = "single-page-application"` is required.
+
+Worker slug naming is normalized to `after-trace-*`. If a separate shared dev environment is introduced, use the same names with a `-dev` suffix:
+
+- `after-trace-api-dev`
+- `after-trace-web-dev`
+- `after-trace-admin-dev`
+
+The customer-facing brand remains `AFTERTRACE`; the hyphenated names are infrastructure/deployment slugs only.
 
 ## Product authorization boundaries that deployment must preserve
 
@@ -79,11 +87,17 @@ Operators must still verify that the `DATABASE_URL` loaded for migration and the
 
 A purchased custom domain is not required for initial launch.
 
-Expected shape:
+Expected production shape:
 
 - API: `https://after-trace-api.<account-subdomain>.workers.dev`
-- Web: `https://aftertrace-web.<account-subdomain>.workers.dev`
-- Admin: `https://aftertrace-admin.<account-subdomain>.workers.dev`
+- Web: `https://after-trace-web.<account-subdomain>.workers.dev`
+- Admin: `https://after-trace-admin.<account-subdomain>.workers.dev`
+
+If dev Workers are introduced, expected shape is:
+
+- API: `https://after-trace-api-dev.<account-subdomain>.workers.dev`
+- Web: `https://after-trace-web-dev.<account-subdomain>.workers.dev`
+- Admin: `https://after-trace-admin-dev.<account-subdomain>.workers.dev`
 
 Do not hard-code one account subdomain into source/deployment defaults before the actual Cloudflare account confirms it.
 
@@ -357,5 +371,3 @@ Validate locally/runtime, never substitute GitHub Actions unless explicitly requ
 - initialized FREE plan;
 - payment provider for paid launch;
 - paid Export implementation for full MVP paid capability.
-
-No GitHub Actions workflow may be executed, dispatched, rerun, enabled, modified, or used as validation unless the user explicitly requests it.
