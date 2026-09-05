@@ -1,6 +1,6 @@
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-const ADMIN_PASSWORD_MIN_LENGTH = 16;
+const ADMIN_PASSWORD_MIN_LENGTH = 8;
 
 export type AdminAccessEnv = {
   ADMIN_USERNAME?: string;
