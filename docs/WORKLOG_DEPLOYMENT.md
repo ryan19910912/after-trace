@@ -64,14 +64,14 @@ Required API production bindings include:
 
 Do not put API secrets in `VITE_*` variables.
 
-Web/Admin use only public build-time config, primarily `VITE_API_BASE_URL`.
+Web/Admin use the public build-time API origin `VITE_API_BASE_URL`.
 
 ## Deployment helper target variables
 
-- `AFTERTRACE_API_URL` = actual deployed API Worker HTTPS origin.
+- `VITE_API_BASE_URL` = the single canonical API Worker base URL used by Web/Admin builds, `release:preflight`, and all deployment helpers.
 - `DATABASE_URL` = the intended production PostgreSQL URL. The same variable name is used for deployment migration and as the API Worker runtime database binding.
 
-`AFTERTRACE_PROD_DATABASE_URL` is intentionally not used. The operator loads the intended production environment before running deployment. `worker-deploy.ps1` validates `DATABASE_URL` and never loads repository `.env.local` itself, so deployment stays simple without maintaining two database variables with identical values.
+`AFTERTRACE_API_URL` and `AFTERTRACE_PROD_DATABASE_URL` are intentionally not used. The operator loads the intended production environment before running deployment. `worker-deploy.ps1` validates `VITE_API_BASE_URL` and `DATABASE_URL` and never loads repository `.env.local` itself, so deployment does not require duplicate environment variables for the same API or database target.
 
 Operators must still verify that the `DATABASE_URL` loaded for migration and the `DATABASE_URL` secret configured on the Worker identify the same intended database. Post-deploy readiness catches missing/unmigrated schema but cannot infer operator intent.
 
@@ -212,8 +212,8 @@ pnpm release:preflight
 `release:preflight`:
 
 - loads root `.env.local` then `.env` only for local tooling;
-- requires an actual HTTPS `AFTERTRACE_API_URL`;
-- forces `VITE_API_BASE_URL` to that production API origin for Web/Admin production builds;
+- requires an actual HTTPS `VITE_API_BASE_URL` pointing to the deployed API Worker;
+- uses that same `VITE_API_BASE_URL` for Web/Admin production builds;
 - runs baseline guard;
 - API/Web/Admin TypeScript typecheck;
 - ESLint;
@@ -239,14 +239,14 @@ Passing preflight is necessary but not sufficient. Fresh PostgreSQL and runtime 
 6. require a valid `DATABASE_URL` already loaded for the intended production database (or explicit `-DatabaseUrl` override), without loading `.env.local`;
 7. migrate that database;
 8. deploy API Worker;
-9. verify `/health`;
+9. verify `/health` using `VITE_API_BASE_URL`;
 10. verify `/health/ready` by default.
 
 `-AllowInitialBootstrapNotReady` is an explicit first-deploy exception only. It tolerates only the two operator-initialization readiness errors documented above and prints that public launch is still **NOT READY**. After Admin initialization, `/health/ready=ready` is mandatory.
 
 ### Web
 
-`web-worker-deploy.ps1` builds with the explicit API origin and, when `-ExpectedUrl` is supplied, verifies:
+`web-worker-deploy.ps1` builds with `VITE_API_BASE_URL` and, when `-ExpectedUrl` is supplied, verifies:
 
 - `/`
 - `/help`
@@ -254,7 +254,7 @@ Passing preflight is necessary but not sufficient. Fresh PostgreSQL and runtime 
 
 ### Admin
 
-`admin-worker-deploy.ps1` builds with the explicit API origin and verifies:
+`admin-worker-deploy.ps1` builds with `VITE_API_BASE_URL` and verifies:
 
 - `/`
 - `/profitability`
@@ -349,6 +349,7 @@ Validate locally/runtime, never substitute GitHub Actions unless explicitly requ
 
 - actual Cloudflare workers.dev hosts;
 - Worker Variables/Secrets listed above;
+- `VITE_API_BASE_URL` pointing to the deployed API Worker;
 - production `DATABASE_URL` loaded for deployment migration and configured as the API Worker secret;
 - LINE OA webhook and LINE Login callback URLs;
 - LINE OA Rich Menu;
