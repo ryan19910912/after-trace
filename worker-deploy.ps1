@@ -3,7 +3,7 @@ param(
     [switch]$AllowDirty,
     [switch]$AllowNonMain,
     [switch]$AllowInitialBootstrapNotReady,
-    [string]$WorkerUrl = $env:AFTERTRACE_API_URL,
+    [string]$WorkerUrl = $env:VITE_API_BASE_URL,
     [string]$DatabaseUrl = $env:DATABASE_URL
 )
 
@@ -60,7 +60,7 @@ try {
     Write-Host 'AFTERTRACE API Worker production deployment' -ForegroundColor Green
 
     if (-not $WorkerUrl) {
-        throw 'AFTERTRACE_API_URL (or -WorkerUrl) is required. Do not hard-code a workers.dev account subdomain in the repository.'
+        throw 'VITE_API_BASE_URL (or -WorkerUrl) is required. Do not hard-code a workers.dev account subdomain in the repository.'
     }
     $parsedWorkerUrl = $null
     if (-not [Uri]::TryCreate($WorkerUrl, [UriKind]::Absolute, [ref]$parsedWorkerUrl) -or $parsedWorkerUrl.Scheme -ne 'https') {
