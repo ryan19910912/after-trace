@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { loadEnvFile } from 'node:process';
+import { parseEnv } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -19,7 +19,10 @@ const envFile = resolve(root, `.env.${environment}`);
 if (!existsSync(envFile)) {
   fail(`missing ${envFile}. Create .env.${environment} before deploying.`);
 }
-loadEnvFile(envFile);
+
+// The selected file is authoritative for deployment so stale shell variables from
+// another environment cannot silently override dev/prod targets.
+Object.assign(process.env, parseEnv(readFileSync(envFile, 'utf8')));
 
 const apiOrigin = requireOrigin('VITE_API_BASE_URL');
 const webOrigin = requireOrigin('WEB_APP_URL');
