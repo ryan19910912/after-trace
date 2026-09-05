@@ -218,8 +218,8 @@ function launchConfigErrors(env: Bindings): string[] {
   if (!required(env.LINE_CHANNEL_SECRET)) missing.push('LINE_CHANNEL_SECRET');
   if (!required(env.LINE_CHANNEL_ACCESS_TOKEN)) missing.push('LINE_CHANNEL_ACCESS_TOKEN');
   if (!required(env.GEMINI_API_KEY)) missing.push('GEMINI_API_KEY');
-  const webAppUrl = exactHttpsOrigin(env.WEB_APP_URL);
-  const webAppOrigin = exactHttpsOrigin(env.WEB_APP_ORIGIN);
+  const webAppUrl = exactAppOrigin(env.WEB_APP_URL);
+  const webAppOrigin = exactAppOrigin(env.WEB_APP_ORIGIN);
   if (!webAppUrl) missing.push('WEB_APP_URL');
   if (!webAppOrigin) missing.push('WEB_APP_ORIGIN');
   if (webAppUrl && webAppOrigin && webAppUrl !== webAppOrigin) missing.push('WEB_APP_URL', 'WEB_APP_ORIGIN');
@@ -229,7 +229,7 @@ function launchConfigErrors(env: Bindings): string[] {
   if (!required(env.ADMIN_USERNAME)) missing.push('ADMIN_USERNAME');
   if (!adminPassword(env.ADMIN_PASSWORD)) missing.push('ADMIN_PASSWORD');
   if (!secret(env.ADMIN_SESSION_SECRET)) missing.push('ADMIN_SESSION_SECRET');
-  if (!exactHttpsOrigin(env.ADMIN_WEB_ORIGIN)) missing.push('ADMIN_WEB_ORIGIN');
+  if (!exactAppOrigin(env.ADMIN_WEB_ORIGIN)) missing.push('ADMIN_WEB_ORIGIN');
   return [...new Set(missing)];
 }
 
@@ -237,11 +237,13 @@ function required(value: string | undefined): boolean { return Boolean(value?.tr
 function adminPassword(value: string | undefined): boolean { return Boolean(value && value.length >= 16 && value.length <= 512); }
 function secret(value: string | undefined): boolean { return Boolean(value?.trim() && value.trim().length >= 32); }
 
-function exactHttpsOrigin(value: string | undefined): string | null {
+function exactAppOrigin(value: string | undefined): string | null {
   if (!value?.trim()) return null;
   try {
     const url = new URL(value.trim());
-    if (url.protocol !== 'https:' || !url.host || url.username || url.password || url.pathname !== '/' || url.search || url.hash) return null;
+    if (!url.host || url.username || url.password || url.pathname !== '/' || url.search || url.hash) return null;
+    const loopbackHttp = url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+    if (url.protocol !== 'https:' && !loopbackHttp) return null;
     return url.origin;
   } catch { return null; }
 }
