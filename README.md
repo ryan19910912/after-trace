@@ -34,13 +34,19 @@ The universal Worklog model does **not** use Customer/Project/Finance/Transactio
 
 ## Deployment topology
 
-AFTERTRACE uses three independent Cloudflare Workers, not Pages:
+AFTERTRACE uses six explicit Cloudflare Worker targets, not Pages:
 
-- `after-trace-api` — Hono/TypeScript API, LINE webhooks, Worklog runtime, auth, PWA/Admin APIs, PostgreSQL/Drizzle and AI orchestration.
-- `after-trace-web` — React/Vite customer PWA via Workers Static Assets.
-- `after-trace-admin` — React/Vite internal Admin via Workers Static Assets.
+- Dev: `after-trace-api-dev`, `after-trace-web-dev`, `after-trace-admin-dev`.
+- Prod: `after-trace-api-prod`, `after-trace-web-prod`, `after-trace-admin-prod`.
 
-PostgreSQL is the durable store. Production Workers use Cloudflare Variables/Secrets; repository `.env.local` is local/tooling input only.
+Manual deployment is intentional:
+
+- `pnpm deploy:dev`
+- `pnpm deploy:prod`
+
+The deployment script passes the exact Worker `--name` for the selected environment, so Dev/Prod do not depend on Wrangler's automatic environment suffix behavior.
+
+PostgreSQL is the durable store. Runtime Workers use Cloudflare Variables/Secrets; repository `.env.local` is local/tooling input only, while `.env.dev` and `.env.prod` are operator-local deployment inputs and remain gitignored.
 
 Current Worklog AI runtime supports the validated Google Gemini model configured by Admin; provider/model/pricing must match the runtime contract before `/health/ready` is considered green.
 
