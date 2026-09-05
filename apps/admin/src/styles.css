@@ -43,6 +43,30 @@ label { display: grid; gap: 6px; font-size: .86rem; font-weight: 700; color: #d0
 .search-row { display: flex; gap: 8px; width: 100%; }
 .search-row input { flex: 1; min-width: 0; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 14px; }
+/* AI 計價固定使用兩行欄位標題：名稱第一行，單位／選填第二行。 */
+.form-grid:has(> label:nth-child(5) > input[placeholder="留空＝一般輸入價格"]) > label {
+  min-width: 0;
+  grid-template-rows: 2.7em auto;
+  align-content: start;
+  font-size: 0;
+}
+.form-grid:has(> label:nth-child(5) > input[placeholder="留空＝一般輸入價格"]) > label::before {
+  white-space: pre-line;
+  font-size: .86rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: #d0d5dd;
+}
+.form-grid:has(> label:nth-child(5) > input[placeholder="留空＝一般輸入價格"]) > label > input {
+  font-size: .86rem;
+}
+.form-grid:has(> label:nth-child(5) > input[placeholder="留空＝一般輸入價格"]) > label:nth-child(1)::before { content: "AI 供應商\A\00a0"; }
+.form-grid:has(> label:nth-child(5) > input[placeholder="留空＝一般輸入價格"]) > label:nth-child(2)::before { content: "模型\A\00a0"; }
+.form-grid:has(> label:nth-child(5) > input[placeholder="留空＝一般輸入價格"]) > label:nth-child(3)::before { content: "一般輸入價格\A（美元／100 萬單位）"; }
+.form-grid:has(> label:nth-child(5) > input[placeholder="留空＝一般輸入價格"]) > label:nth-child(4)::before { content: "輸出價格\A（美元／100 萬單位）"; }
+.form-grid:has(> label:nth-child(5) > input[placeholder="留空＝一般輸入價格"]) > label:nth-child(5)::before { content: "音訊輸入價格\A（選填）"; }
+.form-grid:has(> label:nth-child(5) > input[placeholder="留空＝一般輸入價格"]) > label:nth-child(6)::before { content: "圖片輸入價格\A（選填）"; }
+.form-grid:has(> label:nth-child(5) > input[placeholder="留空＝一般輸入價格"]) > label:nth-child(7)::before { content: "美元兌新台幣匯率\A（選填）"; }
 .form-grid > .switch { min-width: 0; min-height: 92px; align-items: flex-start; white-space: normal; padding: 14px; border: 1px solid #343a43; border-radius: 12px; background: #14171c; }
 .form-grid > .switch > input { margin-top: 3px; }
 .form-grid > .switch > span { min-width: 0; display: grid; gap: 5px; line-height: 1.35; }
