@@ -46,7 +46,7 @@ label { display: grid; gap: 6px; font-size: .86rem; font-weight: 700; color: #d0
 /* AI 計價固定使用兩行欄位標題：名稱第一行，單位／選填第二行。 */
 .form-grid:has(> label:nth-child(5) > input[placeholder="留空＝一般輸入價格"]) > label {
   min-width: 0;
-  grid-template-rows: 2.7em auto;
+  grid-template-rows: 2.55rem auto;
   align-content: start;
   font-size: 0;
 }
