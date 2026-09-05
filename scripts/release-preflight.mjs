@@ -32,9 +32,9 @@ if (pnpmVersion !== expectedPnpmVersion) {
   fail(`pnpm version mismatch: package.json requires ${expectedPnpmVersion}, current executable is ${pnpmVersion || '(unknown)'}`);
 }
 
-const apiOrigin = productionApiOrigin(process.env.AFTERTRACE_API_URL);
+const apiOrigin = productionApiOrigin(process.env.VITE_API_BASE_URL);
 if (!apiOrigin) {
-  fail('AFTERTRACE_API_URL must be the actual absolute https API Worker origin before release preflight');
+  fail('VITE_API_BASE_URL must be the actual absolute https API Worker origin before release preflight');
 }
 process.env.VITE_API_BASE_URL = apiOrigin;
 
