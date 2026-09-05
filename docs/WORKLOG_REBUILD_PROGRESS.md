@@ -15,9 +15,24 @@ Read first every run, in this exact order:
 
 The latest documents above are the only product/development specification. Do not revive Customer/Project/Finance/Owner/aggregate-quota assumptions from legacy code, migrations, README history or old tests.
 
-## Current execution checkpoint — 2026-09-05 production Worker runtime smoke pending
+## Current execution checkpoint — 2026-09-05 dev/prod Worker split prepared, runtime smoke pending
 
-The prelaunch baseline rebuild, fresh PostgreSQL integrity stage, and complete local static/test/build validation are green. Deployment configuration is intentionally simplified: `DATABASE_URL` is the single production database variable for migration/runtime, and `VITE_API_BASE_URL` is the single API base URL used by Web/Admin builds, `release:preflight`, and deployment helpers. `AFTERTRACE_PROD_DATABASE_URL` and `AFTERTRACE_API_URL` are retired. The deploy helper does not load repository `.env.local` itself; the operator must load the intended production environment before deployment. Cloudflare Worker infrastructure slugs are normalized to `after-trace-*`: production uses `after-trace-api`, `after-trace-web`, `after-trace-admin`; any future shared dev Workers use the corresponding `-dev` suffix.
+The prelaunch baseline rebuild, fresh PostgreSQL integrity stage, and complete local static/test/build validation are green. Deployment configuration is intentionally simplified: `DATABASE_URL` is the single database variable for migration/runtime inside each environment, and `VITE_API_BASE_URL` is the single API base URL used by Web/Admin builds and deployment helpers. `AFTERTRACE_PROD_DATABASE_URL` and `AFTERTRACE_API_URL` are retired.
+
+Cloudflare deployment is now explicitly split into manual Dev / Prod targets. No Git push, non-production branch build, or GitHub Actions workflow is used as an automatic deployment trigger.
+
+Worker names:
+
+- Dev: `after-trace-api-dev`, `after-trace-web-dev`, `after-trace-admin-dev`.
+- Prod: `after-trace-api`, `after-trace-web`, `after-trace-admin`.
+
+Root deployment inputs:
+
+- `.env.dev` is authoritative for `pnpm deploy:dev`.
+- `.env.prod` is authoritative for `pnpm deploy:prod`.
+- `.env.local` remains local development only.
+
+The manual deployment command loads the selected environment file, validates workers.dev host names against the selected target, applies that environment's DB migration before API deployment, then deploys the selected API/Web/Admin Wrangler environment. Cloudflare runtime Variables/Secrets remain configured separately on the corresponding Worker and are not uploaded from `.env.dev` / `.env.prod` by the deploy command.
 
 ## 已完成 / 已實際驗證
 
@@ -127,19 +142,35 @@ Do not mark the `release:preflight` wrapper itself as PASS until a real deployed
 - Source-scoped case-insensitive Entity/Alias uniqueness;
 - liveness/readiness + first-fresh-DB bootstrap mode;
 - Web/Admin Workers SPA fallback/deep-link checks;
-- deployment database environment simplified to a single `DATABASE_URL`;
-- API base URL configuration simplified to a single `VITE_API_BASE_URL`;
-- Worker deployment slugs normalized to `after-trace-api`, `after-trace-web`, `after-trace-admin` with `-dev` suffix reserved for shared dev Workers.
+- deployment database environment simplified to a single `DATABASE_URL` per environment;
+- API base URL configuration simplified to a single `VITE_API_BASE_URL` per environment;
+- Worker deployment slugs normalized to `after-trace-*`;
+- explicit Wrangler `dev` / `prod` targets added for all three Workers;
+- manual `pnpm deploy:dev` / `pnpm deploy:prod` flow added, with per-component variants and environment-host mismatch protection.
 
 ## Remaining P0 before free/manual + AI-recording launch
 
-### 1. Real release preflight against actual API origin
+### 1. Real environment configuration + deployment smoke
 
-After an API Worker HTTPS origin exists, set the actual URL in `VITE_API_BASE_URL` and run:
+Create and verify the actual environment files and Cloudflare runtime bindings:
+
+- `.env.dev` + Dev Worker Variables/Secrets;
+- `.env.prod` + Prod Worker Variables/Secrets.
+
+Then manually deploy and verify each environment. The standard commands are:
+
+- `pnpm deploy:dev`
+- `pnpm deploy:prod`
+
+Per-component commands are available as `deploy:dev:api|web|admin` and `deploy:prod:api|web|admin`.
+
+### 2. Real release preflight against actual API origin
+
+After the intended API Worker HTTPS origin exists, set that environment's actual URL in `VITE_API_BASE_URL` and run:
 
 - `pnpm release:preflight`
 
-### 2. Runtime / browser / provider smoke
+### 3. Runtime / browser / provider smoke
 
 After deployment/runtime configuration is intentionally started:
 
@@ -176,7 +207,7 @@ Image, audio, PDF and text-like files are active. DOCX/XLSX/legacy Office MIME t
 
 ## Validation status
 
-Executed locally during this prelaunch verification sequence:
+Previously executed locally during prelaunch verification:
 
 - install;
 - API/Web/Admin typecheck;
@@ -190,14 +221,17 @@ Executed locally during this prelaunch verification sequence:
 - fresh PostgreSQL integrity probes;
 - case-insensitive Entity/Alias collision reproduction and final rejection validation.
 
+This Dev/Prod deployment-target change was configuration/script/documentation work only. The previously green test/static suite was not rerun because no application-domain regression was introduced.
+
 Not yet executed:
 
+- `pnpm deploy:dev` against real Dev Workers;
+- `pnpm deploy:prod` against real Prod Workers;
 - successful `pnpm release:preflight` with a real deployed HTTPS API origin in `VITE_API_BASE_URL`;
 - browser/PWA/Admin runtime smoke;
-- Cloudflare Worker runtime/deploy smoke;
 - LINE runtime smoke;
 - real Gemini runtime smoke;
-- final `/health/ready` on initialized launch environment.
+- final `/health/ready` on initialized launch environments.
 
 No GitHub Actions workflow was executed, dispatched, rerun, enabled, modified, triggered or used as validation.
 
@@ -205,4 +239,4 @@ No GitHub Actions workflow was executed, dispatched, rerun, enabled, modified, t
 
 **NOT READY yet.**
 
-The regenerated baseline, fresh PostgreSQL migration, database Source/Grant integrity, Entity/Alias case-insensitive uniqueness, and complete local typecheck/lint/test/build/schema-export validation are cleared. The decisive remaining blockers are real release preflight with an actual API Worker origin and browser/LINE/Gemini/Worker runtime smoke.
+The codebase and deployment configuration are prepared for explicit manual Dev / Prod Workers, but the real Dev/Prod Cloudflare bindings, environment files, Worker deployment smoke, LINE runtime configuration, Gemini runtime smoke, browser smoke, and final readiness checks are still pending.
