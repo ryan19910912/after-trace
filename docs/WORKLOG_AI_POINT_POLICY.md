@@ -8,177 +8,133 @@ Customer-facing AI allowance is shown as **AI 點數**, not raw provider tokens 
 
 ## Admin pricing workflow
 
-Plan/top-up configuration is intentionally human-controlled.
+Plan/product configuration is intentionally human-controlled.
 
-Admin UI provides a pricing calculator using:
+Admin pricing tools may use customer price, target gross margin, selected model/pricing snapshot, FX, and the current AI-point conversion rule to suggest a point amount. The final `grant_points` value is explicitly entered/confirmed by Admin and persisted.
 
-- customer price in TWD;
-- target gross-margin percentage entered by Admin;
-- implied maximum AI cost budget = price × (1 - target gross-margin percentage);
-- selected model/pricing snapshot;
-- current AI-point conversion rule.
+Current commercial planning defaults:
 
-Current commercial starting targets:
+- one-time purchases / top-ups: about **50% target gross margin**;
+- subscription included allowance: about **40% target gross margin**.
 
-- **one-time AI top-up / one-time allowance products: target gross margin 50%**;
-- **monthly subscription included AI allowance: target gross margin 40%**, intentionally giving recurring subscribers more AI value to encourage ongoing product use and retention.
+These are editable planning defaults, not immutable business constants. Backend must never silently resize existing Grants when price, FX, model pricing, target margin, or plan templates change.
 
-These are editable planning defaults, not immutable business constants.
+## Three plan/product point meanings
 
-Examples:
+`worklog_subscription_plans.grant_points` is a generic commercial-template value. Its meaning is determined by `plan_type`:
 
-- NT$100 one-time product at 50% target gross margin -> suggested AI cost budget NT$50;
-- NT$99 subscription at 40% target gross margin -> suggested AI cost budget NT$59.4.
+- `FREE`: **首次贈送 AI 點數** — issued once as `FREE_INITIAL` to an eligible user who has not received it before.
+- `SUBSCRIPTION`: **訂閱週期 AI 點數** — frozen into each successful `SUBSCRIPTION_PERIOD` Grant.
+- `ONE_TIME`: **購買可得 AI 點數** — frozen into one successful one-time/TOP_UP Grant.
 
-The Admin calculator shows a **recommended included AI points** value, but the final included points are still explicitly entered/confirmed by Admin and persisted. Backend must not silently recalculate or change an existing plan's included AI points when price, FX, model pricing, or margin assumptions change.
+The template is not the user's live balance. Grants are durable accounting facts.
 
-If the product later wants fully automatic pricing, it requires a separate explicit decision and durable configuration for the target margin.
+## FREE acquisition grant — Admin configured
 
-## FREE acquisition grant — frozen MVP launch value
-
-FREE has no purchase price, so its initial grant is not derived from a gross-margin formula. Treat it as a customer-acquisition / product-trial subsidy.
-
-**MVP launch FREE grant is frozen at 400,000 AI points once per eligible new user.**
-
-This amount was selected as the current launch-friendly rounded balance and is roughly in the intended NT$30 conservative output-price-equivalent subsidy range under the current selected model/pricing snapshot. Do not recalculate each new user's FREE grant from live FX or model pricing at grant time.
+FREE has no purchase price, so its initial grant is a customer-acquisition/product-trial subsidy rather than a gross-margin-derived purchase allowance.
 
 Rules:
 
-- grant exactly **400,000 AI points** once per eligible user/account for the MVP launch configuration;
-- no calendar expiry unless product policy changes later;
-- never refresh automatically;
-- after it reaches zero, manual PWA functionality remains available for free;
-- existing FREE grants are never resized retroactively when model pricing or FX changes;
-- Admin must compare the FREE grant's average real provider cost, conversion to paid plans/top-ups and exhaustion rate so a future launch-policy change can be made explicitly.
+- Exactly one `FREE` plan exists.
+- FREE `grant_points` is configured in Admin/DB, not hard-coded in source code and not stored in environment variables.
+- A new eligible user receives the currently configured amount once.
+- No calendar refresh and no calendar expiry unless a later explicit product decision changes that policy.
+- After FREE reaches zero, manual PWA remains available for free.
+- Changing the FREE template affects only users who have not yet received `FREE_INITIAL`.
+- Existing FREE Grants are never resized or recalculated retroactively.
+- Admin should measure average real provider subsidy, exhaustion rate, and FREE-to-paid conversion before changing the acquisition amount.
 
-A future change to the new-user promotional amount is allowed only as an explicit configuration/product decision; it must not silently mutate historical grants.
+The operator may currently configure **400,000** points as the launch value, but that number is not frozen in code or in this policy.
+
+## Subscription allowance
+
+Each successful subscription period freezes that plan's current `grant_points` into a separate `SUBSCRIPTION_PERIOD` Grant. Later template changes do not change the already-created period Grant.
+
+Unused subscription-period allowance does not roll into the next period unless a later explicit product decision changes the policy.
+
+## One-time / buyout allowance
+
+Each successful ONE_TIME purchase freezes that product's current `grant_points` into a separate one-time/TOP_UP Grant. It does not create a recurring subscription allowance and never refreshes monthly.
 
 ## Conservative allowance sizing and actual charging
 
-Allowance sizing intentionally uses the selected provider/model's output-token price as the conservative reference price when converting an AI budget into a suggested customer point balance.
+Allowance sizing may use the selected provider/model's output-token price as the conservative reference price when converting an AI budget into suggested customer points.
 
-This does **not** mean actual provider accounting ignores input or other usage. Every AI call still records and charges from actual provider usage/cost, including input, output, thinking/reasoning and modality-specific usage where applicable.
-
-The purpose of using the higher output reference price for suggested allowance sizing is to give the customer a conservatively sized balance: when real requests contain cheaper input usage, realized margin may be higher than the planning target.
+This does **not** mean actual provider accounting ignores input or other usage. Every successful AI call records/charges from actual provider cost including billable input, output, thinking/reasoning, and modality-specific usage where applicable.
 
 ## Provider cost vs customer points
 
-Provider-dollar cost and customer AI points are separate concepts.
+Provider-dollar cost and customer AI points are separate facts.
 
-For every provider call retain sufficient usage/pricing facts to calculate actual cost, including input tokens, output tokens, thinking/reasoning tokens where applicable, model, pricing snapshot, and modality-specific usage where applicable.
+For every provider call retain sufficient usage/pricing facts to calculate actual cost, including input tokens, output tokens, thinking/reasoning where applicable, model, immutable pricing snapshot, and modality-specific usage where applicable.
 
-Admin profitability reports must use actual provider cost rather than assuming points equal provider cost.
+Admin profitability reports use actual provider cost rather than assuming points equal provider cost.
 
 ## AI point conversion — frozen
 
 **1 AI point = 1 output-price-equivalent token.**
 
-The point is a customer-facing accounting unit, not a claim that the provider request contained one actual output token.
+For a successful provider call:
 
-For an AI call:
-
-1. calculate the call's full actual provider cost using the immutable pricing snapshot that applied to that request, including all billable input/output/thinking/modality usage;
-2. take the same model/pricing snapshot's output price per token as the point reference price;
+1. calculate full actual provider cost using the immutable pricing snapshot for that request;
+2. use the same snapshot's output price per token as the point reference price;
 3. convert total provider cost into output-price-equivalent tokens;
-4. charge that number as AI points using the frozen whole-point rule: **round any positive fractional result upward to the next whole AI point** (`ceil`). Zero cost remains zero points.
+4. round any positive fractional result upward (`ceil`). Zero cost remains zero points.
 
 Conceptual formula:
 
 `AI points used = ceil(total actual provider cost / output reference price per token)`
 
-Therefore all billable input/output/thinking/media costs are represented in point consumption even though the reference unit is the output price. Upward whole-point rounding prevents successful provider usage from being silently under-accounted by truncation and is applied only after full real provider cost has been calculated from the request's immutable pricing snapshot.
+All billable input/output/thinking/media costs are therefore represented in point consumption even though the reference unit is output price.
 
-Large balances such as hundreds of thousands or millions of AI points are acceptable and intentional. Customer UI should use readable thousands separators and percentages rather than hiding the scale.
+Large balances such as hundreds of thousands or millions are intentional. Customer UI should use readable separators and percentages.
 
-Do not silently change the definition of one AI point or the historical rounding rule later. If a future product revision needs a different point unit/rounding version, it requires an explicit migration/versioning decision so historical grants and usage remain auditable.
+Do not silently change the definition of one AI point or the historical rounding rule. A future unit change requires explicit versioning/migration so historical Grants and usage stay auditable.
 
 ## Model pricing snapshot
 
-As of 2026-09-03, the selected planning snapshot documented for the current Gemini Developer API model family uses separate input and output pricing, with thinking counted under the applicable billed output usage. Pricing changes over time, therefore historical usage must retain the exact provider/model pricing snapshot that applied when the request ran.
+Provider/model prices are durable configurable pricing snapshots, not entitlement constants. Historical usage retains the exact provider/model pricing snapshot that applied when the request ran.
 
-Do not hard-code a current web price into entitlement logic. Provider prices belong in durable/configurable pricing snapshots.
+Do not hard-code current provider web prices into entitlement logic.
 
-## Existing plan point counts must be recalibrated
+## AI provider/model runtime rule
 
-Legacy values such as FREE `500`, PRO `500`, and TEAM `2500` were defined before the AI-point unit was frozen and must **not** be treated as final customer allowances under the new 1:1 output-price-equivalent model.
+Provider may be restricted to implemented adapters (currently `GOOGLE`). Model identifiers are runtime data and must not be hard-coded or allowlisted. The current intended operator model is `gemini-3.5-flash-lite`; future compatible model identifiers may be selected without a code release.
 
-Current launch rule:
+## Legacy point values
 
-- FREE is explicitly **400,000 AI points once**;
-- PRO and TEAM included point amounts remain explicit Admin configuration and must be checked against representative usage/cost measurements before launch;
-- top-up products likewise use explicit persisted point amounts.
+Legacy values such as FREE `500`, PRO `500`, TEAM `2500`, or any old aggregate quota unit are not accepted customer allowances under the current point definition.
 
-Historical/prelaunch data is disposable, so obsolete launch defaults may be replaced directly while there is no real production customer data.
+Current point amounts for FREE, subscription products, and ONE_TIME products are explicit Admin configuration. Prelaunch disposable data may be rebuilt to remove obsolete defaults.
 
 ## Admin usage and profitability analytics
 
-Admin must make pricing decisions possible from real usage rather than intuition. At minimum provide selectable periods such as today / 7 days / 30 days / current billing month and show:
+Admin should support periods such as today / 7 days / 30 days / current billing month and expose at minimum:
 
-- total AI requests;
-- total AI points consumed;
-- total provider cost in USD and converted TWD;
-- average AI points consumed per AI request;
-- average provider cost per AI request;
-- average AI points consumed per active user;
-- average provider cost per active user;
-- average and median monthly AI usage per subscriber where enough data exists;
-- total customer revenue for the selected plan/product cohort where available;
-- realized AI cost ratio = actual AI provider cost / relevant revenue;
-- realized gross margin based on captured direct costs;
-- platform-subsidized AI points and provider cost;
-- percentage of users exhausting their allowance;
-- average allowance utilization percentage and distribution where practical;
-- FREE-to-paid conversion and average real provider subsidy per FREE user where available.
+- total AI requests and AI points consumed;
+- provider cost USD/TWD;
+- average points/provider cost per request and per active user;
+- platform-subsidized points/provider cost;
+- allowance exhaustion and utilization;
+- FREE real subsidy and conversion where available;
+- model, operation/input type, PRIVATE/GROUP, Grant type, and commercial plan/product breakdowns;
+- realized revenue/cost/margin only when durable successful-payment facts exist.
 
-Breakdowns should be available by at least:
-
-- plan: FREE / PRO / TEAM;
-- allowance source: FREE initial / subscription period / top-up;
-- model;
-- AI operation/input type such as text Record, image, audio, file and LINE edit where shipped;
-- PRIVATE vs GROUP scope.
-
-Useful decision views include:
-
-- `PRO: average subscriber used 31% of monthly points, median 18%, AI provider cost NT$X/user`;
-- `TEAM: average subscriber used 62%, AI provider cost NT$Y/user`;
-- `top-up: average realized gross margin 54%`;
-- `subscription: average realized gross margin 46%`.
-
-These reports are for Admin only. Customer PWA shows points and usage percentages, not internal revenue/margin/provider-cost calculations.
+Customer PWA shows customer-friendly point balances/usage percentages, not internal provider pricing or margins.
 
 ## Gross-margin interpretation
 
-The Admin `target gross margin %` is a planning aid, not guaranteed net profit.
-
-Current intended commercial distinction is deliberate:
-
-- one-time purchases target about 50% gross margin;
-- subscriptions target about 40% gross margin so recurring customers receive more usable AI allowance and have more reason to keep using the product.
-
-Actual realized margin must be measured from production usage. Admin may later adjust target margin or manually entered included points without retroactively changing historical grants.
-
-Gross-margin planning must distinguish direct cost of delivering the service (AI inference, infrastructure, payment processing and other applicable COGS) from later operating expenses such as development, marketing and general administration.
+Target gross margin is a planning aid, not guaranteed net profit. Direct AI/infrastructure/payment costs must be distinguished from broader operating expenses.
 
 ## User-facing usage display
 
-PWA should display customer-friendly values such as:
-
-- remaining AI points;
-- used AI points;
-- total included/available AI points;
-- usage percentage / remaining percentage;
-- progress indicator.
-
-Do not expose raw Gemini USD pricing or token accounting in normal customer UI.
-
-Group PWA displays only group-scoped available/used points under the current AI allowance responsible user's authorized grants, without exposing unrelated private/other-group balances.
+PWA should display remaining, used and available/included AI points plus usage/remaining percentage/progress. GROUP PWA exposes only authorized group-scoped availability/usage under the current AI 額度負責人, not unrelated balances.
 
 ## Zero-balance / overage rule
 
 - eligible AI points must be greater than zero before starting an AI operation;
-- if points are zero before request start, do not call provider AI;
-- if a request starts with positive points and actual usage exceeds remaining points, customer balance floors at zero and AFTERTRACE absorbs the shortfall for that already-started request;
-- Admin records customer-charged points, actual provider cost, and platform subsidy separately.
+- if zero at request start, do not call provider AI;
+- if the request starts with positive balance and real usage exceeds remaining points, customer balance floors at zero and AFTERTRACE absorbs the shortfall for that already-started request;
+- Admin records customer charge, provider cost, and platform subsidy separately.
 
 GitHub Actions must not be used as validation unless explicitly requested by the user.
