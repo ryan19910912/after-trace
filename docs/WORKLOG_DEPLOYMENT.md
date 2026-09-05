@@ -4,35 +4,31 @@ Durable deployment contract for branch `revive/line-worklog`.
 
 ## Deployment topology
 
-AFTERTRACE deploys as three independent Cloudflare Workers. Do not reintroduce Cloudflare Pages.
+AFTERTRACE uses three logical Worker surfaces in each shared environment. Do not reintroduce Cloudflare Pages.
 
-### `after-trace-api`
+Actual Cloudflare Worker names are explicit and already created:
 
-- Hono / TypeScript Worker.
-- LINE webhook, auth/session, Worklog APIs, Admin APIs, subscription boundary, Grant/point/provider orchestration and PostgreSQL/Drizzle.
-- Config: `apps/api/wrangler.toml`.
-- Production helper: `worker-deploy.ps1`.
+### Dev
 
-### `after-trace-web`
+- `after-trace-api-dev` — Hono / TypeScript API Worker.
+- `after-trace-web-dev` — React/Vite customer PWA through Workers Static Assets.
+- `after-trace-admin-dev` — React/Vite internal Admin through Workers Static Assets.
 
-- React/Vite customer PWA through Workers Static Assets.
-- Config: `apps/web/wrangler.toml`.
-- `not_found_handling = "single-page-application"` is required so authenticated/history deep links survive direct refresh.
+### Prod
 
-### `after-trace-admin`
+- `after-trace-api-prod` — Hono / TypeScript API Worker.
+- `after-trace-web-prod` — React/Vite customer PWA through Workers Static Assets.
+- `after-trace-admin-prod` — React/Vite internal Admin through Workers Static Assets.
 
-- React/Vite internal Admin through Workers Static Assets.
-- Config: `apps/admin/wrangler.toml`.
-- Includes `/profitability` factual AI point/provider-cost reporting.
-- `not_found_handling = "single-page-application"` is required.
+Configs remain:
 
-Worker slug naming is normalized to `after-trace-*`. If a separate shared dev environment is introduced, use the same names with a `-dev` suffix:
-
-- `after-trace-api-dev`
-- `after-trace-web-dev`
-- `after-trace-admin-dev`
+- API: `apps/api/wrangler.toml`.
+- Web: `apps/web/wrangler.toml` with `not_found_handling = "single-page-application"`.
+- Admin: `apps/admin/wrangler.toml` with `not_found_handling = "single-page-application"`.
 
 The customer-facing brand remains `AFTERTRACE`; the hyphenated names are infrastructure/deployment slugs only.
+
+Manual deployment is the accepted operating model. `pnpm deploy:dev` and `pnpm deploy:prod` pass the exact Wrangler `--name` target for each Worker. Do not depend on Wrangler automatically appending `-dev` or `-prod`, and do not enable automatic Git branch deployment unless the user explicitly changes this policy.
 
 ## Product authorization boundaries that deployment must preserve
 
@@ -46,21 +42,25 @@ The customer-facing brand remains `AFTERTRACE`; the hyphenated names are infrast
 - `worklog_workspaces.owner_user_id` is transitional storage only; it is never GROUP data authority/payment responsibility/AI 額度負責人.
 - Customer/Project/Finance/Transaction/category/normalized-summary must not return as universal Worklog schema.
 
-## Production configuration source
+## Environment configuration source
 
-**Cloudflare production Workers do not read repository `.env.local` or `.env`.**
+**Cloudflare deployed Workers do not read repository `.env.local`, `.env.dev`, or `.env.prod` as runtime bindings.**
 
-Repository `.env.local` is local development/tooling input only. Repository `.env.prod` is an operator-maintained production/deployment input and is not read automatically by the deployed Worker runtime.
+Repository files are operator/local inputs:
 
-Production API Worker values come from Cloudflare Worker Variables/Secrets plus checked-in non-secret `wrangler.toml` values.
+- `.env.local` — local development/tooling only.
+- `.env.dev` — authoritative input for manual Dev deployment tooling.
+- `.env.prod` — authoritative input for manual Prod deployment tooling.
 
-Required API production bindings include:
+Cloudflare API Worker runtime values come from the Variables/Secrets configured on each corresponding Worker plus checked-in non-secret Wrangler configuration. Dev and Prod use separate runtime configuration.
 
-- `DATABASE_URL` — Cloudflare secret for the runtime production database.
+Required API bindings include:
+
+- `DATABASE_URL` — runtime PostgreSQL connection.
 - `LINE_CHANNEL_SECRET` — secret.
 - `LINE_CHANNEL_ACCESS_TOKEN` — secret.
 - `GEMINI_API_KEY` — secret.
-- `WEB_APP_URL` — exact deployed Web HTTPS origin.
+- `WEB_APP_URL` — exact deployed Web HTTPS origin for the same environment.
 - `WEB_APP_ORIGIN` — same exact Web HTTPS origin.
 - `WEB_AUTH_SECRET` — >= 32 chars, secret.
 - `LINE_LOGIN_CHANNEL_ID` — public variable.
@@ -68,7 +68,7 @@ Required API production bindings include:
 - `ADMIN_USERNAME` — configured Admin identity.
 - `ADMIN_PASSWORD` — **at least 16 characters**, use a unique random production value.
 - `ADMIN_SESSION_SECRET` — >= 32 characters, secret.
-- `ADMIN_WEB_ORIGIN` — exact deployed Admin HTTPS origin.
+- `ADMIN_WEB_ORIGIN` — exact deployed Admin HTTPS origin for the same environment.
 
 Do not put API secrets in `VITE_*` variables.
 
@@ -76,30 +76,60 @@ Web/Admin use the public build-time API origin `VITE_API_BASE_URL`.
 
 ## Deployment helper target variables
 
-- `VITE_API_BASE_URL` = the single canonical API Worker base URL used by Web/Admin builds, `release:preflight`, and all deployment helpers.
-- `DATABASE_URL` = the intended production PostgreSQL URL. The same variable name is used for deployment migration and as the API Worker runtime database binding.
+- `VITE_API_BASE_URL` = the single canonical API Worker base URL used by Web/Admin builds and deployment helpers in the selected environment.
+- `DATABASE_URL` = the intended PostgreSQL URL for that environment. The same variable name is used by deployment migration and API runtime configuration, but the Worker secret must still be configured separately in Cloudflare.
 
-`AFTERTRACE_API_URL` and `AFTERTRACE_PROD_DATABASE_URL` are intentionally not used. The operator loads the intended production environment before running deployment. `worker-deploy.ps1` validates `VITE_API_BASE_URL` and `DATABASE_URL` and never loads repository `.env.local` itself, so deployment does not require duplicate environment variables for the same API or database target.
+`AFTERTRACE_API_URL` and `AFTERTRACE_PROD_DATABASE_URL` are intentionally not used.
 
-Operators must still verify that the `DATABASE_URL` loaded for migration and the `DATABASE_URL` secret configured on the Worker identify the same intended database. Post-deploy readiness catches missing/unmigrated schema but cannot infer operator intent.
+The manual deploy script loads only the selected `.env.dev` or `.env.prod`, validates workers.dev host names against the exact environment Worker names, and rejects an obvious Dev/Prod host mismatch before deployment.
+
+Operators must still verify that the `DATABASE_URL` used for migration and the `DATABASE_URL` configured on the target Worker identify the same intended database. Post-deploy readiness catches missing/unmigrated schema but cannot infer operator intent.
 
 ## workers.dev launch direction
 
 A purchased custom domain is not required for initial launch.
 
-Expected production shape:
-
-- API: `https://after-trace-api.<account-subdomain>.workers.dev`
-- Web: `https://after-trace-web.<account-subdomain>.workers.dev`
-- Admin: `https://after-trace-admin.<account-subdomain>.workers.dev`
-
-If dev Workers are introduced, expected shape is:
+Expected Dev shape:
 
 - API: `https://after-trace-api-dev.<account-subdomain>.workers.dev`
 - Web: `https://after-trace-web-dev.<account-subdomain>.workers.dev`
 - Admin: `https://after-trace-admin-dev.<account-subdomain>.workers.dev`
 
+Expected Prod shape:
+
+- API: `https://after-trace-api-prod.<account-subdomain>.workers.dev`
+- Web: `https://after-trace-web-prod.<account-subdomain>.workers.dev`
+- Admin: `https://after-trace-admin-prod.<account-subdomain>.workers.dev`
+
 Do not hard-code one account subdomain into source/deployment defaults before the actual Cloudflare account confirms it.
+
+## Manual Dev / Prod deployment commands
+
+Standard commands:
+
+```text
+pnpm deploy:dev
+pnpm deploy:prod
+```
+
+Per-component commands:
+
+```text
+pnpm deploy:dev:api
+pnpm deploy:dev:web
+pnpm deploy:dev:admin
+pnpm deploy:prod:api
+pnpm deploy:prod:web
+pnpm deploy:prod:admin
+```
+
+The deployment script:
+
+1. loads the selected `.env.dev` or `.env.prod` as authoritative process values;
+2. validates `VITE_API_BASE_URL`, `WEB_APP_URL`, and `ADMIN_WEB_ORIGIN` against the exact selected workers.dev names when using workers.dev;
+3. applies the selected environment's PostgreSQL migration before API deployment;
+4. deploys with explicit `wrangler deploy --name after-trace-<component>-<environment>` targets;
+5. does not upload `.env.dev` / `.env.prod` as Worker runtime secrets.
 
 ## Web / LINE destinations
 
@@ -126,7 +156,7 @@ Current migration artifacts are:
 
 `apps/api/src/db/schema-all.ts` is the authoritative Drizzle export surface.
 
-**The currently checked-in baseline/snapshot are known stale until regenerated and MUST NOT be applied.** The stale baseline still contains retired pre-rebuild structures.
+The checked-in baseline must remain coherent with the current TypeScript schema and pass the baseline guard before migration/deployment.
 
 ### Safe baseline regeneration
 
@@ -174,9 +204,9 @@ A migration creates schema, not business/operator configuration.
 
 Before `/health/ready` can become green on a brand-new DB:
 
-1. Apply the regenerated baseline to the intended production DB.
-2. Configure API Worker Variables/Secrets.
-3. Deploy API Worker. For the **first** fresh DB only, use the explicit `-AllowInitialBootstrapNotReady` switch if Admin configuration must happen after the API exists. This switch may tolerate only `AI_RUNTIME_CONFIG_NOT_INITIALIZED` or `FREE_PLAN_NOT_INITIALIZED`; missing secrets, DB/schema errors, or any other readiness failure still abort deployment.
+1. Apply the regenerated baseline to the intended environment DB.
+2. Configure target API Worker Variables/Secrets.
+3. Deploy API Worker. For the **first** fresh DB only, the existing production helper may use the explicit `-AllowInitialBootstrapNotReady` switch if Admin configuration must happen after the API exists. This exception may tolerate only `AI_RUNTIME_CONFIG_NOT_INITIALIZED` or `FREE_PLAN_NOT_INITIALIZED`; missing secrets, DB/schema errors, or any other readiness failure still abort deployment.
 4. Deploy/open Admin against that API.
 5. Initialize DB-backed AI runtime pricing through Admin `/ai-runtime` with the chosen provider/model/pricing/FX snapshot. `output_usd_per_million` must be positive.
 6. Create/enable the `FREE` plan through Admin with:
@@ -210,7 +240,7 @@ PRO/TEAM cards use `subscription_period_points` because their included points ar
 
 Readiness fails with HTTP 503 when any required launch binding is missing/invalid, Admin password is weaker than the configured minimum, rebuilt schema probes fail, AI runtime pricing row is absent/invalid, or the frozen FREE plan shell is not initialized correctly.
 
-The schema probe touches rebuilt-only Entity/Alias/Revision/Confirmation/Grant/AI charge/subsidy/responsibility structures. Checking `worklog_users` alone is insufficient because the obsolete baseline also contained that table.
+The schema probe touches rebuilt-only Entity/Alias/Revision/Confirmation/Grant/AI charge/subsidy/responsibility structures. Checking `worklog_users` alone is insufficient because obsolete schema may also contain that table.
 
 Readiness validates configured shape/presence, not external-provider credential correctness. LINE and Gemini still require real smoke tests.
 
@@ -239,41 +269,9 @@ It deliberately does **not** migrate or deploy.
 
 Passing preflight is necessary but not sufficient. Fresh PostgreSQL and runtime smoke remain mandatory.
 
-## Production helpers
+## Legacy production helpers
 
-### API
-
-`worker-deploy.ps1` must:
-
-1. require main/clean tree unless explicitly overridden;
-2. reject stale baseline immediately;
-3. install from lockfile unless skipped;
-4. typecheck/lint/test/build;
-5. export Drizzle schema;
-6. require a valid `DATABASE_URL` already loaded for the intended production database (or explicit `-DatabaseUrl` override), without loading `.env.local`;
-7. migrate that database;
-8. deploy API Worker;
-9. verify `/health` using `VITE_API_BASE_URL`;
-10. verify `/health/ready` by default.
-
-`-AllowInitialBootstrapNotReady` is an explicit first-deploy exception only. It tolerates only the two operator-initialization readiness errors documented above and prints that public launch is still **NOT READY**. After Admin initialization, `/health/ready=ready` is mandatory.
-
-### Web
-
-`web-worker-deploy.ps1` builds with `VITE_API_BASE_URL` and, when `-ExpectedUrl` is supplied, verifies:
-
-- `/`
-- `/help`
-- `/subscription`
-
-### Admin
-
-`admin-worker-deploy.ps1` builds with `VITE_API_BASE_URL` and verifies:
-
-- `/`
-- `/profitability`
-
-These Static Assets checks catch broken SPA fallback but do not replace authenticated browser smoke.
+`worker-deploy.ps1`, `web-worker-deploy.ps1`, and `admin-worker-deploy.ps1` remain production-oriented helpers. Their checked-in Wrangler default names point to the `*-prod` Workers. The preferred two-environment workflow is the root `pnpm deploy:dev*` / `pnpm deploy:prod*` command family above.
 
 ## LINE AI zero-balance boundary
 
@@ -361,11 +359,10 @@ Validate locally/runtime, never substitute GitHub Actions unless explicitly requ
 
 ## External configuration still required
 
-- actual Cloudflare workers.dev hosts;
-- Worker Variables/Secrets listed above;
-- `VITE_API_BASE_URL` pointing to the deployed API Worker;
-- production `DATABASE_URL` loaded for deployment migration and configured as the API Worker secret;
-- LINE OA webhook and LINE Login callback URLs;
+- actual Dev/Prod Cloudflare workers.dev hosts;
+- Worker Variables/Secrets for both API Workers;
+- `.env.dev` / `.env.prod` with matching public origins and DB migration targets;
+- LINE OA webhook and LINE Login callback URLs for each environment;
 - LINE OA Rich Menu;
 - initialized AI runtime pricing row;
 - initialized FREE plan;
