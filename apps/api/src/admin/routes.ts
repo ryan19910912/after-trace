@@ -30,7 +30,6 @@ type AdminEnv = {
 };
 
 const SUPPORTED_AI_PROVIDER = 'GOOGLE';
-const SUPPORTED_WORKLOG_MODEL = 'gemini-3.5-flash';
 
 export function createAdminRoutes() {
   const app = new Hono<AdminEnv>();
@@ -312,7 +311,6 @@ function aiRuntimeInput(body: Record<string, unknown>): AdminAiRuntimeInput {
   const provider = requiredText(body.provider, 'INVALID_AI_PROVIDER', 128).toUpperCase();
   const model = requiredText(body.model, 'INVALID_AI_MODEL', 255);
   if (provider !== SUPPORTED_AI_PROVIDER) throw new Error('AI_PROVIDER_NOT_SUPPORTED');
-  if (model !== SUPPORTED_WORKLOG_MODEL) throw new Error('AI_MODEL_NOT_SUPPORTED');
   const outputUsdPerMillion = decimal(body.outputUsdPerMillion, 'INVALID_AI_OUTPUT_PRICE');
   if (Number(outputUsdPerMillion) <= 0) throw new Error('AI_OUTPUT_PRICE_MUST_BE_POSITIVE');
   return {
