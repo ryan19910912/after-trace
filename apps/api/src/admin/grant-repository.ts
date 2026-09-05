@@ -43,14 +43,16 @@ export class DrizzleGrantAdminRepository {
       FROM worklog_users u
       LEFT JOIN worklog_user_subscriptions subscription ON subscription.user_id = u.id
       WHERE u.is_oa_friend = TRUE
-        AND (${input.query}::text IS NULL OR u.id::text = ${input.query} OR u.line_user_id ILIKE '%' || ${input.query} || '%' OR COALESCE(u.display_name, '') ILIKE '%' || ${input.query} || '%')
-        AND (${input.planCode}::text IS NULL OR COALESCE(subscription.plan_code, 'FREE') = ${input.planCode})
+        AND (${input.query}::text IS NULL OR u.id::text = ${input.query}::text OR u.line_user_id ILIKE '%' || ${input.query}::text || '%' OR COALESCE(u.display_name, '') ILIKE '%' || ${input.query}::text || '%')
+        AND (${input.planCode}::text IS NULL OR COALESCE(subscription.plan_code, 'FREE') = ${input.planCode}::text)
         AND (
           ${input.userType}::text IS NULL
-          OR (${input.userType} = 'GROUP_ENABLED' AND EXISTS (SELECT 1 FROM worklog_source_ai_responsibility responsibility INNER JOIN worklog_sources source ON source.id = responsibility.source_id WHERE responsibility.responsible_user_id = u.id AND source.type = 'GROUP' AND source.status = 'ACTIVE'))
-          OR (${input.userType} = 'INDIVIDUAL' AND NOT EXISTS (SELECT 1 FROM worklog_source_ai_responsibility responsibility INNER JOIN worklog_sources source ON source.id = responsibility.source_id WHERE responsibility.responsible_user_id = u.id AND source.type = 'GROUP' AND source.status = 'ACTIVE'))
+          OR (${input.userType}::text = 'GROUP_ENABLED' AND EXISTS (SELECT 1 FROM worklog_source_ai_responsibility responsibility INNER JOIN worklog_sources source ON source.id = responsibility.source_id WHERE responsibility.responsible_user_id = u.id AND source.type = 'GROUP' AND source.status = 'ACTIVE'))
+          OR (${input.userType}::text = 'INDIVIDUAL' AND NOT EXISTS (SELECT 1 FROM worklog_source_ai_responsibility responsibility INNER JOIN worklog_sources source ON source.id = responsibility.source_id WHERE responsibility.responsible_user_id = u.id AND source.type = 'GROUP' AND source.status = 'ACTIVE'))
         )
-      ORDER BY CASE WHEN ${input.sortUpdated} = 'ASC' THEN u.updated_at END ASC, CASE WHEN ${input.sortUpdated} = 'DESC' THEN u.updated_at END DESC, u.id DESC
+      ORDER BY CASE WHEN ${input.sortUpdated}::text = 'ASC' THEN u.updated_at END ASC,
+               CASE WHEN ${input.sortUpdated}::text = 'DESC' THEN u.updated_at END DESC,
+               u.id DESC
       LIMIT ${input.limit}
     `);
     return result.rows;
@@ -171,7 +173,7 @@ export class DrizzleGrantAdminRepository {
       LEFT JOIN worklog_source_ai_responsibility responsibility ON responsibility.source_id = source.id
       LEFT JOIN worklog_users responsible ON responsible.id = responsibility.responsible_user_id
       WHERE source.type = 'GROUP'
-        AND (${query}::text IS NULL OR source.id::text = ${query} OR COALESCE(source.line_group_id, '') ILIKE '%' || ${query} || '%' OR COALESCE(responsible.display_name, '') ILIKE '%' || ${query} || '%' OR COALESCE(responsibility.responsible_user_id::text, '') = ${query})
+        AND (${query}::text IS NULL OR source.id::text = ${query}::text OR COALESCE(source.line_group_id, '') ILIKE '%' || ${query}::text || '%' OR COALESCE(responsible.display_name, '') ILIKE '%' || ${query}::text || '%' OR COALESCE(responsibility.responsible_user_id::text, '') = ${query}::text)
       ORDER BY source.updated_at DESC, source.id DESC
       LIMIT ${limit}
     `);
@@ -299,6 +301,7 @@ export class DrizzleGrantAdminRepository {
 
   plans() { return this.legacy.plans(); }
   upsertPlan(input: AdminPlanInput, actorAdmin: string) { return this.legacy.upsertPlan(input, actorAdmin); }
+  deletePlan(code: string, actorAdmin: string) { return this.legacy.deletePlan(code, actorAdmin); }
   aiRuntimeConfig() { return this.legacy.aiRuntimeConfig(); }
   updateAiRuntimeConfig(input: AdminAiRuntimeInput, actorAdmin: string) { return this.legacy.updateAiRuntimeConfig(input, actorAdmin); }
   feedback(limit: number) { return this.legacy.feedback(limit); }
