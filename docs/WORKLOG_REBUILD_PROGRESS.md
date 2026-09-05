@@ -17,7 +17,7 @@ The latest documents above are the only product/development specification. Do no
 
 ## Current execution checkpoint — 2026-09-05 production Worker runtime smoke pending
 
-The prelaunch baseline rebuild, fresh PostgreSQL integrity stage, and complete local static/test/build validation are green. Deployment configuration is intentionally simplified: `DATABASE_URL` is the single production database variable for migration/runtime, and `VITE_API_BASE_URL` is the single API base URL used by Web/Admin builds, `release:preflight`, and deployment helpers. `AFTERTRACE_PROD_DATABASE_URL` and `AFTERTRACE_API_URL` are retired. The deploy helper does not load repository `.env.local` itself; the operator must load the intended production environment before deployment.
+The prelaunch baseline rebuild, fresh PostgreSQL integrity stage, and complete local static/test/build validation are green. Deployment configuration is intentionally simplified: `DATABASE_URL` is the single production database variable for migration/runtime, and `VITE_API_BASE_URL` is the single API base URL used by Web/Admin builds, `release:preflight`, and deployment helpers. `AFTERTRACE_PROD_DATABASE_URL` and `AFTERTRACE_API_URL` are retired. The deploy helper does not load repository `.env.local` itself; the operator must load the intended production environment before deployment. Cloudflare Worker infrastructure slugs are normalized to `after-trace-*`: production uses `after-trace-api`, `after-trace-web`, `after-trace-admin`; any future shared dev Workers use the corresponding `-dev` suffix.
 
 ## 已完成 / 已實際驗證
 
@@ -128,7 +128,8 @@ Do not mark the `release:preflight` wrapper itself as PASS until a real deployed
 - liveness/readiness + first-fresh-DB bootstrap mode;
 - Web/Admin Workers SPA fallback/deep-link checks;
 - deployment database environment simplified to a single `DATABASE_URL`;
-- API base URL configuration simplified to a single `VITE_API_BASE_URL`.
+- API base URL configuration simplified to a single `VITE_API_BASE_URL`;
+- Worker deployment slugs normalized to `after-trace-api`, `after-trace-web`, `after-trace-admin` with `-dev` suffix reserved for shared dev Workers.
 
 ## Remaining P0 before free/manual + AI-recording launch
 
