@@ -1,5 +1,4 @@
-export const FREE_INITIAL_AI_POINTS = 400_000;
-export const FREE_INITIAL_GRANT_ORIGIN_KEY = 'FREE_INITIAL:MVP_2026_09';
+export const FREE_INITIAL_GRANT_ORIGIN_KEY = 'FREE_INITIAL';
 
 export type ProviderPointConversionInput = {
   providerCostUsd: number;
