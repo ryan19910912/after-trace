@@ -66,7 +66,7 @@ Required API bindings include:
 - `LINE_LOGIN_CHANNEL_ID` — public variable.
 - `LINE_LOGIN_CHANNEL_SECRET` — secret.
 - `ADMIN_USERNAME` — configured Admin identity.
-- `ADMIN_PASSWORD` — **at least 16 characters**, use a unique random production value.
+- `ADMIN_PASSWORD` — **at least 8 characters**; Dev/Prod should still use distinct non-reused values and store them as Cloudflare Secrets.
 - `ADMIN_SESSION_SECRET` — >= 32 characters, secret.
 - `ADMIN_WEB_ORIGIN` — exact deployed Admin HTTPS origin for the same environment.
 
@@ -238,7 +238,7 @@ PRO/TEAM cards use `subscription_period_points` because their included points ar
 - `GET /health` = Worker liveness only.
 - `GET /health/ready` = launch readiness.
 
-Readiness fails with HTTP 503 when any required launch binding is missing/invalid, Admin password is weaker than the configured minimum, rebuilt schema probes fail, AI runtime pricing row is absent/invalid, or the frozen FREE plan shell is not initialized correctly.
+Readiness fails with HTTP 503 when any required launch binding is missing/invalid, Admin password is shorter than the configured 8-character minimum, rebuilt schema probes fail, AI runtime pricing row is absent/invalid, or the frozen FREE plan shell is not initialized correctly.
 
 The schema probe touches rebuilt-only Entity/Alias/Revision/Confirmation/Grant/AI charge/subsidy/responsibility structures. Checking `worklog_users` alone is insufficient because obsolete schema may also contain that table.
 
@@ -323,7 +323,7 @@ This is a **paid/full-MVP gap**, distinct from the free/manual Worklog + AI-reco
 ## Admin security
 
 - Admin login is the only unauthenticated Admin API.
-- `ADMIN_PASSWORD` minimum length is 16 characters; use a unique random production value rather than a human-reused password.
+- `ADMIN_PASSWORD` minimum length is 8 characters. This is the accepted MVP operator policy; Dev/Prod should still use distinct non-reused values.
 - `ADMIN_SESSION_SECRET` >= 32 characters.
 - Admin bearer sessions expire (default 12h, max 24h).
 - Admin Web origin must be an exact HTTPS origin.
@@ -341,7 +341,7 @@ Validate locally/runtime, never substitute GitHub Actions unless explicitly requ
 - Entity/Alias case collision behavior is verified;
 - `pnpm release:preflight` passes;
 - `/health` and `/health/ready` after API deploy;
-- Admin login/CORS and strong credential config;
+- Admin login/CORS and configured credential validation;
 - LINE Login callback and one-time Web entry;
 - PRIVATE manual access isolation;
 - GROUP active-member manual access and inactive-member denial;
