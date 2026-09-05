@@ -280,7 +280,7 @@ Do not implement implicitly until separately approved:
 
 ## Platform / deployment
 
-Stack: TypeScript/Node, Hono on Cloudflare Workers API, React/Vite Web/PWA, React/Vite Admin, PostgreSQL + Drizzle. Deploy as three Workers: `aftertrace-api`, `aftertrace-web`, `aftertrace-admin`.
+Stack: TypeScript/Node, Hono on Cloudflare Workers API, React/Vite Web/PWA, React/Vite Admin, PostgreSQL + Drizzle. Deploy as three Workers: `after-trace-api`, `after-trace-web`, `after-trace-admin`.
 
 ## Prelaunch DB policy
 
