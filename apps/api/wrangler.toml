@@ -5,7 +5,7 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 # WEB_APP_URL and WEB_APP_ORIGIN must point to the independently deployed
-# aftertrace-web Worker Static Assets origin for each environment. Configure them
+# after-trace-web Worker Static Assets origin for each environment. Configure them
 # in the deployment environment rather than committing the obsolete Pages URL.
 # WEB_AUTH_SECRET and LINE_LOGIN_CHANNEL_SECRET stay in Cloudflare Worker secrets.
 LINE_LOGIN_CHANNEL_ID = "2011322889"
