@@ -3,10 +3,13 @@ import ReactDOM from 'react-dom/client';
 import { FeedbackRoot } from './FeedbackRoot';
 import { HelpRoot } from './HelpRoot';
 import { SubscriptionRoot } from './SubscriptionRoot';
+import { installTaipeiDateDisplayPolicy } from './time-display';
 import { WorklogRoot } from './WorklogRoot';
 import './styles.css';
 
 const RETURN_KEY='aftertrace.worklog.returnTo';
+
+installTaipeiDateDisplayPolicy();
 
 function Fatal({ message }: { message: string }) {
   return <main className="shell fatal-shell"><section className="fatal-card"><p className="eyebrow">AFTERTRACE</p><h1>無法開啟 AFTERTRACE</h1><p>{message}</p></section></main>;
