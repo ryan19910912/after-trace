@@ -1,11 +1,9 @@
-name = "after-trace-admin"
+name = "after-trace-admin-prod"
 compatibility_date = "2026-09-02"
 
 [assets]
 directory = "./dist"
 not_found_handling = "single-page-application"
 
-# Production uses the top-level Worker name: after-trace-admin.
-# Wrangler automatically deploys this environment as after-trace-admin-dev.
-[env.dev]
-workers_dev = true
+# Manual deployment scripts always pass the exact --name target so Dev and Prod
+# map to after-trace-admin-dev / after-trace-admin-prod respectively.
