@@ -8,6 +8,11 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const environment = String(process.argv[2] ?? '').trim().toLowerCase();
 const component = String(process.argv[3] ?? 'all').trim().toLowerCase();
+const wranglerConfig = {
+  api: resolve(root, 'apps/api/wrangler.toml'),
+  web: resolve(root, 'apps/web/wrangler.toml'),
+  admin: resolve(root, 'apps/admin/wrangler.toml'),
+};
 
 if (!['dev', 'prod'].includes(environment)) {
   fail('usage: node scripts/deploy-workers.mjs <dev|prod> [all|api|web|admin]');
@@ -60,8 +65,7 @@ if (component === 'all' || component === 'api') {
     mode: 0o600,
   });
   try {
-    run('Deploy API Worker + runtime bindings', 'pnpm', [
-      '--filter', '@aftertrace/api', 'exec', 'wrangler', 'deploy',
+    runWrangler('Deploy API Worker + runtime bindings', wranglerConfig.api, [
       '--name', workerNames.api,
       '--secrets-file', secretsFile,
     ]);
@@ -74,16 +78,12 @@ if (component === 'all' || component === 'api') {
 
 if (component === 'all' || component === 'web') {
   run('Build Web', 'pnpm', ['--filter', '@aftertrace/web', 'build']);
-  run('Deploy Web Worker', 'pnpm', [
-    '--filter', '@aftertrace/web', 'exec', 'wrangler', 'deploy', '--name', workerNames.web,
-  ]);
+  runWrangler('Deploy Web Worker', wranglerConfig.web, ['--name', workerNames.web]);
 }
 
 if (component === 'all' || component === 'admin') {
   run('Build Admin', 'pnpm', ['--filter', '@aftertrace/admin', 'build']);
-  run('Deploy Admin Worker', 'pnpm', [
-    '--filter', '@aftertrace/admin', 'exec', 'wrangler', 'deploy', '--name', workerNames.admin,
-  ]);
+  runWrangler('Deploy Admin Worker', wranglerConfig.admin, ['--name', workerNames.admin]);
 }
 
 console.log('');
@@ -192,6 +192,16 @@ async function verifyApiDeployment(origin) {
     if (error instanceof Error && error.message.startsWith('AFTERTRACE deploy failed:')) throw error;
     fail(`API /health/ready request failed: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+function runWrangler(label, configPath, args) {
+  // Wrangler is pinned in @aftertrace/api. Reuse that single CLI for all three Worker
+  // configs so Web/Admin do not need duplicate Wrangler devDependencies.
+  run(label, 'pnpm', [
+    '--filter', '@aftertrace/api', 'exec', 'wrangler', 'deploy',
+    '--config', configPath,
+    ...args,
+  ]);
 }
 
 function run(label, command, args) {
