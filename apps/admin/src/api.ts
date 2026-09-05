@@ -273,8 +273,9 @@ export class AdminApi {
     } catch {
       throw new Error(`ADMIN_API_INVALID_RESPONSE_${response.status}`);
     }
-    if (!response.ok) throw new Error(body.error || `ADMIN_API_FAILED_${response.status}`);
-    return body;
+    const normalizedBody = normalizeAdminApiTimestamps(body) as { ok?: boolean; error?: string } & T;
+    if (!response.ok) throw new Error(normalizedBody.error || `ADMIN_API_FAILED_${response.status}`);
+    return normalizedBody;
   }
 }
 
@@ -293,6 +294,26 @@ export function effectiveSubscriptionState(row: Row, now = new Date()): string {
   if (periodStart && timestamp < periodStart.getTime()) return 'PERIOD_NOT_STARTED';
   if (periodEnd && timestamp >= periodEnd.getTime()) return 'PERIOD_EXPIRED';
   return 'ACTIVE';
+}
+
+export function normalizeAdminApiTimestamps<T>(value: T): T {
+  if (typeof value === 'string') return normalizeTimestampText(value) as T;
+  if (Array.isArray(value)) return value.map((item) => normalizeAdminApiTimestamps(item)) as T;
+  if (!value || typeof value !== 'object') return value;
+
+  const result: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    result[key] = normalizeAdminApiTimestamps(item);
+  }
+  return result as T;
+}
+
+function normalizeTimestampText(value: string): string {
+  const match = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:\.(\d+))?([+-]\d{2})(?::?(\d{2}))?$/.exec(value.trim());
+  if (!match) return value;
+  const [, datePart, timePart, fractionPart, offsetHour, offsetMinute] = match;
+  const milliseconds = fractionPart ? `.${fractionPart.slice(0, 3).padEnd(3, '0')}` : '';
+  return `${datePart}T${timePart}${milliseconds}${offsetHour}:${offsetMinute ?? '00'}`;
 }
 
 function applyServerLabels<T>(value: T): T {
