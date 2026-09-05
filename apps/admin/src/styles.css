@@ -7,6 +7,8 @@ button { border: 1px solid #3a404a; border-radius: 10px; padding: 10px 14px; bac
 button:hover:not(:disabled) { background: #353b46; }
 button:disabled { opacity: .42; cursor: not-allowed; }
 button.ghost { background: transparent; color: #f5f7fa; border: 1px solid #3a404a; }
+button.danger { background: #2a1818; border-color: #623838; color: #ffcccc; }
+button.danger:hover:not(:disabled) { background: #3a2020; }
 input, select, textarea { width: 100%; border: 1px solid #4a515d; border-radius: 10px; padding: 10px 12px; background: #242a33; color: #f5f7fa; outline: none; }
 input::placeholder, textarea::placeholder { color: #8b94a2; }
 input:focus, select:focus, textarea:focus { border-color: #7d8796; background: #2a313b; box-shadow: 0 0 0 2px rgb(255 255 255 / 6%); }
@@ -25,6 +27,10 @@ label { display: grid; gap: 6px; font-size: .86rem; font-weight: 700; color: #d0
 .tabs { display: flex; gap: 6px; overflow-x: auto; padding: 6px; border: 1px solid #2e333b; border-radius: 14px; background: #171a1f; margin-bottom: 18px; }
 .tabs button { white-space: nowrap; background: transparent; color: #aeb5c0; }
 .tabs button.active { background: #f2f4f7; color: #111318; border-color: #f2f4f7; }
+.plan-type-tabs { display: flex; gap: 8px; flex-wrap: wrap; padding: 6px; border: 1px solid #2e333b; border-radius: 14px; background: #171a1f; }
+.plan-type-tabs button { min-width: 110px; background: transparent; color: #aeb5c0; }
+.plan-type-tabs button.active { background: #f2f4f7; color: #111318; border-color: #f2f4f7; }
+.plan-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .banner { border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; font-weight: 650; }
 .banner.error { background: #2a1818; color: #ffcccc; border: 1px solid #623838; }
 .banner.success { background: #17251b; color: #c9f7d3; border: 1px solid #355a3e; }
@@ -44,22 +50,9 @@ label { display: grid; gap: 6px; font-size: .86rem; font-weight: 700; color: #d0
 .search-row input { flex: 1; min-width: 0; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 14px; }
 /* AI 計價固定使用兩行欄位標題：名稱第一行，單位／選填第二行。 */
-.form-grid:has(> label:nth-child(5) > input[placeholder="留空＝一般輸入價格"]) > label {
-  min-width: 0;
-  grid-template-rows: 2.55rem auto;
-  align-content: start;
-  font-size: 0;
-}
-.form-grid:has(> label:nth-child(5) > input[placeholder="留空＝一般輸入價格"]) > label::before {
-  white-space: pre-line;
-  font-size: .86rem;
-  font-weight: 700;
-  line-height: 1.35;
-  color: #d0d5dd;
-}
-.form-grid:has(> label:nth-child(5) > input[placeholder="留空＝一般輸入價格"]) > label > input {
-  font-size: .86rem;
-}
+.form-grid:has(> label:nth-child(5) > input[placeholder="留空＝一般輸入價格"]) > label { min-width: 0; grid-template-rows: 2.55rem auto; align-content: start; font-size: 0; }
+.form-grid:has(> label:nth-child(5) > input[placeholder="留空＝一般輸入價格"]) > label::before { white-space: pre-line; font-size: .86rem; font-weight: 700; line-height: 1.35; color: #d0d5dd; }
+.form-grid:has(> label:nth-child(5) > input[placeholder="留空＝一般輸入價格"]) > label > input { font-size: .86rem; }
 .form-grid:has(> label:nth-child(5) > input[placeholder="留空＝一般輸入價格"]) > label:nth-child(1)::before { content: "AI 供應商\A\00a0"; }
 .form-grid:has(> label:nth-child(5) > input[placeholder="留空＝一般輸入價格"]) > label:nth-child(2)::before { content: "模型\A\00a0"; }
 .form-grid:has(> label:nth-child(5) > input[placeholder="留空＝一般輸入價格"]) > label:nth-child(3)::before { content: "一般輸入價格\A（美元／100 萬單位）"; }
@@ -71,8 +64,7 @@ label { display: grid; gap: 6px; font-size: .86rem; font-weight: 700; color: #d0
 .form-grid > .switch > input { margin-top: 3px; }
 .form-grid > .switch > span { min-width: 0; display: grid; gap: 5px; line-height: 1.35; }
 .form-grid > .switch strong { color: #f5f7fa; font-size: .92rem; }
-.form-grid > .switch small,
-.form-grid > label > small { display: block; font-size: .76rem; font-weight: 500; line-height: 1.45; white-space: normal; }
+.form-grid > .switch small, .form-grid > label > small { display: block; font-size: .76rem; font-weight: 500; line-height: 1.45; white-space: normal; }
 .card h3 + .form-grid { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
 .card h3 + .form-grid > label:not(.switch) { min-width: 0; padding: 14px; border: 1px solid #343a43; border-radius: 12px; background: #14171c; align-content: start; }
 .card h3 + .form-grid > label:not(.switch) input { margin-top: 2px; }
@@ -96,19 +88,5 @@ tr.clickable:hover { background: #20242b; }
 .detail-row:last-child { border-bottom: 0; }
 .detail-row strong { font-size: .78rem; color: #9fa7b3; text-transform: capitalize; }
 .detail-row span { overflow-wrap: anywhere; color: #edf0f4; }
-@media (max-width: 900px) {
-  .filter-card { display: grid; }
-  .filter-grid { grid-template-columns: 1fr 1fr; }
-  .card h3 + .form-grid { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
-}
-@media (max-width: 640px) {
-  .shell { width: min(100% - 20px, 1500px); padding-top: 14px; }
-  .topbar { align-items: flex-start; }
-  .header-actions { flex-direction: column; }
-  .filter-grid, .form-grid, .card h3 + .form-grid { grid-template-columns: 1fr; }
-  .search-row { flex-direction: column; }
-  .card { padding: 14px; }
-  .drawer { width: 100%; padding: 14px; }
-  .drawer-head { top: -14px; margin: -14px -14px 12px; padding: 14px; }
-  .detail-row { grid-template-columns: 1fr; gap: 4px; }
-}
+@media (max-width: 900px) { .filter-card { display: grid; } .filter-grid { grid-template-columns: 1fr 1fr; } .card h3 + .form-grid { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); } }
+@media (max-width: 640px) { .shell { width: min(100% - 20px, 1500px); padding-top: 14px; } .topbar { align-items: flex-start; } .header-actions { flex-direction: column; } .filter-grid, .form-grid, .card h3 + .form-grid { grid-template-columns: 1fr; } .search-row { flex-direction: column; } .card { padding: 14px; } .drawer { width: 100%; padding: 14px; } .drawer-head { top: -14px; margin: -14px -14px 12px; padding: 14px; } .detail-row { grid-template-columns: 1fr; gap: 4px; } }
