@@ -24,36 +24,46 @@ if (!existsSync(envFile)) {
 // another environment cannot silently override dev/prod targets.
 Object.assign(process.env, parseEnv(readFileSync(envFile, 'utf8')));
 
+const workerNames = {
+  api: `after-trace-api-${environment}`,
+  web: `after-trace-web-${environment}`,
+  admin: `after-trace-admin-${environment}`,
+};
+
 const apiOrigin = requireOrigin('VITE_API_BASE_URL');
 const webOrigin = requireOrigin('WEB_APP_URL');
 const adminOrigin = requireOrigin('ADMIN_WEB_ORIGIN');
-assertEnvironmentHost(apiOrigin, `after-trace-api${environment === 'dev' ? '-dev' : ''}`);
-assertEnvironmentHost(webOrigin, `after-trace-web${environment === 'dev' ? '-dev' : ''}`);
-assertEnvironmentHost(adminOrigin, `after-trace-admin${environment === 'dev' ? '-dev' : ''}`);
+assertEnvironmentHost(apiOrigin, workerNames.api);
+assertEnvironmentHost(webOrigin, workerNames.web);
+assertEnvironmentHost(adminOrigin, workerNames.admin);
 
 console.log(`AFTERTRACE manual deployment target: ${environment.toUpperCase()}`);
-console.log(`API   : ${apiOrigin}`);
-console.log(`Web   : ${webOrigin}`);
-console.log(`Admin : ${adminOrigin}`);
-
-const wranglerEnvironmentArgs = environment === 'dev' ? ['--env', 'dev'] : [];
+console.log(`API   : ${workerNames.api} -> ${apiOrigin}`);
+console.log(`Web   : ${workerNames.web} -> ${webOrigin}`);
+console.log(`Admin : ${workerNames.admin} -> ${adminOrigin}`);
 
 if (component === 'all' || component === 'api') {
   if (!process.env.DATABASE_URL?.trim()) {
     fail(`DATABASE_URL is required in .env.${environment} before API deployment.`);
   }
   run('Apply database migrations', 'pnpm', ['--filter', '@aftertrace/api', 'db:deploy:migrate']);
-  run('Deploy API Worker', 'pnpm', ['--filter', '@aftertrace/api', 'exec', 'wrangler', 'deploy', ...wranglerEnvironmentArgs]);
+  run('Deploy API Worker', 'pnpm', [
+    '--filter', '@aftertrace/api', 'exec', 'wrangler', 'deploy', '--name', workerNames.api,
+  ]);
 }
 
 if (component === 'all' || component === 'web') {
   run('Build Web', 'pnpm', ['--filter', '@aftertrace/web', 'build']);
-  run('Deploy Web Worker', 'pnpm', ['--filter', '@aftertrace/web', 'exec', 'wrangler', 'deploy', ...wranglerEnvironmentArgs]);
+  run('Deploy Web Worker', 'pnpm', [
+    '--filter', '@aftertrace/web', 'exec', 'wrangler', 'deploy', '--name', workerNames.web,
+  ]);
 }
 
 if (component === 'all' || component === 'admin') {
   run('Build Admin', 'pnpm', ['--filter', '@aftertrace/admin', 'build']);
-  run('Deploy Admin Worker', 'pnpm', ['--filter', '@aftertrace/admin', 'exec', 'wrangler', 'deploy', ...wranglerEnvironmentArgs]);
+  run('Deploy Admin Worker', 'pnpm', [
+    '--filter', '@aftertrace/admin', 'exec', 'wrangler', 'deploy', '--name', workerNames.admin,
+  ]);
 }
 
 console.log('');
