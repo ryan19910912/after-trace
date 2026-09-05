@@ -32,7 +32,6 @@ type GeminiGenerateContentResponse = {
   };
 };
 
-const STABLE_WORKLOG_MODEL = 'gemini-3.5-flash';
 const THINKING_LEVEL = 'low';
 const PRODUCT_TIME_ZONE = 'Asia/Taipei';
 
@@ -167,7 +166,7 @@ export class GeminiWorklogLineRecordEditor implements WorklogLineRecordEditProvi
     let response: Response;
     try {
       response = await this.fetchFn(
-        `${this.endpoint}/models/${encodeURIComponent(config.model)}:generateContent`,
+        `${this.endpoint}/models/${encodeURIComponent(config.model.trim())}:generateContent`,
         {
           method: 'POST',
           headers: {
@@ -245,8 +244,9 @@ export class GeminiWorklogLineRecordEditor implements WorklogLineRecordEditProvi
     if (!this.options.apiKey.trim()) {
       throw new WorklogLineEditProviderError('GEMINI_CONFIG_INVALID', 'Gemini API key is required for Worklog LINE edit');
     }
-    if (config.model.trim() !== STABLE_WORKLOG_MODEL) {
-      throw new WorklogLineEditProviderError('GEMINI_CONFIG_INVALID', `Worklog currently supports only ${STABLE_WORKLOG_MODEL}`);
+    const model = config.model.trim();
+    if (!model || model.length > 255) {
+      throw new WorklogLineEditProviderError('GEMINI_CONFIG_INVALID', 'Gemini model name is required');
     }
     if (!Number.isFinite(config.inputUsdPerMillion) || config.inputUsdPerMillion < 0) {
       throw new WorklogLineEditProviderError('GEMINI_CONFIG_INVALID', 'Invalid Gemini input price');
