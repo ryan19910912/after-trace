@@ -50,7 +50,6 @@ export type Bindings = {
 };
 
 const SUPPORTED_AI_PROVIDER = 'GOOGLE';
-const SUPPORTED_WORKLOG_MODEL = 'gemini-3.5-flash';
 
 const app = new Hono<{ Bindings: Bindings }>();
 app.route('/api/v1/auth', createWebAuthRoutes());
@@ -89,7 +88,7 @@ app.get('/health/ready', async (c) => {
     const model = typeof row?.model === 'string' ? row.model.trim() : '';
     if (
       provider !== SUPPORTED_AI_PROVIDER
-      || model !== SUPPORTED_WORKLOG_MODEL
+      || !model
       || !Number.isFinite(outputPrice)
       || outputPrice <= 0
     ) {
