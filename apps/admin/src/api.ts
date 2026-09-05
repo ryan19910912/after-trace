@@ -91,14 +91,17 @@ export type AdminCapabilityDefinition = {
   shipped?: boolean;
 };
 
+export type AdminPlanType = 'FREE' | 'SUBSCRIPTION' | 'ONE_TIME';
+
 export type AdminPlan = {
   id?: string;
   code: string;
+  plan_type: AdminPlanType;
   display_name: string;
   price_twd: string;
   rank: number;
   enabled: boolean;
-  subscription_period_points: number;
+  grant_points: number;
   capabilities: Record<string, boolean | number | string>;
   created_at?: string;
   updated_at?: string;
@@ -216,17 +219,22 @@ export class AdminApi {
 
   async savePlan(input: {
     code: string;
+    planType: AdminPlanType;
     displayName: string;
     priceTwd: string;
     rank: number;
     enabled: boolean;
-    subscriptionPeriodPoints: number;
+    grantPoints: number;
     capabilities: Record<string, boolean | number | string>;
   }): Promise<void> {
     await this.request(`/plans/${encodeURIComponent(input.code)}`, {
       method: 'PUT',
       body: JSON.stringify(input),
     });
+  }
+
+  async deletePlan(code: string): Promise<void> {
+    await this.request(`/plans/${encodeURIComponent(code)}`, { method: 'DELETE' });
   }
 
   async aiRuntime(): Promise<AdminAiRuntimeConfig | null> {
