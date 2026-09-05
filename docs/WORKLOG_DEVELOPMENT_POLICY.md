@@ -53,6 +53,21 @@ If balance is positive at start but actual provider usage exceeds remaining cust
 
 Admin/accounting must retain provider actual usage/cost, customer charge, platform subsidy, user, Source, AI 額度負責人 where relevant, model/pricing snapshot and timestamp.
 
+## AI provider / model runtime configuration
+
+The shipped provider adapter may restrict **provider** values to implementations that actually exist (currently `GOOGLE`), but the provider-specific **model identifier must not be hard-coded or allowlisted in application code**.
+
+Rules:
+
+- Admin/runtime config stores a non-empty provider model identifier such as `gemini-3.5-flash-lite`;
+- readiness validates that the configured model identifier is present and that the pricing snapshot is usable, not that the identifier equals one code-defined model string;
+- Gemini request paths use the configured model identifier directly;
+- whether a configured model exists, is enabled for the API key, and supports the requested Gemini features is determined by the real provider request/runtime smoke, not by a stale application allowlist;
+- a newly released provider model must be selectable without an AFTERTRACE code deployment, provided the existing provider adapter/protocol is compatible;
+- pricing facts must always correspond to the configured model/pricing snapshot, and changing the active model never rewrites historical usage snapshots.
+
+The current intended AFTERTRACE Gemini model is `gemini-3.5-flash-lite`, but that is an operator/product choice, not a permanent code allowlist.
+
 ## AI points / economic model
 
 Customer-facing allowance is **AI 點數**.
