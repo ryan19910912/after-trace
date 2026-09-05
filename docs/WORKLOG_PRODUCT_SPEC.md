@@ -8,77 +8,88 @@ Core surfaces:
 
 - LINE OA/private chat: AI-assisted Record capture/edit and navigation to filtered PWA history.
 - LINE group bot: shared AI-assisted Record capture/edit and navigation to group PWA history.
-- Web/PWA: free manual browse/search/filter/create/edit/delete/restore; direct title changes and record transfer; AI allowance settings/history; paid export where enabled.
-- Internal Admin: users/groups/plans/grants/usage/subsidy/anomalies/audit and AI-point pricing analytics.
+- Web/PWA: free manual browse/search/filter/create/edit/delete/restore, title moves/batch moves, AI allowance usage/settings, and later paid export.
+- Internal Admin: users/groups/plans/Grants/usage/subsidy/anomalies/audit and AI/provider pricing analytics.
 
-The universal domain must stay general-purpose. Do not hard-code construction, finance, Customer, Project, payment, materials, etc. as universal schema.
+The universal domain stays general-purpose. Do not hard-code construction, finance, Customer, Project, payment, materials, etc. as universal schema.
 
 ## Monetization principle
 
-AFTERTRACE charges for AI compute/convenience and selected paid capabilities, not for access to the user's own data or manual CRUD.
+AFTERTRACE charges for AI compute/convenience and selected paid capabilities, not access to the user's own data or manual CRUD.
 
-Free baseline:
+Free baseline includes LINE group participation, authorized history access, manual PWA CRUD, title moves/batch moves, active-member group collaboration, and no group-count limit.
 
-- add Bot to LINE groups;
-- read/search/filter authorized records;
-- manually create/edit/delete/restore PWA records;
-- move one or many records to another title;
-- group manual collaboration for active members;
-- no maximum group count.
+Any operation requiring AI compute requires positive eligible AI balance at request start. If eligible balance is zero, do not invoke the provider; free manual PWA remains available. If a request begins with positive balance but actual provider usage exceeds it, customer balance floors at zero and AFTERTRACE records/absorbs the shortfall as platform subsidy for that already-started request.
 
-Any operation requiring AI compute requires positive eligible AI balance at request start. If eligible balance is exactly zero, do not start AI; free PWA manual functions remain available.
+## Commercial plan model
 
-If balance is positive when AI starts but actual provider usage exceeds remaining eligible units, customer balance floors at zero and AFTERTRACE absorbs the shortfall for that already-started request. Admin records customer-charged usage, platform subsidy and actual provider cost.
+Admin plans have exactly three commercial types:
 
-## Plans and AI points
+### FREE / 免費制
 
-Launch structure:
+- Exactly one plan uses `code = FREE` and `plan_type = FREE`.
+- FREE cannot be added as a second plan and cannot be deleted; Admin may edit the existing FREE plan.
+- Price is always NT$0.
+- `grant_points` means **首次贈送 AI 點數**.
+- A new eligible user receives the configured FREE amount once as a `FREE_INITIAL` Grant.
+- FREE does not refresh on a calendar or subscription period and does not expire by calendar unless policy is explicitly changed later.
+- The FREE point amount is durable Admin/DB configuration, **not a source-code or environment constant**.
+- Changing FREE `grant_points` affects only users who have not yet received their `FREE_INITIAL` Grant. Existing Grants are never resized retroactively.
 
-- FREE: NT$0, `ONE_TIME`, one initial AI-point grant, no calendar expiry/no refresh, unlimited groups.
-- PRO: NT$99/month, `MONTHLY`, included AI points per successful renewal, unused monthly included allowance does not roll over, unlimited groups, export intended paid.
-- TEAM: NT$299/month, `MONTHLY`, larger included AI points per successful renewal, unused monthly included allowance does not roll over, unlimited groups, export intended paid.
+The current operator may choose 400,000 points as the launch value, but 400,000 is not frozen in application code or required by the product contract.
 
-Customer-facing allowance is **AI 點數**. Accepted point unit is:
+### SUBSCRIPTION / 訂閱制
+
+- Admin may add, edit, disable, and delete unused subscription plan templates.
+- Price is recurring according to the later payment product configuration.
+- `grant_points` means **訂閱週期 AI 點數**.
+- Each successful paid renewal/period creates a separate immutable `SUBSCRIPTION_PERIOD` Grant using the point amount frozen from the plan template at that successful period.
+- Unused included points do not roll into a later period unless a later explicit product decision changes that behavior.
+- Editing the plan template never changes an already-created period Grant.
+
+Initial commercial direction may include PRO around NT$99/month and TEAM around NT$299/month, but final point amounts remain explicit Admin configuration.
+
+### ONE_TIME / 買斷制
+
+- Admin may add, edit, disable, and delete unused one-time product templates.
+- `grant_points` means **購買可得 AI 點數**.
+- One successful purchase creates one separate immutable `TOP_UP`/one-time Grant.
+- It does not create or modify a recurring subscription period and never refreshes monthly.
+- Editing the product template never changes a previously purchased Grant.
+
+Deleting any non-FREE plan/product must fail closed while current subscriptions, immutable history, checkout/payment facts, or other durable references still depend on it; disabling it is the safe fallback.
+
+## AI points
+
+Customer-facing allowance is **AI 點數**.
 
 - **1 AI point = 1 output-price-equivalent token**.
-
-This is a customer/accounting unit, not a claim that provider billing is output-only. Actual provider input/output/thinking/modality usage is converted to real provider cost and then to the accepted output-price-equivalent point basis. Historical provider pricing snapshots remain auditable.
+- This is an accounting unit, not a claim that provider billing is output-only.
+- Actual input/output/thinking/media usage is converted from real provider cost to points using the immutable pricing snapshot for that request.
+- Historical provider/model/FX/pricing snapshots remain auditable.
 
 Commercial planning defaults:
 
-- monthly subscription included allowance targets about **40% gross margin** to give recurring users more AI value and encourage retention;
-- one-time AI top-up products target about **50% gross margin**;
-- Admin pricing UI may calculate a recommended point amount from price, target margin, FX and model pricing, but the final included point amount is explicitly entered/confirmed by Admin and persisted;
-- existing grants are never retroactively resized when assumptions change.
+- subscriptions initially target about 40% gross margin;
+- one-time purchases/top-ups initially target about 50% gross margin;
+- Admin calculator may suggest points, but the persisted point amount is explicitly entered/confirmed by Admin;
+- existing Grants are never retroactively recalculated when pricing, FX, margin assumptions, model, or plan templates change.
 
-Current FREE launch direction is **400,000 AI points once** for a new user, roughly targeting about NT$30 of conservative output-price-equivalent AI value at the current selected model/pricing snapshot. FREE does not refresh and does not expire by calendar.
+## AI provider/model configuration
 
-Admin must expose average AI usage, average provider cost, actual usage %, allowance exhaustion %, platform subsidy and realized gross margin so pricing can be adjusted from production data. Exact PRO/TEAM/top-up point amounts remain configured separately.
+The currently implemented provider adapter may restrict provider values to actual implementations (currently `GOOGLE`). The model identifier is runtime configuration and must not be hard-coded or allowlisted in application code.
 
-## Payment provider direction
+Current intended model is `gemini-3.5-flash-lite`, but a later compatible Gemini model must be selectable without an AFTERTRACE release. Real provider calls determine model existence, API-key permission, and feature compatibility.
 
-Payment integration must support both monthly subscription renewal and one-time AI point purchases, with idempotent webhook handling and no raw card storage in AFTERTRACE.
-
-Current Taiwan MVP evaluation direction:
-
-- **NewebPay / 藍新** is the current preferred candidate for an individual studio / early small SaaS because its public individual-merchant path and low fixed-cost structure appear better suited to low-ticket plans such as NT$99; recurring-card availability/eligibility for the exact merchant account must still be confirmed before implementation.
-- **ECPay / 綠界** remains a mature fallback and may become more attractive at larger volume or under a negotiated/special-merchant fee schedule, but do not assume its recurring-payment economics are better for a tiny NT$99 plan without checking the actual contract.
-- **Oen / 應援支付** is worth requesting a direct quote because the user's company already uses it and it may offer competitive recurring/tokenized-card terms; do not select it without confirming individual-studio eligibility, recurring billing support, fixed/percentage fees, refund/settlement fees and webhook/API terms.
-- LINE Pay may later be offered as an additional payment method, but it is not currently the preferred sole subscription-billing backbone.
-
-Final provider selection is intentionally not frozen until actual merchant eligibility and commercial terms are confirmed.
-
-## AI allowance grants and responsible user
+## AI allowance ownership and group responsibility
 
 AI allowance is user-owned, never group-owned.
 
-Each FREE initial grant, subscription-period grant, and top-up purchase is independently identifiable. Grants independently authorize PRIVATE and selected GROUP scopes with optional caps. Separate top-ups remain separate when configuration would otherwise be lost.
+FREE initial Grants, subscription-period Grants, one-time purchase/top-up Grants, and Admin Grants remain independently identifiable. Grants explicitly authorize PRIVATE and selected GROUP Sources with optional caps.
 
 Customer-facing terminology is **AI 額度負責人**.
 
-Group data ownership/existence is separate from who funds AI. A group may exist with no AI 額度負責人 and still use manual PWA. Group AI requires a responsible user and an eligible grant permitted for that group. If responsible user leaves, group AI pauses while manual PWA continues. Accepted takeover/transfer rules remain auditable and balances do not move with the role.
-
-Active group members may see current group-specific AI availability and historical group AI usage without seeing unrelated private/other-group balances.
+GROUP data existence/authorization is separate from who funds AI. A group may exist with no AI 額度負責人 and continue free manual PWA usage. GROUP AI requires an active requesting member, a current AI 額度負責人, and an eligible user-owned Grant explicitly scoped to that GROUP.
 
 ## Source isolation
 
@@ -88,199 +99,78 @@ PRIVATE and GROUP Sources are separate data spaces. Titles/Entities, aliases and
 
 `Entity` is the internal domain name. Ordinary users see **紀錄標題**.
 
-Each Record belongs to exactly one title/Entity.
+Each Record belongs to exactly one Source-scoped Entity/title. Names/details mentioned inside the Record remain searchable raw text and are not automatically turned into Related Entities. Alias means a confirmed genuine alternate name for the same title.
 
-Example:
-
-`王大明跟陳師傅今天去晴空案換冷氣，材料費 5000，人工 5000`
-
-Accepted result:
-
-- 紀錄標題: `晴空案`
-- Record content keeps `王大明`, `陳師傅`, work details and amounts as text.
-
-Do not automatically create `王大明` and `陳師傅` as extra related Entities merely because AI recognized them. If a user searches `王大明`, fuzzy search over Record content still finds matching Records and shows the title they belong to.
-
-The MVP does not need a generic PRIMARY/RELATED many-to-many relationship model. `worklog_records.entity_id` (or equivalent single-title relation) is sufficient.
-
-Entity metadata stays lightweight. Alias remains a genuine alternate name for one title. If AI thinks a new title may be an existing title under another name, ask for confirmation rather than silently duplicating or aliasing it.
+The accepted MVP does not use a generic PRIMARY/RELATED many-to-many Entity model.
 
 ## Pending AI confirmation
 
-Ambiguous title/identity decisions must be stored durably, not only in Worker memory.
+Ambiguous title/identity decisions must be durable, not Worker-memory-only. Pending confirmations support at least `ALIAS_MATCH`, `RECORD_TITLE`, and `ENTITY_MATCH` with `PENDING` and resolved states such as `CONFIRMED`, `REJECTED`, `EXPIRED`.
 
-A pending-confirmation domain/table supports at least:
+## AI-assisted Record creation
 
-- `ALIAS_MATCH`;
-- `RECORD_TITLE` ambiguity;
-- `ENTITY_MATCH` ambiguity.
-
-Status includes `PENDING` and resolved states such as `CONFIRMED`, `REJECTED`, `EXPIRED`.
-
-## AI responsibilities when creating an AI-assisted Record
-
-AI-assisted Record creation stays narrow:
+AI-assisted creation stays narrow:
 
 - classify create/edit/history-navigation intent;
 - determine one Record title/Entity;
-- resolve existing title/Alias in the same Source;
-- detect possible Alias match needing confirmation;
-- resolve `occurred_at` from relative date/time language when present;
-- preserve the Record text/durable textual extraction.
+- resolve existing title/Alias within the same Source;
+- detect possible Alias/title ambiguity requiring confirmation;
+- resolve `occurred_at` from date/time language when present;
+- preserve durable raw/textual Record content.
 
-Do not create extra Related Entities and do not require universal extraction of amount/address/payment/material/task fields.
+Do not require universal amount/address/payment/material/task extraction and do not create extra Related Entities.
 
 ## Record model and time
 
-A durable Record stores source, title/entity, author, raw/durable textual content, input trace/type, status/version and time data.
-
-Important fields:
-
-- `entity_id`: one Record title/Entity;
-- `raw_text`;
-- `occurred_at`: real-world event time;
-- `created_at`: when AFTERTRACE stored it;
-- `updated_at`: last modification;
-- `status`, `version`, delete/edit trace fields as defined by edit policy.
+A durable Record stores Source, one `entity_id`, author, `raw_text`, `occurred_at`, `created_at`, `updated_at`, status/version, input type, LINE trace ids, and revision/delete facts.
 
 If AI-assisted input gives no event time, `occurred_at` defaults to message/create time.
 
-## PWA manual Record creation
+## PWA manual create/edit/search
 
-Manual PWA creation is free and never invokes AI implicitly.
+Manual PWA work is free and never invokes AI implicitly.
 
-User-facing fields:
+Create fields:
 
-- **紀錄標題**
-- **紀錄內容**
-- **發生時間** with a date/time picker, not natural-language text input
+- 紀錄標題
+- 紀錄內容
+- 發生時間 via date/time picker
 
-Title field autocompletes existing titles and aliases. Selecting an existing title uses it; entering a new title creates a new Entity/title.
+MVP search/filter mechanisms:
 
-## PWA browse/search/filter and direct operations
+1. 紀錄標題 / Entity;
+2. fuzzy search across title names, aliases and Record content;
+3. date range based on `occurred_at`.
 
-PWA is the authoritative history retrieval surface for MVP.
+Authorized users may edit content, move one or multiple Records to another title, soft-delete/restore, and inspect edit history. A title move updates the Record's `entity_id`; generic Merge/Undo is not MVP.
 
-MVP filters are intentionally limited to three composable mechanisms:
+## LINE history/navigation and edit
 
-1. **紀錄標題** / Entity;
-2. **模糊搜尋** across title names, aliases and Record content;
-3. **日期範圍** based on `occurred_at`.
+LINE history requests become deterministic PWA filters/links. LINE is not an open-ended historical database agent in MVP.
 
-Record/title operations should live directly in the list/detail workflow rather than requiring a separate title-management application.
+LINE natural-language edit requires a reliable Reply target and positive eligible AI balance. Never guess the target. AI interprets the requested change only after the Record id is deterministic; backend authorization/version/revision logic performs the mutation.
 
-From a Record/list context, authorized users may:
+## Revision / concurrency / delete
 
-- edit Record content;
-- change/move that Record to another existing or newly created title;
-- delete/restore Record according to soft-delete policy;
-- inspect edit history;
-- select multiple Records and **batch move** them to another title.
+Every content-changing edit writes immutable revision history. Use integer optimistic `version`; stale writes fail rather than silently overwrite. Restore creates a new revision. Delete is soft/status-based and reversible.
 
-A title move is intentionally simple: update the current Record's `entity_id` (with ordinary authorization/version handling where applicable). MVP does **not** require preserving a historical "previous title" audit trail merely for a title move.
+## LINE attachment policy
 
-Records remain sorted by `occurred_at`; moving a Record to another title does not change its event time.
+PWA manual create/edit is text-only for MVP. LINE image/audio/file/PDF/text-like inputs may be fetched and converted into durable text according to `WORKLOG_LINE_CONTENT_POLICY.md`; original binaries are not permanently retained.
 
-## No Merge in MVP
+## Export and payment
 
-Duplicate-title Merge/Undo is intentionally **not an MVP feature**.
+Export remains intended paid MVP functionality but is currently unshipped/fail-closed. Payment provider is currently unselected/unimplemented; checkout stays disabled until successful-payment facts, idempotent recurring/one-time handling, refunds, and no-raw-card-storage requirements are implemented.
 
-If a Record is filed under the wrong title, the user can move that Record or batch-move selected Records to the correct title. Do not build merge-state, merge-history, automatic bulk reconciliation or undo-merge complexity unless real user feedback demonstrates the need later.
+## Brand
 
-## LINE history/navigation policy
+Product/project/LINE OA name: **AFTERTRACE**.
 
-LINE AI does not independently retrieve arbitrary history and compose answers in MVP. AI understands the request and translates a history request into deterministic PWA filters.
-
-Examples:
-
-`王大明這週做了什麼`
-
-- classify as history/search intent;
-- if `王大明` is an existing title, use title filter; otherwise use fuzzy keyword `王大明`;
-- recognize the date phrase and include this week's date range;
-- return the filtered PWA URL.
-
-`這個群組今天發生什麼`
-
-- no title required;
-- include today's date range;
-- return group PWA history URL.
-
-Keep the backend function surface small, conceptually:
-
-`build_history_link(source_id, entity_id?, keyword?, from?, to?)`
-
-PWA/API performs actual SQL/search.
-
-## Record editing and revision history
-
-PWA manual editing is free and does not invoke AI automatically.
-
-Every content edit creates immutable revision history with actor/time/channel and previous/new content. PWA shows `已編輯` and allows authorized users to inspect history.
-
-Use DB optimistic concurrency with integer `version`; stale saves are rejected. Restoring an old revision creates a new revision and does not erase newer history.
-
-Manual text editing does not automatically re-run AI or change the Record title. Title movement is an explicit manual action.
-
-### LINE natural-language edit
-
-LINE AI edit requires positive eligible AI balance and a reliable Reply target.
-
-- Reply to the exact prior Record/AFTERTRACE success context is the preferred deterministic target mechanism;
-- if there is no reliable Reply target, do not guess which Record to edit; direct the user to Reply or PWA;
-- after record id is fixed, AI interprets the requested change;
-- if the instruction clearly changes the title, AI may change `entity_id` and run normal title/Alias/pending-confirmation logic;
-- backend performs authorization/version/revision transaction; AI never writes arbitrary SQL.
-
-## Soft delete / recycle bin
-
-Delete is reversible state change, not physical deletion. Keep title reference, revisions, delete actor/time and restore history. Normal search hides deleted Records; recycle bin exposes them to authorized users.
-
-## AI summaries / broad historical analysis
-
-Do not maintain persistent AI summaries. Broad autonomous AI historical analysis/query is not MVP. PWA search/filter is the primary retrieval path. Any future explicit AI report/summary feature consumes AI allowance and remains ephemeral.
-
-## Generic Record-to-Record relation
-
-MVP does not need a universal RecordRelation table merely because multiple Records share the same title over time. Add deterministic typed relations later only when a separately approved feature genuinely needs them.
-
-## LINE attachment/input policy
-
-PWA manual create/edit is text-only for MVP; no permanent PWA attachment library.
-
-LINE image/audio/file/PDF/DOCX/XLSX may be fetched/understood/extracted into durable text and original binary discarded according to `WORKLOG_LINE_CONTENT_POLICY.md`.
-
-## Export
-
-Export remains MVP and initially paid. Exact format can be refined separately.
-
-## Brand / naming direction
-
-**Brand decision is frozen for MVP: the product/project name and LINE Official Account name both use `AFTERTRACE`.**
-
-Do not introduce a separate LINE OA nickname/consumer brand in MVP. Use one consistent name across product UI, PWA, LINE OA and core customer-facing copy unless a later explicit rebrand decision is made.
-
-Current slogan direction:
-
-- **AFTERTRACE**
-- **隨筆落墨，AI 循跡。**
-
-Supporting product copy should stay truthful to the actual MVP: AI helps capture/title/date/route records, while PWA is the primary place to browse/search/filter history. Do not imply an unlimited autonomous AI historical-analysis agent.
-
-## Future discussion backlog
-
-Do not implement implicitly until separately approved:
-
-- invoice integration;
-- automatic reminders/follow-up;
-- project/engineering scheduling;
-- broad AI historical reporting beyond the accepted navigation flow;
-- duplicate-title merge/undo unless requested by users;
-- future rebrand only if explicitly approved.
+Slogan direction: **隨筆落墨，AI 循跡。**
 
 ## Platform / deployment
 
-Stack: TypeScript/Node, Hono on Cloudflare Workers API, React/Vite Web/PWA, React/Vite Admin, PostgreSQL + Drizzle. Deploy as three Workers: `after-trace-api`, `after-trace-web`, `after-trace-admin`.
+Stack: TypeScript/Node, Hono on Cloudflare Workers API, React/Vite Web/PWA, React/Vite Admin, PostgreSQL + Drizzle. Dev/prod use explicit API/Web/Admin Workers; do not reintroduce Pages.
 
 ## Prelaunch DB policy
 
