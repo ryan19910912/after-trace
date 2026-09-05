@@ -11,8 +11,7 @@ keep_vars = true
 [observability]
 enabled = true
 
+# Production uses the top-level Worker name: after-trace-api.
+# Wrangler automatically deploys this environment as after-trace-api-dev.
 [env.dev]
-name = "after-trace-api-dev"
-
-[env.prod]
-name = "after-trace-api"
+workers_dev = true
