@@ -24,19 +24,21 @@ export type WorklogAdminOverview = {
 export type AdminUserQuery = {
   query: string | null;
   planCode: string | null;
-  /** Compatibility request value; semantics are now AI-responsibility, not group ownership. */
   userType: 'INDIVIDUAL' | 'GROUP_ENABLED' | null;
   sortUpdated: 'ASC' | 'DESC';
   limit: number;
 };
 
+export type AdminPlanType = 'FREE' | 'SUBSCRIPTION' | 'ONE_TIME';
+
 export type AdminPlanInput = {
   code: string;
+  planType: AdminPlanType;
   displayName: string;
   priceTwd: string;
   rank: number;
   enabled: boolean;
-  subscriptionPeriodPoints: number;
+  grantPoints: number;
   capabilities: Record<string, boolean | number | string>;
 };
 
@@ -50,12 +52,6 @@ export type AdminAiRuntimeInput = {
   usdTwdRate: string | null;
 };
 
-/**
- * Stable Admin persistence that is unrelated to user/group live allowance reporting.
- *
- * User/group reporting lives in DrizzleGrantAdminRepository so this file cannot
- * accidentally reintroduce the retired aggregate quota / Source Owner model.
- */
 export class DrizzleAdminRepository {
   constructor(private readonly db: Database) {}
 
@@ -106,10 +102,11 @@ export class DrizzleAdminRepository {
 
   async plans() {
     const result = await this.db.execute(sql`
-      SELECT id::text AS id, code, display_name, price_twd::text, rank, enabled,
-             subscription_period_points, capabilities, created_at, updated_at
+      SELECT id::text AS id, code, plan_type, display_name, price_twd::text, rank, enabled,
+             grant_points, capabilities, created_at, updated_at
       FROM worklog_subscription_plans
-      ORDER BY rank ASC, code ASC
+      ORDER BY CASE plan_type WHEN 'FREE' THEN 0 WHEN 'SUBSCRIPTION' THEN 1 ELSE 2 END,
+               rank ASC, code ASC
     `);
     return result.rows;
   }
@@ -120,29 +117,57 @@ export class DrizzleAdminRepository {
     const result = await this.db.execute(sql`
       WITH changed AS (
         INSERT INTO worklog_subscription_plans (
-          code, display_name, price_twd, rank, enabled, subscription_period_points, capabilities, created_at, updated_at
+          code, plan_type, display_name, price_twd, rank, enabled, grant_points, capabilities, created_at, updated_at
         ) VALUES (
-          ${input.code}, ${input.displayName}, ${input.priceTwd}, ${input.rank}, ${input.enabled},
-          ${input.subscriptionPeriodPoints}, ${capabilitiesJson}::jsonb, NOW(), NOW()
+          ${input.code}, ${input.planType}, ${input.displayName}, ${input.priceTwd}, ${input.rank}, ${input.enabled},
+          ${input.grantPoints}, ${capabilitiesJson}::jsonb, NOW(), NOW()
         )
         ON CONFLICT (code) DO UPDATE SET
+          plan_type = EXCLUDED.plan_type,
           display_name = EXCLUDED.display_name,
           price_twd = EXCLUDED.price_twd,
           rank = EXCLUDED.rank,
           enabled = EXCLUDED.enabled,
-          subscription_period_points = EXCLUDED.subscription_period_points,
+          grant_points = EXCLUDED.grant_points,
           capabilities = EXCLUDED.capabilities,
           updated_at = NOW()
         RETURNING *
       ), audit AS (
         INSERT INTO worklog_audit_logs (actor_admin, action, target_type, target_id, before_value, after_value, created_at)
-        SELECT ${actorAdmin}, 'PLAN_UPSERTED', 'SUBSCRIPTION_PLAN', changed.code,
+        SELECT ${actorAdmin}, 'PLAN_UPSERTED', 'PLAN', changed.code,
                ${JSON.stringify(before.rows[0] ?? null)}::jsonb, to_jsonb(changed), NOW()
         FROM changed RETURNING id
       )
       SELECT changed.* FROM changed WHERE EXISTS (SELECT 1 FROM audit)
     `);
     return result.rows[0] ?? null;
+  }
+
+  async deletePlan(code: string, actorAdmin: string): Promise<'DELETED' | 'NOT_FOUND' | 'IN_USE'> {
+    if (code === 'FREE') return 'IN_USE';
+    const dependencies = await this.db.execute(sql`
+      SELECT
+        EXISTS (SELECT 1 FROM worklog_user_subscriptions WHERE plan_code = ${code}) AS active_subscription,
+        EXISTS (SELECT 1 FROM worklog_subscription_history WHERE previous_plan_code = ${code} OR next_plan_code = ${code}) AS history,
+        EXISTS (SELECT 1 FROM worklog_checkout_intents WHERE plan_code = ${code}) AS checkout
+    `);
+    const dep = dependencies.rows[0] as { active_subscription?: boolean; history?: boolean; checkout?: boolean } | undefined;
+    if (dep?.active_subscription || dep?.history || dep?.checkout) return 'IN_USE';
+
+    const before = await this.db.execute(sql`SELECT * FROM worklog_subscription_plans WHERE code = ${code} LIMIT 1`);
+    if (!before.rows[0]) return 'NOT_FOUND';
+    const deleted = await this.db.execute(sql`
+      WITH removed AS (
+        DELETE FROM worklog_subscription_plans WHERE code = ${code} AND plan_type <> 'FREE' RETURNING *
+      ), audit AS (
+        INSERT INTO worklog_audit_logs (actor_admin, action, target_type, target_id, before_value, after_value, created_at)
+        SELECT ${actorAdmin}, 'PLAN_DELETED', 'PLAN', removed.code,
+               ${JSON.stringify(before.rows[0])}::jsonb, NULL, NOW()
+        FROM removed RETURNING id
+      )
+      SELECT removed.code FROM removed WHERE EXISTS (SELECT 1 FROM audit)
+    `);
+    return deleted.rows[0] ? 'DELETED' : 'NOT_FOUND';
   }
 
   async aiRuntimeConfig() {
