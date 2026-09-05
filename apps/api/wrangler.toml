@@ -3,6 +3,8 @@ main = "src/worker.ts"
 compatibility_date = "2026-08-29"
 compatibility_flags = ["nodejs_compat"]
 keep_vars = true
+workers_dev = true
+preview_urls = false
 
 # Runtime Variables/Secrets are configured separately on each Cloudflare Worker.
 # Local development reads them from .env.local. Dev/prod deployment does not share
