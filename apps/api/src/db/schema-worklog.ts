@@ -19,6 +19,7 @@ import {
 
 export const worklogSourceTypeEnum = pgEnum('worklog_source_type', ['PRIVATE', 'GROUP']);
 export const worklogSourceStatusEnum = pgEnum('worklog_source_status', ['ACTIVE', 'INACTIVE']);
+export const worklogSourceMemberRoleEnum = pgEnum('worklog_source_member_role', ['OWNER', 'MEMBER']);
 export const worklogRecordInputTypeEnum = pgEnum('worklog_record_input_type', [
   'TEXT',
   'AUDIO',
@@ -54,7 +55,8 @@ export const worklogUsers = pgTable(
   'worklog_users',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    lineUserId: varchar('line_user_id', { length: 64 }).notNull().unique('worklog_user_line_user_uq'),
+    // Nullable during migration so future Web/PWA accounts are not required to have LINE identity.
+    lineUserId: varchar('line_user_id', { length: 64 }).unique('worklog_user_line_user_uq'),
     displayName: varchar('display_name', { length: 255 }),
     isOaFriend: boolean('is_oa_friend').default(false).notNull(),
     firstOaAddedAt: timestamp('first_oa_added_at', { withTimezone: true }),
@@ -89,9 +91,9 @@ export const worklogWorkspaces = pgTable(
 /**
  * Durable PRIVATE/GROUP data boundary.
  *
- * GROUP data authorization is membership-based. GROUP AI funding responsibility lives
- * in worklog_source_ai_responsibility and user-owned Grant scopes; Source rows do not
- * carry an Owner/subscription-owner compatibility identity.
+ * Target GROUP authorization is native AFTERTRACE membership. line_group_id remains only
+ * as a legacy migration identity; a native GROUP instead carries a non-empty name and no
+ * LINE group id.
  */
 export const worklogSources = pgTable(
   'worklog_sources',
@@ -105,6 +107,11 @@ export const worklogSources = pgTable(
     privateUserId: bigint('private_user_id', { mode: 'number' }).references(() => worklogUsers.id, {
       onDelete: 'restrict',
     }),
+    name: varchar('name', { length: 255 }),
+    createdByUserId: bigint('created_by_user_id', { mode: 'number' }).references(
+      () => worklogUsers.id,
+      { onDelete: 'restrict' },
+    ),
     lineGroupId: varchar('line_group_id', { length: 64 }).unique('worklog_source_line_group_uq'),
     inactiveAt: timestamp('inactive_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -114,12 +121,16 @@ export const worklogSources = pgTable(
     uniqueIndex('worklog_source_private_user_uq').on(table.privateUserId),
     unique('worklog_source_private_user_id_uq').on(table.privateUserId, table.id),
     index('worklog_source_workspace_type_idx').on(table.workspaceId, table.type),
+    index('worklog_source_creator_idx').on(table.createdByUserId),
     check(
       'worklog_source_identity_shape_ck',
       sql`(
         (${table.type} = 'PRIVATE' AND ${table.privateUserId} IS NOT NULL AND ${table.lineGroupId} IS NULL)
         OR
-        (${table.type} = 'GROUP' AND ${table.privateUserId} IS NULL AND ${table.lineGroupId} IS NOT NULL)
+        (${table.type} = 'GROUP' AND ${table.privateUserId} IS NULL AND (
+          ${table.lineGroupId} IS NOT NULL
+          OR (${table.name} IS NOT NULL AND length(btrim(${table.name})) > 0)
+        ))
       )`,
     ),
   ],
@@ -135,6 +146,7 @@ export const worklogSourceMembers = pgTable(
     userId: bigint('user_id', { mode: 'number' })
       .notNull()
       .references(() => worklogUsers.id, { onDelete: 'restrict' }),
+    role: worklogSourceMemberRoleEnum('role').default('MEMBER').notNull(),
     isActive: boolean('is_active').default(true).notNull(),
     firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).defaultNow().notNull(),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).defaultNow().notNull(),
@@ -144,16 +156,13 @@ export const worklogSourceMembers = pgTable(
   (table) => [
     uniqueIndex('worklog_source_member_uq').on(table.sourceId, table.userId),
     index('worklog_source_member_user_active_idx').on(table.userId, table.isActive),
+    index('worklog_source_member_source_role_idx').on(table.sourceId, table.role, table.isActive),
   ],
 );
 
 /**
- * Commercial offer template.
- *
- * FREE: exactly code FREE, price zero, grant_points = one-time acquisition grant.
- * SUBSCRIPTION: grant_points are frozen into each successful subscription-period Grant.
- * ONE_TIME: grant_points are frozen into one successful one-time purchase Grant.
- * Existing Grants are immutable historical facts when this template changes.
+ * Commercial offer template. Legacy grant_points remains for historical accounting while
+ * the target paid-AI product moves to per-user subscription-period hard caps.
  */
 export const worklogSubscriptionPlans = pgTable(
   'worklog_subscription_plans',
@@ -166,6 +175,13 @@ export const worklogSubscriptionPlans = pgTable(
     rank: integer('rank').default(0).notNull(),
     enabled: boolean('enabled').default(true).notNull(),
     grantPoints: integer('grant_points').default(0).notNull(),
+    aiEnabled: boolean('ai_enabled').default(false).notNull(),
+    monthlyAiPointCap: integer('monthly_ai_point_cap'),
+    monthlyProviderCostCapTwd: numeric('monthly_provider_cost_cap_twd', {
+      precision: 12,
+      scale: 2,
+    }),
+    perRequestAiPointCap: integer('per_request_ai_point_cap'),
     capabilities: jsonb('capabilities').default({}).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -180,6 +196,26 @@ export const worklogSubscriptionPlans = pgTable(
       )`,
     ),
     check('worklog_plan_grant_points_ck', sql`${table.grantPoints} >= 0`),
+    check(
+      'worklog_plan_ai_cap_values_ck',
+      sql`(
+        (${table.monthlyAiPointCap} IS NULL OR ${table.monthlyAiPointCap} > 0)
+        AND (${table.monthlyProviderCostCapTwd} IS NULL OR ${table.monthlyProviderCostCapTwd} > 0)
+        AND (${table.perRequestAiPointCap} IS NULL OR ${table.perRequestAiPointCap} > 0)
+      )`,
+    ),
+    check(
+      'worklog_plan_ai_enabled_shape_ck',
+      sql`(
+        ${table.aiEnabled} = FALSE
+        OR (
+          ${table.planType} = 'SUBSCRIPTION'
+          AND ${table.priceTwd} > 0
+          AND ${table.monthlyAiPointCap} IS NOT NULL
+          AND ${table.monthlyProviderCostCapTwd} IS NOT NULL
+        )
+      )`,
+    ),
   ],
 );
 
