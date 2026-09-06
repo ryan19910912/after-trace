@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BufferedGroupMessage } from '../line/events';
-import { parseWorklogCommand } from './command';
+import { parseWorklogCommand, parseWorklogOaCommand } from './command';
 
 function message(textContent: string, quotedLineMessageId: string | null = null): BufferedGroupMessage {
   return {
@@ -19,71 +19,51 @@ function message(textContent: string, quotedLineMessageId: string | null = null)
   };
 }
 
-describe('parseWorklogCommand', () => {
-  it('opens unfiltered PWA records with exact 查詢', () => {
-    expect(parseWorklogCommand(message('@AFTERTRACE 查詢'))).toEqual({ kind: 'QUERY', naturalText: null });
+describe('小跡 LINE command parser', () => {
+  it('uses the same prefix contract in GROUP and OA', () => {
+    expect(parseWorklogCommand(message('小跡 晴空案今天收了三千'))).toEqual({ kind: 'RECORD_TEXT', text: '晴空案今天收了三千' });
+    expect(parseWorklogOaCommand(message('小跡 晴空案今天收了三千'))).toEqual({ kind: 'RECORD_TEXT', text: '晴空案今天收了三千' });
   });
 
-  it('routes strong natural-language history requests away from Record persistence', () => {
-    expect(parseWorklogCommand(message('@AFTERTRACE 王大明這週做了什麼'))).toEqual({
-      kind: 'QUERY',
-      naturalText: '王大明這週做了什麼',
-    });
-    expect(parseWorklogCommand(message('@AFTERTRACE 這個群組今天發生什麼？'))).toEqual({
-      kind: 'QUERY',
-      naturalText: '這個群組今天發生什麼？',
-    });
+  it('accepts natural punctuation after the bot name', () => {
+    expect(parseWorklogCommand(message('小跡，晴空案今天收了三千'))).toEqual({ kind: 'RECORD_TEXT', text: '晴空案今天收了三千' });
+    expect(parseWorklogCommand(message('小跡：晴空案今天收了三千'))).toEqual({ kind: 'RECORD_TEXT', text: '晴空案今天收了三千' });
   });
 
-  it('does not treat ordinary time-bearing work facts as history requests', () => {
-    expect(parseWorklogCommand(message('@AFTERTRACE 王大明今天去晴空案換冷氣'))).toEqual({
-      kind: 'RECORD_TEXT',
-      text: '王大明今天去晴空案換冷氣',
-    });
+  it('requires an explicit query verb so work facts default to Record', () => {
+    expect(parseWorklogCommand(message('小跡 晴空案目前收款進度如何'))).toEqual({ kind: 'RECORD_TEXT', text: '晴空案目前收款進度如何' });
+    expect(parseWorklogCommand(message('小跡 查 晴空案目前收款進度如何'))).toEqual({ kind: 'QUERY', naturalText: '晴空案目前收款進度如何' });
+    expect(parseWorklogCommand(message('小跡 查詢 晴空案收款'))).toEqual({ kind: 'QUERY', naturalText: '晴空案收款' });
   });
 
-  it('separates obvious edit requests before they can become new Records', () => {
-    expect(parseWorklogCommand(message('@AFTERTRACE 幫我改成 2800'))).toEqual({
-      kind: 'EDIT_REQUEST',
-      instruction: '幫我改成 2800',
-      quotedLineMessageId: null,
-    });
-    expect(parseWorklogCommand(message('@AFTERTRACE 幫我改成 2800', 'record-message-1'))).toEqual({
-      kind: 'EDIT_REQUEST',
-      instruction: '幫我改成 2800',
-      quotedLineMessageId: 'record-message-1',
-    });
+  it('supports today, recent and help shortcuts', () => {
+    expect(parseWorklogCommand(message('小跡 今天'))).toEqual({ kind: 'QUERY', naturalText: '今天' });
+    expect(parseWorklogCommand(message('小跡 最近'))).toEqual({ kind: 'QUERY', naturalText: null });
+    expect(parseWorklogCommand(message('小跡 幫助'))).toEqual({ kind: 'HELP' });
   });
 
-  it('supports an explicit group owner claim instead of guessing ownership', () => {
-    expect(parseWorklogCommand(message('@AFTERTRACE 啟用'))).toEqual({ kind: 'CLAIM_GROUP' });
-    expect(parseWorklogCommand(message('@AFTERTRACE 認領'))).toEqual({ kind: 'CLAIM_GROUP' });
-  });
-
-  it('records mention text without asking user to type 紀錄', () => {
-    expect(parseWorklogCommand(message('@AFTERTRACE 三重王先生二樓漏水已修復，三樓缺料下次處理'))).toEqual({
-      kind: 'RECORD_TEXT',
-      text: '三重王先生二樓漏水已修復，三樓缺料下次處理',
-    });
-  });
-
-  it('records quoted content when mention replies to an earlier message', () => {
-    expect(parseWorklogCommand(message('@AFTERTRACE', 'quoted-audio-1'))).toEqual({
+  it('records Reply content only with an explicit 記 command', () => {
+    expect(parseWorklogCommand(message('小跡 記', 'quoted-1'))).toEqual({
       kind: 'RECORD_QUOTED',
-      quotedLineMessageId: 'quoted-audio-1',
+      quotedLineMessageId: 'quoted-1',
       instruction: null,
     });
   });
 
-  it('keeps optional non-edit instruction beside quoted content', () => {
-    expect(parseWorklogCommand(message('@AFTERTRACE 王先生現場問題', 'quoted-image-1'))).toEqual({
-      kind: 'RECORD_QUOTED',
-      quotedLineMessageId: 'quoted-image-1',
-      instruction: '王先生現場問題',
+  it('keeps Reply edit target deterministic', () => {
+    expect(parseWorklogCommand(message('小跡 幫我改成 2800', 'quoted-record-1'))).toEqual({
+      kind: 'EDIT_REQUEST',
+      instruction: '幫我改成 2800',
+      quotedLineMessageId: 'quoted-record-1',
     });
   });
 
-  it('ignores ordinary group chat', () => {
+  it('supports explicit group AI responsibility claim', () => {
+    expect(parseWorklogCommand(message('小跡 啟用'))).toEqual({ kind: 'CLAIM_GROUP' });
+  });
+
+  it('ignores ordinary chat and the retired @AFTERTRACE syntax', () => {
     expect(parseWorklogCommand(message('王先生今天收五千'))).toBeNull();
+    expect(parseWorklogCommand(message('@AFTERTRACE 王先生今天收五千'))).toBeNull();
   });
 });
