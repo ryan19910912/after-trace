@@ -2,9 +2,26 @@
 
 This document is part of the durable development contract for branch `revive/line-worklog` and must be read together with `WORKLOG_PRODUCT_SPEC.md` and `WORKLOG_REBUILD_PROGRESS.md` before implementation work that touches LINE ingestion, Reply handling, attachments, Record persistence, or cleanup.
 
+## Entry surfaces — LINE webhook vs PWA
+
+AFTERTRACE has two independent customer entry surfaces:
+
+1. **LINE webhook** — LINE private/group messages arrive through the LINE Messaging API webhook and are processed from LINE identity/context.
+2. **PWA/Web** — Quick Capture and records management use the authenticated Web session / LINE Login account and do not depend on a LINE webhook request.
+
+Hard rules:
+
+- A LINE private-message webhook that has already been delivered to AFTERTRACE must **not** be rejected merely because `is_oa_friend=false`.
+- `is_oa_friend` is lifecycle/analytics state owned by real FOLLOW/UNFOLLOW events. It is not PRIVATE Source authorization and is not an AI entitlement gate.
+- For a delivered private LINE webhook, bootstrap the identified LINE user, stable workspace, PRIVATE Source and idempotent initial grant as needed, then apply the normal Source/AI-point/business rules.
+- FOLLOW/UNFOLLOW still update friendship state and may support OA-specific analytics/UI, but unfollow does not remove the AFTERTRACE account, PRIVATE Source, Records, Drafts or the ability to process a private webhook that LINE actually delivers.
+- GROUP webhook authorization remains active GROUP membership based.
+- PWA Quick Capture never enters through the LINE webhook. It uses the authenticated PWA/Web identity, explicit Source selection and the shared Worklog core.
+- Shared business logic may be reused below the entry boundary (Source authorization, AI points, interpretation, Entity/title, event date, Record/Revision/Draft), but the LINE webhook and PWA authentication paths must not be conflated.
+
 ## Command boundary
 
-LINE OA and GROUP use the sentence-start assistant prefix **`小跡`**.
+LINE OA/private and GROUP use the sentence-start assistant prefix **`小跡`**.
 
 Fixed provider-free commands:
 
@@ -44,7 +61,7 @@ To support a group user who later Replies and naturally asks 小跡 to record th
 - cache rows keep LINE message id, group identity, author LINE user id when available, text, **original LINE timestamp**, created/expires timestamps;
 - lookup uses `quotedMessageId` within the same group;
 - if quoted GROUP text is no longer cached, ask user to re-enter the content, e.g. `小跡 幫我記一下原文內容`;
-- OA/private ordinary text is deliberately not cached. Replying later to private text therefore cannot recover that old text; ask user to send it again as a new `小跡 ...` Record request;
+- private ordinary text is deliberately not cached. Replying later to private text therefore cannot recover that old text; ask user to send it again as a new `小跡 ...` Record request;
 - do not weaken the privacy policy by adding private ordinary-text caching merely to emulate GROUP Reply-TEXT.
 
 ## Reply/Replay source timestamp — hard rule
@@ -144,6 +161,7 @@ Never overwrite a different Record merely because a quoted id collides; idempote
 
 ## Processing order / source-of-truth
 
+- private LINE webhook: do not gate on `is_oa_friend`; bootstrap the PRIVATE Source from the delivered LINE identity;
 - fixed `小跡 狀態` reads deterministic DB state and never invokes Gemini;
 - direct TEXT natural request: run the bounded one-call interpretation, then persist/apply deterministically according to the resolved intent;
 - GROUP Reply-to-TEXT: resolve cached text first and preserve cached original timestamp as interpretation/reference time when recording;
@@ -162,6 +180,9 @@ Current MVP policy still avoids permanent original audio storage. PWA may hold a
 
 Development/bug-audit rounds should cover:
 
+- delivered private LINE `小跡` request still works when stored `is_oa_friend=false`;
+- FOLLOW/UNFOLLOW changes friendship state without becoming a PRIVATE authorization gate;
+- PWA Quick Capture remains independent from LINE webhook processing;
 - only GROUP TEXT enters temporary text cache;
 - private ordinary support text never cached;
 - no AUDIO/IMAGE/FILE binary cache rows/payloads;
