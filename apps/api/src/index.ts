@@ -19,6 +19,7 @@ import { DrizzleWorklogAiResponsibilityRepository } from './worklog/drizzle-ai-r
 import { DrizzleWorklogBootstrapRepository } from './worklog/drizzle-bootstrap';
 import { DrizzleWorklogCollaborationRepository } from './worklog/drizzle-collaboration';
 import { DrizzleWorklogLineRecordEditRepository } from './worklog/drizzle-line-record-edit';
+import { DrizzleWorklogPrivateInputModeRepository } from './worklog/drizzle-oa-input-mode';
 import { DrizzleWorklogRecordWriteRepository } from './worklog/drizzle-records';
 import { DrizzleWorklogTextNormalizationRepository } from './worklog/drizzle-text-normalization';
 import { GeminiWorklogLineRecordEditor } from './worklog/gemini-line-record-editor';
@@ -29,6 +30,7 @@ import { WorklogHistoryQueryService } from './worklog/history-query';
 import { processWorklogGroupWebhook } from './worklog/group-webhook';
 import { WorklogLineRecordEditService } from './worklog/line-record-edit';
 import { WorklogLineRuntime } from './worklog/line-runtime';
+import { WorklogPrivateInputModeService } from './worklog/oa-input-mode';
 import { WorklogOaRuntime } from './worklog/oa-runtime';
 import { processWorklogOaWebhook } from './worklog/oa-webhook';
 import { WorklogRecordWriteService } from './worklog/records';
@@ -51,7 +53,6 @@ export type Bindings = {
 };
 
 const SUPPORTED_AI_PROVIDER = 'GOOGLE';
-
 const app = new Hono<{ Bindings: Bindings }>();
 app.route('/api/v1/auth', createWebAuthRoutes());
 
@@ -72,6 +73,7 @@ app.get('/health/ready', async (c) => {
         (SELECT COUNT(plan_type) FROM worklog_subscription_plans WHERE FALSE) AS plan_type_probe,
         (SELECT COUNT(grant_points) FROM worklog_subscription_plans WHERE FALSE) AS plan_points_probe,
         (SELECT COUNT(search_terms) FROM worklog_records WHERE FALSE) AS record_search_terms_probe,
+        (SELECT COUNT(*) FROM worklog_private_pending_actions WHERE FALSE) AS private_input_mode_probe,
         (SELECT COUNT(*) FROM worklog_entities WHERE FALSE) AS entities_probe,
         (SELECT COUNT(*) FROM worklog_entity_aliases WHERE FALSE) AS aliases_probe,
         (SELECT COUNT(*) FROM worklog_record_revisions WHERE FALSE) AS revisions_probe,
@@ -95,12 +97,7 @@ app.get('/health/ready', async (c) => {
     const outputPrice = Number(row?.output_usd_per_million ?? 0);
     const provider = typeof row?.provider === 'string' ? row.provider.trim().toUpperCase() : '';
     const model = typeof row?.model === 'string' ? row.model.trim() : '';
-    if (
-      provider !== SUPPORTED_AI_PROVIDER
-      || !model
-      || !Number.isFinite(outputPrice)
-      || outputPrice <= 0
-    ) {
+    if (provider !== SUPPORTED_AI_PROVIDER || !model || !Number.isFinite(outputPrice) || outputPrice <= 0) {
       return c.json({ service: 'after-trace-api', product: 'worklog', status: 'not_ready', error: 'AI_RUNTIME_CONFIG_NOT_INITIALIZED' }, 503);
     }
   } catch {
@@ -108,20 +105,11 @@ app.get('/health/ready', async (c) => {
   }
   try {
     const free = await database.execute(sql`
-      SELECT plan_type, price_twd, grant_points, enabled
-      FROM worklog_subscription_plans
-      WHERE code = 'FREE'
-      LIMIT 1
+      SELECT plan_type, price_twd, grant_points, enabled FROM worklog_subscription_plans WHERE code = 'FREE' LIMIT 1
     `);
     const row = free.rows[0] as { plan_type?: unknown; price_twd?: unknown; grant_points?: unknown; enabled?: unknown } | undefined;
     const grantPoints = Number(row?.grant_points ?? -1);
-    if (
-      row?.enabled !== true
-      || row.plan_type !== 'FREE'
-      || Number(row.price_twd ?? -1) !== 0
-      || !Number.isSafeInteger(grantPoints)
-      || grantPoints < 0
-    ) {
+    if (row?.enabled !== true || row.plan_type !== 'FREE' || Number(row.price_twd ?? -1) !== 0 || !Number.isSafeInteger(grantPoints) || grantPoints < 0) {
       return c.json({ service: 'after-trace-api', product: 'worklog', status: 'not_ready', error: 'FREE_PLAN_NOT_INITIALIZED' }, 503);
     }
   } catch {
@@ -141,26 +129,7 @@ app.post('/webhooks/line', async (c) => {
   const parsedGroup = parseLineWebhook(payload);
   const parsedOa = parseOaWebhook(payload);
   if (parsedGroup.events.length === 0 && parsedOa.events.length === 0) {
-    return c.json({
-      ok: true,
-      lifecycleEvents: 0,
-      worklogCommands: 0,
-      worklogRecords: 0,
-      worklogDuplicateRecords: 0,
-      worklogRejected: 0,
-      worklogQueries: 0,
-      worklogAiResponsibilityClaims: 0,
-      worklogOrdinaryMessages: 0,
-      worklogErrors: 0,
-      oaLifecycleEvents: 0,
-      oaWorklogCommands: 0,
-      oaWorklogRecords: 0,
-      oaWorklogDuplicateRecords: 0,
-      oaWorklogRejected: 0,
-      oaWorklogQueries: 0,
-      oaHumanSupportMessages: 0,
-      oaErrors: 0,
-    });
+    return c.json({ ok: true, lifecycleEvents: 0, worklogCommands: 0, worklogRecords: 0, worklogDuplicateRecords: 0, worklogRejected: 0, worklogQueries: 0, worklogAiResponsibilityClaims: 0, worklogOrdinaryMessages: 0, worklogErrors: 0, oaLifecycleEvents: 0, oaWorklogCommands: 0, oaWorklogRecords: 0, oaWorklogDuplicateRecords: 0, oaWorklogRejected: 0, oaWorklogQueries: 0, oaHumanSupportMessages: 0, oaErrors: 0 });
   }
 
   const database = createDatabase(c.env.DATABASE_URL);
@@ -177,27 +146,12 @@ app.post('/webhooks/line', async (c) => {
   const worklogAiResponsibility = new WorklogAiResponsibilityService(new DrizzleWorklogAiResponsibilityRepository(database), worklogAiGrants);
   const worklogBootstrapService = new WorklogBootstrapService(new DrizzleWorklogBootstrapRepository(database), worklogAiGrants, worklogAiResponsibility);
   const worklogRecordWriteService = new WorklogRecordWriteService(new DrizzleWorklogRecordWriteRepository(database));
-  const worklogTextNormalizationService = new WorklogTextNormalizationService(
-    new DrizzleWorklogTextNormalizationRepository(database), worklogAiPoints, new GeminiWorklogTextNormalizer({ apiKey: c.env.GEMINI_API_KEY }),
-  );
-  const worklogLineRecordEditService = new WorklogLineRecordEditService(
-    new DrizzleWorklogLineRecordEditRepository(database), worklogAiPoints, new GeminiWorklogLineRecordEditor({ apiKey: c.env.GEMINI_API_KEY }),
-  );
+  const worklogTextNormalizationService = new WorklogTextNormalizationService(new DrizzleWorklogTextNormalizationRepository(database), worklogAiPoints, new GeminiWorklogTextNormalizer({ apiKey: c.env.GEMINI_API_KEY }));
+  const worklogLineRecordEditService = new WorklogLineRecordEditService(new DrizzleWorklogLineRecordEditRepository(database), worklogAiPoints, new GeminiWorklogLineRecordEditor({ apiKey: c.env.GEMINI_API_KEY }));
+  const worklogPrivateInputModes = new WorklogPrivateInputModeService(new DrizzleWorklogPrivateInputModeRepository(database));
   const worklogManualCollaboration = new WorklogCollaborationService(new DrizzleWorklogCollaborationRepository(database));
-  const worklogLineRuntime = new WorklogLineRuntime(
-    worklogBootstrapService,
-    new WorklogGrantBackedCollaboration(worklogManualCollaboration, worklogAiResponsibility),
-    worklogRecordWriteService,
-    worklogTextNormalizationService,
-    worklogLineRecordEditService,
-  );
-  const worklogOaRuntime = new WorklogOaRuntime(
-    worklogBootstrapService,
-    worklogRecordWriteService,
-    worklogTextNormalizationService,
-    worklogLineRecordEditService,
-    worklogAiGrants,
-  );
+  const worklogLineRuntime = new WorklogLineRuntime(worklogBootstrapService, new WorklogGrantBackedCollaboration(worklogManualCollaboration, worklogAiResponsibility), worklogRecordWriteService, worklogTextNormalizationService, worklogLineRecordEditService);
+  const worklogOaRuntime = new WorklogOaRuntime(worklogBootstrapService, worklogRecordWriteService, worklogTextNormalizationService, worklogLineRecordEditService, worklogAiGrants, worklogPrivateInputModes);
 
   const [groupCounters, oaCounters] = await Promise.all([
     processWorklogGroupWebhook({
@@ -209,10 +163,7 @@ app.post('/webhooks/line', async (c) => {
       anomalies: worklogAnomalies,
       queryHistory: async (target) => worklogHistory.query(target.sourceId, target.filters),
       createQueryUrl: webAuthService && webAppUrl
-        ? async (target) => appendHistoryFilters(
-            await webAuthService.createBotEntry({ webAppUrl, lineUserId: target.lineUserId, lineGroupId: target.lineGroupId, at: target.at }),
-            target.filters,
-          )
+        ? async (target) => appendHistoryFilters(await webAuthService.createBotEntry({ webAppUrl, lineUserId: target.lineUserId, lineGroupId: target.lineGroupId, at: target.at }), target.filters)
         : undefined,
     }),
     processWorklogOaWebhook({
@@ -223,10 +174,7 @@ app.post('/webhooks/line', async (c) => {
       anomalies: worklogAnomalies,
       queryHistory: async (target) => worklogHistory.query(target.sourceId, target.filters),
       createQueryUrl: webAuthService && webAppUrl
-        ? async (target) => appendHistoryFilters(
-            await webAuthService.createPrivateBotEntry({ webAppUrl, lineUserId: target.lineUserId, userId: target.userId, sourceId: target.sourceId, at: target.at }),
-            target.filters,
-          )
+        ? async (target) => appendHistoryFilters(await webAuthService.createPrivateBotEntry({ webAppUrl, lineUserId: target.lineUserId, userId: target.userId, sourceId: target.sourceId, at: target.at }), target.filters)
         : undefined,
     }),
   ]);
@@ -257,7 +205,6 @@ function launchConfigErrors(env: Bindings): string[] {
 function required(value: string | undefined): boolean { return Boolean(value?.trim()); }
 function adminPassword(value: string | undefined): boolean { return Boolean(value && value.length >= 8 && value.length <= 512); }
 function secret(value: string | undefined): boolean { return Boolean(value?.trim() && value.trim().length >= 32); }
-
 function exactAppOrigin(value: string | undefined): string | null {
   if (!value?.trim()) return null;
   try {
