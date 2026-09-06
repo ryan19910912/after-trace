@@ -1,6 +1,7 @@
 export type WorklogBootstrapUser = {
   userId: number;
   lineUserId: string;
+  displayName: string | null;
   isOaFriend: boolean;
 };
 
@@ -48,6 +49,11 @@ export interface WorklogAiResponsibilityClaimPort {
   >;
 }
 
+export interface WorklogLineUserProfilePort {
+  getUserProfile(lineUserId: string): Promise<{ displayName: string } | null>;
+  getGroupMemberProfile(lineGroupId: string, lineUserId: string): Promise<{ displayName: string } | null>;
+}
+
 export type PrivateBootstrapResult = {
   status: 'READY';
   userId: number;
@@ -72,6 +78,7 @@ export class WorklogBootstrapService {
     private readonly repository: WorklogBootstrapRepository,
     private readonly initialGrants?: WorklogInitialGrantPort,
     private readonly aiResponsibility?: WorklogAiResponsibilityClaimPort,
+    private readonly lineProfiles?: WorklogLineUserProfilePort,
   ) {}
 
   async handleOaFollow(input: {
@@ -80,11 +87,7 @@ export class WorklogBootstrapService {
     at?: Date;
   }): Promise<{ userId: number; workspaceId: number; sourceId: number }> {
     const at = input.at ?? new Date();
-    const user = await this.repository.upsertLineUser({
-      lineUserId: normalizeLineId(input.lineUserId, 'LINE user id'),
-      displayName: normalizeDisplayName(input.displayName),
-      at,
-    });
+    const user = await this.upsertPrivateUser(input.lineUserId, input.displayName, at);
     await this.repository.setOaFriendState(user.userId, true, at);
     const workspaceId = await this.repository.ensureWorkspace(user.userId, at);
     const sourceId = await this.repository.ensurePrivateSource(user.userId, workspaceId, at);
@@ -108,11 +111,7 @@ export class WorklogBootstrapService {
     displayName?: string | null;
     at?: Date;
   }): Promise<WorklogBootstrapUser> {
-    return this.repository.upsertLineUser({
-      lineUserId: normalizeLineId(input.lineUserId, 'LINE user id'),
-      displayName: normalizeDisplayName(input.displayName),
-      at: input.at ?? new Date(),
-    });
+    return this.upsertPrivateUser(input.lineUserId, input.displayName, input.at ?? new Date());
   }
 
   /**
@@ -125,12 +124,7 @@ export class WorklogBootstrapService {
     at?: Date;
   }): Promise<PrivateBootstrapResult> {
     const at = input.at ?? new Date();
-    const user = await this.repository.upsertLineUser({
-      lineUserId: normalizeLineId(input.lineUserId, 'LINE user id'),
-      displayName: normalizeDisplayName(input.displayName),
-      at,
-    });
-
+    const user = await this.upsertPrivateUser(input.lineUserId, input.displayName, at);
     const workspaceId = await this.repository.ensureWorkspace(user.userId, at);
     const sourceId = await this.repository.ensurePrivateSource(user.userId, workspaceId, at);
     await this.ensureInitialGrant(user.userId, sourceId, at);
@@ -145,11 +139,7 @@ export class WorklogBootstrapService {
   }): Promise<GroupBootstrapResult> {
     const at = input.at ?? new Date();
     const lineGroupId = normalizeLineId(input.lineGroupId, 'LINE group id');
-    const user = await this.repository.upsertLineUser({
-      lineUserId: normalizeLineId(input.lineUserId, 'LINE user id'),
-      displayName: normalizeDisplayName(input.displayName),
-      at,
-    });
+    const user = await this.upsertGroupUser(lineGroupId, input.lineUserId, input.displayName, at);
 
     let group = await this.repository.findBoundGroupByLineId(lineGroupId);
     if (!group) {
@@ -179,11 +169,7 @@ export class WorklogBootstrapService {
   }): Promise<void> {
     const at = input.at ?? new Date();
     const lineGroupId = normalizeLineId(input.lineGroupId, 'LINE group id');
-    const user = await this.repository.upsertLineUser({
-      lineUserId: normalizeLineId(input.lineUserId, 'LINE user id'),
-      displayName: normalizeDisplayName(input.displayName),
-      at,
-    });
+    const user = await this.upsertGroupUser(lineGroupId, input.lineUserId, input.displayName, at);
 
     let group = await this.repository.findBoundGroupByLineId(lineGroupId);
     if (!group) {
@@ -215,11 +201,7 @@ export class WorklogBootstrapService {
 
     const at = input.at ?? new Date();
     const lineGroupId = normalizeLineId(input.lineGroupId, 'LINE group id');
-    const user = await this.repository.upsertLineUser({
-      lineUserId: normalizeLineId(input.lineUserId, 'LINE user id'),
-      displayName: normalizeDisplayName(input.displayName),
-      at,
-    });
+    const user = await this.upsertGroupUser(lineGroupId, input.lineUserId, input.displayName, at);
 
     let group = await this.repository.findBoundGroupByLineId(lineGroupId);
     if (!group) {
@@ -244,6 +226,36 @@ export class WorklogBootstrapService {
       return { status: 'RESPONSIBILITY_CONFLICT', sourceId: group.sourceId };
     }
     throw new Error(`group AI responsibility claim failed: ${claimed.status}`);
+  }
+
+  private async upsertPrivateUser(lineUserIdRaw: string, displayNameRaw: string | null | undefined, at: Date): Promise<WorklogBootstrapUser> {
+    const lineUserId = normalizeLineId(lineUserIdRaw, 'LINE user id');
+    const directName = normalizeDisplayName(displayNameRaw);
+    let user = await this.repository.upsertLineUser({ lineUserId, displayName: directName, at });
+    if (directName || user.displayName || !this.lineProfiles) return user;
+    try {
+      const profile = await this.lineProfiles.getUserProfile(lineUserId);
+      const resolved = normalizeDisplayName(profile?.displayName);
+      if (resolved) user = await this.repository.upsertLineUser({ lineUserId, displayName: resolved, at });
+    } catch (error) {
+      console.warn(JSON.stringify({ event: 'worklog_line_private_profile_refresh_failed', lineUserId, message: error instanceof Error ? error.message : 'unknown error' }));
+    }
+    return user;
+  }
+
+  private async upsertGroupUser(lineGroupId: string, lineUserIdRaw: string, displayNameRaw: string | null | undefined, at: Date): Promise<WorklogBootstrapUser> {
+    const lineUserId = normalizeLineId(lineUserIdRaw, 'LINE user id');
+    const directName = normalizeDisplayName(displayNameRaw);
+    let user = await this.repository.upsertLineUser({ lineUserId, displayName: directName, at });
+    if (directName || user.displayName || !this.lineProfiles) return user;
+    try {
+      const profile = await this.lineProfiles.getGroupMemberProfile(lineGroupId, lineUserId);
+      const resolved = normalizeDisplayName(profile?.displayName);
+      if (resolved) user = await this.repository.upsertLineUser({ lineUserId, displayName: resolved, at });
+    } catch (error) {
+      console.warn(JSON.stringify({ event: 'worklog_line_group_member_profile_refresh_failed', lineGroupId, lineUserId, message: error instanceof Error ? error.message : 'unknown error' }));
+    }
+    return user;
   }
 
   private async ensureInitialGrant(userId: number, privateSourceId: number, at: Date): Promise<void> {
