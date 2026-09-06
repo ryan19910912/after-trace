@@ -19,7 +19,8 @@ export function LineOaFriendHint({ apiBaseUrl }: Props) {
   const [dismissed, setDismissed] = useState(false);
 
   const refresh = useCallback(async () => {
-    const session = localStorage.getItem(SESSION_KEY);
+    const callbackSession = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('session')?.trim() || null;
+    const session = localStorage.getItem(SESSION_KEY) ?? callbackSession;
     if (!session) {
       setIsOaFriend(null);
       return;
