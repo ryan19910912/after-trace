@@ -62,8 +62,6 @@ BEGIN
       ADD COLUMN grant_points integer;
   END IF;
 
-  -- The legacy model only had FREE + recurring subscription plans. ONE_TIME did not
-  -- exist yet, so all non-FREE legacy rows safely become SUBSCRIPTION.
   UPDATE public.worklog_subscription_plans
   SET plan_type = CASE
     WHEN code = 'FREE' THEN 'FREE'::public.worklog_plan_type
@@ -72,7 +70,6 @@ BEGIN
   WHERE plan_type IS NULL;
 
   IF has_legacy_points THEN
-    -- Preserve the exact configured legacy amount, including the current FREE value.
     UPDATE public.worklog_subscription_plans
     SET grant_points = subscription_period_points
     WHERE grant_points IS NULL;
@@ -82,7 +79,6 @@ BEGIN
     WHERE grant_points IS NULL;
   END IF;
 
-  -- Do not silently rewrite commercial data to satisfy the new invariant.
   IF EXISTS (
     SELECT 1
     FROM public.worklog_subscription_plans
@@ -134,5 +130,37 @@ BEGIN
   END IF;
 END
 $aftertrace$;
+
+DO $aftertrace_search$
+DECLARE
+  records_table regclass := to_regclass('public.worklog_records');
+  has_search_terms boolean;
+BEGIN
+  -- Fresh database: canonical baseline creates search_terms after this hook returns.
+  IF records_table IS NULL THEN
+    RETURN;
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'worklog_records'
+      AND column_name = 'search_terms'
+  ) INTO has_search_terms;
+
+  IF NOT has_search_terms THEN
+    ALTER TABLE public.worklog_records
+      ADD COLUMN search_terms jsonb NOT NULL DEFAULT '[]'::jsonb;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.worklog_records
+    WHERE jsonb_typeof(search_terms) <> 'array'
+  ) THEN
+    RAISE EXCEPTION 'AFTERTRACE forward migration refused non-array worklog_records.search_terms data';
+  END IF;
+END
+$aftertrace_search$;
   `));
 }
