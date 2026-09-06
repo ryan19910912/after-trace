@@ -6,6 +6,7 @@ export type WorklogCommandMessage = {
 
 export type WorklogCommand =
   | { kind: 'HELP' }
+  | { kind: 'STATUS' }
   | { kind: 'CLAIM_GROUP' }
   | { kind: 'RELEASE_GROUP'; text: string }
   | { kind: 'NATURAL_TEXT'; text: string; quotedLineMessageId: string | null }
@@ -26,18 +27,18 @@ function stripBotPrefix(text: string): { addressed: boolean; body: string } {
 
 /**
  * LINE OA and GROUP share one customer-facing command boundary.
- * Only help and GROUP AI responsibility controls are deterministic commands.
+ * Help/status and GROUP AI responsibility controls are deterministic/provider-free.
  * Every other non-empty `小跡 ...` text goes to the bounded one-call AI interpreter.
  */
 export function parseWorklogCommand(message: WorklogCommandMessage): WorklogCommand | null {
-  return parsePrefixedCommand(message, true);
+  return parsePrefixedCommand(message);
 }
 
 export function parseWorklogOaCommand(message: WorklogCommandMessage): WorklogCommand | null {
-  return parsePrefixedCommand(message, false);
+  return parsePrefixedCommand(message);
 }
 
-function parsePrefixedCommand(message: WorklogCommandMessage, _allowGroupControl: boolean): WorklogCommand | null {
+function parsePrefixedCommand(message: WorklogCommandMessage): WorklogCommand | null {
   if (message.messageType !== 'text' || !message.textContent) return null;
   const prefix = stripBotPrefix(message.textContent);
   if (!prefix.addressed) return null;
@@ -45,6 +46,7 @@ function parsePrefixedCommand(message: WorklogCommandMessage, _allowGroupControl
   if (!normalized) return null;
 
   if (/^(?:幫助|帮助|說明|说明|help)$/i.test(normalized)) return { kind: 'HELP' };
+  if (/^(?:狀態|状态)$/u.test(normalized)) return { kind: 'STATUS' };
   if (/^啟用\s*AI$/iu.test(normalized)) return { kind: 'CLAIM_GROUP' };
   if (/^取消\s*AI$/iu.test(normalized)) return { kind: 'RELEASE_GROUP', text: prefix.body };
 
@@ -58,7 +60,6 @@ export function worklogLineHelpText(): string {
     `直接用自然語言告訴${BOT_NAME}你想做什麼，例如：`,
     `${BOT_NAME} 幫我記一下今天晴空案收了三千清潔費`,
     `${BOT_NAME} 我要查詢一下今天晴空案的內容`,
-    `${BOT_NAME} 我還有多少 AI 點數`,
     '',
     'Reply 一筆紀錄後也可以說：',
     `${BOT_NAME} 我想把金額改成 2800`,
@@ -68,6 +69,7 @@ export function worklogLineHelpText(): string {
     '',
     '固定系統指令：',
     `${BOT_NAME} 幫助`,
+    `${BOT_NAME} 狀態`,
     `${BOT_NAME} 啟用 AI`,
     `${BOT_NAME} 取消 AI`,
   ].join('\n');
