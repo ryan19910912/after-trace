@@ -140,10 +140,10 @@ export class WorklogOaRuntime {
     if (command.kind === 'EDIT_REQUEST') {
       return this.editPrivateRecord(message, personal, command.instruction, command.quotedLineMessageId);
     }
-    if (!(await this.canStartPrivateAi(personal.userId, personal.sourceId, message.lineTimestamp))) {
-      return { status: 'REJECTED', reason: 'AI_POINTS_EXHAUSTED', replyText: '你的 AI 點數不足，這次沒有呼叫 AI；你仍可前往 AFTERTRACE 免費手動新增或編輯紀錄。' };
-    }
     if (command.kind === 'RECORD_QUOTED') {
+      if (!(await this.canStartPrivateAi(personal.userId, personal.sourceId, message.lineTimestamp))) {
+        return { status: 'REJECTED', reason: 'AI_POINTS_EXHAUSTED', replyText: '你的 AI 點數不足，這次沒有呼叫 AI；你仍可前往 AFTERTRACE 免費手動新增或編輯紀錄。' };
+      }
       const attachments = worklogAttachmentRuntime();
       if (!attachments) return { status: 'QUOTED_NOT_READY', replyText: '附件處理服務目前尚未啟用，這次沒有建立紀錄。' };
       const result = await attachments.ingest({ sourceId: personal.sourceId, actorUserId: personal.userId, chargedUserId: personal.userId, commandLineMessageId: message.lineMessageId, quotedLineMessageId: command.quotedLineMessageId, sourceTimestamp: message.lineTimestamp, instruction: command.instruction });
