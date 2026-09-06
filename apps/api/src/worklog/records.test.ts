@@ -30,14 +30,12 @@ function record(sourceId: number, id = 1): WorklogRecordListItem {
 }
 
 class FakeRepository implements WorklogRecordReadRepository {
-  oaFriends = new Set<number>();
   personalSources = new Map<number, number>();
   groupSurfaces = new Map<number, WorklogGroupSurface[]>();
   memberships = new Set<string>();
   records = new Map<number, WorklogRecordListItem[]>();
   listCalls: number[] = [];
 
-  async isOaFriend(userId: number) { return this.oaFriends.has(userId); }
   async getActivePersonalSourceId(userId: number) { return this.personalSources.get(userId) ?? null; }
   async listActiveGroupSurfaces(userId: number) { return this.groupSurfaces.get(userId) ?? []; }
   async isActiveGroupMember(userId: number, sourceId: number) { return this.memberships.has(`${userId}:${sourceId}`); }
@@ -123,7 +121,7 @@ describe('WorklogRecordWriteService', () => {
     expect(repository.replyTargetCalls).toEqual([{ sourceId: 20, quotedLineMessageId: 'quoted-1' }]);
   });
 
-  it('enforces cache group isolation and expiry through the write service adapter', async () => {
+  it('enforces cache group isolation and expiry through the legacy write service adapter', async () => {
     const repository = new FakeWriteRepository();
     const service = new WorklogRecordWriteService(repository);
     await service.remember({ lineMessageId: 'quoted-1', lineGroupId: 'group-a', lineUserId: 'user-1', text: '原始文字', lineTimestamp: new Date('2026-09-02T00:00:00Z') });
@@ -134,14 +132,8 @@ describe('WorklogRecordWriteService', () => {
 });
 
 describe('WorklogRecordReadService personal scope', () => {
-  it('exposes the LINE Login personal source even before OA friendship', async () => {
+  it('exposes the authenticated personal source without any LINE/OA state', async () => {
     const repository = new FakeRepository(); repository.personalSources.set(1, 10); repository.records.set(10, [record(10)]);
-    const service = new WorklogRecordReadService(repository);
-    await expect(service.personalRecords(1)).resolves.toEqual([record(10)]); expect(repository.listCalls).toEqual([10]);
-  });
-
-  it('continues exposing the same personal source after OA friendship', async () => {
-    const repository = new FakeRepository(); repository.oaFriends.add(1); repository.personalSources.set(1, 10); repository.records.set(10, [record(10)]);
     const service = new WorklogRecordReadService(repository);
     await expect(service.personalRecords(1)).resolves.toEqual([record(10)]); expect(repository.listCalls).toEqual([10]);
   });
@@ -163,15 +155,37 @@ describe('WorklogRecordReadService group scope', () => {
 });
 
 describe('WorklogRecordReadService PWA surfaces', () => {
-  it('keeps personal and group surfaces separated and reports OA friendship', async () => {
-    const repository = new FakeRepository(); repository.oaFriends.add(1); repository.personalSources.set(1, 10); repository.groupSurfaces.set(1, [{ sourceId: 20, lineGroupId: 'group-a' }, { sourceId: 21, lineGroupId: 'group-b' }]);
+  it('returns native group names and roles without requiring a LINE group id', async () => {
+    const repository = new FakeRepository();
+    repository.personalSources.set(1, 10);
+    repository.groupSurfaces.set(1, [
+      { sourceId: 20, name: '產品群', role: 'OWNER', legacyLineGroupId: null },
+      { sourceId: 21, name: '客戶群', role: 'MEMBER', legacyLineGroupId: null },
+    ]);
     const service = new WorklogRecordReadService(repository);
-    await expect(service.surfaces(1)).resolves.toEqual({ personal: { sourceId: 10 }, groups: [{ sourceId: 20, lineGroupId: 'group-a' }, { sourceId: 21, lineGroupId: 'group-b' }], isOaFriend: true });
+
+    await expect(service.surfaces(1)).resolves.toEqual({
+      personal: { sourceId: 10 },
+      groups: [
+        { sourceId: 20, name: '產品群', role: 'OWNER', legacyLineGroupId: null },
+        { sourceId: 21, name: '客戶群', role: 'MEMBER', legacyLineGroupId: null },
+      ],
+    });
   });
 
-  it('keeps the personal PWA surface before OA friendship and reports that state', async () => {
-    const repository = new FakeRepository(); repository.personalSources.set(2, 11); repository.groupSurfaces.set(2, [{ sourceId: 30, lineGroupId: 'group-c' }]);
+  it('keeps a nullable legacy LINE id only as migration trace on a group surface', async () => {
+    const repository = new FakeRepository();
+    repository.personalSources.set(2, 11);
+    repository.groupSurfaces.set(2, [
+      { sourceId: 30, name: '舊群組', role: 'MEMBER', legacyLineGroupId: 'line-group-c' },
+    ]);
     const service = new WorklogRecordReadService(repository);
-    await expect(service.surfaces(2)).resolves.toEqual({ personal: { sourceId: 11 }, groups: [{ sourceId: 30, lineGroupId: 'group-c' }], isOaFriend: false });
+
+    await expect(service.surfaces(2)).resolves.toEqual({
+      personal: { sourceId: 11 },
+      groups: [
+        { sourceId: 30, name: '舊群組', role: 'MEMBER', legacyLineGroupId: 'line-group-c' },
+      ],
+    });
   });
 });
