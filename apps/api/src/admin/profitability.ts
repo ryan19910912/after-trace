@@ -213,15 +213,15 @@ export class DrizzleAdminProfitabilityRepository {
   private async grantTypeUsage(window: AdminProfitabilityWindow): Promise<AdminGrantTypeUsageRow[]> {
     const result = await this.db.execute(sql`
       SELECT
-        grant.type::text AS grant_type,
+        g.type::text AS grant_type,
         COUNT(DISTINCT funding.usage_event_id)::text AS requests,
         COALESCE(SUM(funding.points_charged), 0)::bigint::text AS points_charged
       FROM worklog_ai_usage_funding funding
       INNER JOIN worklog_ai_usage_events usage ON usage.id = funding.usage_event_id
-      INNER JOIN worklog_ai_grants grant ON grant.id = funding.grant_id
+      INNER JOIN worklog_ai_grants g ON g.id = funding.grant_id
       WHERE usage.created_at >= ${window.from} AND usage.created_at < ${window.to}
-      GROUP BY grant.type
-      ORDER BY SUM(funding.points_charged) DESC, grant.type ASC
+      GROUP BY g.type
+      ORDER BY SUM(funding.points_charged) DESC, g.type ASC
     `);
     return result.rows.map((value) => {
       const row = value as Record<string, unknown>;
@@ -237,15 +237,15 @@ export class DrizzleAdminProfitabilityRepository {
     const result = await this.db.execute(sql`
       SELECT
         CASE
-          WHEN grant.type = 'FREE_INITIAL' THEN 'FREE'
-          WHEN grant.type = 'SUBSCRIPTION_PERIOD' THEN COALESCE(NULLIF(BTRIM(grant.metadata ->> 'planCode'), ''), 'UNKNOWN_SUBSCRIPTION')
+          WHEN g.type = 'FREE_INITIAL' THEN 'FREE'
+          WHEN g.type = 'SUBSCRIPTION_PERIOD' THEN COALESCE(NULLIF(BTRIM(g.metadata ->> 'planCode'), ''), 'UNKNOWN_SUBSCRIPTION')
           ELSE 'UNASSOCIATED'
         END AS plan_code,
         COUNT(DISTINCT funding.usage_event_id)::text AS requests,
         COALESCE(SUM(funding.points_charged), 0)::bigint::text AS points_charged
       FROM worklog_ai_usage_funding funding
       INNER JOIN worklog_ai_usage_events usage ON usage.id = funding.usage_event_id
-      INNER JOIN worklog_ai_grants grant ON grant.id = funding.grant_id
+      INNER JOIN worklog_ai_grants g ON g.id = funding.grant_id
       WHERE usage.created_at >= ${window.from} AND usage.created_at < ${window.to}
       GROUP BY plan_code
       ORDER BY SUM(funding.points_charged) DESC, plan_code ASC
@@ -271,22 +271,22 @@ export class DrizzleAdminProfitabilityRepository {
         GROUP BY grant_id
       )
       SELECT
-        grant.type::text AS grant_type,
+        g.type::text AS grant_type,
         COUNT(*)::text AS grants,
         COUNT(*) FILTER (
-          WHERE grant.remaining_points + COALESCE(scope_totals.reserved_points, 0) = 0
+          WHERE g.remaining_points + COALESCE(scope_totals.reserved_points, 0) = 0
         )::text AS exhausted_grants,
-        COALESCE(SUM(grant.original_points), 0)::bigint::text AS original_points,
+        COALESCE(SUM(g.original_points), 0)::bigint::text AS original_points,
         COALESCE(SUM(COALESCE(scope_totals.used_points, 0)), 0)::bigint::text AS used_points,
         COALESCE(SUM(COALESCE(scope_totals.reserved_points, 0)), 0)::bigint::text AS reserved_points,
-        COALESCE(SUM(grant.remaining_points), 0)::bigint::text AS remaining_points
-      FROM worklog_ai_grants grant
-      LEFT JOIN scope_totals ON scope_totals.grant_id = grant.id
-      WHERE grant.effective_at <= ${at}
-        AND (grant.expires_at IS NULL OR grant.expires_at > ${at})
-        AND grant.status <> 'REVOKED'
-      GROUP BY grant.type
-      ORDER BY grant.type ASC
+        COALESCE(SUM(g.remaining_points), 0)::bigint::text AS remaining_points
+      FROM worklog_ai_grants g
+      LEFT JOIN scope_totals ON scope_totals.grant_id = g.id
+      WHERE g.effective_at <= ${at}
+        AND (g.expires_at IS NULL OR g.expires_at > ${at})
+        AND g.status <> 'REVOKED'
+      GROUP BY g.type
+      ORDER BY g.type ASC
     `);
     return result.rows.map((value) => {
       const row = value as Record<string, unknown>;
