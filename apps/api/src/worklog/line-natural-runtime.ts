@@ -1,6 +1,6 @@
 import type { BufferedGroupMessage } from '../line/events';
 import { worklogAttachmentRuntime } from './attachment-runtime';
-import { parseWorklogCommand, worklogLineHelpText } from './command';
+import { isWorklogStatusCommand, parseWorklogCommand, worklogLineHelpText } from './command';
 import { historyFiltersFromText } from './history-navigation';
 import type { WorklogInterpretedEditService } from './interpreted-edit';
 import type { WorklogInterpretedRecordService } from './interpreted-record';
@@ -36,6 +36,14 @@ export class WorklogLineNaturalRuntime {
       return { status: 'NOT_HANDLED' };
     }
     if (!message.lineUserId) return { status: 'REJECTED', reason: 'USER_UNKNOWN', replyText: 'AFTERTRACE 無法辨識你的 LINE 使用者身分，這次沒有建立紀錄。' };
+
+    if (isWorklogStatusCommand(message)) {
+      const group = await this.bootstrap.bootstrapGroupInteraction({ lineGroupId: message.lineGroupId, lineUserId: message.lineUserId, at: message.lineTimestamp });
+      const access = await this.collaboration.authorizeGroupAccess({ sourceId: group.sourceId, actorUserId: group.userId });
+      if (access.status !== 'OK') return rejectedAuthorization(access.status);
+      return { status: 'HELP', replyText: await this.systemQueries.groupStatus({ sourceId: group.sourceId, at: message.lineTimestamp }) };
+    }
+
     if (command.kind === 'HELP') return { status: 'HELP', replyText: worklogLineHelpText() };
 
     if (command.kind === 'CLAIM_GROUP') {
@@ -46,12 +54,6 @@ export class WorklogLineNaturalRuntime {
     }
 
     const group = await this.bootstrap.bootstrapGroupInteraction({ lineGroupId: message.lineGroupId, lineUserId: message.lineUserId, at: message.lineTimestamp });
-
-    if (command.kind === 'STATUS') {
-      const access = await this.collaboration.authorizeGroupAccess({ sourceId: group.sourceId, actorUserId: group.userId });
-      if (access.status !== 'OK') return rejectedAuthorization(access.status);
-      return { status: 'STATUS', replyText: await this.systemQueries.groupStatus({ sourceId: group.sourceId, at: message.lineTimestamp }) };
-    }
 
     if (command.kind === 'RELEASE_GROUP') {
       const released = await this.collaboration.releaseGroupAiResponsibility({ sourceId: group.sourceId, actorUserId: group.userId, at: message.lineTimestamp });
