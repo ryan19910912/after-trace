@@ -4,6 +4,8 @@ import type { PrivateBootstrapResult } from './bootstrap';
 import type { WorklogInterpretedEditService } from './interpreted-edit';
 import type { WorklogInterpretedRecordService } from './interpreted-record';
 import type { WorklogLineNaturalInterpreterService } from './line-natural-interpreter';
+import type { WorklogLineRecordActionService } from './line-record-actions';
+import type { WorklogLineSystemQueryService } from './line-system-query';
 import { WorklogOaNaturalRuntime } from './oa-natural-runtime';
 import type { WorklogOaAiGrantPort, WorklogOaBootstrapPort, WorklogOaRecordWritePort } from './oa-runtime';
 
@@ -41,6 +43,17 @@ class FakeInterpretedRecords { async apply() { return { status: 'APPLIED' as con
 class FakeInterpretedEdits { async apply() { return { status: 'EDITED' as const, recordVersion: 3, entityId: 31 }; } }
 class FakeGrants implements WorklogOaAiGrantPort { async canStartAi() { return true; } }
 
+const fakeRecordActions = {
+  async resolveTarget() { return { status: 'NOT_FOUND' as const }; },
+  async delete() { return { status: 'NOT_FOUND' as const }; },
+  async restore() { return { status: 'NOT_FOUND' as const }; },
+  async move() { return { status: 'NOT_FOUND' as const }; },
+} as unknown as WorklogLineRecordActionService;
+
+const fakeSystemQueries = {
+  async personalStatus() { return 'AFTERTRACE 個人狀態'; },
+} as unknown as WorklogLineSystemQueryService;
+
 function runtime(interpreter = new FakeInterpreter(), bootstrap = new FakeBootstrap(), records = new FakeRecords()) {
   return {
     interpreter, bootstrap, records,
@@ -50,6 +63,8 @@ function runtime(interpreter = new FakeInterpreter(), bootstrap = new FakeBootst
       interpreter as unknown as WorklogLineNaturalInterpreterService,
       new FakeInterpretedRecords() as unknown as WorklogInterpretedRecordService,
       new FakeInterpretedEdits() as unknown as WorklogInterpretedEditService,
+      fakeRecordActions,
+      fakeSystemQueries,
       new FakeGrants(),
     ),
   };
@@ -66,6 +81,13 @@ describe('WorklogOaNaturalRuntime', () => {
     const test = runtime();
     const result = await test.value.handleMessage(privateMessage('小跡 幫助'));
     expect(result.status).toBe('HELP');
+    expect(test.interpreter.calls).toBe(0);
+  });
+
+  it('keeps status provider-free', async () => {
+    const test = runtime();
+    const result = await test.value.handleMessage(privateMessage('小跡 狀態'));
+    expect(result).toMatchObject({ status: 'HELP', replyText: 'AFTERTRACE 個人狀態' });
     expect(test.interpreter.calls).toBe(0);
   });
 
