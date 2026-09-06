@@ -7,7 +7,7 @@ import {
 } from './bootstrap';
 
 class OrderingRepository implements WorklogBootstrapRepository {
-  user: WorklogBootstrapUser = { userId: 1, lineUserId: 'U1', isOaFriend: false };
+  user: WorklogBootstrapUser = { userId: 1, lineUserId: 'U1', displayName: null, isOaFriend: false };
   group: WorklogBoundGroup = {
     sourceId: 10,
     lineGroupId: 'C1',
