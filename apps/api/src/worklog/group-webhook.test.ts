@@ -44,6 +44,50 @@ describe('processWorklogGroupWebhook 小跡', () => {
     expect(reply.calls).toEqual([{ token: 'reply-1', text: '已記錄。' }]);
   });
 
+  it('refreshes LINE group profile only for an explicit handled command', async () => {
+    const runtime = new FakeRuntime();
+    runtime.next = { status: 'RECORDED', recordId: 99, duplicate: false, replyText: '已記錄。' };
+    const refreshCalls: Array<{ lineGroupId: string; at: Date }> = [];
+    const message = groupMessage('小跡 晴空案今天收三千');
+    await processWorklogGroupWebhook({
+      parsed: parsed(message),
+      bootstrap: new FakeBootstrap(),
+      runtime,
+      reply: new FakeReply(),
+      refreshGroupProfile: async (lineGroupId, at) => { refreshCalls.push({ lineGroupId, at }); },
+    });
+    expect(refreshCalls).toEqual([{ lineGroupId: message.lineGroupId, at: message.lineTimestamp }]);
+
+    refreshCalls.length = 0;
+    runtime.next = { status: 'NOT_HANDLED' };
+    await processWorklogGroupWebhook({
+      parsed: parsed(groupMessage('普通聊天')),
+      bootstrap: new FakeBootstrap(),
+      runtime,
+      reply: new FakeReply(),
+      refreshGroupProfile: async (lineGroupId, at) => { refreshCalls.push({ lineGroupId, at }); },
+    });
+    expect(refreshCalls).toHaveLength(0);
+  });
+
+  it('does not fail the user command when group profile refresh fails', async () => {
+    const runtime = new FakeRuntime();
+    runtime.next = { status: 'RECORDED', recordId: 99, duplicate: false, replyText: '已記錄。' };
+    const anomalies = new FakeAnomalies();
+    const reply = new FakeReply();
+    const result = await processWorklogGroupWebhook({
+      parsed: parsed(groupMessage('小跡 晴空案今天收三千')),
+      bootstrap: new FakeBootstrap(),
+      runtime,
+      reply,
+      anomalies,
+      refreshGroupProfile: async () => { throw new Error('LINE unavailable'); },
+    });
+    expect(result).toMatchObject({ worklogRecords: 1, worklogRejected: 0, worklogErrors: 1 });
+    expect(reply.calls).toEqual([{ token: 'reply-1', text: '已記錄。' }]);
+    expect(anomalies.calls[0]).toMatchObject({ category: 'LINE_GROUP_PROFILE_REFRESH' });
+  });
+
   it('replies to help without rejection', async () => {
     const runtime = new FakeRuntime(); runtime.next = { status: 'HELP', replyText: '小跡 使用方式' };
     const reply = new FakeReply();
