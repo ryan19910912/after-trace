@@ -1,4 +1,5 @@
 import type { Row } from './api';
+import { formatAdminDateTime } from './time-display';
 
 type Props = {
   rows: Row[];
@@ -33,7 +34,7 @@ export function GroupListTable({ rows, onRow }: Props) {
     <td>{money(row.group_ai_cost_twd)}</td>
     <td>{display(row.active_members)}</td>
     <td>{display(row.record_count)}</td>
-    <td>{dateTime(row.updated_at)}</td>
+    <td>{formatAdminDateTime(row.updated_at)}</td>
   </tr>)}</tbody></table></div>;
 }
 
@@ -46,8 +47,3 @@ function StackedValue({ primary, secondary, primaryFallback, secondaryPrefix = '
 function text(value: unknown): string { return value === null || value === undefined ? '' : String(value).trim(); }
 function display(value: unknown): string { const valueText = text(value); return valueText || '—'; }
 function money(value: unknown): string { const parsed = Number(value ?? 0); return Number.isFinite(parsed) ? `NT$ ${parsed.toFixed(4)}` : '—'; }
-function dateTime(value: unknown): string {
-  const raw = text(value); if (!raw) return '—';
-  const date = new Date(raw); if (Number.isNaN(date.getTime())) return raw;
-  return new Intl.DateTimeFormat('sv-SE', { timeZone:'Asia/Taipei', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false }).format(date);
-}
