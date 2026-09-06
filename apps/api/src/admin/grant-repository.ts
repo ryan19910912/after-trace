@@ -26,8 +26,8 @@ export class DrizzleGrantAdminRepository {
         u.is_oa_friend,
         COALESCE(subscription.plan_code, 'FREE') AS plan_code,
         subscription.status AS subscription_status,
-        COALESCE((SELECT SUM(grant.original_points) FROM worklog_ai_grants grant WHERE grant.owner_user_id = u.id AND grant.status <> 'REVOKED'), 0)::bigint::text AS ai_granted_points,
-        COALESCE((SELECT SUM(grant.remaining_points) FROM worklog_ai_grants grant WHERE grant.owner_user_id = u.id AND grant.status IN ('ACTIVE','EXHAUSTED') AND grant.effective_at <= NOW() AND (grant.expires_at IS NULL OR grant.expires_at > NOW())), 0)::bigint::text AS ai_available_points,
+        COALESCE((SELECT SUM(g.original_points) FROM worklog_ai_grants g WHERE g.owner_user_id = u.id AND g.status <> 'REVOKED'), 0)::bigint::text AS ai_granted_points,
+        COALESCE((SELECT SUM(g.remaining_points) FROM worklog_ai_grants g WHERE g.owner_user_id = u.id AND g.status IN ('ACTIVE','EXHAUSTED') AND g.effective_at <= NOW() AND (g.expires_at IS NULL OR g.expires_at > NOW())), 0)::bigint::text AS ai_available_points,
         COALESCE((SELECT SUM(reservation.points_reserved - reservation.points_committed) FROM worklog_ai_point_reservations reservation WHERE reservation.charged_user_id = u.id AND reservation.status = 'RESERVED'), 0)::bigint::text AS ai_reserved_points,
         COALESCE((SELECT SUM(usage.customer_points_charged) FROM worklog_ai_usage_events usage WHERE usage.charged_user_id = u.id), 0)::bigint::text AS ai_used_points,
         COALESCE((SELECT SUM(usage.platform_subsidized_points) FROM worklog_ai_usage_events usage WHERE usage.charged_user_id = u.id), 0)::bigint::text AS platform_subsidized_points,
@@ -83,15 +83,15 @@ export class DrizzleGrantAdminRepository {
         LIMIT 1
       `),
       this.db.execute(sql`
-        SELECT grant.id::text AS id, grant.type, grant.status,
-               grant.original_points, grant.remaining_points, grant.effective_at,
-               grant.expires_at, grant.origin_key, grant.metadata,
-               COALESCE((SELECT SUM(scope.used_points) FROM worklog_ai_grant_scopes scope WHERE scope.grant_id = grant.id), 0)::bigint::text AS scoped_used_points,
-               COALESCE((SELECT SUM(scope.reserved_points) FROM worklog_ai_grant_scopes scope WHERE scope.grant_id = grant.id), 0)::bigint::text AS scoped_reserved_points,
-               (SELECT COUNT(*) FROM worklog_ai_grant_scopes scope WHERE scope.grant_id = grant.id AND scope.enabled = TRUE)::text AS enabled_source_count
-        FROM worklog_ai_grants grant
-        WHERE grant.owner_user_id = ${userId}
-        ORDER BY grant.created_at DESC, grant.id DESC
+        SELECT g.id::text AS id, g.type, g.status,
+               g.original_points, g.remaining_points, g.effective_at,
+               g.expires_at, g.origin_key, g.metadata,
+               COALESCE((SELECT SUM(scope.used_points) FROM worklog_ai_grant_scopes scope WHERE scope.grant_id = g.id), 0)::bigint::text AS scoped_used_points,
+               COALESCE((SELECT SUM(scope.reserved_points) FROM worklog_ai_grant_scopes scope WHERE scope.grant_id = g.id), 0)::bigint::text AS scoped_reserved_points,
+               (SELECT COUNT(*) FROM worklog_ai_grant_scopes scope WHERE scope.grant_id = g.id AND scope.enabled = TRUE)::text AS enabled_source_count
+        FROM worklog_ai_grants g
+        WHERE g.owner_user_id = ${userId}
+        ORDER BY g.created_at DESC, g.id DESC
       `),
       this.db.execute(sql`
         SELECT source.id::text AS source_id, source.line_group_id, source.status,
@@ -143,25 +143,25 @@ export class DrizzleGrantAdminRepository {
         responsibility.responsible_user_id::text AS ai_responsible_user_id,
         responsible.display_name AS ai_responsible_display_name,
         COALESCE((
-          SELECT SUM(LEAST(grant.remaining_points, CASE WHEN scope.cap_points IS NULL THEN grant.remaining_points ELSE GREATEST(0, scope.cap_points - scope.used_points - scope.reserved_points) END))
-          FROM worklog_ai_grants grant
-          INNER JOIN worklog_ai_grant_scopes scope ON scope.grant_id = grant.id
+          SELECT SUM(LEAST(g.remaining_points, CASE WHEN scope.cap_points IS NULL THEN g.remaining_points ELSE GREATEST(0, scope.cap_points - scope.used_points - scope.reserved_points) END))
+          FROM worklog_ai_grants g
+          INNER JOIN worklog_ai_grant_scopes scope ON scope.grant_id = g.id
           WHERE responsibility.responsible_user_id IS NOT NULL
-            AND grant.owner_user_id = responsibility.responsible_user_id
+            AND g.owner_user_id = responsibility.responsible_user_id
             AND scope.source_id = source.id AND scope.enabled = TRUE
-            AND grant.status IN ('ACTIVE','EXHAUSTED') AND grant.effective_at <= NOW()
-            AND (grant.expires_at IS NULL OR grant.expires_at > NOW())
+            AND g.status IN ('ACTIVE','EXHAUSTED') AND g.effective_at <= NOW()
+            AND (g.expires_at IS NULL OR g.expires_at > NOW())
         ), 0)::bigint::text AS ai_available_points,
         COALESCE((
           SELECT SUM(scope.reserved_points)
           FROM worklog_ai_grant_scopes scope
-          INNER JOIN worklog_ai_grants grant ON grant.id = scope.grant_id
+          INNER JOIN worklog_ai_grants g ON g.id = scope.grant_id
           WHERE responsibility.responsible_user_id IS NOT NULL
-            AND grant.owner_user_id = responsibility.responsible_user_id
+            AND g.owner_user_id = responsibility.responsible_user_id
             AND scope.source_id = source.id AND scope.enabled = TRUE
-            AND grant.status IN ('ACTIVE','EXHAUSTED')
-            AND grant.effective_at <= NOW()
-            AND (grant.expires_at IS NULL OR grant.expires_at > NOW())
+            AND g.status IN ('ACTIVE','EXHAUSTED')
+            AND g.effective_at <= NOW()
+            AND (g.expires_at IS NULL OR g.expires_at > NOW())
         ), 0)::bigint::text AS ai_reserved_points,
         (SELECT COUNT(*) FROM worklog_source_members member WHERE member.source_id = source.id AND member.is_active = TRUE)::text AS active_members,
         (SELECT COUNT(*) FROM worklog_records record WHERE record.source_id = source.id)::text AS record_count,
@@ -191,25 +191,25 @@ export class DrizzleGrantAdminRepository {
         responsibility.assigned_by_user_id::text AS responsibility_assigned_by_user_id,
         responsibility.assigned_at AS responsibility_assigned_at,
         COALESCE((
-          SELECT SUM(LEAST(grant.remaining_points, CASE WHEN scope.cap_points IS NULL THEN grant.remaining_points ELSE GREATEST(0, scope.cap_points - scope.used_points - scope.reserved_points) END))
-          FROM worklog_ai_grants grant
-          INNER JOIN worklog_ai_grant_scopes scope ON scope.grant_id = grant.id
+          SELECT SUM(LEAST(g.remaining_points, CASE WHEN scope.cap_points IS NULL THEN g.remaining_points ELSE GREATEST(0, scope.cap_points - scope.used_points - scope.reserved_points) END))
+          FROM worklog_ai_grants g
+          INNER JOIN worklog_ai_grant_scopes scope ON scope.grant_id = g.id
           WHERE responsibility.responsible_user_id IS NOT NULL
-            AND grant.owner_user_id = responsibility.responsible_user_id
+            AND g.owner_user_id = responsibility.responsible_user_id
             AND scope.source_id = source.id AND scope.enabled = TRUE
-            AND grant.status IN ('ACTIVE','EXHAUSTED') AND grant.effective_at <= NOW()
-            AND (grant.expires_at IS NULL OR grant.expires_at > NOW())
+            AND g.status IN ('ACTIVE','EXHAUSTED') AND g.effective_at <= NOW()
+            AND (g.expires_at IS NULL OR g.expires_at > NOW())
         ), 0)::bigint::text AS ai_available_points,
         COALESCE((
           SELECT SUM(scope.reserved_points)
           FROM worklog_ai_grant_scopes scope
-          INNER JOIN worklog_ai_grants grant ON grant.id = scope.grant_id
+          INNER JOIN worklog_ai_grants g ON g.id = scope.grant_id
           WHERE responsibility.responsible_user_id IS NOT NULL
-            AND grant.owner_user_id = responsibility.responsible_user_id
+            AND g.owner_user_id = responsibility.responsible_user_id
             AND scope.source_id = source.id AND scope.enabled = TRUE
-            AND grant.status IN ('ACTIVE','EXHAUSTED')
-            AND grant.effective_at <= NOW()
-            AND (grant.expires_at IS NULL OR grant.expires_at > NOW())
+            AND g.status IN ('ACTIVE','EXHAUSTED')
+            AND g.effective_at <= NOW()
+            AND (g.expires_at IS NULL OR g.expires_at > NOW())
         ), 0)::bigint::text AS ai_reserved_points,
         COALESCE((SELECT SUM(usage.customer_points_charged) FROM worklog_ai_usage_events usage WHERE usage.source_id = source.id), 0)::bigint::text AS ai_used_points,
         COALESCE((SELECT SUM(usage.platform_subsidized_points) FROM worklog_ai_usage_events usage WHERE usage.source_id = source.id), 0)::bigint::text AS platform_subsidized_points,
@@ -279,11 +279,11 @@ export class DrizzleGrantAdminRepository {
       `),
       this.db.execute(sql`
         SELECT scope.id::text AS scope_id, scope.grant_id::text AS grant_id,
-               grant.owner_user_id::text AS owner_user_id, grant.type AS grant_type,
+               g.owner_user_id::text AS owner_user_id, g.type AS grant_type,
                scope.cap_points, scope.used_points, scope.reserved_points, scope.enabled,
-               grant.remaining_points, grant.expires_at, scope.updated_at
+               g.remaining_points, g.expires_at, scope.updated_at
         FROM worklog_ai_grant_scopes scope
-        INNER JOIN worklog_ai_grants grant ON grant.id = scope.grant_id
+        INNER JOIN worklog_ai_grants g ON g.id = scope.grant_id
         WHERE scope.source_id = ${sourceId}
         ORDER BY scope.updated_at DESC, scope.id DESC
       `),
