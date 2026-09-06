@@ -13,7 +13,7 @@ Before substantive product/domain/schema/runtime work, read in this order:
 7. `docs/WORKLOG_DEPLOYMENT.md`
 8. `docs/WORKLOG_REBUILD_PROGRESS.md`
 
-Pure presentation-only UI tweaks that do not alter behavior, data, entitlement, pricing, security, runtime, or deployment do not require rereading the full document set.
+The latest documents above are the only product/development specification. Pure presentation-only UI tweaks that do not alter behavior, data, entitlement, pricing, security, runtime, or deployment do not require rereading the full set.
 
 ## GitHub Actions / CI policy
 
@@ -25,225 +25,302 @@ Every development commit on this branch must include `[skip ci]`.
 
 ## Durable product decisions
 
-Agreed product decisions must not live only in chat. Update relevant durable docs in the same batch. Surface code/doc mismatches rather than redefining desired behavior to preserve obsolete code.
+Agreed product decisions must not live only in chat. Update durable docs in the same batch. Surface code/doc mismatches rather than preserving obsolete behavior.
 
-## Core product architecture
+## Core architecture
 
-- general-purpose work recording;
-- PRIVATE and GROUP Sources are independent data spaces;
-- GROUP manual use does not require paid subscription, AI allowance, or AI 額度負責人;
-- PWA manual read/create/edit/delete/restore/title move/batch move is free and non-AI;
-- Web/PWA account creation via LINE Login does not require current OA friendship;
-- OA friendship enables LINE-native features but is not the ownership boundary for PRIVATE Web data;
-- GROUP manual authorization = active membership;
-- PRIVATE authorization = private owner/user scope;
-- no plan limits group count;
-- AI allowance is user-owned and Grants are independently identifiable/scoped;
-- customer-facing group funding role is **AI 額度負責人**;
-- subscription expiry does not disable another eligible Grant and unauthorized Grants never become fallback.
+AFTERTRACE is **PWA-first, LINE-integrated**.
 
-## Account/bootstrap rules
+- PWA Quick Capture is the primary fast capture UX.
+- PWA/Web is the authoritative full records/search/edit/Draft surface.
+- LINE GROUP and OA are convenience/integration surfaces using the same `小跡` command language.
+- PRIVATE and GROUP Sources are independent data spaces.
+- Manual PWA read/create/edit/delete/restore/title move is free and non-AI.
+- AI allowance is checked only for operations requiring provider compute.
+- GROUP authorization is active-membership based, not Owner/subscription based.
+- GROUP AI funding is separate from GROUP data authorization and uses AI 額度負責人 + eligible scoped user Grant.
 
-Successful LINE Login may idempotently provision the user/workspace/PRIVATE Source/FREE_INITIAL path. It must not fabricate OA friendship.
+## Account / LINE identity
 
-`is_oa_friend` is changed only by real LINE OA lifecycle evidence. Follow/unfollow changes LINE-native capability state without deleting the user's Web account, PRIVATE data or Grants.
+- LINE Login may idempotently provision user/workspace/PRIVATE Source/FREE_INITIAL.
+- LINE Login must not fabricate OA friendship.
+- OA follow/unfollow alone owns `is_oa_friend`.
+- PWA/Quick Capture does not require OA friendship.
+- A later OA follow must never duplicate FREE_INITIAL.
+- Auth/session design should support fast installed-PWA reopening without unnecessary repeated login while still expiring invalid/security-sensitive sessions correctly.
 
-Initial FREE provisioning is idempotent. LINE Login followed later by OA follow must never create a duplicate `FREE_INITIAL` Grant.
+## PWA Quick Capture implementation contract
 
-## Private OA Rich Menu input state
+Quick Capture supports Voice + Text and one explicit selected Source.
 
-Private OA create/query UX is explicit-mode-driven. Do not make every private chat line an implicit database operation and do not require the user to type `@AFTERTRACE` before normal OA use.
+### Source rules
 
-Rich Menu uses **Postback actions**, not visible message-action commands:
+- eligible targets = PRIVATE + authorized ACTIVE GROUP Sources;
+- default = user's most recently selected valid Source;
+- if last Source becomes unauthorized/inactive, fall back to PRIVATE;
+- UI must clearly display destination before capture and on Preview;
+- server must re-authorize Source at preview and commit; never trust stale client selection.
 
-- `aftertrace:record` -> set `RECORD` pending action and prompt for the next text;
-- `aftertrace:query` -> set `QUERY` pending action and prompt for the next text;
-- `aftertrace:cancel` -> clear the current pending action and confirm cancellation.
+GROUP Source picker must not expose a group merely because a Source row exists. Require active Source + active membership + current group/Bot eligibility according to durable LINE state.
 
-Implementation rules:
+### Voice rules
 
-- parse OA `postback` webhook events separately from normal messages; do not fabricate a LINE message id for a Postback;
-- persist one pending private action per user in PostgreSQL; never use Worker process memory;
-- initial TTL = 10 minutes;
-- selecting a mode overwrites the user's previous mode;
-- only a non-empty text message consumes the mode;
-- non-text messages such as sticker/image/audio/file do not consume it;
-- consume/delete the pending mode before processing the next text so later messages cannot reuse it;
-- expired modes fail clearly and do not guess RECORD vs QUERY from the user's text;
-- `RECORD` goes through existing PRIVATE AI entitlement + Record normalization/persistence; positive eligible AI points are required before provider work;
-- `QUERY` goes through deterministic provider-free history retrieval and does not require AI points;
-- `aftertrace:cancel` and literal `取消` clear the pending action without creating a Record or Query;
-- unknown Postback data must fail closed / remain `NOT_HANDLED` and must not mutate product data;
-- ordinary private text with no active mode remains support/non-product traffic and is not automatically persisted or queried;
-- Rich Menu mode-selection Postbacks should omit visible `displayText` unless a later UX decision explicitly wants one;
-- GROUP behavior is unchanged and keeps the explicit `@AFTERTRACE` boundary;
-- legacy private `@AFTERTRACE` parsing may remain temporarily as compatibility/debug fallback while Rich Menu Postback is the customer-facing contract.
+- microphone starts only after explicit user gesture;
+- short capture is the MVP use case;
+- do not add persistent offline audio storage merely for speculative resilience;
+- upload/provider failure must produce clear retry/re-record UI;
+- if current page still owns the in-memory Blob, immediate retry may reuse it;
+- original voice binary is not a durable AFTERTRACE record unless a later explicit storage feature is accepted.
 
-The canonical durable table is `worklog_private_pending_actions` (or an equivalent table preserving the same semantics). Readiness must probe it because OA record/query operation depends on it.
+### AI preview/Draft rules
 
-## Commercial plan model
+PWA AI create is preview-first:
 
-Admin plan/product templates use exactly three types:
+1. authorize selected Source;
+2. require positive eligible AI points;
+3. run shared interpretation once;
+4. create durable/tamper-resistant Draft result;
+5. show Source/title/content/event date;
+6. allow explicit user edits;
+7. commit only after explicit confirmation;
+8. do not call provider again merely to persist unchanged/manually corrected Draft;
+9. provider usage incurred for Draft creation remains chargeable even if never committed.
 
-- `FREE`: exactly one `code=FREE`, zero price, cannot be deleted or duplicated, Admin-editable; `grant_points` = one-time initial FREE points.
-- `SUBSCRIPTION`: add/edit/disable/delete when unused; `grant_points` = points frozen into each successful subscription-period Grant.
-- `ONE_TIME`: add/edit/disable/delete when unused; `grant_points` = points frozen into one successful one-time/TOP_UP Grant.
+Drafts do **not** auto-expire. They remain until confirmed or explicitly deleted.
 
-`grant_points` is a template, never the live user balance. Existing Grants are immutable when templates change.
+A GROUP Draft must be re-authorized on every read/edit/commit. If membership is lost, access is immediately denied.
 
-FREE initial points must be read from durable DB/Admin configuration at first grant provisioning. Do **not** hard-code 400,000 (or any other promotional amount) in application code or `.env`. The operator may currently configure 400,000 as a value, but future changes affect only users without an existing `FREE_INITIAL` Grant.
+## GROUP authorization hard rule
 
-ONE_TIME products are not subscription states and must not be assignable through the subscription-period lifecycle.
+When a LINE user leaves/is removed from a group, that user loses **all** GROUP Source rights immediately:
 
-Deleting a non-FREE plan/product must fail closed while durable references exist; disabling is the safe fallback.
+- read;
+- search;
+- Quick Capture selection;
+- create;
+- edit;
+- delete/restore;
+- title move;
+- Draft read/edit/commit;
+- deep links.
 
-## AI execution / zero balance
+Data remains in the GROUP Source.
 
-Any AI operation requires positive eligible points at request start. Examples: LINE AI-assisted Record creation/title parsing, Web/PWA `AI 幫我記`, LINE natural-language edit, provider-based attachment understanding, and future explicit AI reports.
+`MEMBER_LEFT`/membership-state updates must be treated as authorization-critical. UI hiding is not security; every API operation rechecks active membership.
 
-If eligible points are zero, do not start provider AI. If balance was positive at start but actual usage exceeds it, floor customer balance at zero and record the remainder as platform subsidy.
+## LINE group profile metadata
 
-Provider actual usage/cost, customer charge, subsidy, user, Source, model/pricing snapshot, operation, and timestamp remain auditable.
+PWA GROUP display uses current LINE group name/picture, not an AFTERTRACE custom alias.
+
+Persist/cache metadata equivalent to:
+
+- `line_group_name`;
+- `line_group_picture_url`;
+- `line_group_profile_synced_at`.
+
+Refresh lazily:
+
+- threshold = 24 hours;
+- refresh only when group is actually used (LINE 小跡 command, PWA Source list/open group surface, or equivalent real request);
+- no scheduled/cron refresh for idle groups;
+- within 24h use cached values;
+- lifecycle events remain primary status/membership evidence; summary refresh failures may support diagnostics/inactivation but must not substitute weaker authorization logic.
+
+## Unified LINE command language — 小跡
+
+Both OA and GROUP use a sentence-start prefix `小跡`.
+
+Parser rules:
+
+- accept `小跡 `, `小跡，`, `小跡：` and similar bounded separators;
+- no LINE `@` mention is required;
+- ordinary text not starting with `小跡` is not a command;
+- GROUP and OA share command semantics; Source is determined by surface.
+
+Accepted initial commands:
+
+- `小跡 <內容>` -> RECORD (default);
+- `小跡 記錄 <內容>` / `小跡 紀錄 <內容>` -> RECORD;
+- `小跡 查 <query>` / `小跡 查詢 <query>` -> QUERY;
+- `小跡 今天` -> today's deterministic query;
+- `小跡 最近` -> newest deterministic query;
+- `小跡 幫助` -> command help;
+- Reply + `小跡 記` -> quoted-content record when recoverable;
+- Reply + explicit edit language such as `小跡 幫我改成 ...` -> deterministic target edit;
+- GROUP `小跡 啟用` may remain the explicit AI 額度負責人 claim command until replaced by an accepted UX.
+
+Do not infer query merely because a sentence sounds interrogative. Query requires explicit `查/查詢` or a fixed shortcut such as `今天/最近`. This keeps `小跡 <content>` predictably Record-first.
+
+Retired prelaunch UX that must not reappear as the customer contract:
+
+- `@AFTERTRACE ...`;
+- `@紀錄` / `@查詢`;
+- `/紀錄` slash-command design;
+- OA Rich Menu record/query Postback pending modes;
+- `worklog_private_pending_actions` schema/runtime state.
+
+## LINE OA role
+
+OA is a lightweight convenience surface. It may offer menu links such as:
+
+- 指令教學;
+- 開啟 AFTERTRACE;
+- AI 點數 / 方案.
+
+Do not rebuild a Postback -> pending mode -> next-message state machine unless a later explicit product decision reverses this policy.
 
 ## Shared AI Record pipeline
 
-Do not implement separate title/entity/date/point/persistence business logic for LINE and Web.
+Do not implement separate title/entity/date/point/persistence business logic for LINE text, PWA text, or PWA voice.
 
-The reusable core must separate AI interpretation from durable commit sufficiently that:
+Reusable core responsibilities:
 
-- LINE can continue its accepted direct/confirmation interaction;
-- Web/PWA can use preview-first `AI 幫我記`;
-- both reuse the same normalization, same-Source Entity/Alias resolution, ambiguity handling, semantic search metadata, AI point ledger/provider-cost accounting and Record persistence rules;
-- an unchanged accepted Web preview can be committed without a second provider call;
-- operation/channel facts distinguish surfaces such as `LINE_AI_CREATE` and `PWA_AI_CREATE` for audit/analytics without creating separate domain models.
+- durable extracted/raw text;
+- one title/Entity;
+- same-Source Entity/Alias resolution;
+- ambiguity confirmation;
+- event date;
+- bounded grounded `search_terms`;
+- AI point reservation/settlement;
+- provider cost/pricing snapshot audit;
+- deterministic authorized commit.
 
-The first Web AI input is text. Future voice/image/PDF can attach to the same shared pipeline rather than spawning new product-specific cores.
+Channel/input type is audit metadata, not a forked domain model.
 
-## Web AI preview/commit rule
+## AI execution / zero balance
 
-Web/PWA `AI 幫我記` is explicit opt-in AI, not implicit automation during manual CRUD.
+Any provider-backed operation requires positive eligible points at request start.
 
-Required behavior:
+If balance is zero, do not call provider. Manual PWA CRUD remains free.
 
-1. authorize exact PRIVATE/GROUP Source;
-2. require positive eligible AI points before provider work;
-3. run shared interpretation once;
-4. return a normalized preview or durable ambiguity/confirmation state;
-5. require explicit user confirmation before creating the Record;
-6. commit using deterministic backend authorization/persistence rules;
-7. do not refund already-incurred provider usage merely because the user cancels after preview;
-8. do not call provider AI again just to persist an unchanged accepted preview.
+If balance starts positive and actual usage exceeds remaining points, floor customer balance at zero and record the shortfall as platform subsidy for that started request.
 
-Preview state must be tamper-resistant/durable enough that commit cannot trust arbitrary client-supplied title/content/date as if it were the original AI result.
+Provider actual usage/cost, customer charge, subsidy, user, Source, model/pricing snapshot, operation and timestamp remain auditable.
 
-## AI provider/model runtime configuration
+## AI provider/model runtime
 
-The shipped provider adapter may restrict provider values to implementations that exist (currently `GOOGLE`). Provider-specific model identifiers must not be hard-coded or allowlisted.
+- implemented provider adapter currently supports `GOOGLE`;
+- model identifier is runtime configuration, not a hard-coded allowlist;
+- current intended configured model is `gemini-3.5-flash-lite`;
+- readiness validates provider/model/pricing shape, not equality to a source constant;
+- changing model does not rewrite historical usage snapshots.
 
-- Admin stores a non-empty model id, e.g. `gemini-3.5-flash-lite`.
-- readiness validates presence and usable pricing, not equality to a model constant.
-- provider request paths use configured `model` directly.
-- provider runtime determines model existence/permission/feature compatibility.
-- changing the active model never rewrites historical pricing/usage snapshots.
+## AI points / commercial templates
 
-## AI points / economics
+Follow `WORKLOG_AI_POINT_POLICY.md`.
 
-Follow `WORKLOG_AI_POINT_POLICY.md`:
-
-- 1 AI point = 1 output-price-equivalent token;
-- actual input/output/thinking/media cost is included in conversion;
+- 1 point = 1 output-price-equivalent token;
+- actual input/output/thinking/media cost is included;
 - positive fractional point use rounds up;
-- subscription planning starts around 40% target gross margin;
-- one-time planning starts around 50%;
-- Admin calculator may recommend points, but persisted plan/product `grant_points` is explicitly confirmed;
-- do not hard-code provider prices into entitlement logic.
+- FREE `grant_points` = one-time first grant;
+- SUBSCRIPTION `grant_points` = points per successful period;
+- ONE_TIME `grant_points` = points per successful purchase;
+- template changes never resize historical Grants;
+- FREE amount is Admin/DB config, never hard-coded.
 
 ## Record/title/search rules
 
-Core universal model is Source + Entity(title) + Alias + Record + immutable Revision + durable pending AI confirmation.
+Core domain remains Source + Entity(title) + Alias + Record + immutable Revision + durable pending AI confirmation/Draft structures as accepted.
 
-- each Record belongs to one Entity/title;
-- do not create Related Entities merely because names/objects appear in content;
+- each Record has one Entity/title;
+- no generic RELATED Entity creation merely because names appear in text;
 - Entity/Alias matching is Source-scoped;
-- no generic PRIMARY/RELATED many-to-many core model;
-- AI-assisted Record interpretation may persist a bounded `search_terms` array for retrieval only;
-- `search_terms` must be grounded in the Record and may include common synonyms/concepts needed to retrieve the same fact, e.g. `收3千清潔費` -> `收款`, `款項`, `清潔費`, `3000`;
-- do not turn `search_terms` into a domain-specific finance/project schema;
+- AI-assisted Records may persist bounded `search_terms`;
+- manual PWA CRUD does not silently call AI merely to populate search terms;
 - deterministic search may match title, alias, raw text and `search_terms`.
 
-Manual PWA CRUD must never invoke AI merely to populate search terms. Records created manually may therefore have no semantic terms until a later explicit feature processes them.
+## Event-date / Reply source timestamp
 
-## Event-date / source-timestamp rules
+Record business event is day-precision for MVP.
 
-The Record business event field is day-precision for MVP. The current physical `occurred_at` timestamp column may remain temporarily for compatibility, but application semantics are a canonical Asia/Taipei calendar day, not a meaningful clock time.
+- direct LINE input reference = original LINE message timestamp;
+- GROUP Reply-to-TEXT = cached quoted message timestamp;
+- delayed Reply never uses the later command timestamp as source-date reference;
+- Worker current time is never a silent substitute;
+- if required original timestamp is unavailable, fail/request resend;
+- relative language resolves in Asia/Taipei;
+- `created_at` / `updated_at` remain actual system timestamps.
 
-Required reference-time rules:
+Regression:
 
-- direct LINE command: reference = original LINE message timestamp;
-- GROUP Reply/Replay cached text: reference = cached quoted message `lineTimestamp`;
-- any future Reply/Replay path that can recover the original message timestamp must use that timestamp;
-- later command/reply timestamp is **not** the event-date reference for quoted content;
-- Worker current time is never an acceptable silent substitute;
-- if the required original timestamp is unavailable, fail clearly/request resend rather than silently assigning the current date.
+- 9/3 original: `晴空案今天收3000清潔費`;
+- 9/5 Reply: `小跡 記`;
+- event date must be 9/3.
 
-Regression example that must remain covered:
+Delayed attachment Reply still needs reliable original-timestamp handling before all attachment replay paths can be called compliant.
 
-- 9/3 original: `晴空案今天收3000清潔費`
-- 9/5 Reply: `@AFTERTRACE 幫我記`
-- resulting event date = 9/3, while `created_at` may be 9/5.
+## Deterministic LINE history
 
-Relative date phrases are interpreted in `Asia/Taipei`. `created_at` / `updated_at` remain real system timestamps and are not event dates.
+History = **Query -> Retrieve -> Answer -> Deep Link**.
 
-## AI-assisted Record parsing
+- authorize Source first;
+- resolve same-Source title/Alias where possible;
+- deterministic query/date filters;
+- PostgreSQL title/alias/raw/search_terms lookup;
+- return newest up to 5;
+- include total count when available;
+- append secure filtered PWA link;
+- no provider call for history summary;
+- never invent business conclusions/progress/payment state.
 
-Keep AI responsibility bounded to intent, one title, same-Source Entity/Alias resolution, ambiguity confirmation, event date, bounded semantic `search_terms`, and durable textual content. Do not require universal finance/address/material/task extraction.
+## PWA timeline/search/manual CRUD
 
-## Deterministic LINE history retrieval
+PWA should provide:
 
-Current LINE history answers must be provider-free after intent/filter parsing and must not call AI for summarization.
+- Quick Capture;
+- unfinished Draft list;
+- recent timeline (`今天 / 最近 7 天 / 全部`);
+- Source/title/date/keyword search;
+- free manual create/edit/delete/restore/title move;
+- revision history;
+- customer-friendly AI-point status.
 
-Implement **Query → Retrieve → Answer → Deep Link**:
-
-1. authorize Source first;
-2. resolve an explicitly mentioned existing Entity/Alias within that same Source when possible;
-3. derive the remaining fuzzy/semantic query;
-4. query PostgreSQL using title/alias/raw text/`search_terms` and date filters;
-5. return at most the newest 5 matching Records in LINE;
-6. include total match count when available;
-7. append the secure filtered PWA link for more results.
-
-Never infer a business conclusion such as percentage complete, paid/unpaid state, or project status merely because several Records were returned. The answer is a deterministic presentation of stored facts, not an AI summary.
-
-## PWA / LINE rules
-
-PWA manual create/edit/search is deterministic and free. User-facing manual date input is day-precision for MVP; do not require or invent a time-of-day.
-
-LINE natural-language edit requires reliable Reply target; never guess. AI does not write arbitrary SQL.
+Manual create/edit is non-AI unless the user explicitly chooses an AI action.
 
 ## Revision / concurrency / delete
 
-Every content-changing edit writes immutable revision history. Use integer optimistic concurrency. Delete is soft/status-based, recyclable, and preserves history/title references.
+Every content-changing edit writes immutable revision history. Use integer optimistic concurrency. Stale updates fail instead of overwriting newer state.
+
+Delete is soft/status-based and reversible.
 
 ## Attachments
 
-Follow `WORKLOG_LINE_CONTENT_POLICY.md`. PWA manual create/edit stays text-only. LINE binaries are not permanently stored; only durable extracted/transcribed text is retained where supported.
+Follow `WORKLOG_LINE_CONTENT_POLICY.md`.
 
-For delayed Reply attachment ingestion, do not silently assign the Reply command timestamp as the original attachment event date. Until original attachment timestamp metadata is durably recoverable, the path must either preserve/recover source timestamp metadata or fail clearly instead of fabricating a current date.
+PWA Quick Capture voice is a capture modality; do not permanently retain audio binary by default. LINE binaries are not permanently stored under the current content policy.
+
+For delayed Reply attachment ingestion, do not fabricate source time from the Reply command.
+
+## Deferred scope
+
+Do not expand current MVP with these unless explicitly reaccepted:
+
+- native home-screen Widget;
+- public/share Record links;
+- Export as launch requirement;
+- persistent offline voice Blob recovery;
+- automatic AI history/business summaries;
+- custom AFTERTRACE GROUP display names;
+- OA Rich Menu pending-mode workflow.
 
 ## Prelaunch database policy
 
-Dev/prod are currently prelaunch/disposable. Schema may be destructively rebuilt after confirming no real user/business data must be preserved. Once real production data exists, switch to forward-only migrations immediately.
+Dev/prod are currently prelaunch. Canonical baseline may be regenerated after accepted schema changes, but that baseline is for fresh DB creation.
 
-The checked-in Drizzle baseline must be regenerated using the approved baseline command; never hand-fabricate snapshot metadata.
+When existing Dev preservation has been chosen, use reviewed idempotent forward compatibility and do not rebuild merely because `0000` changed.
 
-When preserving an already-used prelaunch environment is explicitly chosen, use reviewed idempotent forward-compatibility migrations rather than assuming a regenerated `0000` will replay. Do not rebuild an environment merely because the canonical fresh-database baseline changed when a safe forward migration exists.
+Once real production data exists, use forward-only migrations.
 
-## Runtime observability
+## Deployment / observability
 
-Worker observability/log persistence should be defined in checked-in Wrangler config rather than only Dashboard state. A stale Dashboard Cron Trigger must not be mistaken for logging; cron requires an intentional `scheduled()` handler and accepted scheduled product work.
+Cloudflare Workers remain the deployment platform. Do not reintroduce Pages.
+
+A stale Dashboard Cron Trigger is unrelated to logging. Do not create a `scheduled()` handler merely to silence a stale trigger. Group-profile refresh is request-driven/lazy and must not introduce a cron.
 
 ## Validation and handoff
 
 - never claim unexecuted tests passed;
 - use local/runtime validation, not GitHub Actions;
-- meaningful runs update `WORKLOG_REBUILD_PROGRESS.md` with work, debt, validation state, next action, and confirmation that Actions were not used.
+- meaningful runs update `WORKLOG_REBUILD_PROGRESS.md` with current work/debt/validation/next action;
+- every commit contains `[skip ci]`;
+- never run/trigger/modify GitHub Actions unless explicitly requested.
