@@ -21,7 +21,7 @@ class FakeBootstrap implements WorklogOaBootstrapPort {
   async handleOaFollow() { this.isFriend = true; return { userId: 7, workspaceId: 8, sourceId: 9 }; }
   async handleOaUnfollow() { this.isFriend = false; return { userId: 7 }; }
   async touchPrivateInteraction() { return { userId: 7, lineUserId: 'line-user-1', isOaFriend: this.isFriend }; }
-  async bootstrapPrivateInteraction(): Promise<PrivateBootstrapResult> { return this.isFriend ? { status: 'READY', userId: 7, workspaceId: 8, sourceId: 9 } : { status: 'NOT_OA_FRIEND', userId: 7 }; }
+  async bootstrapPrivateInteraction(): Promise<PrivateBootstrapResult> { return { status: 'READY', userId: 7, workspaceId: 8, sourceId: 9 }; }
 }
 class FakeRecords implements WorklogOaRecordWritePort {
   calls: Array<{ text: string }> = [];
@@ -71,7 +71,7 @@ function runtime(interpreter = new FakeInterpreter(), bootstrap = new FakeBootst
 }
 
 describe('WorklogOaNaturalRuntime', () => {
-  it('keeps ordinary OA chat outside 小跡 processing', async () => {
+  it('keeps ordinary private LINE chat outside 小跡 processing', async () => {
     const test = runtime();
     await expect(test.value.handleMessage(privateMessage('你好'))).resolves.toEqual({ status: 'NOT_HANDLED' });
     expect(test.interpreter.calls).toBe(0);
@@ -107,17 +107,19 @@ describe('WorklogOaNaturalRuntime', () => {
     expect(test.records.calls).toHaveLength(0);
   });
 
-  it('rejects GROUP AI responsibility controls in OA without provider use', async () => {
+  it('rejects GROUP AI responsibility controls in private LINE without provider use', async () => {
     const test = runtime();
     await expect(test.value.handleMessage(privateMessage('小跡 啟用 AI'))).resolves.toMatchObject({ status: 'REJECTED', reason: 'GROUP_COMMAND_IN_PRIVATE' });
     await expect(test.value.handleMessage(privateMessage('小跡 取消 AI'))).resolves.toMatchObject({ status: 'REJECTED', reason: 'GROUP_COMMAND_IN_PRIVATE' });
     expect(test.interpreter.calls).toBe(0);
   });
 
-  it('requires OA friendship before natural-language provider work', async () => {
+  it('does not gate a delivered private LINE webhook on OA friendship state', async () => {
     const bootstrap = new FakeBootstrap(); bootstrap.isFriend = false;
-    const test = runtime(new FakeInterpreter(), bootstrap);
-    await expect(test.value.handleMessage(privateMessage('小跡 幫我查晴空案'))).resolves.toMatchObject({ status: 'REJECTED', reason: 'NOT_OA_FRIEND' });
-    expect(test.interpreter.calls).toBe(0);
+    const interpreter = new FakeInterpreter();
+    interpreter.result = { status: 'INTERPRETED', interpretation: { intent: 'QUERY', queryText: '晴空案' } };
+    const test = runtime(interpreter, bootstrap);
+    await expect(test.value.handleMessage(privateMessage('小跡 幫我查晴空案'))).resolves.toMatchObject({ status: 'QUERY', sourceId: 9, userId: 7 });
+    expect(interpreter.calls).toBe(1);
   });
 });
