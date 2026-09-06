@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { WorklogLineRecordActionService, type WorklogLineActionTarget, type WorklogLineRecordActionRepository } from './line-record-actions';
 
-const target: WorklogLineActionTarget = { id: 9, sourceId: 3, entityId: 5, rawText: '晴空案收款 3000', occurredAt: '2026-09-06T00:00:00.000Z', status: 'ACTIVE', version: 2 };
+const target: WorklogLineActionTarget = { id: 9, sourceId: 3, authorUserId: 7, entityId: 5, rawText: '晴空案收款 3000', occurredAt: '2026-09-06T00:00:00.000Z', status: 'ACTIVE', version: 2 };
 
 class FakeRepository implements WorklogLineRecordActionRepository {
   calls: string[] = [];
