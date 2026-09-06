@@ -37,6 +37,17 @@ export class DrizzleWorklogLineSystemQueryRepository implements WorklogLineSyste
     };
   }
 
+  async userDisplayName(userId: number): Promise<string | null> {
+    const result = await this.db.execute(sql`
+      SELECT display_name
+      FROM worklog_users
+      WHERE id = ${userId}
+      LIMIT 1
+    `);
+    const row = result.rows[0] as { display_name?: string | null } | undefined;
+    return row?.display_name?.trim() || null;
+  }
+
   async allowance(ownerUserId: number, sourceId: number, _at: Date): Promise<WorklogAiAllowanceStatus> {
     // This is a current-status query. Use the database clock instead of binding a JS Date
     // through the Workers/Neon driver. Also avoid reserved SQL keywords as aliases.
