@@ -39,25 +39,24 @@ export class DrizzleWorklogLineSystemQueryRepository implements WorklogLineSyste
 
   async allowance(ownerUserId: number, sourceId: number, _at: Date): Promise<WorklogAiAllowanceStatus> {
     // This is a current-status query. Use the database clock instead of binding a JS Date
-    // through the Workers/Neon driver; the Dev runtime showed that bound Date values on
-    // this diagnostic path fail before the query reaches the application-level formatter.
+    // through the Workers/Neon driver. Also avoid reserved SQL keywords as aliases.
     const result = await this.db.execute(sql`
       SELECT
-        grant.original_points,
-        grant.remaining_points,
+        g.original_points,
+        g.remaining_points,
         scope.cap_points,
         scope.used_points,
         scope.reserved_points
-      FROM worklog_ai_grants grant
+      FROM worklog_ai_grants g
       INNER JOIN worklog_ai_grant_scopes scope
-        ON scope.grant_id = grant.id
+        ON scope.grant_id = g.id
        AND scope.source_id = ${sourceId}
        AND scope.enabled = TRUE
-      WHERE grant.owner_user_id = ${ownerUserId}
-        AND grant.status IN ('ACTIVE', 'EXHAUSTED')
-        AND grant.effective_at <= NOW()
-        AND (grant.expires_at IS NULL OR grant.expires_at > NOW())
-      ORDER BY grant.effective_at ASC, grant.id ASC
+      WHERE g.owner_user_id = ${ownerUserId}
+        AND g.status IN ('ACTIVE', 'EXHAUSTED')
+        AND g.effective_at <= NOW()
+        AND (g.expires_at IS NULL OR g.expires_at > NOW())
+      ORDER BY g.effective_at ASC, g.id ASC
     `);
 
     let totalPoints = 0;
