@@ -1,4 +1,4 @@
-import type { BufferedPrivateMessage, OaLifecycleEvent } from '../line/events';
+import type { BufferedPrivateMessage, OaLifecycleEvent, OaPostbackEvent } from '../line/events';
 import { worklogAttachmentRuntime } from './attachment-runtime';
 import type { PrivateBootstrapResult } from './bootstrap';
 import { parseWorklogCommand } from './command';
@@ -34,11 +34,13 @@ export interface WorklogOaAiGrantPort { canStartAi(userId: number, sourceId: num
 export interface WorklogOaInputModePort {
   set(userId: number, action: WorklogPrivateInputMode, at?: Date): ReturnType<WorklogPrivateInputModeService['set']>;
   consume(userId: number, at?: Date): Promise<WorklogPrivateInputModeConsumeResult>;
+  clear(userId: number): ReturnType<WorklogPrivateInputModeService['clear']>;
 }
 
 const NO_INPUT_MODES: WorklogOaInputModePort = {
   async set() {},
   async consume() { return { status: 'NONE' }; },
+  async clear() {},
 };
 
 export type WorklogOaLifecycleResult =
@@ -47,6 +49,7 @@ export type WorklogOaLifecycleResult =
 export type WorklogOaRuntimeResult =
   | { status: 'NOT_HANDLED' }
   | { status: 'MODE_SELECTED'; action: WorklogPrivateInputMode; replyText: string }
+  | { status: 'MODE_CANCELED'; replyText: string }
   | { status: 'QUERY'; sourceId: number; userId: number; filters: WorklogHistoryFilters }
   | { status: 'RECORDED'; recordId: number; duplicate: boolean; replyText: string }
   | { status: 'EDITED'; recordId: number; recordVersion: number; replyText: string }
@@ -74,21 +77,34 @@ export class WorklogOaRuntime {
     return { status: 'UNFOLLOWED', userId: unfollowed.userId };
   }
 
+  async handlePostback(event: OaPostbackEvent): Promise<WorklogOaRuntimeResult> {
+    const touched = await this.bootstrap.touchPrivateInteraction({ lineUserId: event.lineUserId, at: event.lineTimestamp });
+    const action = privatePostbackAction(event.data);
+    if (!action) return { status: 'NOT_HANDLED' };
+
+    if (action === 'CANCEL') {
+      await this.inputModes.clear(touched.userId);
+      return { status: 'MODE_CANCELED', replyText: '已取消這次操作。' };
+    }
+
+    if (!touched.isOaFriend) return notFriend();
+    await this.inputModes.set(touched.userId, action, event.lineTimestamp);
+    return {
+      status: 'MODE_SELECTED',
+      action,
+      replyText: action === 'RECORD'
+        ? '請輸入你要記錄的事情。\n例如：晴空案今天收3000清潔費'
+        : '請輸入你想查詢的內容。\n例如：晴空案目前收款進度如何',
+    };
+  }
+
   async handleMessage(message: BufferedPrivateMessage): Promise<WorklogOaRuntimeResult> {
     const touched = await this.bootstrap.touchPrivateInteraction({ lineUserId: message.lineUserId, at: message.lineTimestamp });
     const text = message.messageType === 'text' ? message.textContent?.trim() ?? '' : '';
-    const selectedMode = privateInputModeSelection(text);
 
-    if (selectedMode) {
-      if (!touched.isOaFriend) return notFriend();
-      await this.inputModes.set(touched.userId, selectedMode, message.lineTimestamp);
-      return {
-        status: 'MODE_SELECTED',
-        action: selectedMode,
-        replyText: selectedMode === 'RECORD'
-          ? '請輸入你要記錄的事情。\n例如：晴空案今天收3000清潔費'
-          : '請輸入你想查詢的內容。\n例如：晴空案目前收款進度如何',
-      };
+    if (text && /^取消$/u.test(text)) {
+      await this.inputModes.clear(touched.userId);
+      return { status: 'MODE_CANCELED', replyText: '已取消這次操作。' };
     }
 
     if (text) {
@@ -107,8 +123,8 @@ export class WorklogOaRuntime {
       }
     }
 
-    // Legacy @AFTERTRACE remains a compatibility fallback. Rich Menu modes are the
-    // customer-facing OA path; GROUP still requires the mention boundary.
+    // Legacy @AFTERTRACE remains a temporary compatibility/debug fallback. Rich Menu
+    // Postback is the customer-facing OA path; GROUP keeps the mention boundary.
     const command = parseWorklogCommand(message);
     if (!command) return { status: 'NOT_HANDLED' };
     if (command.kind === 'CLAIM_GROUP') {
@@ -180,10 +196,11 @@ export class WorklogOaRuntime {
   }
 }
 
-function privateInputModeSelection(text: string): WorklogPrivateInputMode | null {
-  const normalized = text.replace(/^[📝✏️🔍]\s*/u, '').trim();
-  if (/^(?:快速記錄|快速紀錄)$/.test(normalized)) return 'RECORD';
-  if (/^(?:查詢紀錄|查詢記錄)$/.test(normalized)) return 'QUERY';
+function privatePostbackAction(data: string): WorklogPrivateInputMode | 'CANCEL' | null {
+  const normalized = data.trim().toLowerCase();
+  if (normalized === 'aftertrace:record') return 'RECORD';
+  if (normalized === 'aftertrace:query') return 'QUERY';
+  if (normalized === 'aftertrace:cancel') return 'CANCEL';
   return null;
 }
 function isRejected(value: { userId: number; sourceId: number } | Extract<WorklogOaRuntimeResult, { status: 'REJECTED' }>): value is Extract<WorklogOaRuntimeResult, { status: 'REJECTED' }> { return 'status' in value; }
