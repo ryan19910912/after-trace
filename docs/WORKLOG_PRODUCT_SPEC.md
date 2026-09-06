@@ -6,7 +6,7 @@ AFTERTRACE is a general-purpose LINE-first work-record assistant for individuals
 
 Core surfaces:
 
-- LINE OA/private chat: AI-assisted Record capture/edit and deterministic in-chat history lookup with deeper PWA navigation.
+- LINE OA/private chat: Rich-Menu-driven AI-assisted Record capture, deterministic in-chat history lookup, edit support, and deeper PWA navigation.
 - LINE group bot: shared AI-assisted Record capture/edit and deterministic in-chat history lookup with deeper PWA navigation.
 - Web/PWA: free manual browse/search/filter/create/edit/delete/restore, title moves/batch moves, explicit AI-assisted Record creation, AI allowance usage/settings, and later paid export.
 - Internal Admin: users/groups/plans/Grants/usage/subsidy/anomalies/audit and AI/provider pricing analytics.
@@ -26,6 +26,31 @@ Rules:
 - A non-friend Web user may see a dismissible, non-blocking prompt such as「想記得更快，也可以直接在 LINE 用 AFTERTRACE」with configurable official add-friend link/QR code where available. The copy must clearly state that the user can already keep using Web/PWA normally and must not imply that adding the OA is required.
 - Removing/blocking the OA must not delete the AFTERTRACE account, PRIVATE Source, Records or historical Grants.
 - `FREE_INITIAL` remains idempotent; a later OA follow event must not issue a duplicate acquisition Grant.
+
+## LINE OA private Rich Menu input modes
+
+Private OA chat uses **explicit Rich Menu modes** instead of asking the user to mention `@AFTERTRACE` before every action and instead of guessing the intent of every private message.
+
+Initial Rich Menu actions:
+
+- **快速記錄** — the Rich Menu sends the text `快速記錄`; AFTERTRACE stores a short-lived `RECORD` pending action and replies `請輸入你要記錄的事情`.
+- **查詢紀錄** — the Rich Menu sends the text `查詢紀錄`; AFTERTRACE stores a short-lived `QUERY` pending action and replies `請輸入你想查詢的內容`.
+- Additional menu buttons such as `我的紀錄` and `方案 / AI 點數` may navigate directly to the authorized Web/PWA surfaces and do not need to enter a text mode.
+
+Input-mode rules:
+
+1. The pending action is durable PostgreSQL state, never Cloudflare Worker process memory.
+2. Initial mode TTL is **10 minutes**.
+3. Selecting a new mode replaces the previous pending mode for that user.
+4. Only the next **non-empty TEXT** message consumes the mode.
+5. Sticker/image/audio/file messages do not consume a pending text mode.
+6. The mode is consumed once before the text is processed so retries/later messages do not accidentally reuse it.
+7. If the mode expired, reply clearly and ask the user to select `快速記錄` or `查詢紀錄` again; do not infer intent from the expired text.
+8. `RECORD` text goes through the normal PRIVATE AI-assisted Record pipeline and therefore requires positive eligible AI points before provider execution.
+9. `QUERY` text goes through the deterministic provider-free history retrieval path and does not require AI points.
+10. Ordinary private text sent without a pending mode remains non-product/support traffic and must **not** be automatically stored as a Record or automatically queried merely because it was sent to the OA.
+
+`@AFTERTRACE` may remain as a compatibility fallback for previously shipped private flows, but it is not the customer-facing OA interaction contract. GROUP chat intentionally keeps the `@AFTERTRACE` boundary because ordinary group conversation must not be treated as a product command.
 
 ## Monetization principle
 
