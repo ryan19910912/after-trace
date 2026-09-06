@@ -25,20 +25,22 @@ Ryan Hsu
 
 Do not use `#5` or raw `line_user_id` as the main customer-facing identity when a LINE display name is available.
 
-For LINE-native replies, prefer a **real LINE user mention** when the target user id is known and the reply API supports it. This lets LINE render the user's current display name rather than hard-coding `你` or a stale cached name.
+For GROUP replies, a real LINE user mention may be used when the target user id is known and the reply API supports it.
+
+For **private/OA one-to-one replies**, do **not** use LINE `textV2` mention substitution for the conversation partner. Dev E2E showed LINE reply HTTP 400 for this path. Private status therefore renders the cached LINE display name as normal text with an `@` prefix instead of a real mention object.
 
 Current required behavior for private `小跡 狀態`:
 
 ```text
 AFTERTRACE 個人狀態
 
-AI 負責人：@<LINE 使用者目前名稱>
+AI 負責人：@Ryan Hsu
 AI 點數：...
 目前額度使用率：...
 AI 功能：...
 ```
 
-Implementation should use LINE `textV2` mention substitution with the current private-message `lineUserId`. If LINE mention delivery fails, fall back safely to the plain deterministic status reply; mention failure must not make status unavailable or invoke provider AI.
+The display name comes from `worklog_users.display_name`, which is hydrated from LINE profile lookup when missing. If the display name is still unavailable, fall back to an internal diagnostic label such as `使用者 #5`; do not fail status and do not call provider AI just to obtain presentation text.
 
 ## Display-name hydration
 
