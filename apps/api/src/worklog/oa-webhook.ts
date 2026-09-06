@@ -165,7 +165,8 @@ export async function processWorklogOaWebhook(input: {
     }
 
     const message = parsedEvent.message;
-    const explicitCommand = parseWorklogCommand(message) !== null;
+    const explicitCommand = parseWorklogCommand(message) !== null
+      || /^(?:[📝✏️🔍]\s*)?(?:快速記錄|快速紀錄|查詢紀錄|查詢記錄)$/u.test(message.textContent?.trim() ?? '');
     let result: WorklogOaRuntimeResult;
     try {
       result = await input.runtime.handleMessage(message);
@@ -178,12 +179,8 @@ export async function processWorklogOaWebhook(input: {
         summary: anomalyErrorSummary(error, 'LINE OA message failed'),
         lineMessageId: message.lineMessageId,
         requestRef: message.webhookEventId,
-        metadata: {
-          lineUserId: message.lineUserId,
-          explicitCommand,
-        },
+        metadata: { lineUserId: message.lineUserId, explicitCommand },
       });
-
       if (explicitCommand) {
         counters.oaWorklogCommands += 1;
         counters.oaWorklogRejected += 1;
@@ -217,7 +214,8 @@ export async function processWorklogOaWebhook(input: {
     } else if (result.status === 'QUERY') {
       counters.oaWorklogQueries += 1;
     } else if (
-      result.status !== 'EDITED'
+      result.status !== 'MODE_SELECTED'
+      && result.status !== 'EDITED'
       && result.status !== 'EDIT_CONFIRMATION_PENDING'
       && result.status !== 'EDIT_IN_PROGRESS'
     ) {
@@ -256,9 +254,8 @@ export async function processWorklogOaWebhook(input: {
 
       let url: string | null = null;
       if (input.createQueryUrl) {
-        try {
-          url = await input.createQueryUrl(target);
-        } catch (error) {
+        try { url = await input.createQueryUrl(target); }
+        catch (error) {
           counters.oaErrors += 1;
           logMessageFailure(message, 'worklog_oa_query_entry_failed', error);
           await recordAnomalySafely(input.anomalies, {
