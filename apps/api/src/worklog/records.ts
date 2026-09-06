@@ -22,17 +22,18 @@ export type WorklogRecordListItem = {
 
 export type WorklogGroupSurface = {
   sourceId: number;
-  lineGroupId: string;
+  name: string;
+  role: 'OWNER' | 'MEMBER';
+  /** Temporary migration trace only; target Web/PWA clients must not depend on it. */
+  legacyLineGroupId: string | null;
 };
 
 export type WorklogPwaSurfaces = {
   personal: { sourceId: number } | null;
   groups: WorklogGroupSurface[];
-  isOaFriend: boolean;
 };
 
 export interface WorklogRecordReadRepository {
-  isOaFriend(userId: number): Promise<boolean>;
   getActivePersonalSourceId(userId: number): Promise<number | null>;
   listActiveGroupSurfaces(userId: number): Promise<WorklogGroupSurface[]>;
   isActiveGroupMember(userId: number, sourceId: number): Promise<boolean>;
@@ -196,15 +197,13 @@ export class WorklogRecordReadService {
   constructor(private readonly repository: WorklogRecordReadRepository) {}
 
   async surfaces(userId: number): Promise<WorklogPwaSurfaces> {
-    const [oaFriend, personalSourceId, groups] = await Promise.all([
-      this.repository.isOaFriend(userId),
+    const [personalSourceId, groups] = await Promise.all([
       this.repository.getActivePersonalSourceId(userId),
       this.repository.listActiveGroupSurfaces(userId),
     ]);
     return {
       personal: personalSourceId === null ? null : { sourceId: personalSourceId },
       groups,
-      isOaFriend: oaFriend,
     };
   }
 
