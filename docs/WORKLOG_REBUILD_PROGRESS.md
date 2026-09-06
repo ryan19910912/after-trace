@@ -15,7 +15,7 @@ Read first every substantive development run, in this exact order:
 
 Latest docs are the only product/development specification. Never use GitHub Actions unless explicitly requested. Every development commit contains `[skip ci]`.
 
-## Current checkpoint — 2026-09-06 one-call LINE natural-language interpreter wired in branch; local validation and Dev E2E still pending
+## Current checkpoint — 2026-09-06 fixed provider-free `小跡 狀態` + natural DELETE/RESTORE/MOVE wired in branch; local validation and Dev E2E pending
 
 Cloudflare deployment remains manual:
 
@@ -27,34 +27,66 @@ Do not reintroduce Pages or automatic Git deployment.
 
 ## Latest accepted LINE interaction contract
 
-Customer-facing fixed commands are only:
+Customer-facing fixed commands are now exactly:
 
 - `小跡 幫助`
+- `小跡 狀態`
 - GROUP `小跡 啟用 AI`
 - GROUP `小跡 取消 AI`
 
-`小跡 啟用 AI` binds the sender as GROUP AI 額度負責人 only when no different responsible user is already bound. It is deterministic/provider-free and must not overwrite another responsible user.
+`小跡 狀態` is deterministic/provider-free and must work even when AI points are zero.
 
-`小跡 取消 AI` may be executed only by the currently bound AI 額度負責人. Success deletes only the responsibility binding: the user remains in the LINE group, remains a normal member, GROUP Source/history remain intact, and normal membership-based access is unchanged. The GROUP then has no AI responsible user until another member runs `小跡 啟用 AI`.
+GROUP status requires active GROUP membership and shows:
 
-OA/private rejects GROUP AI responsibility controls and tells the user to operate them inside the corresponding LINE group.
+- current AI 額度負責人;
+- current remaining AI points / current total effective allowance scoped to this GROUP;
+- current allowance utilization percentage;
+- whether GROUP AI is usable.
 
-Everything else after `小跡` is a natural-language request. Initial intents:
+If no GROUP AI 額度負責人 exists, status shows AI paused and directs the user to `小跡 啟用 AI`.
+
+OA/private `小跡 狀態` shows the PRIVATE allowance and `AI 負責人：你`.
+
+The displayed total is the current effective allowance pool, not a lifetime immutable denominator. A later TOP_UP/SUBSCRIPTION/ADMIN Grant may increase the pool and therefore lower the displayed current utilization percentage.
+
+`小跡 啟用 AI` binds the sender as GROUP AI 額度負責人 only when no different responsible user is already bound. It is provider-free and must not overwrite another responsible user.
+
+`小跡 取消 AI` may be executed only by the currently bound AI 額度負責人. Success removes only the responsibility binding: the user remains in the LINE group, normal membership access remains, and GROUP Source/history remain intact.
+
+OA/private rejects the two GROUP AI responsibility controls.
+
+## Current natural-language intent contract
+
+Everything else after `小跡` goes through the bounded natural-language interpreter. Current intents are:
 
 - `RECORD`
 - `QUERY`
 - `EDIT`
+- `DELETE`
+- `RESTORE`
+- `MOVE`
 - `UNKNOWN`
 
-Future room may include `DELETE`, `RESTORE`, `MOVE`, `SYSTEM_QUERY`, but destructive or mutating actions must never guess a target.
+`SYSTEM_QUERY` has been removed from the accepted AI intent contract. System status is intentionally the fixed provider-free `小跡 狀態` path.
 
-## One-call LINE natural-language implementation — now wired, not yet locally validated
+Examples:
 
-The text path now follows:
+- `小跡 幫我記一下今天晴空案收了三千`
+- `小跡 我要查詢一下晴空案最近的內容`
+- Reply Record -> `小跡 我想把金額改成 2800`
+- Reply Record -> `小跡 把這筆刪掉`
+- Reply deleted Record -> `小跡 幫我還原這筆`
+- Reply Record -> `小跡 把這筆移到晴空案`
+
+EDIT/DELETE/RESTORE/MOVE require an exact deterministic target. Never guess `剛剛那筆` / `上面那筆` without a validated Reply target or equivalent durable target.
+
+## One-call natural-language implementation — wired, not yet locally validated
+
+Normal LINE text follows:
 
 **fixed-command check -> one bounded Gemini interpretation -> deterministic backend action**
 
-There is no classifier-call followed by a second normalizer/editor call for normal LINE text RECORD/QUERY/EDIT.
+Fixed `小跡 狀態` bypasses Gemini and AI-point start checks entirely.
 
 ### RECORD
 
@@ -67,231 +99,189 @@ The same Gemini response returns:
 - event date
 - bounded grounded `search_terms`
 
-The backend then:
-
-1. writes the Record deterministically/idempotently through the existing Record write service;
-2. applies title/date/search metadata through `WorklogInterpretedRecordService` + `DrizzleWorklogInterpretedRecordRepository`;
-3. performs same-Source exact/fuzzy title checks and creates a normal durable confirmation when required;
-4. does **not** call `GeminiWorklogTextNormalizer` again for that LINE text request.
+Backend then writes/applies the Record deterministically. It must not issue a second text-normalization provider request for the same normal LINE text Record.
 
 ### QUERY
 
-The same Gemini response returns `intent=QUERY` plus bounded query text. The backend derives existing deterministic history filters and performs PostgreSQL retrieval. Returned history is not sent back to AI for summarization.
+The same Gemini response returns `intent=QUERY` plus bounded query text. PostgreSQL performs deterministic history retrieval. Stored history is not sent back to AI for a second summary pass.
 
 ### EDIT
 
-The runtime resolves the exact Reply target before interpretation when available and supplies that target context to Gemini. The same Gemini response returns:
+Runtime resolves an exact Reply target and provides target context to Gemini. The same response returns the complete interpreted edit plan; backend applies it through existing optimistic-version/revision machinery without calling the old Gemini editor again.
 
-- `intent=EDIT`
-- normalized edit instruction
-- complete proposed Record text
-- optional date change
-- optional title move + confirmation flag
+### DELETE / RESTORE / MOVE
 
-The backend applies that already-interpreted plan through `WorklogInterpretedEditService`. It reuses the existing `worklog_line_ai_edits` idempotency/revision/apply machinery by staging the already-billed result as `USAGE_COMMITTED`; it does **not** call `GeminiWorklogLineRecordEditor` again.
+The interpreter identifies only the bounded action/destination title. Backend performs:
 
-EDIT still requires an exact deterministic Reply target. If AI understands that the user wants to edit but no exact target exists, reject and ask the user to Reply the correct Record. Never let AI guess `剛剛那筆`/`上面那筆` without a durable target.
+- active membership/private ownership authorization;
+- exact Reply target resolution;
+- soft delete / restore / title move;
+- optimistic version protection;
+- immutable revision writing.
 
-### AI accounting
+`MOVE` changes the filing Entity/title only and does not rewrite Record content/date.
 
-`WorklogLineNaturalInterpreterService` uses the existing grant-backed reservation/settlement ledger. Natural-language provider usage is audited under operation `LINE_NATURAL_INTERPRET`; hidden routing calls are not treated as free.
+## Fixed status implementation in branch
 
-Current provider is still runtime-configured `GOOGLE`; current Dev model remains `gemini-3.5-flash-lite`. Model id is not hard-coded/allowlisted.
+Current implementation files include:
 
-### New runtime/code in this batch
+- `command.ts`: recognizes `小跡 狀態` as a fixed system command via `isWorklogStatusCommand`; help teaches all four fixed commands.
+- `line-system-query.ts`: provider-free GROUP/PRIVATE status formatting.
+- `drizzle-line-system-query.ts`: durable DB read of GROUP responsible user and current effective scoped allowance totals.
+- `line-natural-runtime.ts`: handles GROUP status before GROUP AI funding authorization/provider interpretation.
+- `oa-natural-runtime.ts`: handles PRIVATE status before AI balance/provider interpretation.
+- `line-natural-interpreter.ts`: no `SYSTEM_QUERY` union anymore.
+- `gemini-line-natural-interpreter.ts`: Gemini schema no longer includes `SYSTEM_QUERY` or AI status fields.
+- `line-system-query.test.ts`, `command.test.ts`, `gemini-line-natural-interpreter.test.ts`: tests authored for the new contract.
 
-- `line-natural-interpreter.ts`
-- `gemini-line-natural-interpreter.ts`
-- `interpreted-record.ts`
-- `drizzle-interpreted-record.ts`
-- `interpreted-edit.ts`
-- `drizzle-interpreted-edit.ts`
-- `line-natural-runtime.ts`
-- `oa-natural-runtime.ts`
-- `index.ts` now wires GROUP/OA webhook handling to the new natural runtimes
-- `command.ts` routes every non-fixed `小跡 ...` sentence to `NATURAL_TEXT`
-- old fixed query/record/edit wording is no longer a parser contract
-- runtime tests were rewritten around the natural-language path
-- Gemini interpreter/accounting tests were added
+The current GROUP status shape is equivalent to:
 
-The older `WorklogLineRuntime`, `WorklogOaRuntime`, `GeminiWorklogTextNormalizer`, and `GeminiWorklogLineRecordEditor` files remain in the tree because other types/legacy paths still reference them, but the LINE webhook composition in `index.ts` no longer uses them for normal text requests.
+```text
+AFTERTRACE 群組狀態
 
-### Attachment caveat
+AI 負責人：Ryan Hsu
+AI 點數：320,000 / 400,000
+目前額度使用率：20%
+AI 功能：可使用
+```
 
-Quoted binary attachment processing remains a separate multimodal ingestion path. A natural-language text interpretation may currently precede attachment ingestion, so attachment cases are **not yet guaranteed to be one provider call total**. Do not claim the one-call guarantee for AUDIO/IMAGE/FILE Reply ingestion until that path is explicitly unified. Normal text RECORD/QUERY/EDIT is the target of this batch.
+No responsible user:
 
-### Idempotency caveat to review before Prod
+```text
+AFTERTRACE 群組狀態
 
-The deterministic Record/edit persistence layers remain idempotent, but the new generic natural-language interpretation currently reserves/calls/settles before a universal `line_message_id`-scoped interpreter-result cache exists. A LINE webhook redelivery could therefore potentially repeat the interpretation call even when the later deterministic mutation deduplicates. This must be reviewed/fixed before calling the new interpreter production-hard exactly-once. Do not hide this debt.
+AI 負責人：尚未設定
+AI 點數：—
+目前額度使用率：—
+AI 功能：暫停
 
-## GROUP AI responsibility controls — implemented in branch, unvalidated in this batch
+請輸入「小跡 啟用 AI」設定負責人。
+```
 
-- explicit wording is `小跡 啟用 AI` / `小跡 取消 AI`;
-- only the current responsible user can cancel;
+Status currently uses the stored display name as plain text. The existing real LINE textV2 mention path is retained for successful `小跡 啟用 AI`; status-specific mention rendering has not been added and is not required by the current accepted contract.
+
+## AI accounting
+
+Natural-language provider work uses the existing Grant-backed point reservation/settlement path with operation `LINE_NATURAL_INTERPRET`.
+
+Provider/model remains runtime configured. Current verified Dev runtime before this unvalidated batch:
+
+- provider: `GOOGLE`
+- model: `gemini-3.5-flash-lite`
+- input price: `0.30000000` USD / million
+- output price: `2.50000000` USD / million
+
+Current verified FREE configuration before this unvalidated batch:
+
+- `FREE / FREE / 0.00 / 400000 / enabled=true`
+
+`小跡 幫助`, `小跡 狀態`, `小跡 啟用 AI`, `小跡 取消 AI` are provider-free.
+
+## Known interpreter / attachment debt
+
+### Generic LINE redelivery idempotency
+
+The deterministic Record/edit mutation layers remain idempotent, but the generic natural interpreter still does not have a universal `line_message_id`-scoped durable interpretation-result cache. A LINE webhook redelivery could potentially repeat the interpretation provider call before later deterministic mutation dedupes it.
+
+Fix/review this before calling the new interpreter production-hard exactly-once.
+
+### Attachment one-call caveat
+
+Quoted binary attachment processing remains a separate multimodal ingestion path. Do not claim one provider call total for AUDIO/IMAGE/FILE Reply ingestion yet.
+
+Delayed attachment Reply original-timestamp recovery also remains open debt; never substitute later command time for missing original attachment time.
+
+## GROUP AI responsibility controls — implemented, current batch still unvalidated locally
+
+- explicit wording: `小跡 啟用 AI` / `小跡 取消 AI`;
+- only current responsible user can cancel;
 - cancellation deletes only current responsibility and writes immutable responsibility history (`previous_user_id -> NULL`, reason `EXPLICIT_RELEASE`);
-- no schema change was required for cancellation;
-- successful responsibility bind can use LINE textV2 user mention with fallback to plain text;
-- unbound AI guidance now points to `小跡 啟用 AI`.
+- no schema change required for cancellation;
+- successful bind can use LINE textV2 user mention with plain-text fallback;
+- unbound AI guidance points to `小跡 啟用 AI`.
 
-## Stable Dev foundation — verified before the current unvalidated interpreter batch
+## Stable Dev foundation — verified before current unvalidated batches
 
-Already user/runtime verified:
+Previously user/runtime verified:
 
-- commercial-plan forward migration on existing Dev DB — PASS
+- commercial-plan forward migration — PASS
 - semantic `search_terms` canonical baseline/guard — PASS
-- original journal timestamp `1788528481453` preserved — PASS
 - existing Dev forward migration for `search_terms` — PASS
-- `worklog_records.search_terms jsonb NOT NULL DEFAULT []` — PASS
-- AI runtime preserved `GOOGLE / gemini-3.5-flash-lite` — PASS
-- AI pricing preserved input `0.30000000`, output `2.50000000` USD per million — PASS
-- FREE plan preserved `FREE / grant_points=400000 / enabled=true` — PASS
-- normalization tests — PASS, 3 files / 13 tests
-- history-query tests — PASS, 1 file / 4 tests
+- group profile table/cache forward migration — PASS
+- canonical baseline had 33 tables after group-profile batch — PASS
+- AI runtime preserved — PASS
+- FREE plan preserved — PASS
 - Admin Users/Groups/Plans smoke — PASS
 - Dev Web shell/routes — PASS
 - LINE Login callback/redirect stage — PASS
-- earlier PWA-first / unified 小跡 refactor — PASS before this latest interpreter migration
+- Dev API `/health` and `/health/ready` — PASS before latest natural-language/status batches
 
 The stale Dashboard `* * * * *` Cron Trigger remains unrelated to logging. Remove it separately; do not add an empty `scheduled()` handler.
 
-## Deterministic history / semantic retrieval — retained
+## GROUP access hard rule
 
-- history retrieval = **Interpret current request -> Query -> Retrieve -> Answer -> Deep Link**
-- no AI historical summary in MVP
-- same-Source Entity/Alias resolution
-- title/alias/raw/search_terms lookup
-- newest up to 5 matching stored facts returned in LINE
-- total count when available
-- secure filtered PWA link
-- never invent payment/progress/business conclusions
+When a user leaves/is removed from LINE GROUP, immediately revoke all GROUP Source rights:
 
-Manual PWA search remains provider-free. LINE natural-language QUERY now uses one provider interpretation because the user explicitly invoked `小跡`, but the stored history itself is still retrieved/answered deterministically.
+- read/search;
+- Quick Capture selection;
+- create/edit/delete/restore/title move;
+- Draft read/edit/commit;
+- deep-link access.
 
-## Event-date / Reply source time — retained hard rule
+Data remains with GROUP Source. Authorization is server-side on every operation.
 
-- day-precision Asia/Taipei business semantics
-- direct LINE input reference = original command message timestamp
-- GROUP Reply-to-TEXT reference = cached quoted timestamp
-- later Reply command time never substitutes quoted text time
-- Worker current time never silently substitutes missing source time
-- if original timestamp cannot be recovered, fail/request resend
+## Event-date / Reply source time hard rule
+
+- day-precision Asia/Taipei business semantics;
+- direct LINE input reference = original command message timestamp;
+- GROUP Reply-to-TEXT reference = cached quoted timestamp;
+- later Reply command time never substitutes quoted text time;
+- Worker current time never silently substitutes missing source time;
+- if required source timestamp cannot be recovered, fail/request resend.
 
 Regression:
 
 - 9/3 original `晴空案今天收3000清潔費`
 - 9/5 Reply asks 小跡 to record it
-- event date remains 9/3
+- event date remains 9/3.
 
-Delayed attachment Reply original-timestamp recovery remains open debt and must not be claimed fully compliant.
+## PWA direction retained
 
-## Accepted product direction — PWA-first, LINE-integrated
+PWA/Web remains the primary product surface.
 
-PWA/Web is the primary product surface.
+Still pending:
 
-Primary MVP customer flow:
-
-1. open installed PWA Quick Capture;
-2. selected Source defaults to last still-authorized choice;
-3. Source is visibly identified as PRIVATE or a LINE GROUP;
-4. voice or text capture;
-5. shared AI interpretation;
-6. durable Preview/Draft;
-7. user may edit;
-8. explicit confirm creates Record;
-9. unfinished Draft remains until confirmed or explicitly deleted.
-
-### Quick Capture rules accepted, implementation pending
-
-- Voice + Text
-- explicit microphone tap; never auto-record on open
-- PRIVATE or currently authorized GROUP Source
-- last selected valid Source default, otherwise PRIVATE
-- strong destination warning before capture and on Preview
-- no persistent offline audio storage requirement
-- upload failure -> retry/re-record UI
-- AI-point remaining indicator near capture UX
-- Preview shows Source/title/content/event date and supports manual corrections
-- provider usage incurred for preview is chargeable even if user does not commit
-- unchanged/manually corrected Draft commit does not call provider again merely to persist
-
-### Draft rules accepted, implementation pending
-
-- durable
-- does **not** auto-expire
-- remains until confirmed or explicitly deleted
-- not included in normal Record history until committed
-- GROUP Draft re-authorized on every read/edit/commit
-- losing GROUP membership immediately removes Draft access
-
-### PWA timeline/search direction accepted
-
-- Timeline: 今天 / 最近 7 天 / 全部
-- Search: Source + title + date + keyword/semantic
-- deterministic title/Alias/raw/search_terms matching
-- full free manual CRUD/revision remains available
-
-## GROUP access hard rule
-
-When a user leaves/is removed from LINE GROUP, immediately revoke **all** GROUP Source rights:
-
-- read/search
-- Quick Capture selection
-- create/edit/delete/restore/title move
-- Draft read/edit/commit
-- deep-link access
-
-Data remains with GROUP Source. Authorization must be server-side on every operation.
-
-## LINE group name / picture — implemented foundation
-
-PWA uses original current LINE group name/picture. No separate AFTERTRACE custom group display name.
-
-Accepted/implemented foundation:
-
-- `worklog_source_line_profiles`
-- `group_name`, optional `picture_url`, `synced_at`
-- 24h lazy refresh only on actual use
-- no cron/scheduled refresh
-- ordinary group chat does not refresh
-- lifecycle/member state remains authorization evidence
-- refresh failure is best-effort/non-blocking
-- readiness probes the table
-- existing Dev DB was migrated forward without rebuild
-- PWA Source-list/open-group invocation of same refresh service remains pending
-
-## Previous group-profile validation — PASS before this interpreter batch
-
-User-executed local validation previously passed:
-
-- `pnpm --filter @aftertrace/api typecheck`
-- targeted group-profile batch — 5 files / 40 tests
-- canonical baseline — 33 tables, group profile table/FK/index present
-- baseline guard — PASS
-- Dev forward migration — PASS
-- Dev API `/health` and `/health/ready` — PASS
-
-The unrelated local untracked file `apps/api/verify-admin-schema.mjs` remains outside this batch and must not be staged/committed unless separately reviewed.
+- durable non-expiring PWA AI Draft;
+- last-used valid Source preference;
+- Quick Capture Voice + Text;
+- explicit Source warnings;
+- Preview/confirm flow;
+- PWA Source-list/open-group integration with same 24h lazy LINE group profile refresh;
+- Voice on top of the shared preview/commit core.
 
 ## Current validation status
 
-**The one-call natural-language interpreter batch has not yet been executed locally.**
+**The one-call natural-language, DELETE/RESTORE/MOVE, responsibility-cancel, and fixed-status batches have not yet been executed locally as one current branch validation.**
 
-Do not claim typecheck/tests/runtime green until the user runs them. No GitHub Actions workflow has been run, triggered, modified, enabled, dispatched, or used as validation.
+Do not claim typecheck/tests/runtime green until the user runs them.
 
-No schema files were changed in this one-call batch, so this batch itself does not require baseline regeneration or DB migration.
+No GitHub Actions workflow was run, dispatched, rerun, enabled, modified, triggered, or used as validation.
+
+No schema files were changed by the fixed-status / natural intent batch, so it does not require baseline regeneration or DB migration.
+
+The unrelated local untracked file `apps/api/verify-admin-schema.mjs` remains outside this work and must not be staged/committed unless separately reviewed.
 
 ## Immediate next order
 
-1. pull the current branch;
+1. `git pull` current branch;
 2. run API typecheck;
-3. run targeted tests for parser, interpreter, GROUP/OA natural runtimes, AI responsibility, group webhook and LINE reply mention;
-4. fix all compile/test regressions locally before deployment;
-5. do **not** rebuild Dev DB for this batch;
+3. run targeted parser/interpreter/status/record-action/GROUP/OA/AI-responsibility/webhook/reply tests;
+4. fix all compile/test regressions before Dev deployment;
+5. do not rebuild or migrate Dev DB for this batch;
 6. manually deploy Dev API only after local green;
-7. E2E GROUP `小跡 啟用 AI` + real mention, natural RECORD, natural QUERY, Reply natural EDIT, `小跡 取消 AI`, then re-enable;
-8. verify a normal text RECORD produces only one `LINE_NATURAL_INTERPRET` provider usage event and does not create a second `TEXT_RECORD_CREATE` provider usage event;
-9. verify natural EDIT similarly does not create a second `TEXT_RECORD_EDIT` provider usage event;
-10. then address generic interpreter redelivery idempotency and the attachment one-call caveat before Prod;
-11. after LINE text path is stable, continue durable non-expiring PWA AI Draft + last-used Source preference + Quick Capture shared pipeline;
-12. wire PWA Source-list/open-group use into the same 24h lazy profile refresh service;
-13. add Voice as another input modality on top of the same preview/commit core.
+7. E2E GROUP `小跡 狀態` before responsible user, `小跡 啟用 AI`, `小跡 狀態`, natural RECORD/QUERY, Reply EDIT/DELETE/RESTORE/MOVE, `小跡 取消 AI`, `小跡 狀態`, then re-enable;
+8. verify `小跡 狀態` creates no Gemini/provider usage event and works at zero AI balance;
+9. verify normal text RECORD produces only one `LINE_NATURAL_INTERPRET` provider usage event and no second `TEXT_RECORD_CREATE` provider event;
+10. verify natural EDIT similarly produces no second `TEXT_RECORD_EDIT` provider event;
+11. address generic interpreter redelivery idempotency and attachment one-call caveat before Prod;
+12. then continue PWA Draft/Quick Capture work.
