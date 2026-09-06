@@ -88,5 +88,28 @@ tr.clickable:hover { background: #20242b; }
 .detail-row:last-child { border-bottom: 0; }
 .detail-row strong { font-size: .78rem; color: #9fa7b3; text-transform: capitalize; }
 .detail-row span { overflow-wrap: anywhere; color: #edf0f4; }
+
+/* 群組列表：名稱/ID 與負責人名稱/編號各自合併成一欄，並用更清楚的 AI 點數語意。 */
+.filter-card + .table-wrap tbody td:nth-child(2),
+.filter-card + .table-wrap tbody td:nth-child(4) { white-space: pre-line; line-height: 1.55; }
+.filter-card + .table-wrap th:nth-child(2),
+.filter-card + .table-wrap th:nth-child(5),
+.filter-card + .table-wrap th:nth-child(6),
+.filter-card + .table-wrap th:nth-child(7),
+.filter-card + .table-wrap th:nth-child(8),
+.filter-card + .table-wrap th:nth-child(9) { font-size: 0; }
+.filter-card + .table-wrap th:nth-child(2)::after,
+.filter-card + .table-wrap th:nth-child(5)::after,
+.filter-card + .table-wrap th:nth-child(6)::after,
+.filter-card + .table-wrap th:nth-child(7)::after,
+.filter-card + .table-wrap th:nth-child(8)::after,
+.filter-card + .table-wrap th:nth-child(9)::after { font-size: .72rem; letter-spacing: .03em; }
+.filter-card + .table-wrap th:nth-child(2)::after { content: "LINE 群組"; }
+.filter-card + .table-wrap th:nth-child(5)::after { content: "目前可用點數"; }
+.filter-card + .table-wrap th:nth-child(6)::after { content: "執行中保留點數"; }
+.filter-card + .table-wrap th:nth-child(7)::after { content: "歷史實扣點數"; }
+.filter-card + .table-wrap th:nth-child(8)::after { content: "平台吸收點數"; }
+.filter-card + .table-wrap th:nth-child(9)::after { content: "平台實際 AI 成本"; }
+
 @media (max-width: 900px) { .filter-card { display: grid; } .filter-grid { grid-template-columns: 1fr 1fr; } .card h3 + .form-grid { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); } }
 @media (max-width: 640px) { .shell { width: min(100% - 20px, 1500px); padding-top: 14px; } .topbar { align-items: flex-start; } .header-actions { flex-direction: column; } .filter-grid, .form-grid, .card h3 + .form-grid { grid-template-columns: 1fr; } .search-row { flex-direction: column; } .card { padding: 14px; } .drawer { width: 100%; padding: 14px; } .drawer-head { top: -14px; margin: -14px -14px 12px; padding: 14px; } .detail-row { grid-template-columns: 1fr; gap: 4px; } }
