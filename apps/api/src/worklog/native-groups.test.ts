@@ -7,6 +7,7 @@ import {
   type NativeGroupInviteTokenCodec,
   type NativeGroupJoinResult,
   type NativeGroupRepository,
+  type NativeGroupSummary,
 } from './native-groups';
 
 const HASH_A = 'a'.repeat(64);
@@ -27,6 +28,7 @@ class FakeTokenCodec implements NativeGroupInviteTokenCodec {
 }
 
 class FakeRepository implements NativeGroupRepository {
+  groups: NativeGroupSummary[] = [{ sourceId: 20, name: '產品群', role: 'OWNER' }];
   createGroupResult: NativeGroupCreateResult = {
     status: 'CREATED',
     group: { sourceId: 20, name: '產品群', role: 'OWNER' },
@@ -49,6 +51,7 @@ class FakeRepository implements NativeGroupRepository {
     group: { sourceId: 20, name: '產品群', role: 'MEMBER' },
   };
 
+  listCalls: number[] = [];
   createGroupCalls: Array<{ creatorUserId: number; name: string }> = [];
   createInviteCalls: Array<{
     sourceId: number;
@@ -59,6 +62,11 @@ class FakeRepository implements NativeGroupRepository {
   }> = [];
   revokeInviteCalls: Array<{ sourceId: number; inviteId: number; actorUserId: number }> = [];
   joinCalls: Array<{ actorUserId: number; tokenHash: string }> = [];
+
+  async listGroups(actorUserId: number) {
+    this.listCalls.push(actorUserId);
+    return this.groups;
+  }
 
   async createGroup(input: { creatorUserId: number; name: string }) {
     this.createGroupCalls.push(input);
@@ -88,6 +96,14 @@ class FakeRepository implements NativeGroupRepository {
 }
 
 describe('NativeGroupService', () => {
+  it('lists groups for the authenticated durable user id', async () => {
+    const repository = new FakeRepository();
+    const service = new NativeGroupService(repository, new FakeTokenCodec());
+
+    await expect(service.listGroups(7)).resolves.toEqual(repository.groups);
+    expect(repository.listCalls).toEqual([7]);
+  });
+
   it('creates a named group with the authenticated creator as the repository actor', async () => {
     const repository = new FakeRepository();
     const service = new NativeGroupService(repository, new FakeTokenCodec());
