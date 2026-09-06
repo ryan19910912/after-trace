@@ -37,7 +37,10 @@ export class DrizzleWorklogLineSystemQueryRepository implements WorklogLineSyste
     };
   }
 
-  async allowance(ownerUserId: number, sourceId: number, at: Date): Promise<WorklogAiAllowanceStatus> {
+  async allowance(ownerUserId: number, sourceId: number, _at: Date): Promise<WorklogAiAllowanceStatus> {
+    // This is a current-status query. Use the database clock instead of binding a JS Date
+    // through the Workers/Neon driver; the Dev runtime showed that bound Date values on
+    // this diagnostic path fail before the query reaches the application-level formatter.
     const result = await this.db.execute(sql`
       SELECT
         grant.original_points,
@@ -52,8 +55,8 @@ export class DrizzleWorklogLineSystemQueryRepository implements WorklogLineSyste
        AND scope.enabled = TRUE
       WHERE grant.owner_user_id = ${ownerUserId}
         AND grant.status IN ('ACTIVE', 'EXHAUSTED')
-        AND grant.effective_at <= ${at}
-        AND (grant.expires_at IS NULL OR grant.expires_at > ${at})
+        AND grant.effective_at <= NOW()
+        AND (grant.expires_at IS NULL OR grant.expires_at > NOW())
       ORDER BY grant.effective_at ASC, grant.id ASC
     `);
 
