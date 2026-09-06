@@ -140,7 +140,16 @@ Canonical Drizzle baseline regeneration was completed locally by the user and co
 "search_terms" jsonb DEFAULT '[]'::jsonb NOT NULL
 ```
 
-The original `0000_worklog_baseline` migration timestamp `1788528481453` was preserved and baseline guard passed. Existing Dev DB must use the forward-compatibility migration; do not rebuild it merely for this column.
+The original `0000_worklog_baseline` migration timestamp `1788528481453` was preserved and baseline guard passed. Existing Dev DB uses the forward-compatibility migration; do not rebuild it merely for this column.
+
+The first Dev migration attempt failed before SQL execution because Neon HTTP rejected two `DO` blocks submitted in one prepared statement (`cannot insert multiple commands into a prepared statement`). The forward compatibility script was corrected to execute the plan migration and `search_terms` migration as separate statements in commit `0fe940ad5a2dcb02012de4b9e9d494222e29c827`.
+
+After pulling that fix, the user reran Dev migration against `.env.dev`; both stages completed successfully:
+
+- `AFTERTRACE forward compatibility migrations applied successfully.` — PASS.
+- `AFTERTRACE database migrations applied successfully.` — PASS.
+
+This confirms the existing Dev DB accepted the semantic-search forward migration without rebuild. Post-migration integrity/readiness verification is still required before deployed runtime is considered green.
 
 ## Event date and Reply/Replay source timestamp — accepted hard rule
 
@@ -183,12 +192,14 @@ Executed by the user on Windows:
   - `src/worklog/group-webhook.test.ts`
   - `src/worklog/oa-webhook.test.ts`
 - `src/worklog/history-query.test.ts` — PASS, 1 file / 4 tests.
+- existing Dev forward compatibility migration after Neon multi-command fix — PASS.
+- Drizzle migration on existing Dev DB — PASS.
 
 The stderr lines in the webhook test run are expected anomaly logs from deliberately simulated failure cases; all tests passed.
 
 Not yet runtime-validated:
 
-- existing Dev forward migration for `search_terms`;
+- post-migration Dev DB integrity (`search_terms` shape, AI runtime, FREE plan, existing data accessibility);
 - deployed Dev query behavior;
 - real Gemini production-style `search_terms` output;
 - real delayed Reply event-date regression;
@@ -208,7 +219,7 @@ Current product/development contracts include:
 
 ## Immediate next validation/development order
 
-1. Run existing Dev forward migration using the Dev environment; verify `search_terms` exists and existing data remains intact.
+1. Verify existing Dev DB after forward migration: `worklog_records.search_terms` exists/is array-shaped, existing Records remain readable, AI runtime is preserved, and FREE plan is intact.
 2. Deploy Dev API and verify `/health` + `/health/ready`.
 3. Real LINE test: create a semantic Record such as `晴空案今天收3千清潔費`, then query `晴空案目前收款進度如何`; expect DB facts + deep link, not AI summary.
 4. Regression test delayed GROUP Reply-to-TEXT: original message date must remain the event date even when Reply occurs later.
@@ -217,4 +228,4 @@ Current product/development contracts include:
 
 No GitHub Actions workflow was run, dispatched, rerun, enabled, modified, triggered, or used as validation.
 
-Current deployment status: **TYPECHECK + NORMALIZATION TESTS + BASELINE REGEN/GUARD + 57 COMMAND/HISTORY/LINE RUNTIME TESTS + 4 HISTORY-QUERY TESTS PASS; DEV FORWARD MIGRATION + DEPLOYED RUNTIME E2E STILL PENDING.**
+Current deployment status: **TYPECHECK + NORMALIZATION TESTS + BASELINE REGEN/GUARD + 57 COMMAND/HISTORY/LINE RUNTIME TESTS + 4 HISTORY-QUERY TESTS + EXISTING DEV FORWARD MIGRATION PASS; POST-MIGRATION DB CHECK + DEPLOYED RUNTIME E2E STILL PENDING.**
