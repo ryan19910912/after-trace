@@ -22,7 +22,6 @@ function baseOutput(overrides: Record<string, unknown>) {
     edit_title: null,
     edit_title_requires_confirmation: false,
     move_title: null,
-    system_query: null,
     reason: null,
     ...overrides,
   };
@@ -37,7 +36,7 @@ function response(output: Record<string, unknown>) {
 }
 
 describe('GeminiWorklogLineNaturalInterpreter', () => {
-  it('builds one structured request with all supported bounded intents', () => {
+  it('builds one structured request with bounded record/history/mutation intents only', () => {
     const body = buildGeminiWorklogLineNaturalInterpreterRequestBody({
       text: '幫我記一下今天晴空案收了三千清潔費',
       referenceOccurredAt: '2026-09-06T02:00:00.000Z',
@@ -46,10 +45,11 @@ describe('GeminiWorklogLineNaturalInterpreter', () => {
     });
     const json = JSON.stringify(body);
     expect(body.generationConfig.responseMimeType).toBe('application/json');
-    for (const intent of ['RECORD', 'QUERY', 'EDIT', 'DELETE', 'RESTORE', 'MOVE', 'SYSTEM_QUERY', 'UNKNOWN']) expect(json).toContain(intent);
+    for (const intent of ['RECORD', 'QUERY', 'EDIT', 'DELETE', 'RESTORE', 'MOVE', 'UNKNOWN']) expect(json).toContain(intent);
+    expect(json).not.toContain('SYSTEM_QUERY');
+    expect(json).not.toContain('AI_BALANCE');
     expect(json).toContain('record_search_terms');
     expect(json).toContain('move_title');
-    expect(json).toContain('AI_BALANCE');
   });
 
   it('returns RECORD title/content/date/search terms from the same provider response', async () => {
@@ -66,12 +66,9 @@ describe('GeminiWorklogLineNaturalInterpreter', () => {
     expect(result.outputTokens).toBe(50);
   });
 
-  it('returns MOVE and SYSTEM_QUERY without inventing backend targets', async () => {
-    let output = baseOutput({ intent: 'MOVE', move_title: '晴空案' });
-    const fetchFn: typeof fetch = async () => response(output);
+  it('returns MOVE without inventing the backend target', async () => {
+    const fetchFn: typeof fetch = async () => response(baseOutput({ intent: 'MOVE', move_title: '晴空案' }));
     const provider = new GeminiWorklogLineNaturalInterpreter({ apiKey: 'test-key', fetchFn });
     await expect(provider.interpret({ text: '把這筆移到晴空案', referenceOccurredAt: '2026-09-06T02:00:00.000Z', target: null }, config)).resolves.toMatchObject({ interpretation: { intent: 'MOVE', title: '晴空案' } });
-    output = baseOutput({ intent: 'SYSTEM_QUERY', system_query: 'AI_BALANCE' });
-    await expect(provider.interpret({ text: '我還有多少 AI 點數', referenceOccurredAt: '2026-09-06T02:00:00.000Z', target: null }, config)).resolves.toMatchObject({ interpretation: { intent: 'SYSTEM_QUERY', query: 'AI_BALANCE' } });
   });
 });
