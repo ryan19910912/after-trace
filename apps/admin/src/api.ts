@@ -201,7 +201,8 @@ export class AdminApi {
 
   async groups(query = ''): Promise<Row[]> {
     const suffix = query.trim() ? `?q=${encodeURIComponent(query.trim())}` : '';
-    return applyServerLabels((await this.request<{ groups: Row[] }>(`/groups${suffix}`)).groups);
+    const rows = applyServerLabels((await this.request<{ groups: Row[] }>(`/groups${suffix}`)).groups);
+    return rows.map((row) => compactGroupRow(row));
   }
 
   async groupDetail(id: string | number): Promise<Record<string, unknown>> {
@@ -266,7 +267,7 @@ export class AdminApi {
   }
 
   async audit(): Promise<Row[]> {
-    return applyServerLabels((await this.request<{ audit: Row[] }>('/audit')).audit);
+    return applyServerLabels((await this.request<{ audit: Row[] }>('/audit')).audit;
   }
 
   private async request<T>(path: string, init?: RequestInit, authenticated = true): Promise<T> {
@@ -340,6 +341,25 @@ function applyServerLabels<T>(value: T): T {
     result[baseKey] = item;
   }
   return result as T;
+}
+
+function compactGroupRow(row: Row): Row {
+  const next: Row = { ...row };
+  const groupName = String(row.line_group_name ?? '').trim();
+  const groupId = String(row.line_group_id ?? '').trim();
+  next.line_group_id = [groupName || '尚未同步群組名稱', groupId || '—'].join('\n');
+  delete next.line_group_name;
+
+  const responsibleName = String(row.ai_responsible_display_name ?? '').trim();
+  const responsibleId = String(row.ai_responsible_user_id ?? '').trim();
+  next.ai_responsible_display_name = responsibleId
+    ? [responsibleName || '未命名使用者', `編號 #${responsibleId}`].join('\n')
+    : '尚未設定';
+  delete next.ai_responsible_user_id;
+
+  const cost = Number(row.group_ai_cost_twd ?? 0);
+  next.group_ai_cost_twd = Number.isFinite(cost) ? `NT$ ${cost.toFixed(4)}` : row.group_ai_cost_twd;
+  return next;
 }
 
 function optionalDate(value: unknown): Date | null {
