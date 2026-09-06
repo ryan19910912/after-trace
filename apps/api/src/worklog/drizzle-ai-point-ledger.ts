@@ -22,7 +22,7 @@ type ReservationRow = {
 /**
  * PostgreSQL single-statement reservation/settlement implementation.
  *
- * Reservation deducts grant.remaining_points immediately and increments the explicit
+ * Reservation deducts grant remaining points immediately and increments the explicit
  * Source scope reserved_points hold. That makes concurrent requests safe without an
  * in-process mutex. Commit converts the hold into used_points and restores any unused
  * estimate; release/expiry restores the full hold. Customer balances never go below 0.
@@ -53,16 +53,16 @@ export class DrizzleWorklogAiPointLedgerRepository implements WorklogAiPointLedg
         INNER JOIN expired ON expired.id = funding.reservation_id
         GROUP BY funding.grant_id, funding.grant_scope_id
       ), grant_release AS (
-        UPDATE worklog_ai_grants grant
-        SET remaining_points = grant.remaining_points + released.points_reserved,
+        UPDATE worklog_ai_grants g
+        SET remaining_points = g.remaining_points + released.points_reserved,
             status = CASE
-              WHEN grant.status = 'EXHAUSTED' THEN 'ACTIVE'::worklog_ai_grant_status
-              ELSE grant.status
+              WHEN g.status = 'EXHAUSTED' THEN 'ACTIVE'::worklog_ai_grant_status
+              ELSE g.status
             END,
             updated_at = ${input.at}
         FROM released
-        WHERE grant.id = released.grant_id
-        RETURNING grant.id
+        WHERE g.id = released.grant_id
+        RETURNING g.id
       ), scope_release AS (
         UPDATE worklog_ai_grant_scopes scope
         SET reserved_points = GREATEST(0, scope.reserved_points - released.points_reserved),
@@ -88,26 +88,26 @@ export class DrizzleWorklogAiPointLedgerRepository implements WorklogAiPointLedg
     const result = await this.db.execute(sql`
       WITH locked AS MATERIALIZED (
         SELECT
-          grant.id AS grant_id,
+          g.id AS grant_id,
           scope.id AS grant_scope_id,
-          grant.remaining_points,
+          g.remaining_points,
           scope.used_points,
           scope.reserved_points,
           scope.cap_points,
-          grant.expires_at,
-          grant.effective_at
-        FROM worklog_ai_grants grant
+          g.expires_at,
+          g.effective_at
+        FROM worklog_ai_grants g
         INNER JOIN worklog_ai_grant_scopes scope
-          ON scope.grant_id = grant.id
+          ON scope.grant_id = g.id
          AND scope.source_id = ${input.sourceId}
          AND scope.enabled = TRUE
-        WHERE grant.owner_user_id = ${input.chargedUserId}
-          AND grant.status IN ('ACTIVE', 'EXHAUSTED')
-          AND grant.remaining_points > 0
-          AND grant.effective_at <= ${input.at}
-          AND (grant.expires_at IS NULL OR grant.expires_at > ${input.at})
-        ORDER BY grant.expires_at ASC NULLS LAST, grant.effective_at ASC, grant.id ASC
-        FOR UPDATE OF grant, scope
+        WHERE g.owner_user_id = ${input.chargedUserId}
+          AND g.status IN ('ACTIVE', 'EXHAUSTED')
+          AND g.remaining_points > 0
+          AND g.effective_at <= ${input.at}
+          AND (g.expires_at IS NULL OR g.expires_at > ${input.at})
+        ORDER BY g.expires_at ASC NULLS LAST, g.effective_at ASC, g.id ASC
+        FOR UPDATE OF g, scope
       ), eligible AS MATERIALIZED (
         SELECT
           locked.*,
@@ -196,18 +196,18 @@ export class DrizzleWorklogAiPointLedgerRepository implements WorklogAiPointLedg
         CROSS JOIN nonzero
         RETURNING id
       ), grant_hold AS (
-        UPDATE worklog_ai_grants grant
-        SET remaining_points = grant.remaining_points - nonzero.points_reserved,
+        UPDATE worklog_ai_grants g
+        SET remaining_points = g.remaining_points - nonzero.points_reserved,
             status = CASE
-              WHEN grant.remaining_points - nonzero.points_reserved = 0
+              WHEN g.remaining_points - nonzero.points_reserved = 0
                 THEN 'EXHAUSTED'::worklog_ai_grant_status
               ELSE 'ACTIVE'::worklog_ai_grant_status
             END,
             updated_at = ${input.at}
         FROM nonzero
-        WHERE grant.id = nonzero.grant_id
-          AND grant.remaining_points >= nonzero.points_reserved
-        RETURNING grant.id
+        WHERE g.id = nonzero.grant_id
+          AND g.remaining_points >= nonzero.points_reserved
+        RETURNING g.id
       ), scope_hold AS (
         UPDATE worklog_ai_grant_scopes scope
         SET reserved_points = scope.reserved_points + nonzero.points_reserved,
@@ -331,17 +331,17 @@ export class DrizzleWorklogAiPointLedgerRepository implements WorklogAiPointLedg
         FROM funding_charge
         GROUP BY grant_id
       ), grant_restore AS (
-        UPDATE worklog_ai_grants grant
-        SET remaining_points = grant.remaining_points + grant_restore_amount.points_to_restore,
+        UPDATE worklog_ai_grants g
+        SET remaining_points = g.remaining_points + grant_restore_amount.points_to_restore,
             status = CASE
-              WHEN grant.status = 'EXHAUSTED' AND grant_restore_amount.points_to_restore > 0
+              WHEN g.status = 'EXHAUSTED' AND grant_restore_amount.points_to_restore > 0
                 THEN 'ACTIVE'::worklog_ai_grant_status
-              ELSE grant.status
+              ELSE g.status
             END,
             updated_at = ${input.at}
         FROM grant_restore_amount
-        WHERE grant.id = grant_restore_amount.grant_id
-        RETURNING grant.id
+        WHERE g.id = grant_restore_amount.grant_id
+        RETURNING g.id
       ), scope_settle_amount AS MATERIALIZED (
         SELECT
           grant_scope_id,
@@ -486,16 +486,16 @@ export class DrizzleWorklogAiPointLedgerRepository implements WorklogAiPointLedg
         INNER JOIN transitioned ON transitioned.id = funding.reservation_id
         GROUP BY funding.grant_id, funding.grant_scope_id
       ), grant_release AS (
-        UPDATE worklog_ai_grants grant
-        SET remaining_points = grant.remaining_points + released.points_reserved,
+        UPDATE worklog_ai_grants g
+        SET remaining_points = g.remaining_points + released.points_reserved,
             status = CASE
-              WHEN grant.status = 'EXHAUSTED' THEN 'ACTIVE'::worklog_ai_grant_status
-              ELSE grant.status
+              WHEN g.status = 'EXHAUSTED' THEN 'ACTIVE'::worklog_ai_grant_status
+              ELSE g.status
             END,
             updated_at = ${at}
         FROM released
-        WHERE grant.id = released.grant_id
-        RETURNING grant.id
+        WHERE g.id = released.grant_id
+        RETURNING g.id
       ), scope_release AS (
         UPDATE worklog_ai_grant_scopes scope
         SET reserved_points = GREATEST(0, scope.reserved_points - released.points_reserved),
