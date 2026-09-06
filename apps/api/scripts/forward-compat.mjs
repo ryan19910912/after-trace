@@ -122,25 +122,4 @@ BEGIN
 END
 $aftertrace_search$;
   `));
-
-  await db.execute(sql.raw(`
-DO $aftertrace_oa_mode$
-BEGIN
-  -- Fresh database: canonical baseline creates this after the compatibility hook returns.
-  IF to_regclass('public.worklog_users') IS NULL THEN RETURN; END IF;
-
-  CREATE TABLE IF NOT EXISTS public.worklog_private_pending_actions (
-    user_id bigint PRIMARY KEY REFERENCES public.worklog_users(id) ON DELETE CASCADE,
-    action varchar(16) NOT NULL,
-    expires_at timestamptz NOT NULL,
-    created_at timestamptz NOT NULL DEFAULT now(),
-    updated_at timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT worklog_private_pending_action_type_ck CHECK (action IN ('RECORD', 'QUERY'))
-  );
-
-  CREATE INDEX IF NOT EXISTS worklog_private_pending_action_expiry_idx
-    ON public.worklog_private_pending_actions (expires_at);
-END
-$aftertrace_oa_mode$;
-  `));
 }
