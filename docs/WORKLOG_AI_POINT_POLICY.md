@@ -38,6 +38,8 @@ Rules:
 - Exactly one `FREE` plan exists.
 - FREE `grant_points` is configured in Admin/DB, not hard-coded in source code and not stored in environment variables.
 - A new eligible user receives the currently configured amount once.
+- Eligibility may begin from successful AFTERTRACE account bootstrap via LINE Login; OA friendship is not required merely to receive/use the Web/PWA account.
+- A later OA follow event must not issue a duplicate `FREE_INITIAL` Grant.
 - No calendar refresh and no calendar expiry unless a later explicit product decision changes that policy.
 - After FREE reaches zero, manual PWA remains available for free.
 - Changing the FREE template affects only users who have not yet received `FREE_INITIAL`.
@@ -55,6 +57,20 @@ Unused subscription-period allowance does not roll into the next period unless a
 ## One-time / buyout allowance
 
 Each successful ONE_TIME purchase freezes that product's current `grant_points` into a separate one-time/TOP_UP Grant. It does not create a recurring subscription allowance and never refreshes monthly.
+
+## Web/PWA AI preview charging
+
+`AI 幫我記` is an explicit provider-backed AI operation and follows the same point accounting as LINE AI.
+
+Rules:
+
+- positive eligible points are required before starting preview interpretation;
+- the shared AI point reservation/settlement path is used rather than a Web-specific quota system;
+- provider usage incurred to produce the preview is real usage and therefore consumes points even if the user later cancels the Record commit;
+- canceling a preview must not create a Record, but it does not retroactively erase provider cost already incurred;
+- confirming an unchanged preview must not call the provider again merely to persist the accepted result;
+- if additional provider work is explicitly requested before commit, that additional usage is separately accounted;
+- operation/channel metadata must allow Admin analytics to distinguish Web/PWA AI creation from LINE AI creation while preserving one point definition and one Grant ledger.
 
 ## Conservative allowance sizing and actual charging
 
@@ -117,7 +133,7 @@ Admin should support periods such as today / 7 days / 30 days / current billing 
 - platform-subsidized points/provider cost;
 - allowance exhaustion and utilization;
 - FREE real subsidy and conversion where available;
-- model, operation/input type, PRIVATE/GROUP, Grant type, and commercial plan/product breakdowns;
+- model, operation/input type, PRIVATE/GROUP, Grant type, channel/surface, and commercial plan/product breakdowns;
 - realized revenue/cost/margin only when durable successful-payment facts exist.
 
 Customer PWA shows customer-friendly point balances/usage percentages, not internal provider pricing or margins.
