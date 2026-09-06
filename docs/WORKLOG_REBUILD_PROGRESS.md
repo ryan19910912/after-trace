@@ -15,7 +15,7 @@ Read first every substantive development run, in this exact order:
 
 The latest documents above are the only product/development specification. Do not use GitHub Actions. Every development commit must contain `[skip ci]`.
 
-## Current checkpoint — 2026-09-06 private OA Rich Menu Postback modes added, schema validation pending
+## Current checkpoint — 2026-09-06 private OA Rich Menu Postback modes added, local code tests green, schema validation pending
 
 Cloudflare deployment remains manual:
 
@@ -37,7 +37,6 @@ Already verified by the user:
 - Dev DB currently had 0 Worklog Records before LINE E2E
 - AI runtime preserved as `GOOGLE / gemini-3.5-flash-lite` — PASS
 - current Dev FREE plan preserved as `FREE / 400000 / enabled=true` — PASS
-- API typecheck — PASS before this latest Rich Menu batch
 - targeted normalization tests — PASS, 3 files / 13 tests
 - command/history/LINE runtime tests — PASS, 6 files / 57 tests
 - history-query tests — PASS, 1 file / 4 tests
@@ -168,26 +167,33 @@ Accepted architecture remains preview-first and shared with LINE AI interpretati
 
 ## Current validation status for the Rich Menu/Postback batch
 
-The assistant has authored the code/tests/docs but has **not** executed the latest Postback changes locally and has not deployed them.
+Latest local validation executed by the user on Windows after commit `c530b50c65e6fe49ebca6747b07f80469dcd910f`:
 
-Because the pending-action canonical table was added in the immediately preceding Rich Menu batch, do **not** deploy yet. Required validation order:
+- `pnpm --filter @aftertrace/api typecheck` — PASS
+- targeted Postback/OA tests — PASS, 5 files / 42 tests:
+  - `src/line/events.test.ts`
+  - `src/worklog/oa-input-mode.test.ts`
+  - `src/worklog/oa-runtime-mode.test.ts`
+  - `src/worklog/oa-runtime.test.ts`
+  - `src/worklog/oa-webhook.test.ts`
+- expected stderr anomaly logs from deliberate simulated failure cases were present; they were not test failures.
+- legacy OA text path duplicate AI preflight bug was fixed before the green run so text Record creation now performs one preflight rather than two.
 
-1. pull latest branch
-2. API typecheck
-3. run `src/line/events.test.ts`, `oa-input-mode.test.ts`, `oa-runtime-mode.test.ts`, existing `oa-runtime.test.ts`, `oa-webhook.test.ts`
-4. regenerate canonical baseline with `pnpm db:baseline:regenerate --confirm-prelaunch-reset`
-5. run `pnpm db:baseline:guard`
-6. review baseline diff for `worklog_private_pending_actions`; commit generated Drizzle artifacts with `[skip ci]`
-7. run the existing Dev forward migration using `.env.dev`; do not rebuild Dev DB
-8. verify new pending-action table + preserved AI runtime/FREE plan
-9. deploy Dev API and verify `/health` + `/health/ready`
-10. configure Dev OA Rich Menu Postbacks exactly as above
-11. real OA E2E:
-    - tap `快速記錄` -> prompt -> `晴空案今天收3000清潔費` -> Record + AI semantic terms
-    - tap `查詢紀錄` -> prompt -> `晴空案目前收款進度如何` -> DB facts + deep link
-    - tap cancel -> pending action cleared, next ordinary sentence must not be recorded/queried
-12. if OA still gives no webhook response, inspect Cloudflare Worker logs and LINE Developers webhook delivery/config rather than guessing from the UI
+Because the pending-action canonical table was added in this Rich Menu batch, do **not** deploy yet. Required validation order now:
+
+1. regenerate canonical baseline with `pnpm db:baseline:regenerate --confirm-prelaunch-reset`
+2. run `pnpm db:baseline:guard`
+3. review baseline diff for `worklog_private_pending_actions`; commit generated Drizzle artifacts with `[skip ci]`
+4. run the existing Dev forward migration using `.env.dev`; do not rebuild Dev DB
+5. verify new pending-action table + preserved AI runtime/FREE plan
+6. deploy Dev API and verify `/health` + `/health/ready`
+7. configure Dev OA Rich Menu Postbacks exactly as above
+8. real OA E2E:
+   - tap `快速記錄` -> prompt -> `晴空案今天收3000清潔費` -> Record + AI semantic terms
+   - tap `查詢紀錄` -> prompt -> `晴空案目前收款進度如何` -> DB facts + deep link
+   - tap cancel -> pending action cleared, next ordinary sentence must not be recorded/queried
+9. if OA still gives no webhook response, inspect Cloudflare Worker logs and LINE Developers webhook delivery/config rather than guessing from the UI
 
 No GitHub Actions workflow was run, dispatched, rerun, enabled, modified, triggered, or used as validation.
 
-Current deployment status: **PREVIOUS DEV DB/SEMANTIC-SEARCH FOUNDATION GREEN; NEW PRIVATE OA INPUT-MODE SCHEMA + POSTBACK CODE REQUIRES TYPECHECK + TARGETED TESTS + BASELINE REGEN/GUARD + DEV FORWARD MIGRATION BEFORE DEPLOYMENT.**
+Current deployment status: **PREVIOUS DEV DB/SEMANTIC-SEARCH FOUNDATION GREEN; PRIVATE OA POSTBACK TYPECHECK + 42 TARGETED TESTS PASS; BASELINE REGEN/GUARD + DEV FORWARD MIGRATION + DEPLOYED OA E2E STILL PENDING.**
