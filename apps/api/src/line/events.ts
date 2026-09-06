@@ -27,14 +27,6 @@ export type BufferedPrivateMessage = {
   metadata: Record<string, unknown> | null;
 };
 
-export type OaPostbackEvent = {
-  webhookEventId: string | null;
-  replyToken?: string | null;
-  lineUserId: string;
-  data: string;
-  lineTimestamp: Date;
-};
-
 export type GroupLifecycleEvent = {
   webhookEventId: string | null;
   replyToken?: string | null;
@@ -58,7 +50,6 @@ export type ParsedLineEvent =
 export type ParsedLineWebhook = { events: ParsedLineEvent[] };
 export type ParsedOaEvent =
   | { kind: 'PRIVATE_MESSAGE'; message: BufferedPrivateMessage }
-  | { kind: 'OA_POSTBACK'; event: OaPostbackEvent }
   | { kind: 'OA_LIFECYCLE'; event: OaLifecycleEvent };
 export type ParsedOaWebhook = { events: ParsedOaEvent[] };
 
@@ -117,7 +108,6 @@ function eventTimestamp(rawEvent: Record<string, unknown>): Date {
   return new Date(timestampValue ?? Date.now());
 }
 
-/** Parses LINE group events for the Worklog group boundary. */
 export function parseLineWebhook(payload: unknown): ParsedLineWebhook {
   const result: ParsedLineWebhook = { events: [] };
   if (!isRecord(payload) || !Array.isArray(payload.events)) return result;
@@ -132,22 +122,12 @@ export function parseLineWebhook(payload: unknown): ParsedLineWebhook {
     const replyToken = asString(rawEvent.replyToken);
     const eventType = asString(rawEvent.type);
     if (eventType === 'join' || eventType === 'leave') {
-      result.events.push({ kind: 'LIFECYCLE', event: {
-        webhookEventId,
-        replyToken,
-        lineGroupId,
-        type: eventType === 'join' ? 'JOIN' : 'LEAVE',
-        lineUserIds: [],
-        lineTimestamp,
-      } });
+      result.events.push({ kind: 'LIFECYCLE', event: { webhookEventId, replyToken, lineGroupId, type: eventType === 'join' ? 'JOIN' : 'LEAVE', lineUserIds: [], lineTimestamp } });
       continue;
     }
     if (eventType === 'memberJoined' || eventType === 'memberLeft') {
       const lineUserIds = lineMemberIds(eventType === 'memberJoined' ? rawEvent.joined : rawEvent.left);
-      if (lineUserIds.length > 0) result.events.push({ kind: 'LIFECYCLE', event: {
-        webhookEventId, replyToken, lineGroupId,
-        type: eventType === 'memberJoined' ? 'MEMBER_JOINED' : 'MEMBER_LEFT', lineUserIds, lineTimestamp,
-      } });
+      if (lineUserIds.length > 0) result.events.push({ kind: 'LIFECYCLE', event: { webhookEventId, replyToken, lineGroupId, type: eventType === 'memberJoined' ? 'MEMBER_JOINED' : 'MEMBER_LEFT', lineUserIds, lineTimestamp } });
       continue;
     }
     if (eventType !== 'message' || !isRecord(rawEvent.message)) continue;
@@ -166,7 +146,6 @@ export function parseLineWebhook(payload: unknown): ParsedLineWebhook {
   return result;
 }
 
-/** Parses LINE OA one-to-one events for the Worklog personal-source boundary. */
 export function parseOaWebhook(payload: unknown): ParsedOaWebhook {
   const result: ParsedOaWebhook = { events: [] };
   if (!isRecord(payload) || !Array.isArray(payload.events)) return result;
@@ -181,20 +160,7 @@ export function parseOaWebhook(payload: unknown): ParsedOaWebhook {
     const replyToken = asString(rawEvent.replyToken);
     const eventType = asString(rawEvent.type);
     if (eventType === 'follow' || eventType === 'unfollow') {
-      result.events.push({ kind: 'OA_LIFECYCLE', event: {
-        webhookEventId, replyToken, lineUserId, type: eventType === 'follow' ? 'FOLLOW' : 'UNFOLLOW', lineTimestamp,
-      } });
-      continue;
-    }
-    if (eventType === 'postback' && isRecord(rawEvent.postback)) {
-      const data = asString(rawEvent.postback.data);
-      if (data) result.events.push({ kind: 'OA_POSTBACK', event: {
-        webhookEventId,
-        replyToken,
-        lineUserId,
-        data,
-        lineTimestamp,
-      } });
+      result.events.push({ kind: 'OA_LIFECYCLE', event: { webhookEventId, replyToken, lineUserId, type: eventType === 'follow' ? 'FOLLOW' : 'UNFOLLOW', lineTimestamp } });
       continue;
     }
     if (eventType !== 'message' || !isRecord(rawEvent.message)) continue;
