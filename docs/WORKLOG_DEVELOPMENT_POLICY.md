@@ -54,13 +54,15 @@ Initial FREE provisioning is idempotent. LINE Login followed later by OA follow 
 
 Private OA create/query UX is explicit-mode-driven. Do not make every private chat line an implicit database operation and do not require the user to type `@AFTERTRACE` before normal OA use.
 
-Rich Menu action texts:
+Rich Menu uses **Postback actions**, not visible message-action commands:
 
-- `快速記錄` -> set `RECORD` pending action and prompt for the next text;
-- `查詢紀錄` -> set `QUERY` pending action and prompt for the next text.
+- `aftertrace:record` -> set `RECORD` pending action and prompt for the next text;
+- `aftertrace:query` -> set `QUERY` pending action and prompt for the next text;
+- `aftertrace:cancel` -> clear the current pending action and confirm cancellation.
 
 Implementation rules:
 
+- parse OA `postback` webhook events separately from normal messages; do not fabricate a LINE message id for a Postback;
 - persist one pending private action per user in PostgreSQL; never use Worker process memory;
 - initial TTL = 10 minutes;
 - selecting a mode overwrites the user's previous mode;
@@ -70,9 +72,12 @@ Implementation rules:
 - expired modes fail clearly and do not guess RECORD vs QUERY from the user's text;
 - `RECORD` goes through existing PRIVATE AI entitlement + Record normalization/persistence; positive eligible AI points are required before provider work;
 - `QUERY` goes through deterministic provider-free history retrieval and does not require AI points;
+- `aftertrace:cancel` and literal `取消` clear the pending action without creating a Record or Query;
+- unknown Postback data must fail closed / remain `NOT_HANDLED` and must not mutate product data;
 - ordinary private text with no active mode remains support/non-product traffic and is not automatically persisted or queried;
+- Rich Menu mode-selection Postbacks should omit visible `displayText` unless a later UX decision explicitly wants one;
 - GROUP behavior is unchanged and keeps the explicit `@AFTERTRACE` boundary;
-- legacy private `@AFTERTRACE` parsing may remain as compatibility fallback while Rich Menu is the customer-facing contract.
+- legacy private `@AFTERTRACE` parsing may remain temporarily as compatibility/debug fallback while Rich Menu Postback is the customer-facing contract.
 
 The canonical durable table is `worklog_private_pending_actions` (or an equivalent table preserving the same semantics). Readiness must probe it because OA record/query operation depends on it.
 
