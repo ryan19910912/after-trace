@@ -138,11 +138,16 @@ Parser/dispatcher rules:
 - GROUP and OA share natural-language semantics; Source is determined by surface;
 - customer UX must not require memorizing Record/Query/Edit command verbs.
 
-Exactly three customer-facing fixed/system commands are part of the current contract:
+Exactly four customer-facing fixed/system commands are part of the current contract:
 
 - `小跡 幫助`;
+- `小跡 狀態`;
 - GROUP `小跡 啟用 AI`;
 - GROUP `小跡 取消 AI`.
+
+`小跡 狀態` is deterministic and provider-free. It must work even when AI balance is zero. GROUP status requires active membership and shows current AI 額度負責人, remaining/current-total scoped AI points, current allowance utilization percentage, and AI usability. If no responsible user exists, report AI paused and point to `小跡 啟用 AI`. OA/private status shows the current user's PRIVATE allowance and `AI 負責人：你`.
+
+The status `total` is the current effective Grant pool scoped to the Source, not a lifetime immutable denominator. New TOP_UP/SUBSCRIPTION/ADMIN Grants can increase that pool later; therefore current utilization percentage may decrease after new allowance is added. Status reads DB accounting facts only and never calls Gemini.
 
 `小跡 啟用 AI` is deterministic and provider-free. The member who sends it becomes the GROUP AI 額度負責人 only when no different responsible user is already bound. It must never silently overwrite another responsible user.
 
@@ -154,18 +159,21 @@ All other addressed text is a natural-language request, for example:
 - `小跡 幫我記一下今天晴空案收了三千`;
 - `小跡 我要查詢一下今天晴空案的內容`;
 - `小跡 幫我查晴空案收款`;
-- Reply an exact Record and say `小跡 我想把金額改成 2800`.
+- Reply an exact Record and say `小跡 我想把金額改成 2800`;
+- Reply an exact Record and say `小跡 把這筆刪掉` / `小跡 幫我還原這筆` / `小跡 把這筆移到晴空案`.
 
 The intended runtime is a **bounded one-call interpreter**, not an agent loop:
 
 1. deterministic fixed-command check;
 2. authorize the exact Source/actor and establish AI funding eligibility when provider work is required;
 3. run at most one shared AI interpretation call for the addressed natural-language request whenever practical;
-4. return a strict structured plan such as `RECORD`, `QUERY`, `EDIT`, `UNKNOWN` plus action-specific normalized fields;
+4. return a strict structured plan such as `RECORD`, `QUERY`, `EDIT`, `DELETE`, `RESTORE`, `MOVE`, `UNKNOWN` plus action-specific normalized fields;
 5. execute the selected backend action deterministically;
 6. do not hand control back to an open-ended AI tool loop.
 
-Future structured intents may include `DELETE`, `RESTORE`, `MOVE`, and `SYSTEM_QUERY`, but destructive/mutating actions must never let AI invent the target. `EDIT`, `DELETE`, `RESTORE`, and `MOVE` require an exact deterministic target such as a validated Reply target or explicit PWA record selection. If an exact target is absent, ask the user to Reply/select it rather than guessing.
+`SYSTEM_QUERY` is not an AI intent in the current contract. System status is handled before provider authorization by fixed `小跡 狀態`.
+
+Mutating actions must never let AI invent the target. `EDIT`, `DELETE`, `RESTORE`, and `MOVE` require an exact deterministic target such as a validated Reply target or explicit PWA record selection. If an exact target is absent, ask the user to Reply/select it rather than guessing.
 
 `QUERY` interpretation may use AI to derive intent/query/date filters, but historical Record retrieval and the returned historical facts remain deterministic PostgreSQL behavior. Do not ask AI to summarize history or invent business conclusions.
 
@@ -173,12 +181,15 @@ For `RECORD`, the interpreter should return the same normalized information need
 
 For `EDIT`, when an exact target exists, the design should converge on one provider interpretation of the instruction + deterministic target context rather than classifier-call + editor-call duplication.
 
+For `DELETE`, `RESTORE`, and `MOVE`, provider interpretation chooses only the bounded action/destination title. Backend authorization, Reply target resolution, status/version checks, soft-delete/restore/title mutation and immutable revisions remain deterministic.
+
 Temporary parser compatibility branches for old `查/查詢`, `今天/最近`, `記/紀錄`, or edit keywords may exist only during migration. They are not the customer-facing command contract and must not become a second permanent language beside the natural-language interpreter.
 
 Retired prelaunch UX that must not reappear as the customer contract:
 
 - bare `小跡 啟用`;
 - fixed Record/Query/Edit command memorization as a requirement;
+- AI `SYSTEM_QUERY` routing for status that should be provider-free;
 - `@AFTERTRACE ...`;
 - `@紀錄` / `@查詢`;
 - `/紀錄` slash-command design;
@@ -193,7 +204,7 @@ OA is a lightweight convenience surface. It may offer menu links such as:
 - 開啟 AFTERTRACE;
 - AI 點數 / 方案.
 
-`小跡 啟用 AI` and `小跡 取消 AI` are GROUP-only controls; OA/private must reject them with guidance to use the corresponding LINE group.
+`小跡 啟用 AI` and `小跡 取消 AI` are GROUP-only controls; OA/private must reject them with guidance to use the corresponding LINE group. `小跡 狀態` is shared and shows PRIVATE allowance in OA.
 
 Do not rebuild a Postback -> pending mode -> next-message state machine unless a later explicit product decision reverses this policy.
 
@@ -223,7 +234,7 @@ This includes the natural-language interpreter whenever it actually calls the pr
 
 The optimization goal is therefore to **avoid duplicate provider calls**, not to hide an extra classifier call from point accounting.
 
-If balance is zero, do not call provider. Manual PWA CRUD remains free. Fixed commands `小跡 幫助`, `小跡 啟用 AI`, and `小跡 取消 AI` remain provider-free.
+If balance is zero, do not call provider. Manual PWA CRUD remains free. Fixed commands `小跡 幫助`, `小跡 狀態`, `小跡 啟用 AI`, and `小跡 取消 AI` remain provider-free.
 
 If balance starts positive and actual usage exceeds remaining points, floor customer balance at zero and record the shortfall as platform subsidy for that started request.
 
