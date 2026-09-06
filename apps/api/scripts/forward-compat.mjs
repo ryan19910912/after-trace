@@ -174,6 +174,142 @@ $aftertrace_record_reset$;
   `));
 
   await db.execute(sql.raw(`
+DO $aftertrace_product_foundation$
+DECLARE
+  users_table regclass := to_regclass('public.worklog_users');
+  sources_table regclass := to_regclass('public.worklog_sources');
+  members_table regclass := to_regclass('public.worklog_source_members');
+  plans_table regclass := to_regclass('public.worklog_subscription_plans');
+  has_member_role_type boolean;
+BEGIN
+  -- Fresh database: the regenerated canonical baseline creates the target shape.
+  IF users_table IS NULL OR sources_table IS NULL OR members_table IS NULL OR plans_table IS NULL THEN
+    RETURN;
+  END IF;
+
+  -- Web/PWA accounts must no longer require LINE identity. Existing LINE ids are preserved.
+  ALTER TABLE public.worklog_users ALTER COLUMN line_user_id DROP NOT NULL;
+
+  SELECT EXISTS (
+    SELECT 1
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'public' AND t.typname = 'worklog_source_member_role'
+  ) INTO has_member_role_type;
+  IF NOT has_member_role_type THEN
+    CREATE TYPE public.worklog_source_member_role AS ENUM ('OWNER', 'MEMBER');
+  END IF;
+
+  ALTER TABLE public.worklog_sources
+    ADD COLUMN IF NOT EXISTS name varchar(255),
+    ADD COLUMN IF NOT EXISTS created_by_user_id bigint;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = sources_table AND conname = 'worklog_sources_created_by_user_id_worklog_users_id_fk'
+  ) THEN
+    ALTER TABLE public.worklog_sources
+      ADD CONSTRAINT worklog_sources_created_by_user_id_worklog_users_id_fk
+      FOREIGN KEY (created_by_user_id) REFERENCES public.worklog_users(id) ON DELETE RESTRICT;
+  END IF;
+
+  ALTER TABLE public.worklog_sources DROP CONSTRAINT IF EXISTS worklog_source_identity_shape_ck;
+  ALTER TABLE public.worklog_sources
+    ADD CONSTRAINT worklog_source_identity_shape_ck
+    CHECK ((
+      (type = 'PRIVATE' AND private_user_id IS NOT NULL AND line_group_id IS NULL)
+      OR
+      (type = 'GROUP' AND private_user_id IS NULL AND (
+        line_group_id IS NOT NULL
+        OR (name IS NOT NULL AND length(btrim(name)) > 0)
+      ))
+    ));
+
+  CREATE INDEX IF NOT EXISTS worklog_source_creator_idx
+    ON public.worklog_sources (created_by_user_id);
+
+  ALTER TABLE public.worklog_source_members
+    ADD COLUMN IF NOT EXISTS role public.worklog_source_member_role;
+  UPDATE public.worklog_source_members
+    SET role = 'MEMBER'::public.worklog_source_member_role
+    WHERE role IS NULL;
+  ALTER TABLE public.worklog_source_members
+    ALTER COLUMN role SET DEFAULT 'MEMBER'::public.worklog_source_member_role,
+    ALTER COLUMN role SET NOT NULL;
+  CREATE INDEX IF NOT EXISTS worklog_source_member_source_role_idx
+    ON public.worklog_source_members (source_id, role, is_active);
+
+  ALTER TABLE public.worklog_subscription_plans
+    ADD COLUMN IF NOT EXISTS ai_enabled boolean NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS monthly_ai_point_cap integer,
+    ADD COLUMN IF NOT EXISTS monthly_provider_cost_cap_twd numeric(12,2),
+    ADD COLUMN IF NOT EXISTS per_request_ai_point_cap integer;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conrelid = plans_table AND conname = 'worklog_plan_ai_cap_values_ck'
+  ) THEN
+    ALTER TABLE public.worklog_subscription_plans
+      ADD CONSTRAINT worklog_plan_ai_cap_values_ck CHECK ((
+        (monthly_ai_point_cap IS NULL OR monthly_ai_point_cap > 0)
+        AND (monthly_provider_cost_cap_twd IS NULL OR monthly_provider_cost_cap_twd > 0)
+        AND (per_request_ai_point_cap IS NULL OR per_request_ai_point_cap > 0)
+      ));
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conrelid = plans_table AND conname = 'worklog_plan_ai_enabled_shape_ck'
+  ) THEN
+    ALTER TABLE public.worklog_subscription_plans
+      ADD CONSTRAINT worklog_plan_ai_enabled_shape_ck CHECK ((
+        ai_enabled = false
+        OR (
+          plan_type = 'SUBSCRIPTION'
+          AND price_twd > 0
+          AND monthly_ai_point_cap IS NOT NULL
+          AND monthly_provider_cost_cap_twd IS NOT NULL
+        )
+      ));
+  END IF;
+
+  CREATE TABLE IF NOT EXISTS public.worklog_auth_identities (
+    id bigserial PRIMARY KEY,
+    user_id bigint NOT NULL REFERENCES public.worklog_users(id) ON DELETE CASCADE,
+    provider varchar(64) NOT NULL,
+    subject varchar(255) NOT NULL,
+    email_snapshot varchar(320),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS worklog_auth_identity_provider_subject_uq
+    ON public.worklog_auth_identities (provider, subject);
+  CREATE INDEX IF NOT EXISTS worklog_auth_identity_user_idx
+    ON public.worklog_auth_identities (user_id);
+
+  CREATE TABLE IF NOT EXISTS public.worklog_source_invites (
+    id bigserial PRIMARY KEY,
+    source_id bigint NOT NULL REFERENCES public.worklog_sources(id) ON DELETE CASCADE,
+    token_hash varchar(128) NOT NULL,
+    created_by_user_id bigint NOT NULL REFERENCES public.worklog_users(id) ON DELETE RESTRICT,
+    expires_at timestamptz,
+    revoked_at timestamptz,
+    max_uses integer,
+    use_count integer NOT NULL DEFAULT 0,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT worklog_source_invite_use_count_ck CHECK (use_count >= 0),
+    CONSTRAINT worklog_source_invite_max_uses_ck CHECK (
+      max_uses IS NULL OR (max_uses > 0 AND use_count <= max_uses)
+    )
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS worklog_source_invite_token_hash_uq
+    ON public.worklog_source_invites (token_hash);
+  CREATE INDEX IF NOT EXISTS worklog_source_invite_source_active_idx
+    ON public.worklog_source_invites (source_id, revoked_at, expires_at);
+END
+$aftertrace_product_foundation$;
+  `));
+
+  await db.execute(sql.raw(`
 DO $aftertrace_group_profile$
 BEGIN
   -- Fresh database: canonical baseline creates this after the compatibility hook returns.
