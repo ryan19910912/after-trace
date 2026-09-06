@@ -96,6 +96,21 @@ export async function processWorklogGroupWebhook(input: {
 
     const message = parsedEvent.message;
     const explicitCommand = parseWorklogCommand(message) !== null;
+    let result: WorklogLineRuntimeResult;
+    try { result = await input.runtime.handle(message); }
+    catch (error) {
+      counters.worklogErrors += 1;
+      logFailure({ event: 'worklog_group_message_failed', lineGroupId: message.lineGroupId, lineMessageId: message.lineMessageId, webhookEventId: message.webhookEventId, error, extra: { explicitCommand } });
+      await recordAnomalySafely(input.anomalies, { category: 'LINE_GROUP_WEBHOOK', errorCode: anomalyErrorCode(error, 'GROUP_MESSAGE_FAILED'), summary: anomalyErrorSummary(error, 'LINE group message failed'), lineMessageId: message.lineMessageId, requestRef: message.webhookEventId, metadata: { lineGroupId: message.lineGroupId, ...(message.lineUserId ? { lineUserId: message.lineUserId } : {}), explicitCommand } });
+      if (!explicitCommand) { counters.worklogOrdinaryMessages += 1; continue; }
+      counters.worklogCommands += 1;
+      counters.worklogRejected += 1;
+      if (message.replyToken) await replySafely({ reply: input.reply, anomalies: input.anomalies, replyToken: message.replyToken, text: '小跡這次沒有成功處理，請稍後再試。', lineGroupId: message.lineGroupId, lineUserId: message.lineUserId, lineMessageId: message.lineMessageId, webhookEventId: message.webhookEventId, counters });
+      continue;
+    }
+
+    if (result.status === 'NOT_HANDLED') { counters.worklogOrdinaryMessages += 1; continue; }
+
     if (explicitCommand && input.refreshGroupProfile) {
       try {
         await input.refreshGroupProfile(message.lineGroupId, message.lineTimestamp);
@@ -113,20 +128,6 @@ export async function processWorklogGroupWebhook(input: {
       }
     }
 
-    let result: WorklogLineRuntimeResult;
-    try { result = await input.runtime.handle(message); }
-    catch (error) {
-      counters.worklogErrors += 1;
-      logFailure({ event: 'worklog_group_message_failed', lineGroupId: message.lineGroupId, lineMessageId: message.lineMessageId, webhookEventId: message.webhookEventId, error, extra: { explicitCommand } });
-      await recordAnomalySafely(input.anomalies, { category: 'LINE_GROUP_WEBHOOK', errorCode: anomalyErrorCode(error, 'GROUP_MESSAGE_FAILED'), summary: anomalyErrorSummary(error, 'LINE group message failed'), lineMessageId: message.lineMessageId, requestRef: message.webhookEventId, metadata: { lineGroupId: message.lineGroupId, ...(message.lineUserId ? { lineUserId: message.lineUserId } : {}), explicitCommand } });
-      if (!explicitCommand) { counters.worklogOrdinaryMessages += 1; continue; }
-      counters.worklogCommands += 1;
-      counters.worklogRejected += 1;
-      if (message.replyToken) await replySafely({ reply: input.reply, anomalies: input.anomalies, replyToken: message.replyToken, text: '小跡這次沒有成功處理，請稍後再試。', lineGroupId: message.lineGroupId, lineUserId: message.lineUserId, lineMessageId: message.lineMessageId, webhookEventId: message.webhookEventId, counters });
-      continue;
-    }
-
-    if (result.status === 'NOT_HANDLED') { counters.worklogOrdinaryMessages += 1; continue; }
     counters.worklogCommands += 1;
     if (result.status === 'RECORDED') {
       counters.worklogRecords += 1;
