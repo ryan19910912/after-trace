@@ -13,226 +13,172 @@ Read first every substantive development run, in this exact order:
 7. `docs/WORKLOG_DEPLOYMENT.md`
 8. this file
 
-The latest documents above are the only product/development specification. Pure UI-only styling tweaks do not require rereading the full set; product/schema/runtime changes do.
+The latest documents above are the only product/development specification. Do not use GitHub Actions. Every development commit must contain `[skip ci]`.
 
-## Current checkpoint — 2026-09-06 deterministic LINE query + semantic retrieval + event-date rules
+## Current checkpoint — 2026-09-06 private OA Rich Menu modes added, schema validation pending
 
-Cloudflare deployment remains manual with six explicit Workers:
+Cloudflare deployment remains manual:
 
-- Dev: `after-trace-api-dev`, `after-trace-web-dev`, `after-trace-admin-dev`.
-- Prod: corresponding `*-prod` Workers.
+- Dev: `after-trace-api-dev`, `after-trace-web-dev`, `after-trace-admin-dev`
+- Prod: corresponding `*-prod` Workers
+- workers.dev subdomain: `a0955625660`
 
-Environment inputs remain `.env.local` local-only, `.env.dev` Dev, `.env.prod` Prod. Do not use GitHub Actions. Every commit on this branch continues to require `[skip ci]`.
+Do not reintroduce Pages or automatic Git deployment.
 
-## Stable Dev state before this new batch
+## Stable Dev state before the current Rich Menu schema batch
 
-Already runtime-verified by the user before the current batch:
+Already verified by the user:
 
-- typed commercial plan forward migration on the existing Dev DB — PASS;
-- regenerated canonical baseline/guard — PASS;
-- AI runtime preserved as `GOOGLE / gemini-3.5-flash-lite` — PASS;
-- Dev API `/health` and `/health/ready` — PASS;
-- Admin Users/Groups reserved `grant` SQL alias bug fixed — PASS;
-- Admin Users/Groups/Plans browser smoke — PASS;
-- Dev Web Worker shell/routes — PASS;
-- LINE Login callback registration/redirect stage — PASS.
+- typed commercial plan forward migration on existing Dev DB — PASS
+- canonical baseline regeneration/guard for semantic `search_terms` — PASS
+- journal timestamp `1788528481453` preserved — PASS
+- existing Dev forward migration for `search_terms` — PASS
+- post-migration `search_terms jsonb NOT NULL DEFAULT []` — PASS
+- Dev DB currently had 0 Worklog Records before LINE E2E
+- AI runtime preserved as `GOOGLE / gemini-3.5-flash-lite` — PASS
+- current Dev FREE plan preserved as `FREE / 400000 / enabled=true` — PASS
+- API typecheck — PASS before this latest Rich Menu batch
+- targeted normalization tests — PASS, 3 files / 13 tests
+- command/history/LINE runtime tests — PASS, 6 files / 57 tests
+- history-query tests — PASS, 1 file / 4 tests
+- Admin Users/Groups/Plans smoke — PASS
+- Dev Web shell/routes — PASS
+- LINE Login callback/redirect stage — PASS
 
-Do not resurrect the obsolete instruction that Dev DB must be rebuilt. Existing Dev data is being preserved with reviewed idempotent forward compatibility unless a rebuild becomes genuinely unavoidable.
+The stale Cloudflare Dashboard `* * * * *` Cron Trigger is unrelated to logging and should still be removed separately. Do not add an empty `scheduled()` handler.
 
-The stale Dashboard `* * * * *` Cron Trigger is unrelated to this work and should still be removed separately; do not add an empty `scheduled()` handler.
+## Deterministic LINE history + semantic retrieval — implemented
 
-## Account onboarding — accepted and implemented, still needs runtime validation
+Current contract:
 
-Accepted behavior now in branch:
+- history = **Query → Retrieve → Answer → Deep Link**
+- no AI history summary in MVP
+- resolve same-Source Entity/Alias where possible
+- search title/alias/raw text/`search_terms`
+- return newest up to 5 matching Records directly in LINE
+- append secure filtered PWA link
+- never invent payment/project/progress conclusions
 
-- LINE Login may create/update user + workspace + PRIVATE Source;
-- first eligible account bootstrap issues `FREE_INITIAL` from Admin-configured FREE `grant_points`;
-- LINE Login does not set `is_oa_friend=true`;
-- real OA follow/unfollow owns friendship state;
-- non-friend users can use Web/PWA manual PRIVATE CRUD normally;
-- non-friend UI reminder is optional convenience messaging: users can add AFTERTRACE as a LINE friend to record faster inside LINE, but adding the OA is not required for Web use;
-- reminder supports configured add-friend URL/QR and disappears for OA friends;
-- later OA follow must not duplicate FREE_INITIAL.
+AI-assisted Record interpretation may produce bounded grounded `search_terms` in the same provider call as title/date parsing. Manual PWA CRUD remains free and does not silently call AI.
 
-## Web/PWA `AI 幫我記` — accepted architecture, implementation still pending
+## Event date / Reply-Replay source time — hard rule
 
-Web/PWA will provide preview-first AI Record creation while reusing the LINE AI core rather than forking business logic.
+Business event semantics are day-precision in Asia/Taipei even though the physical compatibility field is still `occurred_at`.
 
-Required flow:
+- direct LINE input reference = original LINE message timestamp
+- delayed GROUP Reply-to-TEXT reference = cached quoted message timestamp
+- later Reply command time is never the quoted content's date reference
+- Worker current time is never a silent substitute
+- if required original timestamp is unavailable, fail/request resend
 
-1. explicit `AI 幫我記` action;
-2. positive eligible AI balance;
-3. shared interpretation of title/event date/search metadata;
-4. preview/confirmation;
-5. explicit commit;
-6. no Record on cancel;
-7. provider usage already incurred during preview remains chargeable;
-8. unchanged accepted preview commits without a second provider call.
+Example: 9/3 original `晴空案今天收3000清潔費`, 9/5 Reply to record it -> event date must remain 9/3.
 
-## New accepted LINE history behavior — implementation in branch
+Delayed attachment Reply still has an open timestamp-recovery gap and must not be claimed fully compliant yet.
 
-History is defined as **Query → Retrieve → Answer → Deep Link**.
+## Account onboarding / OA friendship — implemented, runtime smoke still pending
 
-Current product decision:
+Accepted behavior:
 
-- no AI history summary in this MVP;
-- after Source authorization, query PostgreSQL first;
-- resolve an explicitly mentioned existing title/Entity/Alias within the same Source where possible;
-- return up to the newest 5 matching Records directly in LINE;
-- include total match count when available;
-- include the secure filtered PWA link for deeper history;
-- never invent project/payment/progress conclusions.
+- LINE Login may provision user/workspace/PRIVATE Source/FREE_INITIAL idempotently
+- LINE Login does not fabricate OA friendship
+- real OA follow/unfollow owns `is_oa_friend`
+- Web/PWA PRIVATE manual use does not require OA friendship
+- Web non-friend add-OA prompt is optional convenience messaging, not gating
+- later OA follow must not duplicate FREE_INITIAL
 
-Example target behavior:
+## NEW: private OA Rich Menu input modes — implemented in branch
 
-`晴空案目前收款進度如何`
+Private OA create/query no longer requires the customer to type `@AFTERTRACE` as the primary UX and does not automatically interpret every private sentence as a database action.
 
-may resolve to:
+Rich Menu message actions:
 
-- title = `晴空案`
-- semantic/fuzzy query = `收款`
+- `快速記錄`
+- `查詢紀錄`
 
-and then return stored matching facts, not an AI-generated progress summary.
+Flow:
 
-Branch work:
+1. user taps a Rich Menu button;
+2. OA receives the button's text message;
+3. backend persists `RECORD` or `QUERY` in `worklog_private_pending_actions`;
+4. TTL = 10 minutes;
+5. OA replies with the appropriate input prompt;
+6. next non-empty text consumes the mode exactly once;
+7. sticker/image/audio/file does not consume a text mode;
+8. expired mode fails clearly and does not guess intent;
+9. RECORD -> normal PRIVATE AI grant preflight + Record normalization/persistence;
+10. QUERY -> deterministic history retrieval, no AI-point requirement.
 
-- added `WorklogHistoryQueryService`;
-- group/OA query replies can read recent DB matches before creating the deep link;
-- natural progress/status query detection avoids saving questions such as `晴空案目前收款進度如何` as Records;
-- history retrieval remains provider-free;
-- `history-query.test.ts` covers title extraction, semantic query cleanup, zero-result handling, top-five wording and fact-only/deep-link reply formatting.
+Ordinary private text without a pending mode remains support/non-product traffic and is not auto-saved or auto-queried.
 
-## Semantic search metadata — schema/provider implementation in branch
+GROUP behavior is unchanged and still requires `@AFTERTRACE`.
 
-Accepted purpose: a Record should remain findable by common semantic wording even when the literal raw text differs.
+Legacy private `@AFTERTRACE` parsing remains as a compatibility fallback, including existing Reply-edit/attachment behavior, but is not the customer-facing OA interaction contract.
 
-Example:
+### New durable schema
 
-`晴空案今天收3千清潔費`
+Canonical table:
 
-may carry grounded retrieval terms such as:
+`worklog_private_pending_actions`
 
-- `收款`
-- `款項`
-- `清潔費`
-- `3000`
+Fields/invariants:
 
-so a later deterministic query for `收款` can match the Record.
+- one row per `user_id` (PK/FK to `worklog_users`)
+- `action IN ('RECORD','QUERY')`
+- `expires_at`
+- created/updated timestamps
+- expiry index
 
-Rules:
+Cloudflare Worker memory is not used for pending mode state.
 
-- `search_terms` is bounded retrieval metadata only;
-- it must not become finance/project-specific universal schema;
-- manual PWA CRUD remains free and does not silently call AI to populate terms;
-- AI-assisted Record interpretation may generate terms as part of the same provider call used for title/date interpretation;
-- no extra provider call is justified solely for search metadata.
+Files added/changed include:
 
-Branch work:
+- `apps/api/src/db/schema-worklog-oa-mode.ts`
+- `apps/api/src/db/schema-all.ts`
+- `apps/api/scripts/forward-compat.mjs`
+- `apps/api/src/worklog/oa-input-mode.ts`
+- `apps/api/src/worklog/drizzle-oa-input-mode.ts`
+- `apps/api/src/worklog/oa-runtime.ts`
+- `apps/api/src/worklog/oa-webhook.ts`
+- `apps/api/src/index.ts`
+- targeted new tests for input-mode TTL and OA runtime mode behavior
+- product/development docs
 
-- `worklog_records.search_terms` added to canonical TypeScript schema;
-- idempotent forward compatibility adds `search_terms jsonb NOT NULL DEFAULT []` to an existing DB;
-- Gemini text normalization structured output includes bounded `search_terms`;
-- deterministic history query checks Record search terms and persisted normalization result terms.
+Readiness now probes `worklog_private_pending_actions` because OA record/query depends on it.
 
-Canonical Drizzle baseline regeneration was completed locally by the user and committed as `aa992ba` (`[skip ci] regenerate baseline for semantic search metadata`). The generated baseline contains:
+## Rich Menu operator configuration after backend is green
 
-```sql
-"search_terms" jsonb DEFAULT '[]'::jsonb NOT NULL
-```
+In LINE Official Account Manager, configure the private OA Rich Menu so the first two buttons send these **exact text messages**:
 
-The original `0000_worklog_baseline` migration timestamp `1788528481453` was preserved and baseline guard passed. Existing Dev DB uses the forward-compatibility migration; do not rebuild it merely for this column.
+- button label: `快速記錄`; action/message text: `快速記錄`
+- button label: `查詢紀錄`; action/message text: `查詢紀錄`
 
-The first Dev migration attempt failed before SQL execution because Neon HTTP rejected two `DO` blocks submitted in one prepared statement (`cannot insert multiple commands into a prepared statement`). The forward compatibility script was corrected to execute the plan migration and `search_terms` migration as separate statements in commit `0fe940ad5a2dcb02012de4b9e9d494222e29c827`.
+Additional buttons can link to `我的紀錄` and `方案 / AI 點數` Web/PWA destinations later. No LINE postback protocol is required for this first version.
 
-After pulling that fix, the user reran Dev migration against `.env.dev`; both stages completed successfully:
+## Web/PWA `AI 幫我記`
 
-- `AFTERTRACE forward compatibility migrations applied successfully.` — PASS.
-- `AFTERTRACE database migrations applied successfully.` — PASS.
+Accepted architecture remains preview-first and shared with LINE AI interpretation. Implementation is still pending after the current LINE/OA runtime work is green.
 
-Post-migration Dev DB verification also passed:
+## Current validation status for the Rich Menu batch
 
-- `worklog_records.search_terms` exists as `jsonb`, `NOT NULL`, default `'[]'::jsonb` — PASS;
-- `worklog_records` currently contains 0 rows, so there were no legacy Record rows to preserve/check in this environment and no invalid `search_terms` rows — PASS;
-- recent-record query returns no rows because the table is currently empty — expected;
-- AI runtime preserved as `GOOGLE / gemini-3.5-flash-lite` with configured pricing still present — PASS;
-- FREE plan preserved as `FREE / FREE / NT$0 / grant_points=400000 / enabled=true` — PASS.
+The assistant has authored the code/tests/docs but has **not** executed them locally and has not deployed them.
 
-This confirms the existing Dev DB accepted the semantic-search forward migration without rebuild and preserved current runtime/commercial configuration.
+Because a new canonical table was added, do **not** deploy yet. Required validation order:
 
-## Event date and Reply/Replay source timestamp — accepted hard rule
-
-MVP event semantics are day-precision. The existing physical `occurred_at` column is retained temporarily for compatibility, but application behavior must treat it as an Asia/Taipei calendar-day marker, not a meaningful clock time.
-
-Hard rule for relative dates:
-
-- direct LINE Record: reference = original LINE message timestamp;
-- Reply/Replay of older content: reference = the quoted/original message timestamp;
-- never use the later `@AFTERTRACE` command timestamp to interpret `今天/昨天/上週五` in quoted content;
-- never silently substitute Worker current time when the original timestamp is required but unavailable.
-
-Regression example:
-
-- 9/3 original: `晴空案今天收3000清潔費`
-- 9/5 Reply: `@AFTERTRACE 幫我記`
-- event date must be 9/3; `created_at` may be 9/5.
-
-Existing GROUP Reply-to-TEXT already passes cached `lineTimestamp` as `sourceTimestamp`, which matches the rule. Other delayed Reply paths, especially attachment paths where LINE content fetch does not itself provide the original message timestamp, must not continue fabricating the Reply command timestamp as source time. That remaining gap is explicitly open work.
-
-## Current local validation for this batch
-
-Executed by the user on Windows:
-
-- `pnpm --filter @aftertrace/api typecheck` — PASS.
-- normalization targeted Vitest — PASS, 3 files / 13 tests:
-  - `src/worklog/gemini-text-normalizer.test.ts`
-  - `src/worklog/text-normalization.test.ts`
-  - `src/worklog/text-normalization-persistence.test.ts`
-- canonical baseline regeneration — PASS.
-- baseline guard — PASS.
-- preserved journal timestamp `1788528481453` — PASS.
-- baseline diff contains `worklog_records.search_terms jsonb DEFAULT [] NOT NULL` — PASS.
-- baseline artifacts committed and pushed as `aa992ba` — PASS.
-- command/history/LINE runtime targeted Vitest — PASS, 6 files / 57 tests:
-  - `src/worklog/command.test.ts`
-  - `src/worklog/history-navigation.test.ts`
-  - `src/worklog/line-runtime.test.ts`
-  - `src/worklog/oa-runtime.test.ts`
-  - `src/worklog/group-webhook.test.ts`
-  - `src/worklog/oa-webhook.test.ts`
-- `src/worklog/history-query.test.ts` — PASS, 1 file / 4 tests.
-- existing Dev forward compatibility migration after Neon multi-command fix — PASS.
-- Drizzle migration on existing Dev DB — PASS.
-- post-migration Dev DB schema/runtime/commercial verification — PASS.
-
-The stderr lines in the webhook test run are expected anomaly logs from deliberately simulated failure cases; all tests passed.
-
-Not yet runtime-validated:
-
-- deployed Dev query behavior;
-- real Gemini production-style `search_terms` output;
-- real delayed Reply event-date regression;
-- attachment Reply original-timestamp handling.
-
-## Durable docs updated
-
-Current product/development contracts include:
-
-- optional/non-blocking OA friend convenience positioning;
-- Web `AI 幫我記` shared pipeline;
-- deterministic LINE top-5 history answer + deep link;
-- no AI history summary for current MVP;
-- semantic `search_terms` retrieval metadata;
-- day-precision event semantics;
-- original source-message timestamp requirement for Reply/Replay.
-
-## Immediate next validation/development order
-
-1. Deploy Dev API and verify `/health` + `/health/ready`.
-2. Real LINE test: create a semantic Record such as `晴空案今天收3千清潔費`, then query `晴空案目前收款進度如何`; expect DB facts + deep link, not AI summary.
-3. Regression test delayed GROUP Reply-to-TEXT: original message date must remain the event date even when Reply occurs later.
-4. Finish original-timestamp handling/fail-closed behavior for delayed attachment Reply paths before claiming all Reply types compliant.
-5. Continue Web non-friend prompt smoke and Web `AI 幫我記` implementation.
+1. pull latest branch
+2. API typecheck
+3. run `oa-input-mode.test.ts`, `oa-runtime-mode.test.ts`, existing `oa-runtime.test.ts`, `oa-webhook.test.ts`
+4. regenerate canonical baseline with `pnpm db:baseline:regenerate --confirm-prelaunch-reset`
+5. run `pnpm db:baseline:guard`
+6. review baseline diff for `worklog_private_pending_actions`; commit generated Drizzle artifacts with `[skip ci]`
+7. run the existing Dev forward migration using `.env.dev`; do not rebuild Dev DB
+8. verify new pending-action table + preserved AI runtime/FREE plan
+9. deploy Dev API and verify `/health` + `/health/ready`
+10. configure Dev OA Rich Menu exact action texts
+11. real OA E2E:
+    - tap `快速記錄` -> prompt -> `晴空案今天收3000清潔費` -> Record + AI semantic terms
+    - tap `查詢紀錄` -> prompt -> `晴空案目前收款進度如何` -> DB facts + deep link
+12. if OA still gives no webhook response, inspect Cloudflare Worker logs and LINE Developers webhook delivery/config rather than guessing from the UI
 
 No GitHub Actions workflow was run, dispatched, rerun, enabled, modified, triggered, or used as validation.
 
-Current deployment status: **TYPECHECK + NORMALIZATION TESTS + BASELINE REGEN/GUARD + 57 COMMAND/HISTORY/LINE RUNTIME TESTS + 4 HISTORY-QUERY TESTS + EXISTING DEV FORWARD MIGRATION + POST-MIGRATION DB VERIFICATION PASS; DEV API DEPLOY + REAL LINE E2E STILL PENDING.**
+Current deployment status: **PREVIOUS DEV DB/SEMANTIC-SEARCH FOUNDATION GREEN; NEW PRIVATE OA INPUT-MODE SCHEMA/CODE REQUIRES TYPECHECK + TARGETED TESTS + BASELINE REGEN/GUARD + DEV FORWARD MIGRATION BEFORE DEPLOYMENT.**
