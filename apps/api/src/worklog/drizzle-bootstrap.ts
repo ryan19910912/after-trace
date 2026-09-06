@@ -9,6 +9,7 @@ import type {
 type UserRow = {
   id: string;
   line_user_id: string;
+  display_name: string | null;
   is_oa_friend: boolean;
 };
 
@@ -50,13 +51,14 @@ export class DrizzleWorklogBootstrapRepository implements WorklogBootstrapReposi
           ELSE GREATEST(worklog_users.last_interaction_at, EXCLUDED.last_interaction_at)
         END,
         updated_at = GREATEST(worklog_users.updated_at, EXCLUDED.updated_at)
-      RETURNING id::text, line_user_id, is_oa_friend
+      RETURNING id::text, line_user_id, display_name, is_oa_friend
     `);
     const row = result.rows[0] as UserRow | undefined;
     if (!row) throw new Error('failed to upsert worklog LINE user');
     return {
       userId: Number(row.id),
       lineUserId: row.line_user_id,
+      displayName: row.display_name,
       isOaFriend: row.is_oa_friend,
     };
   }
