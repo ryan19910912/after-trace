@@ -7,6 +7,7 @@ import {
 } from './anomalies';
 import { parseWorklogCommand } from './command';
 import type { WorklogHistoryFilters } from './history-navigation';
+import { formatHistoryReply, type WorklogHistoryQueryResult } from './history-query';
 import type { WorklogOaRuntime, WorklogOaRuntimeResult } from './oa-runtime';
 import type { WorklogBotReplyTargetPort, WorklogSentReply } from './group-webhook';
 
@@ -130,6 +131,7 @@ export async function processWorklogOaWebhook(input: {
   reply: WorklogOaReplyPort;
   replyTargets?: WorklogBotReplyTargetPort;
   anomalies?: WorklogAnomalyPort;
+  queryHistory?: (target: WorklogPrivateQueryTarget) => Promise<WorklogHistoryQueryResult>;
   createQueryUrl?: (target: WorklogPrivateQueryTarget) => Promise<string | null>;
 }): Promise<WorklogOaWebhookCounters> {
   const counters = emptyCounters();
@@ -224,16 +226,38 @@ export async function processWorklogOaWebhook(input: {
 
     if (!message.replyToken) continue;
     if (result.status === 'QUERY') {
+      const target: WorklogPrivateQueryTarget = {
+        lineUserId: message.lineUserId,
+        sourceId: result.sourceId,
+        userId: result.userId,
+        at: message.lineTimestamp,
+        filters: result.filters,
+      };
+      let history: WorklogHistoryQueryResult | null = null;
+      if (input.queryHistory) {
+        try {
+          history = await input.queryHistory(target);
+          target.filters = history.filters;
+        } catch (error) {
+          counters.oaErrors += 1;
+          logMessageFailure(message, 'worklog_oa_query_read_failed', error);
+          await recordAnomalySafely(input.anomalies, {
+            category: 'LINE_OA_QUERY_READ',
+            errorCode: anomalyErrorCode(error, 'OA_QUERY_READ_FAILED'),
+            summary: anomalyErrorSummary(error, 'LINE OA history query failed'),
+            userId: result.userId,
+            sourceId: result.sourceId,
+            lineMessageId: message.lineMessageId,
+            requestRef: message.webhookEventId,
+            metadata: { lineUserId: message.lineUserId, filters: result.filters },
+          });
+        }
+      }
+
       let url: string | null = null;
       if (input.createQueryUrl) {
         try {
-          url = await input.createQueryUrl({
-            lineUserId: message.lineUserId,
-            sourceId: result.sourceId,
-            userId: result.userId,
-            at: message.lineTimestamp,
-            filters: result.filters,
-          });
+          url = await input.createQueryUrl(target);
         } catch (error) {
           counters.oaErrors += 1;
           logMessageFailure(message, 'worklog_oa_query_entry_failed', error);
@@ -245,7 +269,7 @@ export async function processWorklogOaWebhook(input: {
             sourceId: result.sourceId,
             lineMessageId: message.lineMessageId,
             requestRef: message.webhookEventId,
-            metadata: { lineUserId: message.lineUserId, filters: result.filters },
+            metadata: { lineUserId: message.lineUserId, filters: target.filters },
           });
         }
       }
@@ -253,9 +277,11 @@ export async function processWorklogOaWebhook(input: {
         reply: input.reply,
         anomalies: input.anomalies,
         replyToken: message.replyToken,
-        text: url
-          ? `AFTERTRACE｜查看個人紀錄\n${url}`
-          : 'AFTERTRACE 個人紀錄頁的安全登入正在接線中，既有紀錄不受影響。',
+        text: history
+          ? formatHistoryReply(history, url)
+          : url
+            ? `AFTERTRACE｜查看個人紀錄\n${url}`
+            : 'AFTERTRACE 個人紀錄查詢目前暫時無法完成，既有紀錄不受影響。',
         lineUserId: message.lineUserId,
         lineMessageId: message.lineMessageId,
         webhookEventId: message.webhookEventId,
