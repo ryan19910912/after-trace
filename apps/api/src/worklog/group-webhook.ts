@@ -12,24 +12,11 @@ import type { WorklogLineRuntime, WorklogLineRuntimeResult } from './line-runtim
 
 export interface WorklogGroupLifecyclePort {
   handleGroupLeave(input: { lineGroupId: string; at?: Date }): Promise<void>;
-  setGroupMemberPresence(input: {
-    lineGroupId: string;
-    lineUserId: string;
-    isActive: boolean;
-    at?: Date;
-  }): Promise<void>;
+  setGroupMemberPresence(input: { lineGroupId: string; lineUserId: string; isActive: boolean; at?: Date }): Promise<void>;
 }
-
 export type WorklogSentReply = { sentMessageIds: string[] };
-
-export interface WorklogGroupReplyPort {
-  reply(replyToken: string, text: string): Promise<void | WorklogSentReply>;
-}
-
-export interface WorklogBotReplyTargetPort {
-  rememberBotReplyTarget(recordId: number, botLineMessageId: string): Promise<void>;
-}
-
+export interface WorklogGroupReplyPort { reply(replyToken: string, text: string): Promise<void | WorklogSentReply>; }
+export interface WorklogBotReplyTargetPort { rememberBotReplyTarget(recordId: number, botLineMessageId: string): Promise<void>; }
 export type WorklogGroupWebhookCounters = {
   lifecycleEvents: number;
   worklogCommands: number;
@@ -41,132 +28,36 @@ export type WorklogGroupWebhookCounters = {
   worklogOrdinaryMessages: number;
   worklogErrors: number;
 };
-
-export type WorklogGroupQueryTarget = {
-  lineUserId: string;
-  lineGroupId: string;
-  sourceId: number;
-  userId: number;
-  at: Date;
-  filters: WorklogHistoryFilters;
-};
+export type WorklogGroupQueryTarget = { lineUserId: string; lineGroupId: string; sourceId: number; userId: number; at: Date; filters: WorklogHistoryFilters };
 
 function emptyCounters(): WorklogGroupWebhookCounters {
-  return {
-    lifecycleEvents: 0,
-    worklogCommands: 0,
-    worklogRecords: 0,
-    worklogDuplicateRecords: 0,
-    worklogRejected: 0,
-    worklogQueries: 0,
-    worklogAiResponsibilityClaims: 0,
-    worklogOrdinaryMessages: 0,
-    worklogErrors: 0,
-  };
+  return { lifecycleEvents: 0, worklogCommands: 0, worklogRecords: 0, worklogDuplicateRecords: 0, worklogRejected: 0, worklogQueries: 0, worklogAiResponsibilityClaims: 0, worklogOrdinaryMessages: 0, worklogErrors: 0 };
 }
-
-function logFailure(input: {
-  event: string;
-  lineGroupId: string;
-  lineMessageId?: string | null;
-  webhookEventId?: string | null;
-  error: unknown;
-  extra?: Record<string, unknown>;
-}): void {
-  console.error(JSON.stringify({
-    event: input.event,
-    lineGroupId: input.lineGroupId,
-    ...(input.lineMessageId ? { lineMessageId: input.lineMessageId } : {}),
-    ...(input.webhookEventId ? { webhookEventId: input.webhookEventId } : {}),
-    ...input.extra,
-    message: input.error instanceof Error ? input.error.message : 'unknown error',
-  }));
+function logFailure(input: { event: string; lineGroupId: string; lineMessageId?: string | null; webhookEventId?: string | null; error: unknown; extra?: Record<string, unknown> }): void {
+  console.error(JSON.stringify({ event: input.event, lineGroupId: input.lineGroupId, ...(input.lineMessageId ? { lineMessageId: input.lineMessageId } : {}), ...(input.webhookEventId ? { webhookEventId: input.webhookEventId } : {}), ...input.extra, message: input.error instanceof Error ? input.error.message : 'unknown error' }));
 }
-
-async function replySafely(input: {
-  reply: WorklogGroupReplyPort;
-  anomalies?: WorklogAnomalyPort;
-  replyToken: string;
-  text: string;
-  lineGroupId: string;
-  lineUserId?: string | null;
-  lineMessageId: string;
-  webhookEventId: string | null;
-  counters: WorklogGroupWebhookCounters;
-}): Promise<WorklogSentReply | null> {
+async function replySafely(input: { reply: WorklogGroupReplyPort; anomalies?: WorklogAnomalyPort; replyToken: string; text: string; lineGroupId: string; lineUserId?: string | null; lineMessageId: string; webhookEventId: string | null; counters: WorklogGroupWebhookCounters }): Promise<WorklogSentReply | null> {
   try {
     const result = await input.reply.reply(input.replyToken, input.text);
     return result && Array.isArray(result.sentMessageIds) ? result : null;
   } catch (error) {
     input.counters.worklogErrors += 1;
-    logFailure({
-      event: 'worklog_group_reply_failed',
-      lineGroupId: input.lineGroupId,
-      lineMessageId: input.lineMessageId,
-      webhookEventId: input.webhookEventId,
-      error,
-    });
-    await recordAnomalySafely(input.anomalies, {
-      category: 'LINE_GROUP_REPLY',
-      errorCode: anomalyErrorCode(error, 'LINE_REPLY_FAILED'),
-      summary: anomalyErrorSummary(error, 'LINE group reply failed'),
-      lineMessageId: input.lineMessageId,
-      requestRef: input.webhookEventId,
-      metadata: {
-        lineGroupId: input.lineGroupId,
-        ...(input.lineUserId ? { lineUserId: input.lineUserId } : {}),
-      },
-    });
+    logFailure({ event: 'worklog_group_reply_failed', lineGroupId: input.lineGroupId, lineMessageId: input.lineMessageId, webhookEventId: input.webhookEventId, error });
+    await recordAnomalySafely(input.anomalies, { category: 'LINE_GROUP_REPLY', errorCode: anomalyErrorCode(error, 'LINE_REPLY_FAILED'), summary: anomalyErrorSummary(error, 'LINE group reply failed'), lineMessageId: input.lineMessageId, requestRef: input.webhookEventId, metadata: { lineGroupId: input.lineGroupId, ...(input.lineUserId ? { lineUserId: input.lineUserId } : {}) } });
     return null;
   }
 }
-
-async function rememberReplyTargetSafely(input: {
-  target?: WorklogBotReplyTargetPort;
-  recordId: number;
-  sent: WorklogSentReply | null;
-  lineGroupId: string;
-  lineUserId?: string | null;
-  lineMessageId: string;
-  webhookEventId: string | null;
-  anomalies?: WorklogAnomalyPort;
-  counters: WorklogGroupWebhookCounters;
-}): Promise<void> {
+async function rememberReplyTargetSafely(input: { target?: WorklogBotReplyTargetPort; recordId: number; sent: WorklogSentReply | null; lineGroupId: string; lineUserId?: string | null; lineMessageId: string; webhookEventId: string | null; anomalies?: WorklogAnomalyPort; counters: WorklogGroupWebhookCounters }): Promise<void> {
   const botLineMessageId = input.sent?.sentMessageIds[0]?.trim();
   if (!input.target || !botLineMessageId) return;
-  try {
-    await input.target.rememberBotReplyTarget(input.recordId, botLineMessageId);
-  } catch (error) {
+  try { await input.target.rememberBotReplyTarget(input.recordId, botLineMessageId); }
+  catch (error) {
     input.counters.worklogErrors += 1;
-    logFailure({
-      event: 'worklog_group_reply_target_persist_failed',
-      lineGroupId: input.lineGroupId,
-      lineMessageId: input.lineMessageId,
-      webhookEventId: input.webhookEventId,
-      error,
-      extra: { recordId: input.recordId, botLineMessageId },
-    });
-    await recordAnomalySafely(input.anomalies, {
-      category: 'LINE_GROUP_REPLY_TARGET',
-      errorCode: anomalyErrorCode(error, 'LINE_REPLY_TARGET_PERSIST_FAILED'),
-      summary: anomalyErrorSummary(error, 'LINE group bot Reply target persistence failed'),
-      sourceId: null,
-      lineMessageId: input.lineMessageId,
-      requestRef: input.webhookEventId,
-      metadata: {
-        recordId: input.recordId,
-        botLineMessageId,
-        lineGroupId: input.lineGroupId,
-        ...(input.lineUserId ? { lineUserId: input.lineUserId } : {}),
-      },
-    });
+    logFailure({ event: 'worklog_group_reply_target_persist_failed', lineGroupId: input.lineGroupId, lineMessageId: input.lineMessageId, webhookEventId: input.webhookEventId, error, extra: { recordId: input.recordId, botLineMessageId } });
+    await recordAnomalySafely(input.anomalies, { category: 'LINE_GROUP_REPLY_TARGET', errorCode: anomalyErrorCode(error, 'LINE_REPLY_TARGET_PERSIST_FAILED'), summary: anomalyErrorSummary(error, 'LINE group bot Reply target persistence failed'), sourceId: null, lineMessageId: input.lineMessageId, requestRef: input.webhookEventId, metadata: { recordId: input.recordId, botLineMessageId, lineGroupId: input.lineGroupId, ...(input.lineUserId ? { lineUserId: input.lineUserId } : {}) } });
   }
 }
-
-async function handleLifecycle(
-  event: GroupLifecycleEvent,
-  bootstrap: WorklogGroupLifecyclePort,
-): Promise<void> {
+async function handleLifecycle(event: GroupLifecycleEvent, bootstrap: WorklogGroupLifecyclePort): Promise<void> {
   if (event.type === 'JOIN') return;
   if (event.type === 'LEAVE') {
     await bootstrap.handleGroupLeave({ lineGroupId: event.lineGroupId, at: event.lineTimestamp });
@@ -175,12 +66,7 @@ async function handleLifecycle(
   if (event.type !== 'MEMBER_JOINED' && event.type !== 'MEMBER_LEFT') return;
   const isActive = event.type === 'MEMBER_JOINED';
   for (const lineUserId of event.lineUserIds) {
-    await bootstrap.setGroupMemberPresence({
-      lineGroupId: event.lineGroupId,
-      lineUserId,
-      isActive,
-      at: event.lineTimestamp,
-    });
+    await bootstrap.setGroupMemberPresence({ lineGroupId: event.lineGroupId, lineUserId, isActive, at: event.lineTimestamp });
   }
 }
 
@@ -198,28 +84,11 @@ export async function processWorklogGroupWebhook(input: {
 
   for (const parsedEvent of input.parsed.events) {
     if (parsedEvent.kind === 'LIFECYCLE') {
-      try {
-        await handleLifecycle(parsedEvent.event, input.bootstrap);
-        counters.lifecycleEvents += 1;
-      } catch (error) {
+      try { await handleLifecycle(parsedEvent.event, input.bootstrap); counters.lifecycleEvents += 1; }
+      catch (error) {
         counters.worklogErrors += 1;
-        logFailure({
-          event: 'worklog_group_lifecycle_failed',
-          lineGroupId: parsedEvent.event.lineGroupId,
-          webhookEventId: parsedEvent.event.webhookEventId,
-          error,
-          extra: { lifecycleType: parsedEvent.event.type },
-        });
-        await recordAnomalySafely(input.anomalies, {
-          category: 'LINE_GROUP_LIFECYCLE',
-          errorCode: anomalyErrorCode(error, 'GROUP_LIFECYCLE_FAILED'),
-          summary: anomalyErrorSummary(error, 'LINE group lifecycle failed'),
-          requestRef: parsedEvent.event.webhookEventId,
-          metadata: {
-            lineGroupId: parsedEvent.event.lineGroupId,
-            lifecycleType: parsedEvent.event.type,
-          },
-        });
+        logFailure({ event: 'worklog_group_lifecycle_failed', lineGroupId: parsedEvent.event.lineGroupId, webhookEventId: parsedEvent.event.webhookEventId, error, extra: { lifecycleType: parsedEvent.event.type } });
+        await recordAnomalySafely(input.anomalies, { category: 'LINE_GROUP_LIFECYCLE', errorCode: anomalyErrorCode(error, 'GROUP_LIFECYCLE_FAILED'), summary: anomalyErrorSummary(error, 'LINE group lifecycle failed'), requestRef: parsedEvent.event.webhookEventId, metadata: { lineGroupId: parsedEvent.event.lineGroupId, lifecycleType: parsedEvent.event.type } });
       }
       continue;
     }
@@ -227,182 +96,56 @@ export async function processWorklogGroupWebhook(input: {
     const message = parsedEvent.message;
     const explicitCommand = parseWorklogCommand(message) !== null;
     let result: WorklogLineRuntimeResult;
-    try {
-      result = await input.runtime.handle(message);
-    } catch (error) {
+    try { result = await input.runtime.handle(message); }
+    catch (error) {
       counters.worklogErrors += 1;
-      logFailure({
-        event: 'worklog_group_message_failed',
-        lineGroupId: message.lineGroupId,
-        lineMessageId: message.lineMessageId,
-        webhookEventId: message.webhookEventId,
-        error,
-        extra: { explicitCommand },
-      });
-      await recordAnomalySafely(input.anomalies, {
-        category: 'LINE_GROUP_WEBHOOK',
-        errorCode: anomalyErrorCode(error, 'GROUP_MESSAGE_FAILED'),
-        summary: anomalyErrorSummary(error, 'LINE group message failed'),
-        lineMessageId: message.lineMessageId,
-        requestRef: message.webhookEventId,
-        metadata: {
-          lineGroupId: message.lineGroupId,
-          ...(message.lineUserId ? { lineUserId: message.lineUserId } : {}),
-          explicitCommand,
-        },
-      });
-      if (!explicitCommand) {
-        counters.worklogOrdinaryMessages += 1;
-        continue;
-      }
+      logFailure({ event: 'worklog_group_message_failed', lineGroupId: message.lineGroupId, lineMessageId: message.lineMessageId, webhookEventId: message.webhookEventId, error, extra: { explicitCommand } });
+      await recordAnomalySafely(input.anomalies, { category: 'LINE_GROUP_WEBHOOK', errorCode: anomalyErrorCode(error, 'GROUP_MESSAGE_FAILED'), summary: anomalyErrorSummary(error, 'LINE group message failed'), lineMessageId: message.lineMessageId, requestRef: message.webhookEventId, metadata: { lineGroupId: message.lineGroupId, ...(message.lineUserId ? { lineUserId: message.lineUserId } : {}), explicitCommand } });
+      if (!explicitCommand) { counters.worklogOrdinaryMessages += 1; continue; }
       counters.worklogCommands += 1;
       counters.worklogRejected += 1;
-      if (message.replyToken) {
-        await replySafely({
-          reply: input.reply,
-          anomalies: input.anomalies,
-          replyToken: message.replyToken,
-          text: 'AFTERTRACE 這次沒有成功處理紀錄指令，請稍後再試。',
-          lineGroupId: message.lineGroupId,
-          lineUserId: message.lineUserId,
-          lineMessageId: message.lineMessageId,
-          webhookEventId: message.webhookEventId,
-          counters,
-        });
-      }
+      if (message.replyToken) await replySafely({ reply: input.reply, anomalies: input.anomalies, replyToken: message.replyToken, text: '小跡這次沒有成功處理，請稍後再試。', lineGroupId: message.lineGroupId, lineUserId: message.lineUserId, lineMessageId: message.lineMessageId, webhookEventId: message.webhookEventId, counters });
       continue;
     }
 
-    if (result.status === 'NOT_HANDLED') {
-      counters.worklogOrdinaryMessages += 1;
-      continue;
-    }
-
+    if (result.status === 'NOT_HANDLED') { counters.worklogOrdinaryMessages += 1; continue; }
     counters.worklogCommands += 1;
     if (result.status === 'RECORDED') {
       counters.worklogRecords += 1;
       if (result.duplicate) counters.worklogDuplicateRecords += 1;
-    } else if (result.status === 'QUERY') {
-      counters.worklogQueries += 1;
-    } else if (result.status === 'AI_RESPONSIBILITY_BOUND') {
-      counters.worklogAiResponsibilityClaims += 1;
-    } else if (
-      result.status !== 'EDITED'
-      && result.status !== 'EDIT_CONFIRMATION_PENDING'
-      && result.status !== 'EDIT_IN_PROGRESS'
-    ) {
-      counters.worklogRejected += 1;
-    }
+    } else if (result.status === 'QUERY') counters.worklogQueries += 1;
+    else if (result.status === 'AI_RESPONSIBILITY_BOUND') counters.worklogAiResponsibilityClaims += 1;
+    else if (result.status === 'REJECTED' || result.status === 'QUOTED_NOT_READY') counters.worklogRejected += 1;
 
     if (!message.replyToken) continue;
     if (result.status === 'QUERY') {
-      const target: WorklogGroupQueryTarget = {
-        lineUserId: message.lineUserId ?? '',
-        lineGroupId: message.lineGroupId,
-        sourceId: result.sourceId,
-        userId: result.userId,
-        at: message.lineTimestamp,
-        filters: result.filters,
-      };
+      const target: WorklogGroupQueryTarget = { lineUserId: message.lineUserId ?? '', lineGroupId: message.lineGroupId, sourceId: result.sourceId, userId: result.userId, at: message.lineTimestamp, filters: result.filters };
       let history: WorklogHistoryQueryResult | null = null;
       if (message.lineUserId && input.queryHistory) {
-        try {
-          history = await input.queryHistory(target);
-          target.filters = history.filters;
-        } catch (error) {
+        try { history = await input.queryHistory(target); target.filters = history.filters; }
+        catch (error) {
           counters.worklogErrors += 1;
-          logFailure({
-            event: 'worklog_group_query_read_failed',
-            lineGroupId: message.lineGroupId,
-            lineMessageId: message.lineMessageId,
-            webhookEventId: message.webhookEventId,
-            error,
-          });
-          await recordAnomalySafely(input.anomalies, {
-            category: 'LINE_GROUP_QUERY_READ',
-            errorCode: anomalyErrorCode(error, 'GROUP_QUERY_READ_FAILED'),
-            summary: anomalyErrorSummary(error, 'LINE group history query failed'),
-            userId: result.userId,
-            sourceId: result.sourceId,
-            lineMessageId: message.lineMessageId,
-            requestRef: message.webhookEventId,
-            metadata: { lineGroupId: message.lineGroupId, filters: result.filters },
-          });
+          logFailure({ event: 'worklog_group_query_read_failed', lineGroupId: message.lineGroupId, lineMessageId: message.lineMessageId, webhookEventId: message.webhookEventId, error });
+          await recordAnomalySafely(input.anomalies, { category: 'LINE_GROUP_QUERY_READ', errorCode: anomalyErrorCode(error, 'GROUP_QUERY_READ_FAILED'), summary: anomalyErrorSummary(error, 'LINE group history query failed'), userId: result.userId, sourceId: result.sourceId, lineMessageId: message.lineMessageId, requestRef: message.webhookEventId, metadata: { lineGroupId: message.lineGroupId, filters: result.filters } });
         }
       }
-
       let url: string | null = null;
       if (message.lineUserId && input.createQueryUrl) {
-        try {
-          url = await input.createQueryUrl(target);
-        } catch (error) {
+        try { url = await input.createQueryUrl(target); }
+        catch (error) {
           counters.worklogErrors += 1;
-          logFailure({
-            event: 'worklog_group_query_entry_failed',
-            lineGroupId: message.lineGroupId,
-            lineMessageId: message.lineMessageId,
-            webhookEventId: message.webhookEventId,
-            error,
-          });
-          await recordAnomalySafely(input.anomalies, {
-            category: 'LINE_GROUP_QUERY_ENTRY',
-            errorCode: anomalyErrorCode(error, 'GROUP_QUERY_ENTRY_FAILED'),
-            summary: anomalyErrorSummary(error, 'LINE group query entry failed'),
-            userId: result.userId,
-            sourceId: result.sourceId,
-            lineMessageId: message.lineMessageId,
-            requestRef: message.webhookEventId,
-            metadata: {
-              lineGroupId: message.lineGroupId,
-              lineUserId: message.lineUserId,
-              filters: target.filters,
-            },
-          });
+          logFailure({ event: 'worklog_group_query_entry_failed', lineGroupId: message.lineGroupId, lineMessageId: message.lineMessageId, webhookEventId: message.webhookEventId, error });
+          await recordAnomalySafely(input.anomalies, { category: 'LINE_GROUP_QUERY_ENTRY', errorCode: anomalyErrorCode(error, 'GROUP_QUERY_ENTRY_FAILED'), summary: anomalyErrorSummary(error, 'LINE group query entry failed'), userId: result.userId, sourceId: result.sourceId, lineMessageId: message.lineMessageId, requestRef: message.webhookEventId, metadata: { lineGroupId: message.lineGroupId, lineUserId: message.lineUserId, filters: target.filters } });
         }
       }
-      await replySafely({
-        reply: input.reply,
-        anomalies: input.anomalies,
-        replyToken: message.replyToken,
-        text: history
-          ? formatHistoryReply(history, url)
-          : url
-            ? `AFTERTRACE｜查看紀錄\n${url}`
-            : 'AFTERTRACE 紀錄查詢目前暫時無法完成，既有紀錄不受影響。',
-        lineGroupId: message.lineGroupId,
-        lineUserId: message.lineUserId,
-        lineMessageId: message.lineMessageId,
-        webhookEventId: message.webhookEventId,
-        counters,
-      });
+      await replySafely({ reply: input.reply, anomalies: input.anomalies, replyToken: message.replyToken, text: history ? formatHistoryReply(history, url) : url ? `AFTERTRACE｜查看紀錄\n${url}` : 'AFTERTRACE 紀錄查詢目前暫時無法完成，既有紀錄不受影響。', lineGroupId: message.lineGroupId, lineUserId: message.lineUserId, lineMessageId: message.lineMessageId, webhookEventId: message.webhookEventId, counters });
       continue;
     }
 
-    const sent = await replySafely({
-      reply: input.reply,
-      anomalies: input.anomalies,
-      replyToken: message.replyToken,
-      text: result.replyText,
-      lineGroupId: message.lineGroupId,
-      lineUserId: message.lineUserId,
-      lineMessageId: message.lineMessageId,
-      webhookEventId: message.webhookEventId,
-      counters,
-    });
+    const sent = await replySafely({ reply: input.reply, anomalies: input.anomalies, replyToken: message.replyToken, text: result.replyText, lineGroupId: message.lineGroupId, lineUserId: message.lineUserId, lineMessageId: message.lineMessageId, webhookEventId: message.webhookEventId, counters });
     if (result.status === 'RECORDED' || result.status === 'EDITED') {
-      await rememberReplyTargetSafely({
-        target: input.replyTargets,
-        recordId: result.recordId,
-        sent,
-        lineGroupId: message.lineGroupId,
-        lineUserId: message.lineUserId,
-        lineMessageId: message.lineMessageId,
-        webhookEventId: message.webhookEventId,
-        anomalies: input.anomalies,
-        counters,
-      });
+      await rememberReplyTargetSafely({ target: input.replyTargets, recordId: result.recordId, sent, lineGroupId: message.lineGroupId, lineUserId: message.lineUserId, lineMessageId: message.lineMessageId, webhookEventId: message.webhookEventId, anomalies: input.anomalies, counters });
     }
   }
-
   return counters;
 }
