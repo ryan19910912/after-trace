@@ -176,10 +176,11 @@ LINE history is not an open-ended AI historical agent.
 
 The accepted path is:
 
-**Query -> Retrieve -> Answer -> Deep Link**
+**Interpret current request -> Query -> Retrieve -> Answer -> Deep Link**
 
-- user explicitly invokes query through `小跡 查 ...`, `小跡 今天`, or `小跡 最近`;
+- the user addresses `小跡` naturally, e.g. `小跡 幫我查晴空案最近的收款`;
 - authorize current Source;
+- when the request is not a fixed provider-free command, the bounded interpreter may resolve `QUERY` and query/date text;
 - resolve same-Source Entity/Alias where possible;
 - query PostgreSQL deterministically;
 - return newest up to 5 matching stored facts directly in LINE;
@@ -187,9 +188,15 @@ The accepted path is:
 - append filtered secure PWA link for deeper history;
 - no AI history summary/business conclusion in MVP.
 
-## Delete / restore
+Fixed `小跡 狀態` is not history retrieval and bypasses the natural-language AI interpreter entirely.
+
+## Delete / restore / title move
 
 Delete is soft/status-based. Entity reference and revisions remain durable. Normal search excludes deleted Records; authorized recycle-bin/history may show them; restore preserves history.
+
+LINE natural-language `DELETE`, `RESTORE`, and `MOVE` require an exact deterministic Reply target. AI may identify the action or requested destination title, but it never guesses a Record from `剛剛那筆` or similar wording without a durable target.
+
+`MOVE` changes the single filing Entity/title only; it does not rewrite the Record content or event date.
 
 Do not delete Entity/Alias merely because one Record was deleted.
 
