@@ -233,12 +233,21 @@ No `@` prefix is required. This avoids LINE's member-mention UI conflict and is 
 
 ### Fixed system commands
 
-Only these are customer-facing fixed commands in the current product contract:
+Exactly these customer-facing fixed commands are in the current product contract:
 
 `小跡 幫助`
 
 - show concise guidance and natural-language examples;
 - provider-free.
+
+`小跡 狀態`
+
+- provider-free and available even when AI points are zero;
+- GROUP requires active membership and shows the current AI 額度負責人, remaining/current total AI points, current allowance utilization percentage, and whether AI is usable;
+- if GROUP has no AI 額度負責人, show that AI is paused and guide the user to `小跡 啟用 AI`;
+- OA/private shows the user's PRIVATE AI allowance with `AI 負責人：你`;
+- `總數` means the current effective allowance pool scoped to that Source. Top-ups/new Grants may increase the pool later, so the displayed utilization percentage may decrease after new allowance is added;
+- status reads durable DB facts only and must not call Gemini merely to route or format the answer.
 
 GROUP `小跡 啟用 AI`
 
@@ -270,30 +279,31 @@ Examples:
 - `小跡 我要查詢一下今天晴空案的內容`
 - `小跡 幫我查晴空案收款`
 - Reply an exact Record and say `小跡 我想把金額改成 2800`.
+- Reply an exact Record and say `小跡 把這筆刪掉` / `小跡 幫我還原這筆` / `小跡 把這筆移到晴空案`.
 
-The AI interpreter should produce a strict bounded action plan. Initial intents:
+The AI interpreter produces a strict bounded action plan. Current intents:
 
 - `RECORD`
 - `QUERY`
 - `EDIT`
-- `UNKNOWN`
-
-Future room may include:
-
 - `DELETE`
 - `RESTORE`
 - `MOVE`
-- `SYSTEM_QUERY`
+- `UNKNOWN`
 
-but destructive or mutating actions must never let AI guess the target. `EDIT`, `DELETE`, `RESTORE`, and `MOVE` require an exact deterministic target such as a validated Reply target or explicit PWA selection. Without one, ask the user to Reply/select the Record instead of guessing.
+`SYSTEM_QUERY` is not part of the current AI intent contract. System status is intentionally the deterministic fixed `小跡 狀態` command.
+
+Destructive or mutating actions must never let AI guess the target. `EDIT`, `DELETE`, `RESTORE`, and `MOVE` require an exact deterministic target such as a validated Reply target or explicit PWA selection. Without one, ask the user to Reply/select the Record instead of guessing.
 
 The intended interaction is **one bounded AI interpretation call whenever practical, then one deterministic backend action**. Do not build an open-ended agent/tool loop.
 
-For a `RECORD`, the same interpretation call should ideally return the normalized Record information needed by the shared pipeline—content, one title/Entity proposal, event date and bounded grounded `search_terms`—instead of first calling AI only to classify intent and then calling AI again to normalize the same text.
+For a `RECORD`, the same interpretation call should return the normalized Record information needed by the shared pipeline—content, one title/Entity proposal, event date and bounded grounded `search_terms`—instead of first calling AI only to classify intent and then calling AI again to normalize the same text.
 
 For a `QUERY`, AI may derive bounded query/date filters from the current message, then PostgreSQL performs deterministic retrieval. AI does not receive the returned history for a second summarization pass.
 
 For an `EDIT`, AI may interpret the requested change, but the target remains deterministic. The architecture should converge on one interpretation of instruction + exact target context rather than classifier-call + editor-call duplication.
+
+For `DELETE`, `RESTORE`, and `MOVE`, AI only interprets the requested action/destination title. Authorization, exact Reply target resolution, optimistic version checks, soft-delete/restore, title mutation, and immutable revisions remain deterministic backend work.
 
 Natural-language interpreter provider usage remains normal audited AI usage under the AI-point policy. The optimization goal is to avoid duplicate provider calls, not to make hidden classifier calls free.
 
@@ -330,6 +340,7 @@ Examples:
 
 - `小跡 幫我記一下今天晴空案收了三千`
 - `小跡 我要查詢一下晴空案收款`
+- `小跡 狀態`
 - Reply an exact Record -> `小跡 我想把金額改成 2800`.
 
 GROUP ordinary text may still be temporarily cached under `WORKLOG_LINE_CONTENT_POLICY.md` solely to support later deterministic Reply-to-text/attachment handling. Ordinary chat is not automatically a Record.
@@ -430,7 +441,7 @@ Customer-facing allowance is **AI 點數**.
 - Actual provider input/output/thinking/media cost is converted using immutable request pricing snapshots.
 - Positive fractional point usage rounds up.
 - Provider/model/cost/customer-charge/subsidy facts remain auditable.
-- Natural-language interpretation that actually calls the provider is audited/charged under the same rules; fixed help/AI responsibility commands are provider-free.
+- Natural-language interpretation that actually calls the provider is audited/charged under the same rules; fixed `小跡 幫助`, `小跡 狀態`, `小跡 啟用 AI`, and `小跡 取消 AI` are provider-free.
 
 Admin commercial templates have exactly three plan types:
 
