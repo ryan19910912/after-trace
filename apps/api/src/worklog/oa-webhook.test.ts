@@ -16,8 +16,11 @@ class FakeRuntime {
 }
 class FakeReply {
   calls: Array<{ token: string; text: string }> = [];
+  mentionCalls: Array<{ token: string; text: string; lineUserId: string }> = [];
   fail = false;
+  failMention = false;
   async reply(token: string, text: string): Promise<void> { this.calls.push({ token, text }); if (this.fail) throw new Error('reply unavailable'); }
+  async replyUserMention(token: string, text: string, lineUserId: string): Promise<void> { this.mentionCalls.push({ token, text, lineUserId }); if (this.failMention) throw new Error('mention unavailable'); }
 }
 class FakeAnomalies {
   calls: WorklogAnomalyInput[] = [];
@@ -51,6 +54,31 @@ describe('processWorklogOaWebhook 小跡', () => {
     const result = await processWorklogOaWebhook({ parsed: parsedWithMessage(privateMessage('小跡 幫助')), runtime, reply });
     expect(result).toMatchObject({ oaWorklogCommands: 1, oaWorklogRejected: 0 });
     expect(reply.calls[0]?.text).toContain('小跡');
+  });
+
+  it('renders personal status with a real LINE user mention instead of 你', async () => {
+    const runtime = new FakeRuntime();
+    runtime.nextMessage = { status: 'HELP', replyText: 'AFTERTRACE 個人狀態\n\nAI 負責人：你\nAI 點數：400,000 / 400,000\n目前額度使用率：0%\nAI 功能：可使用' };
+    const reply = new FakeReply();
+    const result = await processWorklogOaWebhook({ parsed: parsedWithMessage(privateMessage('小跡 狀態')), runtime, reply });
+    expect(result).toMatchObject({ oaWorklogCommands: 1, oaWorklogRejected: 0, oaErrors: 0 });
+    expect(reply.mentionCalls).toEqual([{
+      token: 'reply-1',
+      text: 'AFTERTRACE 個人狀態\n\nAI 負責人：{responsible}\nAI 點數：400,000 / 400,000\n目前額度使用率：0%\nAI 功能：可使用',
+      lineUserId: 'U11111111111111111111111111111111',
+    }]);
+    expect(reply.calls).toHaveLength(0);
+  });
+
+  it('falls back safely if personal-status LINE mention fails', async () => {
+    const runtime = new FakeRuntime();
+    runtime.nextMessage = { status: 'HELP', replyText: 'AFTERTRACE 個人狀態\n\nAI 負責人：你\nAI 點數：400,000 / 400,000\n目前額度使用率：0%\nAI 功能：可使用' };
+    const reply = new FakeReply(); reply.failMention = true;
+    const anomalies = new FakeAnomalies();
+    const result = await processWorklogOaWebhook({ parsed: parsedWithMessage(privateMessage('小跡 狀態')), runtime, reply, anomalies });
+    expect(result).toMatchObject({ oaWorklogCommands: 1, oaErrors: 1 });
+    expect(reply.calls).toEqual([{ token: 'reply-1', text: runtime.nextMessage.replyText }]);
+    expect(anomalies.calls[0]).toMatchObject({ category: 'LINE_OA_STATUS_MENTION' });
   });
 
   it('uses a private query callback with deterministic filters', async () => {
