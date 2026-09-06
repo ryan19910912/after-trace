@@ -6,7 +6,6 @@ export type WorklogCommandMessage = {
 
 export type WorklogCommand =
   | { kind: 'HELP' }
-  | { kind: 'STATUS' }
   | { kind: 'CLAIM_GROUP' }
   | { kind: 'RELEASE_GROUP'; text: string }
   | { kind: 'NATURAL_TEXT'; text: string; quotedLineMessageId: string | null }
@@ -23,6 +22,13 @@ function stripBotPrefix(text: string): { addressed: boolean; body: string } {
   const match = trimmed.match(/^小跡(?:\s*[,，:：-]\s*|\s+|$)/u);
   if (!match) return { addressed: false, body: trimmed };
   return { addressed: true, body: trimmed.slice(match[0].length).trim() };
+}
+
+export function isWorklogStatusCommand(message: WorklogCommandMessage): boolean {
+  if (message.messageType !== 'text' || !message.textContent) return false;
+  const prefix = stripBotPrefix(message.textContent);
+  if (!prefix.addressed) return false;
+  return /^(?:狀態|状态)[！!。.]?$/u.test(prefix.body.trim());
 }
 
 /**
@@ -46,7 +52,9 @@ function parsePrefixedCommand(message: WorklogCommandMessage): WorklogCommand | 
   if (!normalized) return null;
 
   if (/^(?:幫助|帮助|說明|说明|help)$/i.test(normalized)) return { kind: 'HELP' };
-  if (/^(?:狀態|状态)$/u.test(normalized)) return { kind: 'STATUS' };
+  // STATUS deliberately maps to the provider-free system-command bucket. New runtimes
+  // distinguish it with isWorklogStatusCommand; legacy runtimes safely show help.
+  if (/^(?:狀態|状态)$/u.test(normalized)) return { kind: 'HELP' };
   if (/^啟用\s*AI$/iu.test(normalized)) return { kind: 'CLAIM_GROUP' };
   if (/^取消\s*AI$/iu.test(normalized)) return { kind: 'RELEASE_GROUP', text: prefix.body };
 
