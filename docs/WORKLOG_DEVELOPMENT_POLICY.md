@@ -27,6 +27,37 @@ Every development commit on this branch must include `[skip ci]`.
 
 Agreed product decisions must not live only in chat. Update durable docs in the same batch. Surface code/doc mismatches rather than preserving obsolete behavior.
 
+## SQL / PostgreSQL safety rules
+
+Raw SQL and Drizzle `sql` template queries must avoid PostgreSQL reserved or command keywords as unquoted table aliases, CTE names, or identifiers.
+
+Hard rule:
+
+- **Never use `grant` as a SQL alias.** `GRANT` is a PostgreSQL command keyword and can cause runtime parser error `42601 syntax error at or near "grant"`.
+- For `worklog_ai_grants`, use a safe alias such as `g`, `ai_grant`, or `grant_row`.
+- Apply the same review discipline to other PostgreSQL keywords such as `user`, `group`, `order`, `limit`, `offset`, `constraint`, `table`, `column`, `select`, `where`, `from`, `join`, `returning`, and similar reserved/command words.
+- Prefer short conventional aliases (`g`, `s`, `u`, `r`, `src`) over domain words that may collide with SQL syntax.
+- When a runtime SQL error returns PostgreSQL code `42601`, inspect aliases/identifiers for reserved-keyword collisions before changing schema, date binding, or business logic.
+- Any regression caused by a reserved-keyword alias must be captured in focused repository/runtime tests or durable development notes so the same mistake is not reintroduced.
+
+Known regression:
+
+```sql
+-- Incorrect
+FROM worklog_ai_grants grant
+
+-- Correct
+FROM worklog_ai_grants g
+```
+
+The Dev `小跡 狀態` allowance query previously failed with:
+
+```text
+[42601] syntax error at or near "grant"
+```
+
+The root cause was the unquoted alias `grant`, not `NOW()`, JS `Date` binding, Grant schema shape, or AI allowance aggregation.
+
 ## Core architecture
 
 AFTERTRACE is **PWA-first, LINE-integrated**.
@@ -345,25 +376,3 @@ Do not expand current MVP with these unless explicitly reaccepted:
 - automatic AI history/business summaries;
 - custom AFTERTRACE GROUP display names;
 - OA Rich Menu pending-mode workflow.
-
-## Prelaunch database policy
-
-Dev/prod are currently prelaunch. Canonical baseline may be regenerated after accepted schema changes, but that baseline is for fresh DB creation.
-
-When existing Dev preservation has been chosen, use reviewed idempotent forward compatibility and do not rebuild merely because `0000` changed.
-
-Once real production data exists, use forward-only migrations.
-
-## Deployment / observability
-
-Cloudflare Workers remain the deployment platform. Do not reintroduce Pages.
-
-A stale Dashboard Cron Trigger is unrelated to logging. Do not create a `scheduled()` handler merely to silence a stale trigger. Group-profile refresh is request-driven/lazy and must not introduce a cron.
-
-## Validation and handoff
-
-- never claim unexecuted tests passed;
-- use local/runtime validation, not GitHub Actions;
-- meaningful runs update `WORKLOG_REBUILD_PROGRESS.md` with current work/debt/validation/next action;
-- every commit contains `[skip ci]`;
-- never run/trigger/modify GitHub Actions unless explicitly requested.
