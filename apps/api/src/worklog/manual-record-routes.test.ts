@@ -124,8 +124,7 @@ function headers(authorization: string) {
   };
 }
 
-function routes(repository: FakeRepository, resolveUserId?: ManualRecordRouteRepository extends never ? never : never) {
-  void resolveUserId;
+function routes(repository: FakeRepository) {
   return createManualRecordRoutes({
     databaseFactory: () => ({} as never),
     resolveSessionUserId: async (_database, session) => session.userId ?? (session.lineUserId ? 7 : null),
