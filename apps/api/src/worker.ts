@@ -20,6 +20,7 @@ import { DrizzleWorklogRecordNormalizationRepository } from './worklog/drizzle-r
 import { createWorklogFundingRoutes } from './worklog/funding-routes';
 import { GeminiWorklogAttachmentNormalizer } from './worklog/gemini-attachment-normalizer';
 import { GeminiWorklogTextNormalizer } from './worklog/gemini-text-normalizer';
+import { createNativeGroupRoutes } from './worklog/native-group-routes';
 import { RecordNormalizationAiPointPort } from './worklog/record-normalization-ai-points';
 import { createWorklogRoutes } from './worklog/routes';
 import { createWorklogSubscriptionRoutes } from './worklog/subscription-routes';
@@ -30,6 +31,7 @@ type ApiBoundary = 'ADMIN_API' | 'SUBSCRIPTION_API' | 'WORKLOG_WEB_API';
 
 const adminRoutes = createAdminRoutes();
 const adminProfitabilityRoutes = createAdminProfitabilityRoutes();
+const nativeGroupRoutes = createNativeGroupRoutes();
 const worklogRoutes = createWorklogRoutes();
 const worklogConfirmationRoutes = createWorklogConfirmationRoutes();
 const worklogFundingRoutes = createWorklogFundingRoutes();
@@ -152,6 +154,13 @@ export default {
       const routedRequest = new Request(rewritten, request);
       return withApiAnomalyBoundary('SUBSCRIPTION_API', request, env, () =>
         worklogSubscriptionRoutes.fetch(routedRequest, env as never, executionContext as never));
+    }
+    if (url.pathname === '/api/v1/groups' || url.pathname.startsWith('/api/v1/groups/')) {
+      const rewritten = new URL(request.url);
+      rewritten.pathname = url.pathname.slice('/api/v1/groups'.length) || '/';
+      const routedRequest = new Request(rewritten, request);
+      return withApiAnomalyBoundary('WORKLOG_WEB_API', request, env, () =>
+        nativeGroupRoutes.fetch(routedRequest, env as never, executionContext as never));
     }
     if (url.pathname === '/api/v1/worklog/confirmations' || url.pathname.startsWith('/api/v1/worklog/confirmations/')) {
       const rewritten = new URL(request.url);
