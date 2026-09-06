@@ -15,7 +15,7 @@ Read first every substantive development run, in this exact order:
 
 Latest docs are the only product/development specification. Never use GitHub Actions unless explicitly requested. Every development commit contains `[skip ci]`.
 
-## Current checkpoint — 2026-09-06 LINE group profile 24h lazy-refresh batch committed, local validation pending
+## Current checkpoint — 2026-09-06 LINE group profile 24h lazy-refresh batch locally green; baseline regenerated/guarded; generated Drizzle artifacts awaiting commit
 
 Cloudflare deployment remains manual:
 
@@ -165,8 +165,6 @@ Current code now includes:
 - existing Dev DB is preserved through an idempotent forward-compat migration; do not rebuild merely for this table
 - PWA Source-list/open-group invocation of the same lazy-refresh service is still pending until that PWA surface is implemented
 
-Official LINE behavior used by this batch: group summary returns group ID/name/optional picture URL for a group the OA participates in; 404 also covers a group the OA does not participate in. Runtime access is therefore not inferred solely from summary fetch failure.
-
 ## Unified LINE command language — 小跡
 
 OA and GROUP share one Chinese command prefix: `小跡`.
@@ -203,34 +201,44 @@ The short-lived Postback/pending-action implementation was prototyped and locall
 
 It has been removed from the branch and requires no DB rollback.
 
-## Current validation status
+## Current validation status — group profile batch PASS
 
-Last completed batch:
+Latest user-executed local validation on Windows:
 
-- PWA-first / unified 小跡 refactor: `pnpm --filter @aftertrace/api typecheck` — PASS
-- targeted current LINE batch — PASS, 6 files / 55 tests
-- expected stderr logs were deliberate simulated anomaly/failure tests, not failures
+- `pnpm --filter @aftertrace/api typecheck` — **PASS**
+- targeted group-profile batch — **PASS, 5 files / 40 tests**
+  - `src/line/group-summary.test.ts` — 4 tests
+  - `src/worklog/group-profile.test.ts` — 4 tests
+  - `src/worklog/group-webhook.test.ts` — 10 tests
+  - `src/worklog/line-runtime.test.ts` — 14 tests
+  - `src/worklog/command.test.ts` — 8 tests
+- stderr logs were expected simulated failures (`LINE unavailable`, `boom`) and were not test failures.
 
-Current LINE group profile batch is **not yet locally validated**. Do not claim it green until the user runs typecheck and targeted tests.
+Canonical fresh-database baseline was regenerated successfully:
 
-Because this batch adds a canonical table, after code tests pass the required order is:
+- Drizzle reports **33 tables**
+- new `worklog_source_line_profiles` table is present
+- FK to `worklog_sources(id)` is present
+- `worklog_source_line_profile_synced_idx` is present
+- original canonical baseline migration timestamp `1788528481453` was preserved
+- `pnpm db:baseline:guard` — **PASS**
 
-1. regenerate canonical baseline with `pnpm db:baseline:regenerate --confirm-prelaunch-reset`
-2. run `pnpm db:baseline:guard`
-3. review generated Drizzle artifacts for `worklog_source_line_profiles`
-4. commit generated artifacts with `[skip ci]`
-5. run the existing Dev forward migration using `.env.dev`; do not rebuild Dev DB
-6. verify table/index exist and AI runtime/FREE plan are preserved
-7. only then deploy Dev API and verify `/health` + `/health/ready`
+Current local working tree after baseline regeneration intentionally contains generated changes:
+
+- modified `drizzle/0000_worklog_baseline.sql`
+- modified `drizzle/meta/0000_snapshot.json`
+
+There is also an unrelated untracked local file `apps/api/verify-admin-schema.mjs`. It must **not** be included in the baseline commit unless separately reviewed/approved; use exact-path staging for the two generated Drizzle artifacts only.
 
 ## Immediate next order
 
-1. locally typecheck/test the current LINE group-profile lazy-refresh batch;
-2. regenerate/guard canonical baseline;
-3. forward-migrate existing Dev DB and verify preservation;
-4. deploy Dev API only after schema/runtime green;
-5. then implement durable non-expiring PWA AI Draft + last-used Source preference + Quick Capture shared pipeline incrementally;
-6. wire PWA Source-list/open-group use into the same 24h lazy profile refresh service;
-7. add Voice as another input modality on top of the same preview/commit core.
+1. commit only the two generated Drizzle baseline artifacts with `[skip ci]`;
+2. run the reviewed existing Dev forward migration using `.env.dev`; do not rebuild Dev DB;
+3. verify `worklog_source_line_profiles` table/index exist and preserved AI runtime/FREE plan values remain unchanged;
+4. deploy Dev API only after migration verification;
+5. verify `/health` and `/health/ready`;
+6. then implement durable non-expiring PWA AI Draft + last-used Source preference + Quick Capture shared pipeline incrementally;
+7. wire PWA Source-list/open-group use into the same 24h lazy profile refresh service;
+8. add Voice as another input modality on top of the same preview/commit core.
 
 No GitHub Actions workflow was run, dispatched, rerun, enabled, modified, triggered, or used as validation.
