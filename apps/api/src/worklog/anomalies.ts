@@ -74,16 +74,19 @@ export async function recordAnomalySafely(
 }
 
 export function anomalyErrorCode(error: unknown, fallback: string): string {
-  if (error && typeof error === 'object' && 'code' in error && typeof (error as { code?: unknown }).code === 'string') {
-    const value = (error as { code: string }).code.trim();
-    if (value) return value.slice(0, 128);
-  }
-  return fallback.slice(0, 128);
+  const code = nestedStringField(error, 'code');
+  return (code || fallback).slice(0, 128);
 }
 
+/**
+ * Admin's primary "完整錯誤內容" comes from summary, so preserve the useful
+ * Drizzle/Postgres cause chain here as well as in metadata. This prevents a
+ * wrapper such as "Failed query" from hiding the actual database error.
+ */
 export function anomalyErrorSummary(error: unknown, fallback: string): string {
-  const value = error instanceof Error ? error.message.trim() : String(error ?? '').trim();
-  return (value || fallback).slice(0, 2000);
+  const messages = collectErrorMessages(error);
+  if (messages.length === 0) return fallback.slice(0, 2000);
+  return messages.join('\n\nCaused by: ').slice(0, 2000);
 }
 
 /**
@@ -127,6 +130,50 @@ export function anomalyErrorDetail(error: unknown, depth = 0): Record<string, un
     detail.cause = anomalyErrorDetail(source.cause, depth + 1);
   }
   return Object.keys(detail).length > 0 ? detail : { message: String(error) };
+}
+
+function collectErrorMessages(error: unknown): string[] {
+  const result: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current !== null && current !== undefined; depth += 1) {
+    const message = errorMessage(current);
+    const code = directStringField(current, 'code');
+    const detail = directStringField(current, 'detail');
+    const hint = directStringField(current, 'hint');
+    const parts = [code ? `[${code}]` : null, message, detail ? `Detail: ${detail}` : null, hint ? `Hint: ${hint}` : null].filter(Boolean) as string[];
+    const combined = parts.join(' ');
+    if (combined && result[result.length - 1] !== combined) result.push(combined);
+    current = errorCause(current);
+  }
+  return result;
+}
+
+function errorMessage(value: unknown): string | null {
+  if (value instanceof Error) return value.message.trim() || null;
+  if (value && typeof value === 'object') return stringField((value as Record<string, unknown>).message);
+  const textValue = String(value ?? '').trim();
+  return textValue || null;
+}
+
+function errorCause(value: unknown): unknown {
+  if (!value || typeof value !== 'object') return null;
+  const source = value as Record<string, unknown>;
+  return 'cause' in source ? source.cause : null;
+}
+
+function nestedStringField(value: unknown, key: string): string | null {
+  let current: unknown = value;
+  for (let depth = 0; depth < 5 && current !== null && current !== undefined; depth += 1) {
+    const found = directStringField(current, key);
+    if (found) return found;
+    current = errorCause(current);
+  }
+  return null;
+}
+
+function directStringField(value: unknown, key: string): string | null {
+  if (!value || typeof value !== 'object') return null;
+  return stringField((value as Record<string, unknown>)[key]);
 }
 
 function stringField(value: unknown): string | null {
