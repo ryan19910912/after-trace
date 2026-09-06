@@ -48,4 +48,11 @@ export class DrizzleWorklogPrivateInputModeRepository implements WorklogPrivateI
     }
     throw new Error('invalid private OA pending action');
   }
+
+  async clear(userId: number): Promise<void> {
+    await this.db.execute(sql`
+      DELETE FROM worklog_private_pending_actions
+      WHERE user_id = ${userId}
+    `);
+  }
 }
