@@ -53,7 +53,7 @@ export function LineOaFriendHint({ apiBaseUrl }: Props) {
     };
   }, [refresh]);
 
-  if (isOaFriend !== false || dismissed) return null;
+  if ((!addUrl && !qrImageUrl) || isOaFriend !== false || dismissed) return null;
 
   return <aside className="line-oa-hint" aria-label="LINE 快速使用提示">
     <button className="line-oa-hint-close" type="button" aria-label="關閉提示" onClick={() => setDismissed(true)}>×</button>
@@ -61,7 +61,7 @@ export function LineOaFriendHint({ apiBaseUrl }: Props) {
       <p className="eyebrow">LINE 快速紀錄</p>
       <h2>想記得更快，也可以直接在 LINE 用 AFTERTRACE</h2>
       <p>你現在已經可以正常使用 Web 紀錄。加入 AFTERTRACE LINE 好友後，就能在聊天裡快速丟一句話，讓 AI 協助整理與記錄；不是使用 Web 的必要條件。</p>
-      {addUrl ? <a className="line-oa-hint-action" href={addUrl} target="_blank" rel="noreferrer">加入 LINE 好友</a> : <p className="line-oa-hint-config">LINE 加好友入口尚未設定，不影響目前 Web 功能。</p>}
+      {addUrl ? <a className="line-oa-hint-action" href={addUrl} target="_blank" rel="noreferrer">加入 LINE 好友</a> : null}
     </div>
     {qrImageUrl ? <div className="line-oa-hint-qr"><img src={qrImageUrl} alt="AFTERTRACE LINE 官方帳號加好友 QR Code" /><small>掃描 QR Code 加入好友</small></div> : null}
   </aside>;
