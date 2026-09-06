@@ -11,6 +11,7 @@ export type WorklogAiAllowanceStatus = {
 
 export interface WorklogLineSystemQueryRepository {
   groupState(sourceId: number): Promise<WorklogGroupSystemState | null>;
+  userDisplayName(userId: number): Promise<string | null>;
   allowance(ownerUserId: number, sourceId: number, at: Date): Promise<WorklogAiAllowanceStatus>;
 }
 
@@ -45,16 +46,20 @@ export class WorklogLineSystemQueryService {
       input.at ?? new Date(),
     );
     const name = state.responsibleDisplayName?.trim() || '已設定的群組成員';
-    return formatStatus('AFTERTRACE 群組狀態', name, allowance);
+    return formatStatus('AFTERTRACE 群組狀態', `@${name}`, allowance);
   }
 
   async personalStatus(input: { userId: number; sourceId: number; at?: Date }): Promise<string> {
-    const allowance = await this.repository.allowance(
-      input.userId,
-      input.sourceId,
-      input.at ?? new Date(),
-    );
-    return formatStatus('AFTERTRACE 個人狀態', '你', allowance);
+    const [allowance, displayName] = await Promise.all([
+      this.repository.allowance(
+        input.userId,
+        input.sourceId,
+        input.at ?? new Date(),
+      ),
+      this.repository.userDisplayName(input.userId),
+    ]);
+    const responsible = displayName?.trim() ? `@${displayName.trim()}` : `使用者 #${input.userId}`;
+    return formatStatus('AFTERTRACE 個人狀態', responsible, allowance);
   }
 }
 
