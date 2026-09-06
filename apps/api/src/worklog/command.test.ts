@@ -20,62 +20,42 @@ function message(textContent: string, quotedLineMessageId: string | null = null)
 }
 
 describe('小跡 LINE command parser', () => {
-  it('uses the same prefix contract in GROUP and OA', () => {
-    expect(parseWorklogCommand(message('小跡 晴空案今天收了三千'))).toEqual({ kind: 'RECORD_TEXT', text: '晴空案今天收了三千' });
-    expect(parseWorklogOaCommand(message('小跡 晴空案今天收了三千'))).toEqual({ kind: 'RECORD_TEXT', text: '晴空案今天收了三千' });
+  it('routes every non-system 小跡 sentence to the natural interpreter in GROUP and OA', () => {
+    expect(parseWorklogCommand(message('小跡 晴空案今天收了三千'))).toEqual({ kind: 'NATURAL_TEXT', text: '晴空案今天收了三千', quotedLineMessageId: null });
+    expect(parseWorklogOaCommand(message('小跡 我要查詢一下今天晴空案'))).toEqual({ kind: 'NATURAL_TEXT', text: '我要查詢一下今天晴空案', quotedLineMessageId: null });
+    expect(parseWorklogCommand(message('小跡 今天'))).toEqual({ kind: 'NATURAL_TEXT', text: '今天', quotedLineMessageId: null });
+    expect(parseWorklogCommand(message('小跡 最近'))).toEqual({ kind: 'NATURAL_TEXT', text: '最近', quotedLineMessageId: null });
+    expect(parseWorklogCommand(message('小跡 紀錄一下今天收三千'))).toEqual({ kind: 'NATURAL_TEXT', text: '紀錄一下今天收三千', quotedLineMessageId: null });
   });
 
   it('accepts natural punctuation after the bot name', () => {
-    expect(parseWorklogCommand(message('小跡，晴空案今天收了三千'))).toEqual({ kind: 'RECORD_TEXT', text: '晴空案今天收了三千' });
-    expect(parseWorklogCommand(message('小跡：晴空案今天收了三千'))).toEqual({ kind: 'RECORD_TEXT', text: '晴空案今天收了三千' });
+    expect(parseWorklogCommand(message('小跡，晴空案今天收了三千'))).toMatchObject({ kind: 'NATURAL_TEXT', text: '晴空案今天收了三千' });
+    expect(parseWorklogCommand(message('小跡：幫我查晴空案'))).toMatchObject({ kind: 'NATURAL_TEXT', text: '幫我查晴空案' });
   });
 
-  it('keeps legacy query parsing only as transitional compatibility', () => {
-    expect(parseWorklogCommand(message('小跡 查 晴空案目前收款進度如何'))).toEqual({ kind: 'QUERY', naturalText: '晴空案目前收款進度如何' });
-    expect(parseWorklogCommand(message('小跡 查詢 晴空案收款'))).toEqual({ kind: 'QUERY', naturalText: '晴空案收款' });
+  it('preserves Reply target context for the interpreter instead of hard-coding edit or record intent', () => {
+    expect(parseWorklogCommand(message('小跡 記一下', 'quoted-1'))).toEqual({ kind: 'NATURAL_TEXT', text: '記一下', quotedLineMessageId: 'quoted-1' });
+    expect(parseWorklogCommand(message('小跡 我想把金額改成 2800', 'quoted-record-1'))).toEqual({ kind: 'NATURAL_TEXT', text: '我想把金額改成 2800', quotedLineMessageId: 'quoted-record-1' });
   });
 
-  it('keeps today and recent shortcuts as transitional compatibility', () => {
-    expect(parseWorklogCommand(message('小跡 今天'))).toEqual({ kind: 'QUERY', naturalText: '今天' });
-    expect(parseWorklogCommand(message('小跡 最近'))).toEqual({ kind: 'QUERY', naturalText: null });
-  });
-
-  it('supports the fixed help command', () => {
+  it('keeps only help and GROUP AI responsibility as fixed system commands', () => {
     expect(parseWorklogCommand(message('小跡 幫助'))).toEqual({ kind: 'HELP' });
+    expect(parseWorklogCommand(message('小跡 啟用 AI'))).toEqual({ kind: 'CLAIM_GROUP' });
+    expect(parseWorklogCommand(message('小跡 取消 AI'))).toEqual({ kind: 'RELEASE_GROUP', text: '取消 AI' });
+    expect(parseWorklogCommand(message('小跡 啟用'))).toEqual({ kind: 'NATURAL_TEXT', text: '啟用', quotedLineMessageId: null });
+
     const help = worklogLineHelpText();
     expect(help).toContain('小跡 啟用 AI');
     expect(help).toContain('小跡 取消 AI');
     expect(help).toContain('自然語言');
   });
 
-  it('records Reply content through the transitional explicit 記 path', () => {
-    expect(parseWorklogCommand(message('小跡 記', 'quoted-1'))).toEqual({
-      kind: 'RECORD_QUOTED',
-      quotedLineMessageId: 'quoted-1',
-      instruction: null,
-    });
-  });
-
-  it('keeps Reply edit target deterministic', () => {
-    expect(parseWorklogCommand(message('小跡 幫我改成 2800', 'quoted-record-1'))).toEqual({
-      kind: 'EDIT_REQUEST',
-      instruction: '幫我改成 2800',
-      quotedLineMessageId: 'quoted-record-1',
-    });
-  });
-
-  it('supports only the explicit group AI responsibility control wording', () => {
-    expect(parseWorklogCommand(message('小跡 啟用 AI'))).toEqual({ kind: 'CLAIM_GROUP' });
-    expect(parseWorklogCommand(message('小跡 取消 AI'))).toEqual({ kind: 'RELEASE_GROUP' });
-    expect(parseWorklogCommand(message('小跡 啟用'))).toEqual({ kind: 'RECORD_TEXT', text: '啟用' });
-  });
-
-  it('parses group AI controls in OA so the OA runtime can reject them explicitly', () => {
+  it('lets OA runtime reject group-only AI controls explicitly', () => {
     expect(parseWorklogOaCommand(message('小跡 啟用 AI'))).toEqual({ kind: 'CLAIM_GROUP' });
-    expect(parseWorklogOaCommand(message('小跡 取消 AI'))).toEqual({ kind: 'RELEASE_GROUP' });
+    expect(parseWorklogOaCommand(message('小跡 取消 AI'))).toEqual({ kind: 'RELEASE_GROUP', text: '取消 AI' });
   });
 
-  it('ignores ordinary chat and the retired @AFTERTRACE syntax', () => {
+  it('ignores ordinary chat and retired @AFTERTRACE syntax', () => {
     expect(parseWorklogCommand(message('王先生今天收五千'))).toBeNull();
     expect(parseWorklogCommand(message('@AFTERTRACE 王先生今天收五千'))).toBeNull();
   });
