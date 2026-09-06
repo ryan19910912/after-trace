@@ -4,8 +4,6 @@ import type { WorklogReplyEditTarget } from './records';
 import type { WorklogAiRuntimeConfigSnapshot, WorklogTextNormalizationOutput } from './text-normalization';
 import type { WorklogLineRecordEditOutput } from './line-record-edit';
 
-export type WorklogSystemQueryKind = 'AI_STATUS' | 'AI_BALANCE' | 'AI_RESPONSIBLE_USER';
-
 export type WorklogLineNaturalInterpretation =
   | {
       intent: 'RECORD';
@@ -24,7 +22,6 @@ export type WorklogLineNaturalInterpretation =
   | { intent: 'DELETE' }
   | { intent: 'RESTORE' }
   | { intent: 'MOVE'; title: string }
-  | { intent: 'SYSTEM_QUERY'; query: WorklogSystemQueryKind }
   | {
       intent: 'UNKNOWN';
       reason: string | null;
