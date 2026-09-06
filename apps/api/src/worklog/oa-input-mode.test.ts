@@ -20,6 +20,10 @@ class FakeRepository implements WorklogPrivateInputModeRepository {
       ? { status: 'EXPIRED' as const }
       : { status: 'ACTIVE' as const, action: row.action };
   }
+
+  async clear(): Promise<void> {
+    this.row = null;
+  }
 }
 
 describe('WorklogPrivateInputModeService', () => {
@@ -49,5 +53,16 @@ describe('WorklogPrivateInputModeService', () => {
       status: 'EXPIRED',
     });
     expect(repository.row).toBeNull();
+  });
+
+  it('clears a pending mode without consuming an input message', async () => {
+    const repository = new FakeRepository();
+    const service = new WorklogPrivateInputModeService(repository);
+    const at = new Date('2026-09-06T05:00:00.000Z');
+
+    await service.set(7, 'RECORD', at);
+    await service.clear(7);
+    expect(repository.row).toBeNull();
+    await expect(service.consume(7, new Date(at.getTime() + 60_000))).resolves.toEqual({ status: 'NONE' });
   });
 });
