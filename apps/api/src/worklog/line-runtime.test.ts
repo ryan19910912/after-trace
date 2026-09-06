@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BufferedGroupMessage } from '../line/events';
 import type { WorklogAttachmentIngestionService } from './attachment-ingestion';
-import type { GroupAiAuthorizationResult } from './ai-responsibility';
+import type { GroupAiAuthorizationResult, GroupAiResponsibilityReleaseResult } from './ai-responsibility';
 import { configureWorklogAttachmentRuntime } from './attachment-runtime';
 import type { GroupAiResponsibilityBindResult, GroupBootstrapResult } from './bootstrap';
 import type { GroupAccessAuthorizationResult } from './collaboration';
@@ -24,9 +24,11 @@ class FakeBootstrap {
 class FakeCollaboration {
   accessResult: GroupAccessAuthorizationResult = { status: 'OK', actorUserId: 7 };
   aiResult: GroupAiAuthorizationResult = { status: 'OK', actorUserId: 7, chargedUserId: 8 };
-  accessCalls = 0; aiCalls = 0;
+  releaseResult: GroupAiResponsibilityReleaseResult = { status: 'RELEASED', sourceId: 20, previousResponsibleUserId: 7 };
+  accessCalls = 0; aiCalls = 0; releaseCalls = 0;
   async authorizeGroupAccess() { this.accessCalls += 1; return this.accessResult; }
   async authorizeGroupAi() { this.aiCalls += 1; return this.aiResult; }
+  async releaseGroupAiResponsibility() { this.releaseCalls += 1; return this.releaseResult; }
 }
 class FakeRecords {
   result: WorklogTextRecordWriteResult = { status: 'CREATED', recordId: 99 };
@@ -71,15 +73,28 @@ describe('WorklogLineRuntime 小跡 group commands', () => {
     expect(records.remembered).toHaveLength(0);
   });
 
-  it('claims GROUP AI responsibility with 小跡 啟用', async () => {
+  it('claims GROUP AI responsibility with 小跡 啟用 AI', async () => {
     const bootstrap = new FakeBootstrap();
-    await expect(new WorklogLineRuntime(bootstrap, new FakeCollaboration(), new FakeRecords()).handle(message('小跡 啟用'))).resolves.toMatchObject({ status: 'AI_RESPONSIBILITY_BOUND', sourceId: 20 });
+    await expect(new WorklogLineRuntime(bootstrap, new FakeCollaboration(), new FakeRecords()).handle(message('小跡 啟用 AI'))).resolves.toMatchObject({ status: 'AI_RESPONSIBILITY_BOUND', sourceId: 20 });
     expect(bootstrap.bootstrapCalls).toBe(1); expect(bootstrap.claimCalls).toBe(1);
   });
 
   it('fails conflicting AI responsibility claim', async () => {
     const bootstrap = new FakeBootstrap(); bootstrap.claim = { status: 'RESPONSIBILITY_CONFLICT', sourceId: 20 };
-    await expect(new WorklogLineRuntime(bootstrap, new FakeCollaboration(), new FakeRecords()).handle(message('小跡 啟用'))).resolves.toMatchObject({ status: 'REJECTED', reason: 'AI_RESPONSIBILITY_CONFLICT' });
+    await expect(new WorklogLineRuntime(bootstrap, new FakeCollaboration(), new FakeRecords()).handle(message('小跡 啟用 AI'))).resolves.toMatchObject({ status: 'REJECTED', reason: 'AI_RESPONSIBILITY_CONFLICT' });
+  });
+
+  it('lets the current responsible member cancel AI without leaving the group', async () => {
+    const collaboration = new FakeCollaboration();
+    const result = await new WorklogLineRuntime(new FakeBootstrap(), collaboration, new FakeRecords()).handle(message('小跡 取消 AI'));
+    expect(result).toMatchObject({ status: 'AI_RESPONSIBILITY_RELEASED', sourceId: 20 });
+    expect(collaboration.releaseCalls).toBe(1);
+    expect(collaboration.aiCalls).toBe(0);
+  });
+
+  it('does not let another member cancel the current AI responsible user', async () => {
+    const collaboration = new FakeCollaboration(); collaboration.releaseResult = { status: 'NOT_RESPONSIBLE', sourceId: 20 };
+    await expect(new WorklogLineRuntime(new FakeBootstrap(), collaboration, new FakeRecords()).handle(message('小跡 取消 AI'))).resolves.toMatchObject({ status: 'REJECTED', reason: 'AI_RESPONSIBILITY_NOT_OWNER' });
   });
 
   it('lets explicit query use free active-member access without AI points', async () => {
@@ -92,7 +107,7 @@ describe('WorklogLineRuntime 小跡 group commands', () => {
     const collaboration = new FakeCollaboration(); const records = new FakeRecords();
     const result = await new WorklogLineRuntime(new FakeBootstrap(), collaboration, records).handle(message('小跡 幫助'));
     expect(result.status).toBe('HELP');
-    if (result.status === 'HELP') expect(result.replyText).toContain('小跡 查 晴空案收款');
+    if (result.status === 'HELP') expect(result.replyText).toContain('小跡 啟用 AI');
     expect(collaboration.aiCalls).toBe(0); expect(records.calls).toBe(0);
   });
 
