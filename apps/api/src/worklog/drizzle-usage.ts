@@ -57,23 +57,23 @@ export class DrizzleWorklogUsageRepository implements WorklogUsageRepository {
       SELECT
         COALESCE(SUM(
           LEAST(
-            grant.remaining_points,
+            g.remaining_points,
             CASE
-              WHEN scope.cap_points IS NULL THEN grant.remaining_points
+              WHEN scope.cap_points IS NULL THEN g.remaining_points
               ELSE GREATEST(0, scope.cap_points - scope.used_points - scope.reserved_points)
             END
           )
         ), 0)::bigint AS available_points,
         COALESCE(SUM(scope.reserved_points), 0)::bigint AS reserved_points
-      FROM worklog_ai_grants grant
+      FROM worklog_ai_grants g
       INNER JOIN worklog_ai_grant_scopes scope
-        ON scope.grant_id = grant.id
+        ON scope.grant_id = g.id
        AND scope.source_id = ${input.sourceId}
        AND scope.enabled = TRUE
-      WHERE grant.owner_user_id = ${input.ownerUserId}
-        AND grant.status = 'ACTIVE'
-        AND grant.effective_at <= ${input.at}
-        AND (grant.expires_at IS NULL OR grant.expires_at > ${input.at})
+      WHERE g.owner_user_id = ${input.ownerUserId}
+        AND g.status = 'ACTIVE'
+        AND g.effective_at <= ${input.at}
+        AND (g.expires_at IS NULL OR g.expires_at > ${input.at})
     `);
     const row = result.rows[0] as {
       available_points?: number | string | null;
