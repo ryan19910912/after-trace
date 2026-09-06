@@ -82,7 +82,7 @@ The reusable core must separate AI interpretation from durable commit sufficient
 
 - LINE can continue its accepted direct/confirmation interaction;
 - Web/PWA can use preview-first `AI 幫我記`;
-- both reuse the same normalization, same-Source Entity/Alias resolution, ambiguity handling, AI point ledger/provider-cost accounting and Record persistence rules;
+- both reuse the same normalization, same-Source Entity/Alias resolution, ambiguity handling, semantic search metadata, AI point ledger/provider-cost accounting and Record persistence rules;
 - an unchanged accepted Web preview can be committed without a second provider call;
 - operation/channel facts distinguish surfaces such as `LINE_AI_CREATE` and `PWA_AI_CREATE` for audit/analytics without creating separate domain models.
 
@@ -103,7 +103,7 @@ Required behavior:
 7. do not refund already-incurred provider usage merely because the user cancels after preview;
 8. do not call provider AI again just to persist an unchanged accepted preview.
 
-Preview state must be tamper-resistant/durable enough that commit cannot trust arbitrary client-supplied title/content/time as if it were the original AI result.
+Preview state must be tamper-resistant/durable enough that commit cannot trust arbitrary client-supplied title/content/date as if it were the original AI result.
 
 ## AI provider/model runtime configuration
 
@@ -127,25 +127,67 @@ Follow `WORKLOG_AI_POINT_POLICY.md`:
 - Admin calculator may recommend points, but persisted plan/product `grant_points` is explicitly confirmed;
 - do not hard-code provider prices into entitlement logic.
 
-## Record/title rules
+## Record/title/search rules
 
 Core universal model is Source + Entity(title) + Alias + Record + immutable Revision + durable pending AI confirmation.
 
 - each Record belongs to one Entity/title;
 - do not create Related Entities merely because names/objects appear in content;
-- fuzzy search spans title/alias/raw Record content;
 - Entity/Alias matching is Source-scoped;
-- no generic PRIMARY/RELATED many-to-many core model.
+- no generic PRIMARY/RELATED many-to-many core model;
+- AI-assisted Record interpretation may persist a bounded `search_terms` array for retrieval only;
+- `search_terms` must be grounded in the Record and may include common synonyms/concepts needed to retrieve the same fact, e.g. `收3千清潔費` -> `收款`, `款項`, `清潔費`, `3000`;
+- do not turn `search_terms` into a domain-specific finance/project schema;
+- deterministic search may match title, alias, raw text and `search_terms`.
+
+Manual PWA CRUD must never invoke AI merely to populate search terms. Records created manually may therefore have no semantic terms until a later explicit feature processes them.
+
+## Event-date / source-timestamp rules
+
+The Record business event field is day-precision for MVP. The current physical `occurred_at` timestamp column may remain temporarily for compatibility, but application semantics are a canonical Asia/Taipei calendar day, not a meaningful clock time.
+
+Required reference-time rules:
+
+- direct LINE command: reference = original LINE message timestamp;
+- GROUP Reply/Replay cached text: reference = cached quoted message `lineTimestamp`;
+- any future Reply/Replay path that can recover the original message timestamp must use that timestamp;
+- later command/reply timestamp is **not** the event-date reference for quoted content;
+- Worker current time is never an acceptable silent substitute;
+- if the required original timestamp is unavailable, fail clearly/request resend rather than silently assigning the current date.
+
+Regression example that must remain covered:
+
+- 9/3 original: `晴空案今天收3000清潔費`
+- 9/5 Reply: `@AFTERTRACE 幫我記`
+- resulting event date = 9/3, while `created_at` may be 9/5.
+
+Relative date phrases are interpreted in `Asia/Taipei`. `created_at` / `updated_at` remain real system timestamps and are not event dates.
 
 ## AI-assisted Record parsing
 
-Keep AI responsibility bounded to intent, one title, same-Source Entity/Alias resolution, ambiguity confirmation, `occurred_at`, and durable textual content. Do not require universal finance/address/material/task extraction.
+Keep AI responsibility bounded to intent, one title, same-Source Entity/Alias resolution, ambiguity confirmation, event date, bounded semantic `search_terms`, and durable textual content. Do not require universal finance/address/material/task extraction.
+
+## Deterministic LINE history retrieval
+
+Current LINE history answers must be provider-free after intent/filter parsing and must not call AI for summarization.
+
+Implement **Query → Retrieve → Answer → Deep Link**:
+
+1. authorize Source first;
+2. resolve an explicitly mentioned existing Entity/Alias within that same Source when possible;
+3. derive the remaining fuzzy/semantic query;
+4. query PostgreSQL using title/alias/raw text/`search_terms` and date filters;
+5. return at most the newest 5 matching Records in LINE;
+6. include total match count when available;
+7. append the secure filtered PWA link for more results.
+
+Never infer a business conclusion such as percentage complete, paid/unpaid state, or project status merely because several Records were returned. The answer is a deterministic presentation of stored facts, not an AI summary.
 
 ## PWA / LINE rules
 
-PWA manual create/edit/search is deterministic and free. `occurred_at` is separate from created/updated time. Use date/time picker for manual create.
+PWA manual create/edit/search is deterministic and free. User-facing manual date input is day-precision for MVP; do not require or invent a time-of-day.
 
-LINE history request -> deterministic PWA filters/link. LINE natural-language edit requires reliable Reply target; never guess. AI does not write arbitrary SQL.
+LINE natural-language edit requires reliable Reply target; never guess. AI does not write arbitrary SQL.
 
 ## Revision / concurrency / delete
 
@@ -154,6 +196,8 @@ Every content-changing edit writes immutable revision history. Use integer optim
 ## Attachments
 
 Follow `WORKLOG_LINE_CONTENT_POLICY.md`. PWA manual create/edit stays text-only. LINE binaries are not permanently stored; only durable extracted/transcribed text is retained where supported.
+
+For delayed Reply attachment ingestion, do not silently assign the Reply command timestamp as the original attachment event date. Until original attachment timestamp metadata is durably recoverable, the path must either preserve/recover source timestamp metadata or fail clearly instead of fabricating a current date.
 
 ## Prelaunch database policy
 
