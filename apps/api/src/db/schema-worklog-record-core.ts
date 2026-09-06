@@ -57,8 +57,6 @@ export const worklogEntities = pgTable(
   },
   (table) => [
     uniqueIndex('worklog_entity_source_name_uq').on(table.sourceId, sql`lower(${table.name})`),
-    // PostgreSQL composite FKs below use this key to make Source isolation a durable
-    // database invariant instead of relying only on every caller remembering to check.
     unique('worklog_entity_source_id_uq').on(table.sourceId, table.id),
     index('worklog_entity_source_status_idx').on(table.sourceId, table.status),
   ],
@@ -99,6 +97,9 @@ export const worklogEntityAliases = pgTable(
  * Manual PWA creation always sets entity_id. AI-assisted LINE capture may temporarily
  * persist a raw Record with entity_id NULL while deterministic title resolution or a
  * durable confirmation is pending; a user-visible resolved Record must have one title.
+ *
+ * search_terms is bounded AI-derived retrieval metadata only. It must never replace
+ * raw_text or become a domain-specific finance/project schema.
  */
 export const worklogRecords = pgTable(
   'worklog_records',
@@ -115,6 +116,10 @@ export const worklogRecords = pgTable(
     quotedLineMessageId: varchar('quoted_line_message_id', { length: 64 }),
     inputType: worklogRecordInputTypeEnum('input_type').notNull(),
     rawText: text('raw_text').notNull(),
+    searchTerms: jsonb('search_terms').$type<string[]>().default([]).notNull(),
+    // occurred_at is retained for compatibility while MVP semantics are day precision.
+    // Application code must canonicalize/interpret it as an Asia/Taipei calendar day,
+    // not as a user-supplied clock time.
     occurredAt: timestamp('occurred_at', { withTimezone: true }).defaultNow().notNull(),
     status: worklogRecordStatusEnum('status').default('ACTIVE').notNull(),
     version: integer('version').default(1).notNull(),
