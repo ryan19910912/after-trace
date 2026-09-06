@@ -1,15 +1,18 @@
 import './worklog.css';
 
-export function HelpRoot(){
+export function HelpRoot() {
   return <main className="shell worklog-shell">
-    <div className="topbar"><div><p className="eyebrow">AFTERTRACE</p><h1>使用教學</h1><p className="muted">LINE 負責快速記錄，網頁負責搜尋、整理與管理。</p></div><button className="ghost" onClick={()=>{location.href='/';}}>回紀錄</button></div>
+    <div className="topbar">
+      <div><p className="eyebrow">AFTERTRACE</p><h1>使用教學</h1><p className="muted">Web / PWA 是主要產品介面：快速留下紀錄、搜尋、整理與群組協作。</p></div>
+      <button className="ghost" onClick={() => { location.href = '/'; }}>回紀錄</button>
+    </div>
     <section className="panel help-stack">
-      <article><h2>直接記錄文字</h2><p>在 LINE 官方帳號私聊，或已加入 AFTERTRACE Bot 的群組輸入：</p><code>@AFTERTRACE 王先生二樓漏水已修復</code><p>AI 會協助判斷一個「紀錄標題」與發生時間；原始紀錄內容仍會保留。</p></article>
-      <article><h2>群組補記之前的文字</h2><p>只有 LINE 群組的一般文字會暫存最多 5 天。回覆仍在暫存內的原文字訊息，再輸入 <code>@AFTERTRACE</code>，系統才會把原文建立成正式紀錄。</p><p>LINE 官方帳號私聊的一般文字不會暫存；若之後才想補記，請重新輸入 <code>@AFTERTRACE 原文</code>。</p></article>
-      <article><h2>圖片、音檔、檔案</h2><p>Reply 那則圖片、音檔或支援的檔案，再輸入 <code>@AFTERTRACE</code>。附件本身不會被 AFTERTRACE 永久保存；系統會當下向 LINE 取內容，轉成可搜尋的文字紀錄後丟棄原始二進位檔。若 LINE 內容已失效，會請你重新傳送。</p></article>
-      <article><h2>查看與整理</h2><p>在 LINE 輸入 <code>@AFTERTRACE 查詢</code> 或自然語句，例如「王大明這週做了什麼」，AFTERTRACE 會帶你到已套好條件的紀錄頁。</p><p>網頁可以切換個人／群組 Source，依紀錄標題、模糊關鍵字與日期範圍搜尋；也可以免費手動新增、編輯、移動紀錄標題、批次移動、刪除、還原及查看編輯紀錄。</p></article>
-      <article><h2>群組 AI 額度負責人</h2><p>群組資料與 AI 費用是兩件事。所有目前仍在群組內的成員都可以使用免費的手動紀錄功能，不需要 Owner、付費方案或 AI 點數。</p><p>需要使用群組 AI 時，群組內可用 <code>@AFTERTRACE 啟用</code> 設定目前的「AI 額度負責人」。AI 只會使用該負責人明確允許這個群組使用的個人 Grant 點數；負責人離開群組時 AI 會暫停，但群組紀錄與手動功能不會消失。</p></article>
-      <article><h2>AI 點數用完怎麼辦？</h2><p>AI CREATE／EDIT／附件理解在開始前需要有可用 AI 點數。點數為 0 時不會呼叫 AI，但網頁上的手動新增、編輯、搜尋、刪除、還原與移動紀錄仍可免費使用。</p></article>
+      <article><h2>快速新增紀錄</h2><p>在「紀錄」頁按「＋新增紀錄」，只要填內容就能儲存。發生時間是選填；沒有填時，時間軸會使用系統的記錄時間顯示，不會替你捏造一個事件時間。</p></article>
+      <article><h2>免費手動功能</h2><p>手動新增、編輯、搜尋、日期篩選、刪除、還原與查看修改歷史都不需要 provider AI。免費紀錄不要求 AI 標題、關鍵字或 Entity。</p></article>
+      <article><h2>搜尋與時間篩選</h2><p>搜尋會先直接查已保存的紀錄內容，也可以搭配「從／到」時間篩選。沒有發生時間的紀錄會使用建立時間參與時間軸與篩選。</p></article>
+      <article><h2>AFTERTRACE 群組</h2><p>到「群組」頁可直接在 AFTERTRACE 建立群組。OWNER 可以建立邀請連結，受邀者必須先登入並明確加入，後端才會建立 membership。</p><p>群組資料權限由 AFTERTRACE membership 控制，不依賴 LINE 群組或 Bot 狀態。</p></article>
+      <article><h2>群組邀請</h2><p>目前 Web 先提供單次邀請。原始邀請 token 只會在建立後顯示一次，資料庫只保存雜湊；OWNER 可在仍持有這次邀請資訊時撤銷它。</p></article>
+      <article><h2>AI 功能</h2><p>AI 是付費、每位使用者自己的能力，與群組資料權限分開。後續會逐步加入自然語言／語音／圖片與檔案輸入、AI 標題與關鍵字、自然語言搜尋、相關紀錄、摘要、重寫與任務建議。</p><p>AI 正式開放後會受公平使用與每月資源／Provider Cost 硬上限保護；免費手動功能不會因 AI 額度用完而失效。</p></article>
     </section>
   </main>;
 }
