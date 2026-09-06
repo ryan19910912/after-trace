@@ -22,6 +22,11 @@ import {
 
 export const worklogEntityStatusEnum = pgEnum('worklog_entity_status', ['ACTIVE', 'ARCHIVED']);
 export const worklogRecordStatusEnum = pgEnum('worklog_record_status', ['ACTIVE', 'DELETED']);
+export const worklogRecordAiEnrichmentStatusEnum = pgEnum('worklog_record_ai_enrichment_status', [
+  'NONE',
+  'ENRICHED',
+  'LEGACY',
+]);
 export const worklogRecordRevisionChannelEnum = pgEnum('worklog_record_revision_channel', [
   'PWA_MANUAL',
   'PWA_DELETE',
@@ -41,7 +46,7 @@ export const worklogAiConfirmationStatusEnum = pgEnum('worklog_ai_confirmation_s
   'EXPIRED',
 ]);
 
-/** Source-scoped user-facing 紀錄標題. */
+/** Legacy Source-scoped title model retained during the Web/PWA product migration. */
 export const worklogEntities = pgTable(
   'worklog_entities',
   {
@@ -62,7 +67,7 @@ export const worklogEntities = pgTable(
   ],
 );
 
-/** Confirmed alternate names for one Source-scoped title. */
+/** Confirmed alternate names for the legacy Source-scoped title model. */
 export const worklogEntityAliases = pgTable(
   'worklog_entity_aliases',
   {
@@ -92,14 +97,16 @@ export const worklogEntityAliases = pgTable(
 );
 
 /**
- * Universal durable Record row for the accepted single-title MVP.
+ * Universal durable Record row.
  *
- * Manual PWA creation always sets entity_id. AI-assisted LINE capture may temporarily
- * persist a raw Record with entity_id NULL while deterministic title resolution or a
- * durable confirmation is pending; a user-visible resolved Record must have one title.
+ * A free/manual Web/PWA Record is valid with only source/author/input/content plus system
+ * timestamps. occurred_at is nullable because the user may not provide a business event
+ * time. AI title/search/extraction metadata is optional and must never be required for
+ * manual CRUD.
  *
- * search_terms is bounded AI-derived retrieval metadata only. It must never replace
- * raw_text or become a domain-specific finance/project schema.
+ * entity_id and LINE trace ids are migration compatibility fields. New Web/PWA product
+ * code must not require the legacy Entity/Alias model or LINE identity in order to create
+ * and retrieve a Record.
  */
 export const worklogRecords = pgTable(
   'worklog_records',
@@ -116,11 +123,14 @@ export const worklogRecords = pgTable(
     quotedLineMessageId: varchar('quoted_line_message_id', { length: 64 }),
     inputType: worklogRecordInputTypeEnum('input_type').notNull(),
     rawText: text('raw_text').notNull(),
+    title: varchar('title', { length: 255 }),
     searchTerms: jsonb('search_terms').$type<string[]>().default([]).notNull(),
-    // occurred_at is retained for compatibility while MVP semantics are day precision.
-    // Application code must canonicalize/interpret it as an Asia/Taipei calendar day,
-    // not as a user-supplied clock time.
-    occurredAt: timestamp('occurred_at', { withTimezone: true }).defaultNow().notNull(),
+    extractedMetadata: jsonb('extracted_metadata').$type<Record<string, unknown>>(),
+    aiEnrichmentStatus: worklogRecordAiEnrichmentStatusEnum('ai_enrichment_status')
+      .default('NONE')
+      .notNull(),
+    aiEnrichedAt: timestamp('ai_enriched_at', { withTimezone: true }),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }),
     status: worklogRecordStatusEnum('status').default('ACTIVE').notNull(),
     version: integer('version').default(1).notNull(),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -141,6 +151,7 @@ export const worklogRecords = pgTable(
     index('worklog_record_source_entity_status_idx').on(table.sourceId, table.entityId, table.status),
     index('worklog_record_author_type_idx').on(table.authorUserId, table.inputType),
     index('worklog_record_quoted_line_idx').on(table.quotedLineMessageId),
+    index('worklog_record_ai_enrichment_idx').on(table.aiEnrichmentStatus, table.aiEnrichedAt),
     foreignKey({
       columns: [table.sourceId, table.entityId],
       foreignColumns: [worklogEntities.sourceId, worklogEntities.id],
@@ -165,8 +176,8 @@ export const worklogRecordRevisions = pgTable(
     channel: worklogRecordRevisionChannelEnum('channel').notNull(),
     previousRawText: text('previous_raw_text').notNull(),
     newRawText: text('new_raw_text').notNull(),
-    previousOccurredAt: timestamp('previous_occurred_at', { withTimezone: true }).notNull(),
-    newOccurredAt: timestamp('new_occurred_at', { withTimezone: true }).notNull(),
+    previousOccurredAt: timestamp('previous_occurred_at', { withTimezone: true }),
+    newOccurredAt: timestamp('new_occurred_at', { withTimezone: true }),
     previousEntityId: bigint('previous_entity_id', { mode: 'number' }).references(
       () => worklogEntities.id,
       { onDelete: 'restrict' },
@@ -185,7 +196,7 @@ export const worklogRecordRevisions = pgTable(
   ],
 );
 
-/** Durable ambiguity state for AI title/entity decisions. */
+/** Durable ambiguity state for legacy AI title/entity decisions during migration. */
 export const worklogAiConfirmations = pgTable(
   'worklog_ai_confirmations',
   {
