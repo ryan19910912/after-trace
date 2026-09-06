@@ -1,14 +1,9 @@
-import type { BufferedPrivateMessage, OaLifecycleEvent, OaPostbackEvent } from '../line/events';
+import type { BufferedPrivateMessage, OaLifecycleEvent } from '../line/events';
 import { worklogAttachmentRuntime } from './attachment-runtime';
 import type { PrivateBootstrapResult } from './bootstrap';
-import { parseWorklogCommand } from './command';
+import { parseWorklogOaCommand, worklogLineHelpText } from './command';
 import { historyFiltersFromText, type WorklogHistoryFilters } from './history-navigation';
 import type { WorklogLineRecordEditResult } from './line-record-edit';
-import type {
-  WorklogPrivateInputMode,
-  WorklogPrivateInputModeConsumeResult,
-  WorklogPrivateInputModeService,
-} from './oa-input-mode';
 import type { WorklogReplyEditTarget, WorklogReplyEditTargetResolution, WorklogTextRecordWriteResult } from './records';
 import type { WorklogTextNormalizationResult, WorklogTextNormalizationService } from './text-normalization';
 
@@ -23,7 +18,6 @@ export interface WorklogOaRecordWritePort {
   recordText(input: { sourceId: number; authorUserId: number; lineMessageId: string; text: string; sourceTimestamp?: Date }): Promise<WorklogTextRecordWriteResult>;
   resolveReplyEditTarget(sourceId: number, quotedLineMessageId: string): Promise<WorklogReplyEditTargetResolution>;
 }
-
 export interface WorklogOaTextNormalizationPort {
   normalizeText(recordId: number): ReturnType<WorklogTextNormalizationService['normalizeText']>;
 }
@@ -31,32 +25,20 @@ export interface WorklogOaRecordEditPort {
   edit(input: { target: WorklogReplyEditTarget; actorUserId: number; chargedUserId: number; lineCommandMessageId: string; quotedLineMessageId: string; commandTimestamp: Date; instruction: string }): Promise<WorklogLineRecordEditResult>;
 }
 export interface WorklogOaAiGrantPort { canStartAi(userId: number, sourceId: number, at?: Date): Promise<boolean>; }
-export interface WorklogOaInputModePort {
-  set(userId: number, action: WorklogPrivateInputMode, at?: Date): ReturnType<WorklogPrivateInputModeService['set']>;
-  consume(userId: number, at?: Date): Promise<WorklogPrivateInputModeConsumeResult>;
-  clear(userId: number): ReturnType<WorklogPrivateInputModeService['clear']>;
-}
-
-const NO_INPUT_MODES: WorklogOaInputModePort = {
-  async set() {},
-  async consume() { return { status: 'NONE' }; },
-  async clear() {},
-};
 
 export type WorklogOaLifecycleResult =
   | { status: 'FOLLOWED'; userId: number; sourceId: number }
   | { status: 'UNFOLLOWED'; userId: number };
 export type WorklogOaRuntimeResult =
   | { status: 'NOT_HANDLED' }
-  | { status: 'MODE_SELECTED'; action: WorklogPrivateInputMode; replyText: string }
-  | { status: 'MODE_CANCELED'; replyText: string }
+  | { status: 'HELP'; replyText: string }
   | { status: 'QUERY'; sourceId: number; userId: number; filters: WorklogHistoryFilters }
   | { status: 'RECORDED'; recordId: number; duplicate: boolean; replyText: string }
   | { status: 'EDITED'; recordId: number; recordVersion: number; replyText: string }
   | { status: 'EDIT_CONFIRMATION_PENDING'; recordId: number; confirmationId: number; replyText: string }
   | { status: 'EDIT_IN_PROGRESS'; replyText: string }
   | { status: 'QUOTED_NOT_READY'; replyText: string }
-  | { status: 'REJECTED'; reason: 'NOT_OA_FRIEND' | 'GROUP_COMMAND_IN_PRIVATE' | 'MODE_EXPIRED' | 'SOURCE_NOT_FOUND' | 'IDEMPOTENCY_CONFLICT' | 'ATTACHMENT_FAILED' | 'AI_POINTS_EXHAUSTED' | 'EDIT_TARGET_REQUIRED' | 'EDIT_TARGET_NOT_FOUND' | 'EDIT_TARGET_AMBIGUOUS' | 'EDIT_TARGET_DELETED' | 'EDIT_NOT_READY' | 'EDIT_RECORD_CHANGED' | 'EDIT_FAILED'; replyText: string };
+  | { status: 'REJECTED'; reason: 'NOT_OA_FRIEND' | 'GROUP_COMMAND_IN_PRIVATE' | 'SOURCE_NOT_FOUND' | 'IDEMPOTENCY_CONFLICT' | 'ATTACHMENT_FAILED' | 'AI_POINTS_EXHAUSTED' | 'EDIT_TARGET_REQUIRED' | 'EDIT_TARGET_NOT_FOUND' | 'EDIT_TARGET_AMBIGUOUS' | 'EDIT_TARGET_DELETED' | 'EDIT_NOT_READY' | 'EDIT_RECORD_CHANGED' | 'EDIT_FAILED'; replyText: string };
 
 export class WorklogOaRuntime {
   constructor(
@@ -65,7 +47,6 @@ export class WorklogOaRuntime {
     private readonly textNormalization?: WorklogOaTextNormalizationPort,
     private readonly recordEdit?: WorklogOaRecordEditPort,
     private readonly aiGrants?: WorklogOaAiGrantPort,
-    private readonly inputModes: WorklogOaInputModePort = NO_INPUT_MODES,
   ) {}
 
   async handleLifecycle(event: OaLifecycleEvent): Promise<WorklogOaLifecycleResult> {
@@ -77,60 +58,17 @@ export class WorklogOaRuntime {
     return { status: 'UNFOLLOWED', userId: unfollowed.userId };
   }
 
-  async handlePostback(event: OaPostbackEvent): Promise<WorklogOaRuntimeResult> {
-    const touched = await this.bootstrap.touchPrivateInteraction({ lineUserId: event.lineUserId, at: event.lineTimestamp });
-    const action = privatePostbackAction(event.data);
-    if (!action) return { status: 'NOT_HANDLED' };
-
-    if (action === 'CANCEL') {
-      await this.inputModes.clear(touched.userId);
-      return { status: 'MODE_CANCELED', replyText: '已取消這次操作。' };
-    }
-
-    if (!touched.isOaFriend) return notFriend();
-    await this.inputModes.set(touched.userId, action, event.lineTimestamp);
-    return {
-      status: 'MODE_SELECTED',
-      action,
-      replyText: action === 'RECORD'
-        ? '請輸入你要記錄的事情。\n例如：晴空案今天收3000清潔費'
-        : '請輸入你想查詢的內容。\n例如：晴空案目前收款進度如何',
-    };
-  }
-
   async handleMessage(message: BufferedPrivateMessage): Promise<WorklogOaRuntimeResult> {
     const touched = await this.bootstrap.touchPrivateInteraction({ lineUserId: message.lineUserId, at: message.lineTimestamp });
-    const text = message.messageType === 'text' ? message.textContent?.trim() ?? '' : '';
-
-    if (text && /^取消$/u.test(text)) {
-      await this.inputModes.clear(touched.userId);
-      return { status: 'MODE_CANCELED', replyText: '已取消這次操作。' };
-    }
-
-    if (text) {
-      const pending = await this.inputModes.consume(touched.userId, message.lineTimestamp);
-      if (pending.status === 'EXPIRED') {
-        return { status: 'REJECTED', reason: 'MODE_EXPIRED', replyText: '剛剛的操作已逾時，請重新點選「快速記錄」或「查詢紀錄」。' };
-      }
-      if (pending.status === 'ACTIVE') {
-        if (!touched.isOaFriend) return notFriend();
-        const personal = await this.readyPersonal(message);
-        if (isRejected(personal)) return personal;
-        if (pending.action === 'QUERY') {
-          return { status: 'QUERY', sourceId: personal.sourceId, userId: personal.userId, filters: historyFiltersFromText(text, message.lineTimestamp) };
-        }
-        return this.recordPrivateText(message, personal, text);
-      }
-    }
-
-    // Legacy @AFTERTRACE remains a temporary compatibility/debug fallback. Rich Menu
-    // Postback is the customer-facing OA path; GROUP keeps the mention boundary.
-    const command = parseWorklogCommand(message);
+    const command = parseWorklogOaCommand(message);
     if (!command) return { status: 'NOT_HANDLED' };
+    if (!touched.isOaFriend) return notFriend();
+
+    if (command.kind === 'HELP') return { status: 'HELP', replyText: worklogLineHelpText() };
     if (command.kind === 'CLAIM_GROUP') {
       return { status: 'REJECTED', reason: 'GROUP_COMMAND_IN_PRIVATE', replyText: '群組 AI 額度設定請在對應 LINE 群組內操作。' };
     }
-    if (!touched.isOaFriend) return notFriend();
+
     const personal = await this.readyPersonal(message);
     if (isRejected(personal)) return personal;
 
@@ -146,7 +84,15 @@ export class WorklogOaRuntime {
       }
       const attachments = worklogAttachmentRuntime();
       if (!attachments) return { status: 'QUOTED_NOT_READY', replyText: '附件處理服務目前尚未啟用，這次沒有建立紀錄。' };
-      const result = await attachments.ingest({ sourceId: personal.sourceId, actorUserId: personal.userId, chargedUserId: personal.userId, commandLineMessageId: message.lineMessageId, quotedLineMessageId: command.quotedLineMessageId, sourceTimestamp: message.lineTimestamp, instruction: command.instruction });
+      const result = await attachments.ingest({
+        sourceId: personal.sourceId,
+        actorUserId: personal.userId,
+        chargedUserId: personal.userId,
+        commandLineMessageId: message.lineMessageId,
+        quotedLineMessageId: command.quotedLineMessageId,
+        sourceTimestamp: message.lineTimestamp,
+        instruction: command.instruction,
+      });
       if (result.status === 'RECORDED') return { status: 'RECORDED', recordId: result.recordId, duplicate: result.duplicate, replyText: result.duplicate ? '這則附件已經記錄過了。' : '已記錄到你的個人 AFTERTRACE。' };
       if (result.status === 'IN_PROGRESS') return { status: 'QUOTED_NOT_READY', replyText: '這則附件正在處理中，請稍後到 AFTERTRACE 查看。' };
       return attachmentFailure(result.reason);
@@ -196,15 +142,8 @@ export class WorklogOaRuntime {
   }
 }
 
-function privatePostbackAction(data: string): WorklogPrivateInputMode | 'CANCEL' | null {
-  const normalized = data.trim().toLowerCase();
-  if (normalized === 'aftertrace:record') return 'RECORD';
-  if (normalized === 'aftertrace:query') return 'QUERY';
-  if (normalized === 'aftertrace:cancel') return 'CANCEL';
-  return null;
-}
 function isRejected(value: { userId: number; sourceId: number } | Extract<WorklogOaRuntimeResult, { status: 'REJECTED' }>): value is Extract<WorklogOaRuntimeResult, { status: 'REJECTED' }> { return 'status' in value; }
-function notFriend(): Extract<WorklogOaRuntimeResult, { status: 'REJECTED' }> { return { status: 'REJECTED', reason: 'NOT_OA_FRIEND', replyText: '請先加入 AFTERTRACE LINE 官方帳號好友後再使用 LINE 快速紀錄。' }; }
+function notFriend(): Extract<WorklogOaRuntimeResult, { status: 'REJECTED' }> { return { status: 'REJECTED', reason: 'NOT_OA_FRIEND', replyText: '請先加入 AFTERTRACE LINE 官方帳號好友後再使用小跡。' }; }
 function normalizationReplyText(result: WorklogTextNormalizationResult | null, successText: string): string {
   if (result?.status === 'NORMALIZED' || result?.status === 'ALREADY_NORMALIZED') return successText;
   if (result?.status === 'PENDING_CONFIRMATION') return '原文已保存，AI 需要你確認紀錄標題。請到 AFTERTRACE 完成確認；不會再扣第二次 AI 點數。';
@@ -231,9 +170,9 @@ function privateLineEditResult(recordId: number, result: WorklogLineRecordEditRe
   }
 }
 function attachmentFailure(reason: string): WorklogOaRuntimeResult {
-  if (reason === 'LINE_CONTENT_NOT_READY') return { status: 'QUOTED_NOT_READY', replyText: 'LINE 還在準備這則附件，請稍後再 Reply「@AFTERTRACE」，不用重新上傳。' };
-  if (reason === 'LINE_CONTENT_NOT_RETRIEVABLE') return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '如果你回覆的是文字，LINE 無法事後取回原文，請改傳「@AFTERTRACE 原文」；如果是附件，請重新傳送後再 Reply「@AFTERTRACE」。' };
-  if (reason === 'LINE_CONTENT_EXPIRED') return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '這則內容已過期，請重新傳送後再 Reply @AFTERTRACE。' };
+  if (reason === 'LINE_CONTENT_NOT_READY') return { status: 'QUOTED_NOT_READY', replyText: 'LINE 還在準備這則附件，請稍後再 Reply「小跡 記」，不用重新上傳。' };
+  if (reason === 'LINE_CONTENT_NOT_RETRIEVABLE') return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '如果你回覆的是文字，LINE 無法事後取回原文，請直接重新輸入「小跡 原文」；如果是附件，請重新傳送後再 Reply「小跡 記」。' };
+  if (reason === 'LINE_CONTENT_EXPIRED') return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '這則內容已過期，請重新傳送後再 Reply「小跡 記」。' };
   if (reason === 'LINE_CONTENT_TOO_LARGE') return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '這個附件太大，目前無法處理，請縮小檔案後重新傳送。' };
   if (reason === 'ATTACHMENT_UNSUPPORTED') return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '目前不支援這個檔案格式，請改傳圖片、音檔、PDF 或文字檔。' };
   if (/POINTS|QUOTA|ALLOWANCE|SUBSCRIPTION/.test(reason)) return { status: 'REJECTED', reason: 'ATTACHMENT_FAILED', replyText: '你的 AI 點數不足，這次沒有處理附件。' };
