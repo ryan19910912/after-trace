@@ -73,7 +73,7 @@ export class DrizzleWorklogLineRecordActionRepository implements WorklogLineReco
       const created = await this.db.execute(sql`
         INSERT INTO worklog_entities (source_id, name, status, created_at, updated_at)
         VALUES (${target.sourceId}, ${title.trim().slice(0, 255)}, 'ACTIVE', NOW(), NOW())
-        ON CONFLICT (source_id, lower(name)) DO NOTHING
+        ON CONFLICT DO NOTHING
         RETURNING id::text AS id
       `);
       const createdId = (created.rows[0] as { id?: string } | undefined)?.id;
