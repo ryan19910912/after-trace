@@ -1,5 +1,8 @@
 import { Hono } from 'hono';
 import { createDatabase } from '../db/client';
+import { WorklogAiGrantService } from '../worklog/ai-grants';
+import { DrizzleWorklogAiGrantRepository } from '../worklog/drizzle-ai-grants';
+import { DrizzleWorklogBootstrapRepository } from '../worklog/drizzle-bootstrap';
 import { issueLineLoginState, verifyLineLoginState } from './oauth-state';
 import { createPkceChallenge, createPkceVerifier } from './pkce';
 import { DrizzleWebAuthRepository } from './repository';
@@ -20,7 +23,7 @@ export type WebAuthBindings = {
 type AuthEnv = { Bindings: WebAuthBindings };
 
 type LineTokenResponse = { access_token?: unknown };
-type LineProfile = { userId?: unknown };
+type LineProfile = { userId?: unknown; displayName?: unknown };
 
 const OAUTH_COOKIE = 'aftertrace_line_oauth';
 
@@ -143,6 +146,25 @@ export function createWebAuthRoutes() {
     if (!profileResponse.ok) return c.json({ ok: false, error: 'LINE_PROFILE_FAILED' }, 502);
     const profile = (await profileResponse.json()) as LineProfile;
     if (typeof profile.userId !== 'string') return c.json({ ok: false, error: 'LINE_PROFILE_FAILED' }, 502);
+
+    // LINE Login establishes the AFTERTRACE account independently from OA friendship.
+    // Do not mark is_oa_friend here: only Messaging API follow/unfollow lifecycle owns
+    // that state. Web/PWA manual work remains usable even before the user adds the OA.
+    const at = new Date();
+    const database = createDatabase(c.env.DATABASE_URL);
+    const bootstrap = new DrizzleWorklogBootstrapRepository(database);
+    const user = await bootstrap.upsertLineUser({
+      lineUserId: profile.userId,
+      displayName: typeof profile.displayName === 'string' ? profile.displayName : null,
+      at,
+    });
+    const workspaceId = await bootstrap.ensureWorkspace(user.userId, at);
+    const privateSourceId = await bootstrap.ensurePrivateSource(user.userId, workspaceId, at);
+    await new WorklogAiGrantService(new DrizzleWorklogAiGrantRepository(database)).ensureInitialFreeGrant({
+      userId: user.userId,
+      privateSourceId,
+      at,
+    });
 
     const sessionToken = await issueWebSessionToken({ lineUserId: profile.userId, secret });
     const webUrl = new URL(config.webAppUrl);
