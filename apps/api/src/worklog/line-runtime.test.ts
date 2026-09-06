@@ -4,6 +4,8 @@ import type { WorklogLineNaturalInterpreterService } from './line-natural-interp
 import { WorklogLineNaturalRuntime } from './line-natural-runtime';
 import type { WorklogInterpretedRecordService } from './interpreted-record';
 import type { WorklogInterpretedEditService } from './interpreted-edit';
+import type { WorklogLineRecordActionService } from './line-record-actions';
+import type { WorklogLineSystemQueryService } from './line-system-query';
 
 function message(textContent: string, quotedLineMessageId: string | null = null): BufferedGroupMessage {
   return {
@@ -54,6 +56,17 @@ class FakeInterpretedEdits {
   async apply() { return { status: 'EDITED' as const, recordVersion: 3, entityId: 31 }; }
 }
 
+const fakeRecordActions = {
+  async resolveTarget() { return { status: 'NOT_FOUND' as const }; },
+  async delete() { return { status: 'NOT_FOUND' as const }; },
+  async restore() { return { status: 'NOT_FOUND' as const }; },
+  async move() { return { status: 'NOT_FOUND' as const }; },
+} as unknown as WorklogLineRecordActionService;
+
+const fakeSystemQueries = {
+  async groupStatus() { return 'AFTERTRACE 群組狀態'; },
+} as unknown as WorklogLineSystemQueryService;
+
 function runtime(interpreter = new FakeInterpreter(), records = new FakeRecords()) {
   return {
     interpreter,
@@ -65,6 +78,8 @@ function runtime(interpreter = new FakeInterpreter(), records = new FakeRecords(
       interpreter as unknown as WorklogLineNaturalInterpreterService,
       new FakeInterpretedRecords() as unknown as WorklogInterpretedRecordService,
       new FakeInterpretedEdits() as unknown as WorklogInterpretedEditService,
+      fakeRecordActions,
+      fakeSystemQueries,
     ),
   };
 }
@@ -80,6 +95,13 @@ describe('WorklogLineNaturalRuntime', () => {
     const test = runtime();
     const result = await test.value.handle(message('小跡 幫助'));
     expect(result.status).toBe('HELP');
+    expect(test.interpreter.calls).toBe(0);
+  });
+
+  it('keeps fixed status command provider-free', async () => {
+    const test = runtime();
+    const result = await test.value.handle(message('小跡 狀態'));
+    expect(result).toMatchObject({ status: 'HELP', replyText: 'AFTERTRACE 群組狀態' });
     expect(test.interpreter.calls).toBe(0);
   });
 
