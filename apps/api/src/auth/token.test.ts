@@ -88,7 +88,7 @@ describe('web auth tokens', () => {
     await expect(verifyWebSessionToken(session, secret, now)).resolves.toEqual({
       type: 'WEB_SESSION',
       userId: 41,
-      lineUserId: null,
+      lineUserId: '',
       expiresAt: Math.floor(now.getTime() / 1000) + 60 * 60 * 24 * 30,
     });
   });
