@@ -85,7 +85,8 @@ function baseProvider(): WorklogTextNormalizationProvider {
       output: {
         title: '晴空案',
         titleRequiresConfirmation: false,
-        occurredAt: '2026-09-02T03:00:00.000Z',
+        occurredAt: '2026-09-01T16:00:00.000Z',
+        searchTerms: ['燈泡', '更換', '維修'],
       },
       inputTokens: 10,
       outputTokens: 5,
@@ -96,7 +97,7 @@ function baseProvider(): WorklogTextNormalizationProvider {
 }
 
 describe('WorklogTextNormalizationService', () => {
-  it('holds points, persists provider output/cost, commits point usage, then applies one title/time interpretation', async () => {
+  it('holds points, persists provider output/cost, commits point usage, then applies one title/date/search interpretation', async () => {
     const repository = baseRepository();
     const aiPoints = baseAiPoints();
     const provider = baseProvider();
@@ -135,6 +136,7 @@ describe('WorklogTextNormalizationService', () => {
       output: {
         title: '晴空案',
         titleRequiresConfirmation: false,
+        searchTerms: ['燈泡', '更換', '維修'],
       },
       usage: {
         workspaceId: 2,
@@ -161,7 +163,7 @@ describe('WorklogTextNormalizationService', () => {
     expect(repository.markUsageCommitted).toHaveBeenCalledWith(11, 'claim-1');
     expect(repository.applyResult).toHaveBeenCalledWith(expect.objectContaining({
       recordId: 11,
-      output: expect.objectContaining({ title: '晴空案' }),
+      output: expect.objectContaining({ title: '晴空案', searchTerms: ['燈泡', '更換', '維修'] }),
     }));
     expect(aiPoints.releaseAi).not.toHaveBeenCalled();
   });
@@ -175,6 +177,7 @@ describe('WorklogTextNormalizationService', () => {
         title: '晴空案',
         titleRequiresConfirmation: false,
         occurredAt: null,
+        searchTerms: ['收款'],
       },
       inputTokens: 450,
       outputTokens: 100,
@@ -248,6 +251,7 @@ describe('WorklogTextNormalizationService', () => {
         title: '三重晴空',
         titleRequiresConfirmation: true,
         occurredAt: null,
+        searchTerms: ['晴空案'],
       },
       usage: {
         workspaceId: 2,
@@ -285,6 +289,7 @@ describe('WorklogTextNormalizationService', () => {
         title: '晴空案',
         titleRequiresConfirmation: false,
         occurredAt: null,
+        searchTerms: ['晴空案'],
       },
       usage: {
         workspaceId: 2,
