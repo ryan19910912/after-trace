@@ -13,9 +13,9 @@ Read first every substantive development run, in this exact order:
 7. `docs/WORKLOG_DEPLOYMENT.md`
 8. this file
 
-The latest documents above are the only product/development specification. Do not use GitHub Actions. Every development commit must contain `[skip ci]`.
+Latest docs are the only product/development specification. Never use GitHub Actions unless explicitly requested. Every development commit contains `[skip ci]`.
 
-## Current checkpoint — 2026-09-06 private OA Rich Menu Postback modes added, local code tests green, schema validation pending
+## Current checkpoint — 2026-09-06 PWA-first product pivot + unified 小跡 LINE command language
 
 Cloudflare deployment remains manual:
 
@@ -25,175 +25,232 @@ Cloudflare deployment remains manual:
 
 Do not reintroduce Pages or automatic Git deployment.
 
-## Stable Dev state before the current Rich Menu schema batch
+## Stable Dev foundation before this pivot
 
-Already verified by the user:
+Already user/runtime verified:
 
-- typed commercial plan forward migration on existing Dev DB — PASS
-- canonical baseline regeneration/guard for semantic `search_terms` — PASS
-- journal timestamp `1788528481453` preserved — PASS
+- commercial-plan forward migration on existing Dev DB — PASS
+- semantic `search_terms` canonical baseline/guard — PASS
+- original journal timestamp `1788528481453` preserved — PASS
 - existing Dev forward migration for `search_terms` — PASS
-- post-migration `search_terms jsonb NOT NULL DEFAULT []` — PASS
-- Dev DB currently had 0 Worklog Records before LINE E2E
-- AI runtime preserved as `GOOGLE / gemini-3.5-flash-lite` — PASS
-- current Dev FREE plan preserved as `FREE / 400000 / enabled=true` — PASS
-- targeted normalization tests — PASS, 3 files / 13 tests
-- command/history/LINE runtime tests — PASS, 6 files / 57 tests
+- `worklog_records.search_terms jsonb NOT NULL DEFAULT []` — PASS
+- Dev DB had 0 Records before first LINE E2E attempt
+- AI runtime preserved `GOOGLE / gemini-3.5-flash-lite` — PASS
+- FREE plan preserved `FREE / grant_points=400000 / enabled=true` — PASS
+- normalization tests — PASS, 3 files / 13 tests
+- prior command/history/LINE runtime tests — PASS, 6 files / 57 tests
 - history-query tests — PASS, 1 file / 4 tests
 - Admin Users/Groups/Plans smoke — PASS
 - Dev Web shell/routes — PASS
 - LINE Login callback/redirect stage — PASS
 
-The stale Cloudflare Dashboard `* * * * *` Cron Trigger is unrelated to logging and should still be removed separately. Do not add an empty `scheduled()` handler.
+The stale Dashboard `* * * * *` Cron Trigger remains unrelated to logging. Remove it separately; do not add an empty `scheduled()` handler.
 
-## Deterministic LINE history + semantic retrieval — implemented
+## Deterministic history / semantic retrieval — retained
 
-Current contract:
+- history = **Query -> Retrieve -> Answer -> Deep Link**
+- no AI historical summary in MVP
+- same-Source Entity/Alias resolution
+- title/alias/raw/search_terms lookup
+- newest up to 5 matching stored facts returned in LINE
+- total count when available
+- secure filtered PWA link
+- never invent payment/progress/business conclusions
 
-- history = **Query → Retrieve → Answer → Deep Link**
-- no AI history summary in MVP
-- resolve same-Source Entity/Alias where possible
-- search title/alias/raw text/`search_terms`
-- return newest up to 5 matching Records directly in LINE
-- append secure filtered PWA link
-- never invent payment/project/progress conclusions
+`search_terms` may be produced during the same AI-assisted Record interpretation call; manual PWA CRUD/search never silently calls AI.
 
-AI-assisted Record interpretation may produce bounded grounded `search_terms` in the same provider call as title/date parsing. Manual PWA CRUD remains free and does not silently call AI.
+## Event-date / Reply source time — retained hard rule
 
-## Event date / Reply-Replay source time — hard rule
+- day-precision Asia/Taipei business semantics
+- direct LINE input reference = original command message timestamp
+- GROUP Reply-to-TEXT reference = cached quoted timestamp
+- later Reply command time never substitutes quoted content time
+- Worker current time never silently substitutes missing source time
+- if source timestamp cannot be recovered, fail/request resend
 
-Business event semantics are day-precision in Asia/Taipei even though the physical compatibility field is still `occurred_at`.
+Regression:
 
-- direct LINE input reference = original LINE message timestamp
-- delayed GROUP Reply-to-TEXT reference = cached quoted message timestamp
-- later Reply command time is never the quoted content's date reference
-- Worker current time is never a silent substitute
-- if required original timestamp is unavailable, fail/request resend
+- 9/3 original `晴空案今天收3000清潔費`
+- 9/5 Reply `小跡 記`
+- event date remains 9/3
 
-Example: 9/3 original `晴空案今天收3000清潔費`, 9/5 Reply to record it -> event date must remain 9/3.
+Delayed attachment Reply original-timestamp recovery remains open debt and must not be claimed fully compliant.
 
-Delayed attachment Reply still has an open timestamp-recovery gap and must not be claimed fully compliant yet.
+## NEW accepted product direction — PWA-first, LINE-integrated
 
-## Account onboarding / OA friendship — implemented, runtime smoke still pending
+PWA/Web is now the primary product surface.
 
-Accepted behavior:
+Primary MVP customer flow:
 
-- LINE Login may provision user/workspace/PRIVATE Source/FREE_INITIAL idempotently
-- LINE Login does not fabricate OA friendship
-- real OA follow/unfollow owns `is_oa_friend`
-- Web/PWA PRIVATE manual use does not require OA friendship
-- Web non-friend add-OA prompt is optional convenience messaging, not gating
-- later OA follow must not duplicate FREE_INITIAL
+1. open installed PWA Quick Capture;
+2. selected Source defaults to last still-authorized choice;
+3. Source is visibly identified as PRIVATE or a LINE GROUP;
+4. voice or text capture;
+5. shared AI interpretation;
+6. durable Preview/Draft;
+7. user may edit;
+8. explicit confirm creates Record;
+9. unfinished Draft remains until confirmed or explicitly deleted.
 
-## NEW: private OA Rich Menu Postback input modes — implemented in branch
+Normal browser/Web entry may emphasize timeline/records while installed PWA icon may land on Quick Capture. Both share one PWA/account/API/data model.
 
-Private OA create/query no longer requires the customer to type `@AFTERTRACE` as the primary UX and does not automatically interpret every private sentence as a database action.
+### Quick Capture rules accepted, implementation pending
 
-Rich Menu Postback contract:
+- Voice + Text
+- explicit microphone tap; never auto-record on open
+- PRIVATE or currently authorized GROUP Source
+- last selected valid Source default, otherwise PRIVATE
+- strong destination warning before capture and on Preview
+- no persistent offline audio storage requirement
+- upload failure -> retry/re-record UI
+- AI-point remaining indicator near capture UX
+- Preview shows Source/title/content/event date and supports manual corrections
+- provider usage incurred for preview is chargeable even if user does not commit
+- unchanged/manually corrected Draft commit does not call provider again merely to persist
 
-- `aftertrace:record`
-- `aftertrace:query`
-- `aftertrace:cancel`
+### Draft rules accepted, implementation pending
 
-Flow:
+- durable
+- does **not** auto-expire
+- remains until confirmed or explicitly deleted
+- not included in normal Record history until committed
+- GROUP Draft re-authorized on every read/edit/commit
+- losing GROUP membership immediately removes Draft access
 
-1. user taps a Rich Menu button;
-2. LINE sends an OA `postback` webhook, not a visible chat command;
-3. backend parses the Postback separately from normal messages and does not fabricate a message id;
-4. `record` or `query` persists `RECORD` / `QUERY` in `worklog_private_pending_actions`;
-5. TTL = 10 minutes;
-6. OA replies with the appropriate input prompt;
-7. next non-empty text consumes the mode exactly once;
-8. sticker/image/audio/file does not consume a text mode;
-9. expired mode fails clearly and does not guess intent;
-10. RECORD -> normal PRIVATE AI grant preflight + Record normalization/persistence;
-11. QUERY -> deterministic history retrieval, no AI-point requirement;
-12. `aftertrace:cancel` clears the pending action; literal `取消` is also accepted as a safety fallback;
-13. unknown Postback data is `NOT_HANDLED` / fail-closed.
+### PWA timeline/search direction accepted
 
-Ordinary private text without a pending mode remains support/non-product traffic and is not auto-saved or auto-queried.
+- Timeline: 今天 / 最近 7 天 / 全部
+- Search: Source + title + date + keyword/semantic
+- deterministic title/Alias/raw/search_terms matching
+- full free manual CRUD/revision remains available
 
-GROUP behavior is unchanged and still requires `@AFTERTRACE`.
+## GROUP access hard rule
 
-Legacy private `@AFTERTRACE` parsing remains temporarily as a compatibility/debug fallback, including existing Reply-edit/attachment behavior, but is not the customer-facing OA interaction contract.
+When a user leaves/is removed from LINE GROUP, immediately revoke **all** GROUP Source rights:
 
-### New durable schema
+- read/search
+- Quick Capture selection
+- create/edit/delete/restore/title move
+- Draft read/edit/commit
+- deep-link access
 
-Canonical table:
+Data remains with GROUP Source.
 
-`worklog_private_pending_actions`
+Authorization must be server-side on every operation.
 
-Fields/invariants:
+## LINE group name / picture decision
 
-- one row per `user_id` (PK/FK to `worklog_users`)
-- `action IN ('RECORD','QUERY')`
-- `expires_at`
-- created/updated timestamps
-- expiry index
+PWA uses the original current LINE group name/picture. No separate AFTERTRACE custom group display name.
 
-Cloudflare Worker memory is not used for pending mode state.
+Accepted refresh policy, implementation pending:
 
-Files added/changed include:
+- cache group name/picture + sync timestamp
+- if older than 24h, refresh only when group is actually used
+- use includes LINE 小跡 group command, PWA Source-list access, opening group surface
+- no scheduled/cron profile refresh
+- within 24h use cached metadata
+- LINE lifecycle/member state remains primary authorization evidence
 
-- `apps/api/src/db/schema-worklog-oa-mode.ts`
-- `apps/api/src/db/schema-all.ts`
-- `apps/api/scripts/forward-compat.mjs`
-- `apps/api/src/line/events.ts`
-- `apps/api/src/worklog/oa-input-mode.ts`
-- `apps/api/src/worklog/drizzle-oa-input-mode.ts`
-- `apps/api/src/worklog/oa-runtime.ts`
-- `apps/api/src/worklog/oa-webhook.ts`
-- `apps/api/src/index.ts`
-- targeted tests for input-mode TTL/cancel, Postback parsing, OA runtime Postback behavior and OA webhook routing
-- product/development docs
+## NEW unified LINE command language — 小跡
 
-Readiness now probes `worklog_private_pending_actions` because OA record/query operation depends on it.
+OA and GROUP now share one Chinese command prefix: `小跡`.
 
-## Rich Menu operator configuration after backend is green
+Accepted customer syntax:
 
-In LINE Official Account Manager, configure the private OA Rich Menu with **Postback actions**:
+- `小跡 晴空案今天收了三千` -> Record
+- `小跡 記錄 晴空案今天收了三千` -> Record
+- `小跡 查 晴空案收款` / `小跡 查詢 ...` -> deterministic Query
+- `小跡 今天` -> today query
+- `小跡 最近` -> newest query
+- `小跡 幫助` -> help
+- Reply -> `小跡 記` -> quoted Record when recoverable
+- Reply -> `小跡 幫我改成 ...` -> deterministic target edit
+- GROUP `小跡 啟用` may remain AI 額度負責人 claim
 
-- button label: `快速記錄`; Postback data: `aftertrace:record`
-- button label: `查詢紀錄`; Postback data: `aftertrace:query`
-- cancellation UI (Rich Menu or later Quick Reply): Postback data: `aftertrace:cancel`
+Prefix must be sentence-start and may be followed by whitespace / Chinese comma / colon.
 
-For mode-selection actions, leave visible `displayText` empty unless a later product decision explicitly wants a visible chat line. The goal is that tapping the Rich Menu does not send a fake user message such as `快速記錄`.
+No `@` is required, avoiding LINE mention UI conflicts.
 
-Additional buttons can link to `我的紀錄` and `方案 / AI 點數` Web/PWA destinations later.
+Query intent is explicit. `小跡 <內容>` defaults to Record; a question is not silently changed to Query without `查/查詢` or fixed query shortcuts.
 
-## Web/PWA `AI 幫我記`
+Retired before launch:
 
-Accepted architecture remains preview-first and shared with LINE AI interpretation. Implementation is still pending after the current LINE/OA runtime work is green.
+- `@AFTERTRACE`
+- `@紀錄` / `@查詢`
+- `/紀錄` slash-command design
+- OA Rich Menu Postback record/query pending mode
+- `worklog_private_pending_actions`
 
-## Current validation status for the Rich Menu/Postback batch
+## OA Rich Menu pending-mode experiment — fully retired before DB migration
 
-Latest local validation executed by the user on Windows after commit `c530b50c65e6fe49ebca6747b07f80469dcd910f`:
+The short-lived Postback/pending-action implementation was prototyped and locally green (42 targeted tests) but was rejected by subsequent product decision **before baseline regeneration or Dev migration**.
 
-- `pnpm --filter @aftertrace/api typecheck` — PASS
-- targeted Postback/OA tests — PASS, 5 files / 42 tests:
-  - `src/line/events.test.ts`
-  - `src/worklog/oa-input-mode.test.ts`
-  - `src/worklog/oa-runtime-mode.test.ts`
-  - `src/worklog/oa-runtime.test.ts`
-  - `src/worklog/oa-webhook.test.ts`
-- expected stderr anomaly logs from deliberate simulated failure cases were present; they were not test failures.
-- legacy OA text path duplicate AI preflight bug was fixed before the green run so text Record creation now performs one preflight rather than two.
+It has now been removed from the branch:
 
-Because the pending-action canonical table was added in this Rich Menu batch, do **not** deploy yet. Required validation order now:
+- no pending-action schema export
+- no forward migration for the table
+- no repository/service/runtime wiring
+- no OA Postback product route
+- no readiness dependency
+- obsolete tests removed
 
-1. regenerate canonical baseline with `pnpm db:baseline:regenerate --confirm-prelaunch-reset`
-2. run `pnpm db:baseline:guard`
-3. review baseline diff for `worklog_private_pending_actions`; commit generated Drizzle artifacts with `[skip ci]`
-4. run the existing Dev forward migration using `.env.dev`; do not rebuild Dev DB
-5. verify new pending-action table + preserved AI runtime/FREE plan
-6. deploy Dev API and verify `/health` + `/health/ready`
-7. configure Dev OA Rich Menu Postbacks exactly as above
-8. real OA E2E:
-   - tap `快速記錄` -> prompt -> `晴空案今天收3000清潔費` -> Record + AI semantic terms
-   - tap `查詢紀錄` -> prompt -> `晴空案目前收款進度如何` -> DB facts + deep link
-   - tap cancel -> pending action cleared, next ordinary sentence must not be recorded/queried
-9. if OA still gives no webhook response, inspect Cloudflare Worker logs and LINE Developers webhook delivery/config rather than guessing from the UI
+Because the table was never migrated into Dev and never included in a regenerated canonical baseline, **no DB rollback is required**.
+
+The previous 42-test green result applies to the retired prototype and is not current-branch validation after the PWA-first/小跡 refactor.
+
+## Current branch work in this pivot
+
+Implemented in code/docs:
+
+- shared `小跡` parser for OA/GROUP
+- explicit query commands + Record-first default
+- HELP command
+- Reply `小跡 記`
+- OA runtime simplified back to stateless command handling
+- GROUP runtime aligned to 小跡
+- OA Postback/pending schema/runtime removed
+- readiness/index/forward-compat cleanup
+- PRODUCT_SPEC rewritten PWA-first
+- ENTITY_MODEL / RECORD_EDIT_POLICY / LINE_CONTENT_POLICY / DEVELOPMENT_POLICY aligned
+- command/OA runtime/OA webhook/event tests updated for new syntax
+
+Not yet implemented:
+
+- PWA Quick Capture UI/API
+- durable non-expiring AI Draft schema/API/UI
+- last-used capture Source preference
+- PWA Source picker with strict GROUP authorization
+- LINE group name/picture persistence + lazy 24h refresh
+- PWA Voice capture/provider integration
+
+These are accepted next development work, not claimed shipped.
+
+## Current validation status
+
+**Current PWA-first/小跡 refactor has not yet been locally validated by the user.**
+
+Do not reuse the prior Postback 42/42 result as proof for the new branch state.
+
+Immediate validation should run API typecheck and targeted command/OA/GROUP tests. Existing GROUP runtime/webhook test files may still need expectation updates from old `@AFTERTRACE` syntax; fix any failures on branch rather than changing the accepted product contract back.
+
+No new schema is currently required solely from the retired pending-mode work, so do not regenerate baseline for `worklog_private_pending_actions`.
+
+## Immediate next order
+
+1. pull latest branch
+2. run API typecheck
+3. run targeted current LINE tests:
+   - `src/line/events.test.ts`
+   - `src/worklog/command.test.ts`
+   - `src/worklog/oa-runtime.test.ts`
+   - `src/worklog/oa-webhook.test.ts`
+   - `src/worklog/line-runtime.test.ts`
+   - `src/worklog/group-webhook.test.ts`
+4. fix any stale old-syntax expectations
+5. after LINE refactor is green, implement group profile metadata + lazy refresh as the next bounded schema/runtime batch
+6. then implement PWA AI Draft/Quick Capture shared pipeline incrementally
+7. only deploy Dev after the currently selected batch is locally green and any required forward migration is verified
 
 No GitHub Actions workflow was run, dispatched, rerun, enabled, modified, triggered, or used as validation.
 
-Current deployment status: **PREVIOUS DEV DB/SEMANTIC-SEARCH FOUNDATION GREEN; PRIVATE OA POSTBACK TYPECHECK + 42 TARGETED TESTS PASS; BASELINE REGEN/GUARD + DEV FORWARD MIGRATION + DEPLOYED OA E2E STILL PENDING.**
+Current deployment status: **PREVIOUS DEV SEARCH/DB FOUNDATION GREEN; PWA-FIRST/小跡 PRODUCT + LINE CODE REFACTOR COMMITTED BUT CURRENT LOCAL TYPECHECK/TEST VALIDATION PENDING; QUICK CAPTURE/DRAFT/GROUP PROFILE IMPLEMENTATION PENDING.**
