@@ -62,9 +62,15 @@ export class DrizzleWorklogGroupProfileRepository implements WorklogGroupProfile
       )
       ON CONFLICT (source_id) DO UPDATE
       SET
-        group_name = EXCLUDED.group_name,
-        picture_url = EXCLUDED.picture_url,
-        synced_at = EXCLUDED.synced_at,
+        group_name = CASE
+          WHEN EXCLUDED.synced_at >= worklog_source_line_profiles.synced_at THEN EXCLUDED.group_name
+          ELSE worklog_source_line_profiles.group_name
+        END,
+        picture_url = CASE
+          WHEN EXCLUDED.synced_at >= worklog_source_line_profiles.synced_at THEN EXCLUDED.picture_url
+          ELSE worklog_source_line_profiles.picture_url
+        END,
+        synced_at = GREATEST(worklog_source_line_profiles.synced_at, EXCLUDED.synced_at),
         updated_at = GREATEST(worklog_source_line_profiles.updated_at, EXCLUDED.updated_at)
     `);
   }
