@@ -476,6 +476,15 @@ CREATE TABLE "worklog_checkout_intents" (
 	CONSTRAINT "worklog_checkout_intent_status_ck" CHECK ("worklog_checkout_intents"."status" IN ('PENDING_PROVIDER','READY','COMPLETED','CANCELLED','FAILED'))
 );
 --> statement-breakpoint
+CREATE TABLE "worklog_source_line_profiles" (
+	"source_id" bigint PRIMARY KEY NOT NULL,
+	"group_name" text NOT NULL,
+	"picture_url" text,
+	"synced_at" timestamp with time zone NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 ALTER TABLE "worklog_anomaly_events" ADD CONSTRAINT "worklog_anomaly_events_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "worklog_anomaly_events" ADD CONSTRAINT "worklog_anomaly_events_source_id_worklog_sources_id_fk" FOREIGN KEY ("source_id") REFERENCES "public"."worklog_sources"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "worklog_audit_logs" ADD CONSTRAINT "worklog_audit_logs_workspace_id_worklog_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."worklog_workspaces"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
@@ -553,6 +562,7 @@ ALTER TABLE "worklog_attachment_ingestions" ADD CONSTRAINT "worklog_attachment_i
 ALTER TABLE "worklog_attachment_ingestions" ADD CONSTRAINT "worklog_attachment_ingestion_source_record_fk" FOREIGN KEY ("source_id","record_id") REFERENCES "public"."worklog_records"("source_id","id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "worklog_checkout_intents" ADD CONSTRAINT "worklog_checkout_intents_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "worklog_checkout_intents" ADD CONSTRAINT "worklog_checkout_intents_plan_code_worklog_subscription_plans_code_fk" FOREIGN KEY ("plan_code") REFERENCES "public"."worklog_subscription_plans"("code") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_source_line_profiles" ADD CONSTRAINT "worklog_source_line_profiles_source_id_worklog_sources_id_fk" FOREIGN KEY ("source_id") REFERENCES "public"."worklog_sources"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "worklog_anomaly_status_severity_time_idx" ON "worklog_anomaly_events" USING btree ("status","severity","created_at");--> statement-breakpoint
 CREATE INDEX "worklog_anomaly_user_idx" ON "worklog_anomaly_events" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "worklog_audit_workspace_time_idx" ON "worklog_audit_logs" USING btree ("workspace_id","created_at");--> statement-breakpoint
@@ -623,4 +633,5 @@ CREATE INDEX "worklog_attachment_ingestion_source_status_idx" ON "worklog_attach
 CREATE INDEX "worklog_attachment_ingestion_quoted_idx" ON "worklog_attachment_ingestions" USING btree ("quoted_line_message_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "worklog_checkout_intent_request_uq" ON "worklog_checkout_intents" USING btree ("request_key");--> statement-breakpoint
 CREATE INDEX "worklog_checkout_intent_user_time_idx" ON "worklog_checkout_intents" USING btree ("user_id","created_at");--> statement-breakpoint
-CREATE INDEX "worklog_checkout_intent_status_time_idx" ON "worklog_checkout_intents" USING btree ("status","created_at");
+CREATE INDEX "worklog_checkout_intent_status_time_idx" ON "worklog_checkout_intents" USING btree ("status","created_at");--> statement-breakpoint
+CREATE INDEX "worklog_source_line_profile_synced_idx" ON "worklog_source_line_profiles" USING btree ("synced_at");

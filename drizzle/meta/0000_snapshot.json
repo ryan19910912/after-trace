@@ -1,5 +1,5 @@
 {
-  "id": "d91873d9-0a46-4ef8-b0a6-2cf335439f72",
+  "id": "c3e4b421-ce52-4407-88d4-ea0c170aaeae",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -5187,6 +5187,87 @@
           "value": "\"worklog_checkout_intents\".\"status\" IN ('PENDING_PROVIDER','READY','COMPLETED','CANCELLED','FAILED')"
         }
       },
+      "isRLSEnabled": false
+    },
+    "public.worklog_source_line_profiles": {
+      "name": "worklog_source_line_profiles",
+      "schema": "",
+      "columns": {
+        "source_id": {
+          "name": "source_id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "group_name": {
+          "name": "group_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "picture_url": {
+          "name": "picture_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "synced_at": {
+          "name": "synced_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "worklog_source_line_profile_synced_idx": {
+          "name": "worklog_source_line_profile_synced_idx",
+          "columns": [
+            {
+              "expression": "synced_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "worklog_source_line_profiles_source_id_worklog_sources_id_fk": {
+          "name": "worklog_source_line_profiles_source_id_worklog_sources_id_fk",
+          "tableFrom": "worklog_source_line_profiles",
+          "tableTo": "worklog_sources",
+          "columnsFrom": [
+            "source_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     }
   },
