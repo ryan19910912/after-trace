@@ -50,6 +50,32 @@ Successful LINE Login may idempotently provision the user/workspace/PRIVATE Sour
 
 Initial FREE provisioning is idempotent. LINE Login followed later by OA follow must never create a duplicate `FREE_INITIAL` Grant.
 
+## Private OA Rich Menu input state
+
+Private OA create/query UX is explicit-mode-driven. Do not make every private chat line an implicit database operation and do not require the user to type `@AFTERTRACE` before normal OA use.
+
+Rich Menu action texts:
+
+- `快速記錄` -> set `RECORD` pending action and prompt for the next text;
+- `查詢紀錄` -> set `QUERY` pending action and prompt for the next text.
+
+Implementation rules:
+
+- persist one pending private action per user in PostgreSQL; never use Worker process memory;
+- initial TTL = 10 minutes;
+- selecting a mode overwrites the user's previous mode;
+- only a non-empty text message consumes the mode;
+- non-text messages such as sticker/image/audio/file do not consume it;
+- consume/delete the pending mode before processing the next text so later messages cannot reuse it;
+- expired modes fail clearly and do not guess RECORD vs QUERY from the user's text;
+- `RECORD` goes through existing PRIVATE AI entitlement + Record normalization/persistence; positive eligible AI points are required before provider work;
+- `QUERY` goes through deterministic provider-free history retrieval and does not require AI points;
+- ordinary private text with no active mode remains support/non-product traffic and is not automatically persisted or queried;
+- GROUP behavior is unchanged and keeps the explicit `@AFTERTRACE` boundary;
+- legacy private `@AFTERTRACE` parsing may remain as compatibility fallback while Rich Menu is the customer-facing contract.
+
+The canonical durable table is `worklog_private_pending_actions` (or an equivalent table preserving the same semantics). Readiness must probe it because OA record/query operation depends on it.
+
 ## Commercial plan model
 
 Admin plan/product templates use exactly three types:
