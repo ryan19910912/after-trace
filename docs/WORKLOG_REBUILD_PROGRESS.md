@@ -26,7 +26,7 @@ Environment inputs remain `.env.local` local-only, `.env.dev` Dev, `.env.prod` P
 
 ## Stable Dev state before this new batch
 
-Already runtime-verified by the user before the current unvalidated changes:
+Already runtime-verified by the user before the current batch:
 
 - typed commercial plan forward migration on the existing Dev DB — PASS;
 - regenerated canonical baseline/guard — PASS;
@@ -69,9 +69,9 @@ Required flow:
 7. provider usage already incurred during preview remains chargeable;
 8. unchanged accepted preview commits without a second provider call.
 
-## New accepted LINE history behavior — implementation started
+## New accepted LINE history behavior — implementation in branch
 
-History is now defined as **Query → Retrieve → Answer → Deep Link**.
+History is defined as **Query → Retrieve → Answer → Deep Link**.
 
 Current product decision:
 
@@ -94,14 +94,15 @@ may resolve to:
 
 and then return stored matching facts, not an AI-generated progress summary.
 
-Branch work in this batch:
+Branch work:
 
 - added `WorklogHistoryQueryService`;
-- group/OA query replies can now read recent DB matches before creating the deep link;
-- added natural progress/status query detection to avoid saving questions such as `晴空案目前收款進度如何` as Records;
-- history retrieval remains provider-free.
+- group/OA query replies can read recent DB matches before creating the deep link;
+- natural progress/status query detection avoids saving questions such as `晴空案目前收款進度如何` as Records;
+- history retrieval remains provider-free;
+- `history-query.test.ts` now covers title extraction, semantic query cleanup, zero-result handling, top-five wording and fact-only/deep-link reply formatting. This new test file is committed but still needs to be executed locally by the user.
 
-## Semantic search metadata — schema/provider work started
+## Semantic search metadata — schema/provider implementation in branch
 
 Accepted purpose: a Record should remain findable by common semantic wording even when the literal raw text differs.
 
@@ -126,14 +127,20 @@ Rules:
 - AI-assisted Record interpretation may generate terms as part of the same provider call used for title/date interpretation;
 - no extra provider call is justified solely for search metadata.
 
-Branch work in this batch:
+Branch work:
 
 - `worklog_records.search_terms` added to canonical TypeScript schema;
 - idempotent forward compatibility adds `search_terms jsonb NOT NULL DEFAULT []` to an existing DB;
-- Gemini text normalization structured output now includes bounded `search_terms`;
+- Gemini text normalization structured output includes bounded `search_terms`;
 - deterministic history query checks Record search terms and persisted normalization result terms.
 
-Because canonical schema changed, the checked-in Drizzle baseline/snapshot must be regenerated and guarded before the next deployment. Existing Dev DB should still use the forward-compatibility migration; do not rebuild it merely for this column.
+Canonical Drizzle baseline regeneration was completed locally by the user and committed as `aa992ba` (`[skip ci] regenerate baseline for semantic search metadata`). The generated baseline contains:
+
+```sql
+"search_terms" jsonb DEFAULT '[]'::jsonb NOT NULL
+```
+
+The original `0000_worklog_baseline` migration timestamp `1788528481453` was preserved and baseline guard passed. Existing Dev DB must use the forward-compatibility migration; do not rebuild it merely for this column.
 
 ## Event date and Reply/Replay source timestamp — accepted hard rule
 
@@ -156,19 +163,40 @@ Existing GROUP Reply-to-TEXT already passes cached `lineTimestamp` as `sourceTim
 
 ## Current local validation for this batch
 
-Executed by the user on Windows after pulling commit `48a5986eff7593457bccf97694313d7e377dd99c`:
+Executed by the user on Windows:
 
 - `pnpm --filter @aftertrace/api typecheck` — PASS.
-- targeted Vitest — PASS, 3 files / 13 tests:
+- normalization targeted Vitest — PASS, 3 files / 13 tests:
   - `src/worklog/gemini-text-normalizer.test.ts`
   - `src/worklog/text-normalization.test.ts`
   - `src/worklog/text-normalization-persistence.test.ts`
+- canonical baseline regeneration — PASS.
+- baseline guard — PASS.
+- preserved journal timestamp `1788528481453` — PASS.
+- baseline diff contains `worklog_records.search_terms jsonb DEFAULT [] NOT NULL` — PASS.
+- baseline artifacts committed and pushed as `aa992ba` — PASS.
+- command/history/LINE runtime targeted Vitest — PASS, 6 files / 57 tests:
+  - `src/worklog/command.test.ts`
+  - `src/worklog/history-navigation.test.ts`
+  - `src/worklog/line-runtime.test.ts`
+  - `src/worklog/oa-runtime.test.ts`
+  - `src/worklog/group-webhook.test.ts`
+  - `src/worklog/oa-webhook.test.ts`
 
-These runs validate the new `searchTerms` normalization contract and provider/persistence typing. They do not yet validate command/history-query/LINE Reply runtime behavior, baseline regeneration, existing Dev forward migration, or deployed Worker behavior.
+The stderr lines in the webhook test run are expected anomaly logs from deliberately simulated failure cases; all 57 tests passed.
+
+Not yet runtime-validated:
+
+- the newly added `history-query.test.ts` itself;
+- existing Dev forward migration for `search_terms`;
+- deployed Dev query behavior;
+- real Gemini production-style `search_terms` output;
+- real delayed Reply event-date regression;
+- attachment Reply original-timestamp handling.
 
 ## Durable docs updated
 
-Current product/development contracts now include:
+Current product/development contracts include:
 
 - optional/non-blocking OA friend convenience positioning;
 - Web `AI 幫我記` shared pipeline;
@@ -180,17 +208,14 @@ Current product/development contracts now include:
 
 ## Immediate next validation/development order
 
-1. Regenerate canonical baseline with `pnpm db:baseline:regenerate --confirm-prelaunch-reset`.
-2. Run `pnpm db:baseline:guard`.
-3. Review generated baseline diff for `worklog_records.search_terms`; commit generated artifacts with `[skip ci]`.
-4. Run targeted command/history/LINE Reply tests before runtime deployment.
-5. Run existing Dev forward migration; verify `search_terms` exists and existing data remains intact.
-6. Deploy Dev API and verify `/health` + `/health/ready`.
-7. Real LINE test: create a semantic Record such as `晴空案今天收3千清潔費`, then query `晴空案目前收款進度如何`; expect DB facts + deep link, not AI summary.
-8. Regression test delayed GROUP Reply-to-TEXT: original message date must remain the event date even when Reply occurs later.
-9. Finish original-timestamp handling/fail-closed behavior for delayed attachment Reply paths before claiming all Reply types compliant.
-10. Continue Web non-friend prompt smoke and Web `AI 幫我記` implementation.
+1. Pull latest branch and run `src/worklog/history-query.test.ts` locally.
+2. Run existing Dev forward migration; verify `search_terms` exists and existing data remains intact.
+3. Deploy Dev API and verify `/health` + `/health/ready`.
+4. Real LINE test: create a semantic Record such as `晴空案今天收3千清潔費`, then query `晴空案目前收款進度如何`; expect DB facts + deep link, not AI summary.
+5. Regression test delayed GROUP Reply-to-TEXT: original message date must remain the event date even when Reply occurs later.
+6. Finish original-timestamp handling/fail-closed behavior for delayed attachment Reply paths before claiming all Reply types compliant.
+7. Continue Web non-friend prompt smoke and Web `AI 幫我記` implementation.
 
 No GitHub Actions workflow was run, dispatched, rerun, enabled, modified, triggered, or used as validation.
 
-Current deployment status: **NEW SEARCH/QUERY/DATE CODE TYPECHECKS AND TARGETED NORMALIZATION TESTS PASS; BASELINE REGENERATION + QUERY/REPLY TESTS + DEV RUNTIME VALIDATION STILL PENDING.**
+Current deployment status: **TYPECHECK + NORMALIZATION TESTS + BASELINE REGEN/GUARD + 57 COMMAND/HISTORY/LINE RUNTIME TESTS PASS; HISTORY-QUERY UNIT TEST + DEV FORWARD MIGRATION + DEPLOYED RUNTIME E2E STILL PENDING.**
