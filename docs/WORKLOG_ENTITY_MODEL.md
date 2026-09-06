@@ -1,218 +1,172 @@
 # AFTERTRACE Worklog Entity Model
 
-Durable product/domain contract for branch `revive/line-worklog`. Read with PRODUCT_SPEC and RECORD_EDIT_POLICY before schema/runtime work.
+Read with `WORKLOG_PRODUCT_SPEC.md` and `WORKLOG_RECORD_EDIT_POLICY.md` before schema/runtime work.
 
 ## Core model
 
-AFTERTRACE is a general-purpose PWA/LINE work-record product, not a construction-, finance-, customer-, or project-specific database.
+AFTERTRACE is a general-purpose Web/PWA work-memory product. Durable truth is a Record inside one authorized Source.
 
-Durable truth is a Record inside one PRIVATE or GROUP Source. Each Record belongs to one searchable **Entity / 紀錄標題**.
+Target core structures:
 
-Core domain structures include:
+- `worklog_sources`;
+- `worklog_source_members`;
+- `worklog_records`;
+- `worklog_record_revisions`;
+- subscription/AI usage tables;
+- optional task/reminder tables;
+- optional invite-link tables.
 
-- `worklog_sources`
-- `worklog_source_members`
-- `worklog_entities`
-- `worklog_entity_aliases`
-- `worklog_records`
-- `worklog_record_revisions`
-- `worklog_ai_confirmations`
-- durable PWA AI Draft/preview structures when implemented.
+Existing LINE-specific tables and older Entity/Alias structures may remain during migration but are not mandatory target-domain concepts.
 
-A generic Record-to-many-Entity model is not required for MVP.
+## Record model
 
-## Entity = 紀錄標題
+A Record is valid without AI enrichment.
 
-Entity is internal terminology; users see **紀錄標題**.
+Required/base facts:
 
-Examples:
+- `id`;
+- `source_id`;
+- author/creator identity;
+- `content`;
+- `occurred_at` nullable;
+- `created_at`;
+- `updated_at`;
+- status/version needed for revisions and optimistic concurrency.
 
-- `晴空案`
-- `信義門市`
-- `王大明`
-- `3 號冷氣主機`
+AI-enriched Records may additionally contain nullable metadata such as:
 
-Entity metadata stays intentionally small. Do not add universal address, phone, finance, construction or payment columns.
+- `title`;
+- `search_terms` / keywords;
+- bounded extracted entities/attributes;
+- `ai_enriched_at` or equivalent enrichment status/audit markers.
 
-## One Record has one title
+Do not infer AI enrichment merely from `title IS NOT NULL`; keep an explicit enrichment/audit state when practical.
 
-Example:
+## Free/manual Records
 
-`王大明跟陳師傅今天去晴空案換冷氣，材料費 5000，人工 5000`
+Free/manual Records do not require title, keywords or AI metadata.
 
-Expected:
+A manual Record may therefore be only:
 
-- title = `晴空案`;
-- names/details/amounts remain searchable Record text.
+- content;
+- user-entered event time/date if supplied;
+- system create/update timestamps.
 
-Do not automatically create `王大明` / `陳師傅` Related Entities merely because they appear in content.
+Manual CRUD must not silently call provider AI to fill metadata.
 
-Consequences:
+## AI-enriched Records
 
-- no PRIMARY/RELATED role system for MVP;
-- `worklog_records.entity_id` is the filing/search context;
-- other names remain searchable raw content unless explicitly used as titles elsewhere.
+Paid AI may produce title, grounded search terms, event date interpretation and bounded extraction metadata as part of a provider-backed operation.
 
-## Alias
+AI metadata remains subordinate to durable Record content. Provider output never becomes authority to mutate unrelated Records or create unrelated domain rows without deterministic backend rules.
 
-Alias means a genuine confirmed alternate name for the same Entity.
+## Extracted entities
 
-Example:
+Optional AI extraction may identify values useful for retrieval, initially such as:
 
-- canonical: `晴空案`
-- alias: `三重晴空案`
+- `PERSON`;
+- `CUSTOMER`;
+- `PROJECT`;
+- `ORGANIZATION`;
+- `AMOUNT`;
+- `LOCATION`.
 
-Contextual wording such as `王大明的晴空案` is not automatically an alias.
+These are **search/retrieval metadata**, not automatic CRM/ERP objects.
 
-Entity/Alias resolution is always Source-scoped.
+Example input:
 
-## AI-assisted Record interpretation
+`今天晴空案向王先生收了 3000 元清潔費`
 
-For LINE or PWA AI-assisted input, structured AI work stays narrow:
+May yield retrieval metadata equivalent to:
 
-1. determine one title/Entity;
-2. resolve same-Source existing Entity/Alias;
-3. detect ambiguity that needs confirmation;
-4. resolve event date under day-precision/source-time rules;
-5. derive bounded grounded `search_terms`;
-6. preserve durable textual content.
+- title: `晴空案`;
+- search terms: `晴空案`, `王先生`, `清潔費`, `收款`;
+- PROJECT = `晴空案`;
+- PERSON/CUSTOMER = `王先生`;
+- AMOUNT = `3000 TWD`.
 
-Do not require universal extraction of amount/address/payment/material/task fields.
+Do not automatically create a Customer/Project master row merely because the phrase appears.
 
-## Draft vs Record
+## Historical free Records after subscription
 
-PWA Quick Capture AI interpretation may create a durable **Draft** before a Record exists.
+No automatic AI backfill.
 
-Draft rules:
+When a user subscribes later:
 
-- Source-scoped;
-- not a committed Record;
-- does not auto-expire;
-- remains until confirmed or explicitly deleted;
-- may hold proposed title/content/event date/search metadata and provider/audit references needed to commit safely;
-- must be re-authorized on every read/edit/commit;
-- GROUP Draft becomes inaccessible if active membership is lost;
-- confirmation creates the actual Record through deterministic authorization/persistence rules.
+- old Records remain unchanged;
+- old Records may have no title/search terms/entities;
+- raw `content` and time remain searchable;
+- new provider-backed Records may receive AI metadata;
+- retrieval must support both kinds of Records.
 
-Do not treat an unfinished Draft as a Record in timelines/history queries.
+## Source model
 
-## Pending AI identity/title confirmation
+PRIVATE and GROUP Sources are independent authorization spaces.
 
-Ambiguous title/identity decisions must be durable, not Worker-memory-only.
+GROUP Sources are created inside AFTERTRACE and joined using AFTERTRACE invite links/tokens. Target authorization no longer depends on LINE group membership or bot lifecycle.
 
-Initial confirmation types may include `ALIAS_MATCH`, `RECORD_TITLE`, `ENTITY_MATCH`. If multiple candidates are plausible, ask user to choose/create rather than guessing.
+Initial roles may remain simple:
 
-## Source model and strict GROUP membership
+- `OWNER`;
+- `MEMBER`.
 
-PRIVATE and GROUP Sources are independent data spaces.
+Server-side authorization is mandatory on every read/write/search/task/AI operation.
 
-GROUP authorization requires current active membership. Leaving/being removed from the LINE group immediately removes all GROUP Source access, including read/search/edit/Draft/deep-link/Quick-Capture rights. Data remains in the GROUP Source.
+## Group invite model
 
-GROUP customer-facing name/picture come from current LINE group metadata, not a separate AFTERTRACE custom display name.
+Invite links/tokens should be durable and revocable/expirable according to later concrete UX requirements. At minimum they must identify the target group and must not grant data access before the invited user authenticates and the backend records membership.
 
-## PWA Quick Capture Source selection
-
-Eligible capture destinations:
-
-- user's PRIVATE Source;
-- authorized active GROUP Sources.
-
-Default is the last selected **still-valid** Source; otherwise fallback PRIVATE.
-
-The Source selection is separate from Entity/title. Example:
-
-- Source: `晴空案-水電群` (LINE group)
-- Record title: `3 號冷氣主機`
-
-Do not confuse group name with Record title.
-
-## PWA manual create/edit terminology
-
-Manual PWA creation is free/non-AI.
-
-Fields:
-
-- 紀錄標題
-- 紀錄內容
-- 發生日期
-
-Title autocomplete searches same-Source Entity names/Aliases. Choosing existing attaches it; entering new creates a new same-Source Entity. No AI relationship inference occurs.
-
-## Event date
+## Record time model
 
 A Record distinguishes:
 
+- `occurred_at` = user/business event date/time; nullable;
 - `created_at` = actual AFTERTRACE storage time;
-- event date = business day, currently carried by compatibility field `occurred_at`;
-- `updated_at` = last current-row modification.
+- `updated_at` = last current-row modification time.
 
-MVP event semantics are day-precision Asia/Taipei. Do not invent time-of-day.
+AI may resolve relative date language against an explicit reference timestamp and timezone. It must not invent a date/time that the user did not express.
 
-LINE relative dates use original source message timestamp; delayed Reply uses quoted/original timestamp, never later command time. PWA explicit create/Draft uses capture/create reference date unless content specifies another date.
+## Search model
 
-## PWA retrieval model
+Free deterministic search may use:
 
-PWA is the full retrieval/management surface.
+- Source;
+- raw Record content;
+- event/system date range.
 
-Composable filters:
-
-1. Source;
-2. Entity/title;
-3. date range;
-4. fuzzy/semantic keyword.
-
-Keyword matching may use:
+Paid natural-language retrieval may additionally use, where present:
 
 - title;
-- Alias;
-- raw Record text;
-- `search_terms`.
+- search terms;
+- extracted metadata;
+- AI-derived bounded filters.
 
-Example: `王大明` can find Records where he appears in content even if title is `晴空案`.
+PostgreSQL remains the authoritative retrieval layer.
 
-## LINE history — deterministic facts + deep link
+## Related Records
 
-LINE history is not an open-ended AI historical agent.
+Related-record suggestions are a retrieval/ranking feature, not a durable many-to-many domain requirement for MVP.
 
-The accepted path is:
+Initial scoring can use title/keyword/entity/content overlap and time/Source context. Do not add generic RecordRelation tables until a concrete durable relationship feature needs them.
 
-**Interpret current request -> Query -> Retrieve -> Answer -> Deep Link**
+## Tasks
 
-- the user addresses `小跡` naturally, e.g. `小跡 幫我查晴空案最近的收款`;
-- authorize current Source;
-- when the request is not a fixed provider-free command, the bounded interpreter may resolve `QUERY` and query/date text;
-- resolve same-Source Entity/Alias where possible;
-- query PostgreSQL deterministically;
-- return newest up to 5 matching stored facts directly in LINE;
-- include total count when available;
-- append filtered secure PWA link for deeper history;
-- no AI history summary/business conclusion in MVP.
+Tasks are separate actionable objects, not a special kind of Record.
 
-Fixed `小跡 狀態` is not history retrieval and bypasses the natural-language AI interpreter entirely.
+Suggested target facts:
 
-## Delete / restore / title move
+- `id`;
+- `user_id` and/or authorized Source;
+- optional `record_id`;
+- title/content;
+- `due_at` nullable;
+- `remind_at` nullable;
+- status;
+- `created_at` / `updated_at`;
+- notification delivery state when required.
 
-Delete is soft/status-based. Entity reference and revisions remain durable. Normal search excludes deleted Records; authorized recycle-bin/history may show them; restore preserves history.
+AI may propose a Task from a Record/input, but task creation is deterministic after user confirmation.
 
-LINE natural-language `DELETE`, `RESTORE`, and `MOVE` require an exact deterministic Reply target. AI may identify the action or requested destination title, but it never guesses a Record from `剛剛那筆` or similar wording without a durable target.
+## Revision/concurrency
 
-`MOVE` changes the single filing Entity/title only; it does not rewrite the Record content or event date.
-
-Do not delete Entity/Alias merely because one Record was deleted.
-
-## Record-to-Record relations
-
-Generic RecordRelation is not required for MVP. Multiple chronological Records under one title are sufficient for progress/history until a concrete feature proves durable typed relations necessary.
-
-## Raw Records and AI summaries
-
-Durable Record text is source of truth.
-
-- no persistent per-record AI summary;
-- no automatic AI historical conclusion;
-- users edit Record/Draft content, not an AI summary;
-- future explicit reports may consume AI points and remain a separate feature.
-
-## Concurrency
-
-Record editing uses durable integer optimistic `version`; stale writes fail. Do not use process-memory/Redis locks for normal Record editing.
+Record editing uses durable optimistic `version`. Successful mutations preserve immutable revision/history facts. See `WORKLOG_RECORD_EDIT_POLICY.md`.
