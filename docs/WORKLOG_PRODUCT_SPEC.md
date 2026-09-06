@@ -29,13 +29,16 @@ Rules:
 
 ## LINE OA private Rich Menu input modes
 
-Private OA chat uses **explicit Rich Menu modes** instead of asking the user to mention `@AFTERTRACE` before every action and instead of guessing the intent of every private message.
+Private OA chat uses **explicit Rich Menu Postback actions** instead of asking the user to mention `@AFTERTRACE` before every action and instead of guessing the intent of every private message.
 
-Initial Rich Menu actions:
+Initial Rich Menu/Postback contract:
 
-- **快速記錄** — the Rich Menu sends the text `快速記錄`; AFTERTRACE stores a short-lived `RECORD` pending action and replies `請輸入你要記錄的事情`.
-- **查詢紀錄** — the Rich Menu sends the text `查詢紀錄`; AFTERTRACE stores a short-lived `QUERY` pending action and replies `請輸入你想查詢的內容`.
-- Additional menu buttons such as `我的紀錄` and `方案 / AI 點數` may navigate directly to the authorized Web/PWA surfaces and do not need to enter a text mode.
+- **快速記錄** — Postback `aftertrace:record`; AFTERTRACE stores a short-lived `RECORD` pending action and replies `請輸入你要記錄的事情`.
+- **查詢紀錄** — Postback `aftertrace:query`; AFTERTRACE stores a short-lived `QUERY` pending action and replies `請輸入你想查詢的內容`.
+- **取消** — Postback `aftertrace:cancel`; AFTERTRACE clears any pending action and replies `已取消這次操作。`.
+- Additional menu buttons such as `我的紀錄` and `方案 / AI 點數` may navigate directly to authorized Web/PWA surfaces and do not need to enter a text mode.
+
+Rich Menu mode-selection Postbacks should omit visible `displayText` unless a later UX decision explicitly wants one; tapping a menu action should not create a fake user chat command such as `快速記錄` in the conversation.
 
 Input-mode rules:
 
@@ -49,8 +52,10 @@ Input-mode rules:
 8. `RECORD` text goes through the normal PRIVATE AI-assisted Record pipeline and therefore requires positive eligible AI points before provider execution.
 9. `QUERY` text goes through the deterministic provider-free history retrieval path and does not require AI points.
 10. Ordinary private text sent without a pending mode remains non-product/support traffic and must **not** be automatically stored as a Record or automatically queried merely because it was sent to the OA.
+11. Literal text `取消` may also clear the current pending action as a safety fallback, but Rich Menu Postback is the primary UI contract.
+12. Unknown Postback data is ignored/fails closed and must not create Records or queries.
 
-`@AFTERTRACE` may remain as a compatibility fallback for previously shipped private flows, but it is not the customer-facing OA interaction contract. GROUP chat intentionally keeps the `@AFTERTRACE` boundary because ordinary group conversation must not be treated as a product command.
+`@AFTERTRACE` may remain temporarily as a compatibility/debug fallback for private flows, but it is not the customer-facing OA interaction contract. GROUP chat intentionally keeps the `@AFTERTRACE` boundary because ordinary group conversation must not be treated as a product command.
 
 ## Monetization principle
 
