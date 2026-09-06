@@ -122,4 +122,25 @@ BEGIN
 END
 $aftertrace_search$;
   `));
+
+  await db.execute(sql.raw(`
+DO $aftertrace_group_profile$
+BEGIN
+  -- Fresh database: canonical baseline creates this after the compatibility hook returns.
+  IF to_regclass('public.worklog_sources') IS NULL THEN RETURN; END IF;
+
+  CREATE TABLE IF NOT EXISTS public.worklog_source_line_profiles (
+    source_id bigint PRIMARY KEY REFERENCES public.worklog_sources(id) ON DELETE CASCADE,
+    group_name text NOT NULL,
+    picture_url text,
+    synced_at timestamptz NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );
+
+  CREATE INDEX IF NOT EXISTS worklog_source_line_profile_synced_idx
+    ON public.worklog_source_line_profiles (synced_at);
+END
+$aftertrace_group_profile$;
+  `));
 }
