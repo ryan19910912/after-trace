@@ -13,6 +13,7 @@ export interface WorklogPrivateInputModeRepository {
     at: Date;
   }): Promise<void>;
   consume(userId: number, at: Date): Promise<WorklogPrivateInputModeConsumeResult>;
+  clear(userId: number): Promise<void>;
 }
 
 export const WORKLOG_PRIVATE_INPUT_MODE_TTL_MS = 10 * 60_000;
@@ -33,6 +34,10 @@ export class WorklogPrivateInputModeService {
 
   async consume(userId: number, at = new Date()): Promise<WorklogPrivateInputModeConsumeResult> {
     return this.repository.consume(positiveInteger(userId, 'userId'), validDate(at, 'at'));
+  }
+
+  async clear(userId: number): Promise<void> {
+    await this.repository.clear(positiveInteger(userId, 'userId'));
   }
 }
 
