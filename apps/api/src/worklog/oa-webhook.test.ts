@@ -63,7 +63,7 @@ describe('processWorklogOaWebhook 小跡', () => {
       reply,
       queryHistory: async (target) => {
         targets.push(target);
-        return { filters: target.filters, totalCount: 0, records: [] };
+        return { filters: target.filters, total: 0, records: [], title: null, query: target.filters.query ?? null };
       },
       createQueryUrl: async () => 'https://app.example.test/?t=private-token&q=x',
     });
