@@ -13,7 +13,9 @@ class OrderingRepository implements WorklogBootstrapRepository {
 
   async upsertLineUser(input: Parameters<WorklogBootstrapRepository['upsertLineUser']>[0]) {
     if (!this.user) {
-      this.user = { userId: 1, lineUserId: input.lineUserId, isOaFriend: false };
+      this.user = { userId: 1, lineUserId: input.lineUserId, displayName: input.displayName, isOaFriend: false };
+    } else if (input.displayName) {
+      this.user = { ...this.user, displayName: input.displayName };
     }
     if (!this.lastInteractionAt || input.at >= this.lastInteractionAt) this.lastInteractionAt = input.at;
     return { ...this.user };
