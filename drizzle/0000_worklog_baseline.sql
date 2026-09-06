@@ -1,6 +1,7 @@
 CREATE TYPE "public"."worklog_anomaly_severity" AS ENUM('INFO', 'WARNING', 'ERROR', 'CRITICAL');--> statement-breakpoint
 CREATE TYPE "public"."worklog_anomaly_status" AS ENUM('OPEN', 'RESOLVED', 'IGNORED');--> statement-breakpoint
 CREATE TYPE "public"."worklog_feedback_channel" AS ENUM('LINE_OA', 'PWA');--> statement-breakpoint
+CREATE TYPE "public"."worklog_plan_type" AS ENUM('FREE', 'SUBSCRIPTION', 'ONE_TIME');--> statement-breakpoint
 CREATE TYPE "public"."worklog_record_input_type" AS ENUM('TEXT', 'AUDIO', 'IMAGE', 'FILE');--> statement-breakpoint
 CREATE TYPE "public"."worklog_source_status" AS ENUM('ACTIVE', 'INACTIVE');--> statement-breakpoint
 CREATE TYPE "public"."worklog_source_type" AS ENUM('PRIVATE', 'GROUP');--> statement-breakpoint
@@ -112,15 +113,22 @@ CREATE TABLE "worklog_subscription_history" (
 CREATE TABLE "worklog_subscription_plans" (
 	"id" bigserial PRIMARY KEY NOT NULL,
 	"code" varchar(64) NOT NULL,
+	"plan_type" "worklog_plan_type" NOT NULL,
 	"display_name" varchar(255) NOT NULL,
 	"price_twd" numeric(12, 2) DEFAULT '0' NOT NULL,
 	"rank" integer DEFAULT 0 NOT NULL,
 	"enabled" boolean DEFAULT true NOT NULL,
-	"subscription_period_points" integer DEFAULT 0 NOT NULL,
+	"grant_points" integer DEFAULT 0 NOT NULL,
 	"capabilities" jsonb DEFAULT '{}'::jsonb NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "worklog_subscription_plan_code_uq" UNIQUE("code")
+	CONSTRAINT "worklog_subscription_plan_code_uq" UNIQUE("code"),
+	CONSTRAINT "worklog_plan_free_identity_ck" CHECK ((
+        ("worklog_subscription_plans"."code" = 'FREE' AND "worklog_subscription_plans"."plan_type" = 'FREE' AND "worklog_subscription_plans"."price_twd" = 0)
+        OR
+        ("worklog_subscription_plans"."code" <> 'FREE' AND "worklog_subscription_plans"."plan_type" <> 'FREE')
+      )),
+	CONSTRAINT "worklog_plan_grant_points_ck" CHECK ("worklog_subscription_plans"."grant_points" >= 0)
 );
 --> statement-breakpoint
 CREATE TABLE "worklog_user_subscriptions" (

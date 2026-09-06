@@ -1,5 +1,5 @@
 {
-  "id": "89576fb6-4d4a-4d56-b839-ed9839b884e1",
+  "id": "3d9768ea-fe17-40b0-ad3a-7f264911d8db",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -924,6 +924,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "plan_type": {
+          "name": "plan_type",
+          "type": "worklog_plan_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
         "display_name": {
           "name": "display_name",
           "type": "varchar(255)",
@@ -951,8 +958,8 @@
           "notNull": true,
           "default": true
         },
-        "subscription_period_points": {
-          "name": "subscription_period_points",
+        "grant_points": {
+          "name": "grant_points",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -993,7 +1000,16 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "worklog_plan_free_identity_ck": {
+          "name": "worklog_plan_free_identity_ck",
+          "value": "(\n        (\"worklog_subscription_plans\".\"code\" = 'FREE' AND \"worklog_subscription_plans\".\"plan_type\" = 'FREE' AND \"worklog_subscription_plans\".\"price_twd\" = 0)\n        OR\n        (\"worklog_subscription_plans\".\"code\" <> 'FREE' AND \"worklog_subscription_plans\".\"plan_type\" <> 'FREE')\n      )"
+        },
+        "worklog_plan_grant_points_ck": {
+          "name": "worklog_plan_grant_points_ck",
+          "value": "\"worklog_subscription_plans\".\"grant_points\" >= 0"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.worklog_user_subscriptions": {
@@ -5193,6 +5209,15 @@
       "values": [
         "LINE_OA",
         "PWA"
+      ]
+    },
+    "public.worklog_plan_type": {
+      "name": "worklog_plan_type",
+      "schema": "public",
+      "values": [
+        "FREE",
+        "SUBSCRIPTION",
+        "ONE_TIME"
       ]
     },
     "public.worklog_record_input_type": {
