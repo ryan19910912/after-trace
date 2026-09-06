@@ -27,6 +27,14 @@ export type BufferedPrivateMessage = {
   metadata: Record<string, unknown> | null;
 };
 
+export type OaPostbackEvent = {
+  webhookEventId: string | null;
+  replyToken?: string | null;
+  lineUserId: string;
+  data: string;
+  lineTimestamp: Date;
+};
+
 export type GroupLifecycleEvent = {
   webhookEventId: string | null;
   replyToken?: string | null;
@@ -50,6 +58,7 @@ export type ParsedLineEvent =
 export type ParsedLineWebhook = { events: ParsedLineEvent[] };
 export type ParsedOaEvent =
   | { kind: 'PRIVATE_MESSAGE'; message: BufferedPrivateMessage }
+  | { kind: 'OA_POSTBACK'; event: OaPostbackEvent }
   | { kind: 'OA_LIFECYCLE'; event: OaLifecycleEvent };
 export type ParsedOaWebhook = { events: ParsedOaEvent[] };
 
@@ -123,8 +132,6 @@ export function parseLineWebhook(payload: unknown): ParsedLineWebhook {
     const replyToken = asString(rawEvent.replyToken);
     const eventType = asString(rawEvent.type);
     if (eventType === 'join' || eventType === 'leave') {
-      // LINE's group source userId is defined only for message events. A Bot join
-      // event therefore cannot be used to infer who invited the Bot into the group.
       result.events.push({ kind: 'LIFECYCLE', event: {
         webhookEventId,
         replyToken,
@@ -176,6 +183,17 @@ export function parseOaWebhook(payload: unknown): ParsedOaWebhook {
     if (eventType === 'follow' || eventType === 'unfollow') {
       result.events.push({ kind: 'OA_LIFECYCLE', event: {
         webhookEventId, replyToken, lineUserId, type: eventType === 'follow' ? 'FOLLOW' : 'UNFOLLOW', lineTimestamp,
+      } });
+      continue;
+    }
+    if (eventType === 'postback' && isRecord(rawEvent.postback)) {
+      const data = asString(rawEvent.postback.data);
+      if (data) result.events.push({ kind: 'OA_POSTBACK', event: {
+        webhookEventId,
+        replyToken,
+        lineUserId,
+        data,
+        lineTimestamp,
       } });
       continue;
     }
