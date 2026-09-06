@@ -28,6 +28,7 @@ export type WorklogGroupSurface = {
 export type WorklogPwaSurfaces = {
   personal: { sourceId: number } | null;
   groups: WorklogGroupSurface[];
+  isOaFriend: boolean;
 };
 
 export interface WorklogRecordReadRepository {
@@ -162,9 +163,9 @@ export class WorklogRecordWriteService {
   }): Promise<WorklogTextRecordWriteResult> {
     const sourceId = positiveInteger(input.sourceId, 'source id');
     const authorUserId = positiveInteger(input.authorUserId, 'author user id');
-    const lineMessageId = requiredTrimmed(input.lineMessageId, 'LINE message id', 64);
+    const lineMessageId = requiredTrimmed(input.lineMessageId, 'line message id', 64);
     const quotedLineMessageId = input.quotedLineMessageId
-      ? requiredTrimmed(input.quotedLineMessageId, 'quoted LINE message id', 64)
+      ? requiredTrimmed(input.quotedLineMessageId, 'quoted line message id', 64)
       : null;
     const text = requiredTrimmed(input.text, 'record text');
     const stored = await this.repository.insertTextRecord({
@@ -195,16 +196,19 @@ export class WorklogRecordReadService {
   constructor(private readonly repository: WorklogRecordReadRepository) {}
 
   async surfaces(userId: number): Promise<WorklogPwaSurfaces> {
-    const [oaFriend, groups] = await Promise.all([
+    const [oaFriend, personalSourceId, groups] = await Promise.all([
       this.repository.isOaFriend(userId),
+      this.repository.getActivePersonalSourceId(userId),
       this.repository.listActiveGroupSurfaces(userId),
     ]);
-    const personalSourceId = oaFriend ? await this.repository.getActivePersonalSourceId(userId) : null;
-    return { personal: personalSourceId === null ? null : { sourceId: personalSourceId }, groups };
+    return {
+      personal: personalSourceId === null ? null : { sourceId: personalSourceId },
+      groups,
+      isOaFriend: oaFriend,
+    };
   }
 
   async personalRecords(userId: number, limit = 100): Promise<WorklogRecordListItem[]> {
-    if (!(await this.repository.isOaFriend(userId))) return [];
     const sourceId = await this.repository.getActivePersonalSourceId(userId);
     if (sourceId === null) return [];
     return this.repository.listRecordsBySource(sourceId, safeLimit(limit));
