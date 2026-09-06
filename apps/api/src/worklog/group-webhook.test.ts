@@ -19,8 +19,14 @@ class FakeBootstrap {
 }
 class FakeReply {
   calls: Array<{ token: string; text: string }> = [];
+  mentionCalls: Array<{ token: string; text: string; lineUserId: string }> = [];
   fail = false;
+  failMention = false;
   async reply(token: string, text: string) { this.calls.push({ token, text }); if (this.fail) throw new Error('reply unavailable'); }
+  async replyUserMention(token: string, text: string, lineUserId: string) {
+    this.mentionCalls.push({ token, text, lineUserId });
+    if (this.failMention) throw new Error('mention unavailable');
+  }
 }
 class FakeAnomalies {
   calls: WorklogAnomalyInput[] = [];
@@ -113,10 +119,30 @@ describe('processWorklogGroupWebhook 小跡', () => {
     expect(result.worklogQueries).toBe(1); expect(targets).toHaveLength(1); expect(reply.calls[0]?.text).toContain('https://app.example.test');
   });
 
-  it('tracks AI responsibility claim separately', async () => {
-    const runtime = new FakeRuntime(); runtime.next = { status: 'AI_RESPONSIBILITY_BOUND', sourceId: 20, replyText: '已完成設定。' };
-    const result = await processWorklogGroupWebhook({ parsed: parsed(groupMessage('小跡 啟用')), bootstrap: new FakeBootstrap(), runtime, reply: new FakeReply() });
+  it('mentions the current member when AI responsibility is bound', async () => {
+    const runtime = new FakeRuntime(); runtime.next = { status: 'AI_RESPONSIBILITY_BOUND', sourceId: 20, replyText: '已完成這個群組的 AI 額度負責人設定。' };
+    const reply = new FakeReply();
+    const result = await processWorklogGroupWebhook({ parsed: parsed(groupMessage('小跡 啟用')), bootstrap: new FakeBootstrap(), runtime, reply });
     expect(result).toMatchObject({ worklogAiResponsibilityClaims: 1, worklogRejected: 0 });
+    expect(reply.mentionCalls).toEqual([{
+      token: 'reply-1',
+      text: '已完成這個群組的 AI 額度負責人設定。\n\nAI 額度負責人：{responsible}',
+      lineUserId: 'U11111111111111111111111111111111',
+    }]);
+    expect(reply.calls).toHaveLength(0);
+  });
+
+  it('falls back to plain text if the LINE mention reply fails', async () => {
+    const runtime = new FakeRuntime(); runtime.next = { status: 'AI_RESPONSIBILITY_BOUND', sourceId: 20, replyText: '已完成這個群組的 AI 額度負責人設定。' };
+    const reply = new FakeReply(); reply.failMention = true;
+    const anomalies = new FakeAnomalies();
+    const result = await processWorklogGroupWebhook({ parsed: parsed(groupMessage('小跡 啟用')), bootstrap: new FakeBootstrap(), runtime, reply, anomalies });
+    expect(result).toMatchObject({ worklogAiResponsibilityClaims: 1, worklogRejected: 0, worklogErrors: 1 });
+    expect(reply.calls).toEqual([{
+      token: 'reply-1',
+      text: '已完成這個群組的 AI 額度負責人設定。\n\nAI 額度負責人：你',
+    }]);
+    expect(anomalies.calls[0]).toMatchObject({ category: 'LINE_GROUP_RESPONSIBILITY_MENTION' });
   });
 
   it('writes anomaly and product error reply when explicit command throws', async () => {
