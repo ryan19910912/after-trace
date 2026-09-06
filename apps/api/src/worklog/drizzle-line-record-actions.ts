@@ -10,6 +10,7 @@ import type {
 type TargetRow = {
   id: string | number;
   source_id: string | number;
+  author_user_id: string | number | null;
   entity_id: string | number | null;
   raw_text: string;
   occurred_at: Date | string;
@@ -26,6 +27,7 @@ export class DrizzleWorklogLineRecordActionRepository implements WorklogLineReco
     const result = await this.db.execute(sql`
       SELECT record.id::text AS id,
              record.source_id::text AS source_id,
+             record.author_user_id::text AS author_user_id,
              record.entity_id::text AS entity_id,
              record.raw_text,
              record.occurred_at,
@@ -205,6 +207,7 @@ function target(row: TargetRow): WorklogLineActionTarget {
   return {
     id: Number(row.id),
     sourceId: Number(row.source_id),
+    authorUserId: row.author_user_id == null ? null : Number(row.author_user_id),
     entityId: row.entity_id == null ? null : Number(row.entity_id),
     rawText: row.raw_text,
     occurredAt: new Date(row.occurred_at).toISOString(),
