@@ -13,9 +13,9 @@ class FakeRuntime {
   async handle(_message: BufferedGroupMessage): Promise<WorklogLineRuntimeResult> { if (this.fail) throw new Error('boom'); return this.next; }
 }
 class FakeBootstrap {
-  lifecycle: Array<{ lineGroupId: string; lineUserId?: string; isActive?: boolean }> = [];
-  async handleGroupLeave(input: { lineGroupId: string }) { this.lifecycle.push(input); }
-  async setGroupMemberPresence(input: { lineGroupId: string; lineUserId: string; isActive: boolean }) { this.lifecycle.push(input); }
+  lifecycle: Array<{ lineGroupId: string; lineUserId?: string; isActive?: boolean; at?: Date }> = [];
+  async handleGroupLeave(input: { lineGroupId: string; at?: Date }) { this.lifecycle.push(input); }
+  async setGroupMemberPresence(input: { lineGroupId: string; lineUserId: string; isActive: boolean; at?: Date }) { this.lifecycle.push(input); }
 }
 class FakeReply {
   calls: Array<{ token: string; text: string }> = [];
@@ -60,7 +60,10 @@ describe('processWorklogGroupWebhook 小跡', () => {
       bootstrap: new FakeBootstrap(),
       runtime,
       reply,
-      queryHistory: async (target) => { targets.push(target); return { filters: target.filters, totalCount: 0, records: [] }; },
+      queryHistory: async (target) => {
+        targets.push(target);
+        return { filters: target.filters, total: 0, records: [], title: null, query: target.filters.query ?? null };
+      },
       createQueryUrl: async () => 'https://app.example.test/?group=1&q=x',
     });
     expect(result.worklogQueries).toBe(1); expect(targets).toHaveLength(1); expect(reply.calls[0]?.text).toContain('https://app.example.test');
@@ -91,10 +94,11 @@ describe('processWorklogGroupWebhook 小跡', () => {
 
   it('processes member-left lifecycle as immediate inactive membership evidence', async () => {
     const bootstrap = new FakeBootstrap();
-    const lifecycle: GroupLifecycleEvent = { webhookEventId: 'member-left-1', lineGroupId: 'group-1', type: 'MEMBER_LEFT', lineUserIds: ['user-1'], lineTimestamp: new Date('2026-09-02T12:00:00Z') };
+    const at = new Date('2026-09-02T12:00:00Z');
+    const lifecycle: GroupLifecycleEvent = { webhookEventId: 'member-left-1', lineGroupId: 'group-1', type: 'MEMBER_LEFT', lineUserIds: ['user-1'], lineTimestamp: at };
     const parsedLifecycle: ParsedLineWebhook = { events: [{ kind: 'LIFECYCLE', event: lifecycle }] };
     const result = await processWorklogGroupWebhook({ parsed: parsedLifecycle, bootstrap, runtime: new FakeRuntime(), reply: new FakeReply() });
     expect(result.lifecycleEvents).toBe(1);
-    expect(bootstrap.lifecycle).toEqual([{ lineGroupId: 'group-1', lineUserId: 'user-1', isActive: false }]);
+    expect(bootstrap.lifecycle).toEqual([{ lineGroupId: 'group-1', lineUserId: 'user-1', isActive: false, at }]);
   });
 });
