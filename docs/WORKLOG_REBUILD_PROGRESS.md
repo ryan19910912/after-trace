@@ -15,7 +15,7 @@ Read first every substantive development run, in this exact order:
 
 Latest docs are the only product/development specification. Never use GitHub Actions unless explicitly requested. Every development commit contains `[skip ci]`.
 
-## Current checkpoint — 2026-09-06 LINE group profile 24h lazy-refresh batch locally green; baseline regenerated/guarded; generated Drizzle artifacts awaiting commit
+## Current checkpoint — 2026-09-06 LINE group profile 24h lazy-refresh batch locally green; baseline + Dev forward migration verified; Dev API deploy pending
 
 Cloudflare deployment remains manual:
 
@@ -214,7 +214,7 @@ Latest user-executed local validation on Windows:
   - `src/worklog/command.test.ts` — 8 tests
 - stderr logs were expected simulated failures (`LINE unavailable`, `boom`) and were not test failures.
 
-Canonical fresh-database baseline was regenerated successfully:
+Canonical fresh-database baseline was regenerated and committed successfully:
 
 - Drizzle reports **33 tables**
 - new `worklog_source_line_profiles` table is present
@@ -222,21 +222,26 @@ Canonical fresh-database baseline was regenerated successfully:
 - `worklog_source_line_profile_synced_idx` is present
 - original canonical baseline migration timestamp `1788528481453` was preserved
 - `pnpm db:baseline:guard` — **PASS**
+- generated baseline commit was rebased onto the latest remote branch and pushed successfully
 
-Current local working tree after baseline regeneration intentionally contains generated changes:
+Existing Dev DB forward migration was then applied without rebuilding the database and verified:
 
-- modified `drizzle/0000_worklog_baseline.sql`
-- modified `drizzle/meta/0000_snapshot.json`
+- `worklog_source_line_profiles` exists — **PASS**
+- primary key `worklog_source_line_profiles_pkey` exists — **PASS**
+- index `worklog_source_line_profile_synced_idx` exists — **PASS**
+- AI runtime preserved: `GOOGLE / gemini-3.5-flash-lite` — **PASS**
+- AI pricing preserved: input `0.30000000`, output `2.50000000` USD per million — **PASS**
+- FREE plan preserved: `FREE / FREE / 0.00 / 400000 / enabled=true` — **PASS**
 
-There is also an unrelated untracked local file `apps/api/verify-admin-schema.mjs`. It must **not** be included in the baseline commit unless separately reviewed/approved; use exact-path staging for the two generated Drizzle artifacts only.
+The unrelated local untracked file `apps/api/verify-admin-schema.mjs` remains outside this batch and must not be staged/committed unless separately reviewed.
 
 ## Immediate next order
 
-1. commit only the two generated Drizzle baseline artifacts with `[skip ci]`;
-2. run the reviewed existing Dev forward migration using `.env.dev`; do not rebuild Dev DB;
-3. verify `worklog_source_line_profiles` table/index exist and preserved AI runtime/FREE plan values remain unchanged;
-4. deploy Dev API only after migration verification;
-5. verify `/health` and `/health/ready`;
+1. deploy **Dev API only** with the existing manual deployment path;
+2. verify `https://after-trace-api-dev.a0955625660.workers.dev/health` returns `status=ok`;
+3. verify `/health/ready` returns `status=ready` and therefore the new group-profile table/readiness dependency is available in runtime;
+4. perform a real LINE GROUP `小跡` command E2E and confirm the first stale/missing profile access writes the current LINE group name/picture + `synced_at`;
+5. repeat within 24h and confirm cached metadata is reused without requiring a profile refresh;
 6. then implement durable non-expiring PWA AI Draft + last-used Source preference + Quick Capture shared pipeline incrementally;
 7. wire PWA Source-list/open-group use into the same 24h lazy profile refresh service;
 8. add Voice as another input modality on top of the same preview/commit core.
