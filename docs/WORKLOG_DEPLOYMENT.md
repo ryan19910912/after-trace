@@ -1,7 +1,5 @@
 # AFTERTRACE Deployment Baseline
 
-Durable deployment contract for branch `revive/line-worklog`.
-
 ## Deployment topology
 
 Cloudflare Workers only. Do not reintroduce Pages.
@@ -20,14 +18,13 @@ Cloudflare Workers only. Do not reintroduce Pages.
 
 workers.dev subdomain: `a0955625660`.
 
-Manual deployment is the accepted operating model. Root commands target exact Worker names; do not enable automatic Git branch deployment unless explicitly requested.
+Manual deployment remains the accepted operating model. Do not enable automatic Git deployment or GitHub Actions unless explicitly requested.
 
 ## Commands
 
 ```text
 pnpm deploy:dev
 pnpm deploy:prod
-
 pnpm deploy:dev:api
 pnpm deploy:dev:web
 pnpm deploy:dev:admin
@@ -38,193 +35,104 @@ pnpm deploy:prod:admin
 
 ## Environment input
 
-Repository environment files are deployment/operator inputs, not request-time files inside Cloudflare:
+- `.env.local` — local development only;
+- `.env.dev` — Dev migration/deploy/runtime source;
+- `.env.prod` — Prod migration/deploy/runtime source.
 
-- `.env.local` — local development only.
-- `.env.dev` — Dev migration/deploy/API runtime source.
-- `.env.prod` — Prod migration/deploy/API runtime source.
+Target API runtime requires Web/PWA auth, database, AI provider and Admin bindings. LINE-specific bindings may remain temporarily during migration but are legacy and should be removed once no retained runtime depends on them.
 
-API deployment loads exactly the selected environment file, validates the expected workers.dev origins, applies DB migration, uploads only the required whitelisted API bindings through a temporary Wrangler secrets file, deletes that temporary file, deploys to the exact Worker name, then checks health/readiness.
+Target core bindings include equivalents of:
 
-Required API runtime bindings include:
+- `DATABASE_URL`;
+- `GEMINI_API_KEY` or configured provider credential;
+- `WEB_APP_URL`;
+- `WEB_APP_ORIGIN`;
+- `WEB_AUTH_SECRET`;
+- Admin auth/session/origin secrets.
 
-- `DATABASE_URL`
-- `LINE_CHANNEL_SECRET`
-- `LINE_CHANNEL_ACCESS_TOKEN`
-- `GEMINI_API_KEY`
-- `WEB_APP_URL`
-- `WEB_APP_ORIGIN`
-- `WEB_AUTH_SECRET` >= 32
-- `LINE_LOGIN_CHANNEL_ID`
-- `LINE_LOGIN_CHANNEL_SECRET`
-- `ADMIN_USERNAME`
-- `ADMIN_PASSWORD` >= 8
-- `ADMIN_SESSION_SECRET` >= 32
-- `ADMIN_WEB_ORIGIN`
-
-Web/Admin use public build-time `VITE_API_BASE_URL`. Do not put API secrets in `VITE_*` variables.
-
-## workers.dev URLs
-
-Dev:
-
-- API `https://after-trace-api-dev.a0955625660.workers.dev`
-- Web `https://after-trace-web-dev.a0955625660.workers.dev`
-- Admin `https://after-trace-admin-dev.a0955625660.workers.dev`
-
-Prod uses the corresponding `*-prod` hosts.
-
-## Wrangler exposure / observability
-
-Each Worker explicitly uses `workers_dev = true` and `preview_urls = false`.
-
-API Worker observability/logging is checked into `apps/api/wrangler.toml`:
-
-```toml
-[observability]
-enabled = true
-
-[observability.logs]
-enabled = true
-invocation_logs = true
-```
-
-This enables persisted Workers Logs after the next API deployment. `wrangler tail` remains useful for live debugging; persisted Workers Logs allow later lookup when a failure happened while no tail session was open.
-
-A Cloudflare **Cron Trigger is unrelated to logging**. If Dashboard has a stale `* * * * *` Cron while the Worker has no intentional scheduled workload/`scheduled()` handler, remove that stale Trigger rather than adding an empty handler. Repository Wrangler config currently does not define an AFTERTRACE cron schedule.
+Do not put API secrets in `VITE_*` variables.
 
 ## Product authorization boundaries
 
-- PRIVATE manual data: current PRIVATE user only.
-- GROUP manual data: active Source member only.
-- Manual PWA CRUD/title operations are free and independent from subscription/AI funding.
-- GROUP Source existence is independent from AI 額度負責人.
-- GROUP AI requires active requesting member + current AI 額度負責人 + eligible user-owned Grant scoped to that GROUP.
-- PRIVATE AI requires positive eligible user-owned Grant for the PRIVATE Source.
-- Retired AI capability flags must not return as a second entitlement system.
+- PRIVATE manual data: authorized user only;
+- GROUP manual data: current AFTERTRACE group member/role only;
+- manual Web/PWA CRUD is independent from AI subscription;
+- paid AI entitlement is per requesting user;
+- GROUP does not require an AI responsible-user binding;
+- provider-backed operations must pass current subscription/resource-cap checks.
+
+## Cloudflare Cron for reminders
+
+Task/reminder delivery may use one Cloudflare Worker Cron Trigger, initially at an interval such as every 5 minutes.
+
+Rules:
+
+- one shared scheduler scans due reminders in bounded batches;
+- do not create one Cron Trigger per task;
+- delivery is idempotent using durable notification state;
+- if due volume grows, enqueue jobs to Cloudflare Queue and let a consumer deliver PWA push;
+- Dev and Prod schedules may differ; avoid accidental production-like push from Dev;
+- Cron execution is unrelated to Workers Logs.
+
+The previously stale Dashboard `* * * * *` trigger is legacy and must not be mistaken for the new reminder scheduler. Add an intentional schedule only when the new `scheduled()` reminder implementation exists.
+
+## PWA push
+
+Target notification architecture may include durable Web Push subscriptions per user/device and task reminder delivery facts. Push failures/revocations must not corrupt tasks. Invalid subscriptions should be deactivated/removed safely.
 
 ## Database migration policy
 
-Authoritative Drizzle export: `apps/api/src/db/schema-all.ts`.
+Authoritative Drizzle export remains `apps/api/src/db/schema-all.ts`.
 
-Current fresh-database baseline artifacts:
+Preserve existing Dev/Prod databases through forward-compatible migrations whenever a safe mapping exists. Destructive rebuild is a last resort.
 
-- `drizzle/0000_worklog_baseline.sql`
-- `drizzle/meta/0000_snapshot.json`
-- `drizzle/meta/_journal.json`
+The product reset will likely require schema cleanup/additions for:
 
-Never hand-fabricate snapshot metadata.
+- optional AI metadata on Records;
+- AFTERTRACE-native group invites/memberships;
+- subscription resource/cost caps;
+- tasks/reminders;
+- push subscriptions/delivery state;
+- removal or retirement of LINE-specific structures when safe.
 
-While the product is still prelaunch, the current baseline may be regenerated after an accepted schema change using:
+Do not delete legacy LINE tables in the same step that introduces replacements unless retained data/dependencies have been reviewed.
 
-```text
-pnpm db:baseline:regenerate --confirm-prelaunch-reset
-pnpm db:baseline:guard
-```
+## AI subscription runtime
 
-The regenerated `0000` is the canonical schema for a **fresh** database only. Regenerating it does not mean an already-existing environment database must be destroyed.
+Before any provider call, runtime must check:
 
-For an environment that previously recorded an older `0000_worklog_baseline`, `apps/api/scripts/migrate.mjs` first applies idempotent forward-compatibility migrations and only then runs the Drizzle migrator. A forward migration must preserve durable environment data whenever a safe mapping exists. Do not reset Dev/Prod merely because the canonical fresh baseline changed.
+- active paid AI entitlement;
+- feature capability for the requested operation;
+- current-period resource/point cap;
+- current-period provider-cost cap;
+- optional per-request/modality cap.
 
-Current compatibility rule for the commercial plan schema:
+Provider usage/cost remains auditable. Customer UI does not expose internal provider pricing/margin.
 
-- create `worklog_plan_type` only if the existing database does not already have it;
-- add `plan_type` and `grant_points` only when missing;
-- map legacy `code = FREE` to `plan_type = FREE`;
-- map all other legacy plans to `plan_type = SUBSCRIPTION`, because `ONE_TIME` did not exist in the legacy model;
-- copy each row's exact `subscription_period_points` value to `grant_points`, including the existing FREE value;
-- validate the FREE identity/price invariant and non-negative points before removing the obsolete column;
-- drop `subscription_period_points` only after the new columns are populated and constrained;
-- leave `worklog_ai_runtime_config`, Grants, usage, users, groups and unrelated tables unchanged.
+## API liveness/readiness
 
-The compatibility migration is intentionally idempotent. On a fresh database it no-ops before Drizzle creates the current baseline. On an already-upgraded database it also no-ops on subsequent deploys.
+- `GET /health` = Worker liveness;
+- `GET /health/ready` = schema/config/runtime readiness.
 
-Destructive database recreation is a last resort only when a safe forward mapping is genuinely impossible and must not be the default response to baseline drift.
+Readiness should evolve with the target Web/PWA product and must not permanently require retired LINE credentials once LINE runtime has been removed.
 
-## Current commercial plan schema
+## Local release validation
 
-`worklog_subscription_plans` uses:
-
-- `plan_type`: `FREE | SUBSCRIPTION | ONE_TIME`
-- `grant_points`: generic template amount
-
-Meaning:
-
-- FREE -> initial one-time points
-- SUBSCRIPTION -> per successful subscription period
-- ONE_TIME -> per successful one-time purchase
-
-The obsolete `subscription_period_points` column is no longer canonical.
-
-Exactly one FREE plan is required:
-
-- `code = FREE`
-- `plan_type = FREE`
-- `price_twd = 0`
-- `enabled = true`
-- `grant_points` = explicit Admin-configured first-grant amount (0 or greater; operator currently may choose 400,000)
-
-FREE `grant_points` is **not hard-coded**. Changing it affects only users who have not already received `FREE_INITIAL`.
-
-## First fresh-database bootstrap
-
-1. Apply the current regenerated baseline.
-2. Deploy API with complete environment bindings.
-3. `/health` must return `ok`.
-4. `/health/ready` may temporarily return `AI_RUNTIME_CONFIG_NOT_INITIALIZED` or `FREE_PLAN_NOT_INITIALIZED` only while Admin bootstrap is pending.
-5. Deploy/open Admin.
-6. Configure AI runtime provider/model/pricing/FX through `/ai-runtime`; output reference price must be positive.
-7. Configure FREE in Admin with the invariant above and the desired initial `grant_points`.
-8. Recheck `/health/ready` until `ready`.
-9. Only then continue Web/runtime smoke.
-
-For an existing environment, do not repeat fresh-database bootstrap if its durable AI runtime/FREE configuration already exists. Apply the forward migration, verify readiness and Admin data, and preserve the existing configuration.
-
-Readiness schema probe must cover current plan fields plus current Source/Grant/reservation structures. It must fail when an obsolete DB schema is missing fields required by Admin/runtime; a shallow false-green readiness is not acceptable.
-
-## API liveness vs readiness
-
-- `GET /health` = Worker liveness only.
-- `GET /health/ready` = launch/runtime/schema/bootstrap readiness.
-
-Readiness must remain diagnosable without eager Worklog/Gemini construction. It validates local configuration/schema/business-config shape, not external LINE/Gemini credential correctness; real provider smoke is still required.
-
-## Admin list API failures
-
-Admin Users/Groups database query failures must return JSON errors (`ADMIN_USERS_QUERY_FAILED` / `ADMIN_GROUPS_QUERY_FAILED`) and log the underlying exception to Worker logs. Frontend should not receive an opaque non-JSON `ADMIN_API_INVALID_RESPONSE_500` when the API can return a structured server error.
-
-## Local release preflight
+Use local validation, never GitHub Actions unless explicitly requested.
 
 ```text
 pnpm install --frozen-lockfile
 pnpm release:preflight
 ```
 
-Preflight includes baseline guard, API/Web/Admin TypeScript, ESLint, Vitest, builds/dry-run, and Drizzle schema export. It deliberately does not migrate/deploy. Passing preflight is necessary but runtime/fresh-DB smoke is still required.
+Passing static/unit validation does not replace real Dev runtime smoke for Web/PWA auth, DB, AI provider, tasks or push.
 
-## LINE attachment operational limits
+## Payment / paid launch
 
-- Original LINE binaries are never permanently stored.
-- Image default max 10 MiB.
-- General attachment default max 20 MiB.
-- LINE content 202 never reaches Gemini as bytes.
-- Missing `Content-Length` does not disable streaming limits.
-
-## Checkout / paid launch state
-
-Payment provider remains unselected/unimplemented and checkout stays disabled. When enabled later:
-
-- SUBSCRIPTION successful renewals create `SUBSCRIPTION_PERIOD` Grants.
-- ONE_TIME successful purchases create one-time/TOP_UP Grants.
-- FREE never requires checkout.
-- payment handling must be idempotent, store no raw card data, and retain successful-payment/refund facts.
-
-## Export launch state
-
-Paid Export remains intended MVP functionality but is currently unshipped/fail-closed. Do not advertise it as active until endpoint/UI/entitlement tests exist.
+Payment provider remains a separate implementation decision. When paid subscription is enabled, successful payment/renewal must create durable entitlement/period facts idempotently and must not store raw card data.
 
 ## Admin security
 
-Admin login is the only unauthenticated Admin API surface. Dev/Prod credentials/secrets must be distinct where practical. CORS origins are exact per environment.
+Admin login remains the only unauthenticated Admin API surface. Dev/Prod credentials/secrets should be distinct where practical. CORS origins are exact per environment.
 
 GitHub Actions must not be used as deployment or validation unless the user explicitly requests it.
