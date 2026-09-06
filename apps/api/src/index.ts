@@ -19,7 +19,6 @@ import { DrizzleWorklogAiResponsibilityRepository } from './worklog/drizzle-ai-r
 import { DrizzleWorklogBootstrapRepository } from './worklog/drizzle-bootstrap';
 import { DrizzleWorklogCollaborationRepository } from './worklog/drizzle-collaboration';
 import { DrizzleWorklogLineRecordEditRepository } from './worklog/drizzle-line-record-edit';
-import { DrizzleWorklogPrivateInputModeRepository } from './worklog/drizzle-oa-input-mode';
 import { DrizzleWorklogRecordWriteRepository } from './worklog/drizzle-records';
 import { DrizzleWorklogTextNormalizationRepository } from './worklog/drizzle-text-normalization';
 import { GeminiWorklogLineRecordEditor } from './worklog/gemini-line-record-editor';
@@ -30,7 +29,6 @@ import { WorklogHistoryQueryService } from './worklog/history-query';
 import { processWorklogGroupWebhook } from './worklog/group-webhook';
 import { WorklogLineRecordEditService } from './worklog/line-record-edit';
 import { WorklogLineRuntime } from './worklog/line-runtime';
-import { WorklogPrivateInputModeService } from './worklog/oa-input-mode';
 import { WorklogOaRuntime } from './worklog/oa-runtime';
 import { processWorklogOaWebhook } from './worklog/oa-webhook';
 import { WorklogRecordWriteService } from './worklog/records';
@@ -73,7 +71,6 @@ app.get('/health/ready', async (c) => {
         (SELECT COUNT(plan_type) FROM worklog_subscription_plans WHERE FALSE) AS plan_type_probe,
         (SELECT COUNT(grant_points) FROM worklog_subscription_plans WHERE FALSE) AS plan_points_probe,
         (SELECT COUNT(search_terms) FROM worklog_records WHERE FALSE) AS record_search_terms_probe,
-        (SELECT COUNT(*) FROM worklog_private_pending_actions WHERE FALSE) AS private_input_mode_probe,
         (SELECT COUNT(*) FROM worklog_entities WHERE FALSE) AS entities_probe,
         (SELECT COUNT(*) FROM worklog_entity_aliases WHERE FALSE) AS aliases_probe,
         (SELECT COUNT(*) FROM worklog_record_revisions WHERE FALSE) AS revisions_probe,
@@ -148,10 +145,9 @@ app.post('/webhooks/line', async (c) => {
   const worklogRecordWriteService = new WorklogRecordWriteService(new DrizzleWorklogRecordWriteRepository(database));
   const worklogTextNormalizationService = new WorklogTextNormalizationService(new DrizzleWorklogTextNormalizationRepository(database), worklogAiPoints, new GeminiWorklogTextNormalizer({ apiKey: c.env.GEMINI_API_KEY }));
   const worklogLineRecordEditService = new WorklogLineRecordEditService(new DrizzleWorklogLineRecordEditRepository(database), worklogAiPoints, new GeminiWorklogLineRecordEditor({ apiKey: c.env.GEMINI_API_KEY }));
-  const worklogPrivateInputModes = new WorklogPrivateInputModeService(new DrizzleWorklogPrivateInputModeRepository(database));
   const worklogManualCollaboration = new WorklogCollaborationService(new DrizzleWorklogCollaborationRepository(database));
   const worklogLineRuntime = new WorklogLineRuntime(worklogBootstrapService, new WorklogGrantBackedCollaboration(worklogManualCollaboration, worklogAiResponsibility), worklogRecordWriteService, worklogTextNormalizationService, worklogLineRecordEditService);
-  const worklogOaRuntime = new WorklogOaRuntime(worklogBootstrapService, worklogRecordWriteService, worklogTextNormalizationService, worklogLineRecordEditService, worklogAiGrants, worklogPrivateInputModes);
+  const worklogOaRuntime = new WorklogOaRuntime(worklogBootstrapService, worklogRecordWriteService, worklogTextNormalizationService, worklogLineRecordEditService, worklogAiGrants);
 
   const [groupCounters, oaCounters] = await Promise.all([
     processWorklogGroupWebhook({
@@ -215,7 +211,6 @@ function exactAppOrigin(value: string | undefined): string | null {
     return url.origin;
   } catch { return null; }
 }
-
 function appendHistoryFilters(url: string | null, filters: WorklogHistoryFilters): string | null {
   if (!url) return null;
   const value = new URL(url);
