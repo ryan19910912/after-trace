@@ -92,8 +92,6 @@ describe('parseLineWebhook', () => {
           type: 'join',
           webhookEventId: 'bot-join-1',
           timestamp: 1_700_000_000_000,
-          // LINE documents group source.userId as message-event-only. Keep this
-          // synthetic field here to ensure we never turn it into Owner evidence.
           source: { type: 'group', groupId: 'group-1', userId: 'synthetic-inviter' },
         },
       ],
@@ -202,6 +200,31 @@ describe('parseOaWebhook', () => {
       quoteToken: 'quote-1',
     });
     expect(unfollow.event).toMatchObject({ lineUserId: 'user-oa', type: 'UNFOLLOW' });
+  });
+
+  it('parses private OA Rich Menu postback data without fabricating a message id', () => {
+    const parsed = parseOaWebhook({
+      events: [
+        {
+          type: 'postback',
+          webhookEventId: 'postback-1',
+          replyToken: 'reply-postback-1',
+          timestamp: 1_700_000_003_000,
+          source: { type: 'user', userId: 'user-oa' },
+          postback: { data: 'aftertrace:record' },
+        },
+      ],
+    });
+
+    expect(parsed.events).toHaveLength(1);
+    const event = parsed.events[0];
+    if (event.kind !== 'OA_POSTBACK') throw new Error('Expected OA postback');
+    expect(event.event).toMatchObject({
+      webhookEventId: 'postback-1',
+      replyToken: 'reply-postback-1',
+      lineUserId: 'user-oa',
+      data: 'aftertrace:record',
+    });
   });
 
   it('keeps private attachment metadata but not binary data', () => {
