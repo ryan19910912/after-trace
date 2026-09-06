@@ -191,11 +191,6 @@ export class DrizzleWorklogRecordWriteRepository implements WorklogRecordWriteRe
 export class DrizzleWorklogRecordReadRepository implements WorklogRecordReadRepository {
   constructor(private readonly db: Database) {}
 
-  async isOaFriend(userId: number): Promise<boolean> {
-    const result = await this.db.execute(sql`SELECT is_oa_friend FROM worklog_users WHERE id = ${userId} LIMIT 1`);
-    return Boolean((result.rows[0] as { is_oa_friend?: boolean } | undefined)?.is_oa_friend);
-  }
-
   async getActivePersonalSourceId(userId: number): Promise<number | null> {
     const result = await this.db.execute(sql`
       SELECT id::text AS id FROM worklog_sources
@@ -206,21 +201,31 @@ export class DrizzleWorklogRecordReadRepository implements WorklogRecordReadRepo
     return id ? Number(id) : null;
   }
 
-  /** Baseline GROUP PWA authorization is membership, not billing entitlement. */
+  /** Target PWA GROUP discovery is native membership; LINE id is migration trace only. */
   async listActiveGroupSurfaces(userId: number): Promise<WorklogGroupSurface[]> {
     const result = await this.db.execute(sql`
-      SELECT source.id::text AS source_id, source.line_group_id
+      SELECT source.id::text AS source_id,
+             COALESCE(NULLIF(btrim(source.name), ''), source.line_group_id) AS name,
+             member.role,
+             source.line_group_id AS legacy_line_group_id
       FROM worklog_source_members AS member
       INNER JOIN worklog_sources AS source ON source.id = member.source_id
       WHERE member.user_id = ${userId}
         AND member.is_active = TRUE
         AND source.type = 'GROUP'
         AND source.status = 'ACTIVE'
-        AND source.line_group_id IS NOT NULL
       ORDER BY source.updated_at DESC, source.id DESC
     `);
-    return (result.rows as Array<{ source_id: string; line_group_id: string }>).map((row) => ({
-      sourceId: Number(row.source_id), lineGroupId: row.line_group_id,
+    return (result.rows as Array<{
+      source_id: string;
+      name: string | null;
+      role: 'OWNER' | 'MEMBER';
+      legacy_line_group_id: string | null;
+    }>).map((row) => ({
+      sourceId: Number(row.source_id),
+      name: row.name ?? `群組 ${row.source_id}`,
+      role: row.role,
+      legacyLineGroupId: row.legacy_line_group_id,
     }));
   }
 
