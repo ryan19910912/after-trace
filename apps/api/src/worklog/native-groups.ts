@@ -34,6 +34,8 @@ export type NativeGroupJoinResult =
   | { status: 'INVALID_INVITE' };
 
 export interface NativeGroupRepository {
+  listGroups(actorUserId: number): Promise<NativeGroupSummary[]>;
+
   createGroup(input: {
     creatorUserId: number;
     name: string;
@@ -87,6 +89,10 @@ export class NativeGroupService {
     private readonly repository: NativeGroupRepository,
     private readonly tokenCodec: NativeGroupInviteTokenCodec = new WebCryptoNativeGroupInviteTokenCodec(),
   ) {}
+
+  async listGroups(actorUserId: number): Promise<NativeGroupSummary[]> {
+    return this.repository.listGroups(positiveInteger(actorUserId, 'actor user id'));
+  }
 
   async createGroup(input: {
     creatorUserId: number;
