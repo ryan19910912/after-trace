@@ -20,6 +20,7 @@ import { DrizzleWorklogRecordNormalizationRepository } from './worklog/drizzle-r
 import { createWorklogFundingRoutes } from './worklog/funding-routes';
 import { GeminiWorklogAttachmentNormalizer } from './worklog/gemini-attachment-normalizer';
 import { GeminiWorklogTextNormalizer } from './worklog/gemini-text-normalizer';
+import { createManualRecordRoutes } from './worklog/manual-record-routes';
 import { createNativeGroupRoutes } from './worklog/native-group-routes';
 import { RecordNormalizationAiPointPort } from './worklog/record-normalization-ai-points';
 import { createWorklogRoutes } from './worklog/routes';
@@ -32,6 +33,7 @@ type ApiBoundary = 'ADMIN_API' | 'SUBSCRIPTION_API' | 'WORKLOG_WEB_API';
 const adminRoutes = createAdminRoutes();
 const adminProfitabilityRoutes = createAdminProfitabilityRoutes();
 const nativeGroupRoutes = createNativeGroupRoutes();
+const manualRecordRoutes = createManualRecordRoutes();
 const worklogRoutes = createWorklogRoutes();
 const worklogConfirmationRoutes = createWorklogConfirmationRoutes();
 const worklogFundingRoutes = createWorklogFundingRoutes();
@@ -61,6 +63,13 @@ function configureWorklogRuntime(env: Bindings): void {
 function legacyRoute(pathname: string): boolean {
   return LEGACY_AUTH_PATHS.has(pathname)
     || LEGACY_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}
+
+function manualRecordRoute(pathname: string): boolean {
+  if (pathname === '/api/v1/worklog/surfaces') return true;
+  if (/^\/api\/v1\/worklog\/records\/personal(?:\/deleted)?$/.test(pathname)) return true;
+  if (/^\/api\/v1\/worklog\/records\/group\/\d+(?:\/deleted)?$/.test(pathname)) return true;
+  return /^\/api\/v1\/worklog\/records\/\d+(?:\/restore|\/revisions)?$/.test(pathname);
 }
 
 async function withApiAnomalyBoundary(
@@ -126,8 +135,6 @@ export default {
       return app.fetch(request, env, executionContext as never);
     }
 
-    configureWorklogRuntime(env);
-
     if (legacyRoute(url.pathname)) {
       return Response.json({ ok: false, error: 'LEGACY_AFTERTRACE_RUNTIME_DISABLED' }, { status: 410 });
     }
@@ -162,6 +169,19 @@ export default {
       return withApiAnomalyBoundary('WORKLOG_WEB_API', request, env, () =>
         nativeGroupRoutes.fetch(routedRequest, env as never, executionContext as never));
     }
+    if (manualRecordRoute(url.pathname)) {
+      const rewritten = new URL(request.url);
+      rewritten.pathname = url.pathname.slice('/api/v1/worklog'.length) || '/';
+      const routedRequest = new Request(rewritten, request);
+      return withApiAnomalyBoundary('WORKLOG_WEB_API', request, env, () =>
+        manualRecordRoutes.fetch(routedRequest, env as never, executionContext as never));
+    }
+
+    // Everything below this boundary is still migration-era Worklog/LINE runtime and may
+    // require provider/LINE bindings. Free manual Web/PWA routes above must not eagerly
+    // construct Gemini or LINE attachment clients.
+    configureWorklogRuntime(env);
+
     if (url.pathname === '/api/v1/worklog/confirmations' || url.pathname.startsWith('/api/v1/worklog/confirmations/')) {
       const rewritten = new URL(request.url);
       rewritten.pathname = url.pathname.slice('/api/v1/worklog/confirmations'.length) || '/';
