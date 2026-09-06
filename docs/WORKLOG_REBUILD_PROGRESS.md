@@ -15,7 +15,7 @@ Read first every substantive development run, in this exact order:
 
 The latest documents above are the only product/development specification. Do not use GitHub Actions. Every development commit must contain `[skip ci]`.
 
-## Current checkpoint — 2026-09-06 private OA Rich Menu modes added, schema validation pending
+## Current checkpoint — 2026-09-06 private OA Rich Menu Postback modes added, schema validation pending
 
 Cloudflare deployment remains manual:
 
@@ -86,33 +86,37 @@ Accepted behavior:
 - Web non-friend add-OA prompt is optional convenience messaging, not gating
 - later OA follow must not duplicate FREE_INITIAL
 
-## NEW: private OA Rich Menu input modes — implemented in branch
+## NEW: private OA Rich Menu Postback input modes — implemented in branch
 
 Private OA create/query no longer requires the customer to type `@AFTERTRACE` as the primary UX and does not automatically interpret every private sentence as a database action.
 
-Rich Menu message actions:
+Rich Menu Postback contract:
 
-- `快速記錄`
-- `查詢紀錄`
+- `aftertrace:record`
+- `aftertrace:query`
+- `aftertrace:cancel`
 
 Flow:
 
 1. user taps a Rich Menu button;
-2. OA receives the button's text message;
-3. backend persists `RECORD` or `QUERY` in `worklog_private_pending_actions`;
-4. TTL = 10 minutes;
-5. OA replies with the appropriate input prompt;
-6. next non-empty text consumes the mode exactly once;
-7. sticker/image/audio/file does not consume a text mode;
-8. expired mode fails clearly and does not guess intent;
-9. RECORD -> normal PRIVATE AI grant preflight + Record normalization/persistence;
-10. QUERY -> deterministic history retrieval, no AI-point requirement.
+2. LINE sends an OA `postback` webhook, not a visible chat command;
+3. backend parses the Postback separately from normal messages and does not fabricate a message id;
+4. `record` or `query` persists `RECORD` / `QUERY` in `worklog_private_pending_actions`;
+5. TTL = 10 minutes;
+6. OA replies with the appropriate input prompt;
+7. next non-empty text consumes the mode exactly once;
+8. sticker/image/audio/file does not consume a text mode;
+9. expired mode fails clearly and does not guess intent;
+10. RECORD -> normal PRIVATE AI grant preflight + Record normalization/persistence;
+11. QUERY -> deterministic history retrieval, no AI-point requirement;
+12. `aftertrace:cancel` clears the pending action; literal `取消` is also accepted as a safety fallback;
+13. unknown Postback data is `NOT_HANDLED` / fail-closed.
 
 Ordinary private text without a pending mode remains support/non-product traffic and is not auto-saved or auto-queried.
 
 GROUP behavior is unchanged and still requires `@AFTERTRACE`.
 
-Legacy private `@AFTERTRACE` parsing remains as a compatibility fallback, including existing Reply-edit/attachment behavior, but is not the customer-facing OA interaction contract.
+Legacy private `@AFTERTRACE` parsing remains temporarily as a compatibility/debug fallback, including existing Reply-edit/attachment behavior, but is not the customer-facing OA interaction contract.
 
 ### New durable schema
 
@@ -135,50 +139,55 @@ Files added/changed include:
 - `apps/api/src/db/schema-worklog-oa-mode.ts`
 - `apps/api/src/db/schema-all.ts`
 - `apps/api/scripts/forward-compat.mjs`
+- `apps/api/src/line/events.ts`
 - `apps/api/src/worklog/oa-input-mode.ts`
 - `apps/api/src/worklog/drizzle-oa-input-mode.ts`
 - `apps/api/src/worklog/oa-runtime.ts`
 - `apps/api/src/worklog/oa-webhook.ts`
 - `apps/api/src/index.ts`
-- targeted new tests for input-mode TTL and OA runtime mode behavior
+- targeted tests for input-mode TTL/cancel, Postback parsing, OA runtime Postback behavior and OA webhook routing
 - product/development docs
 
-Readiness now probes `worklog_private_pending_actions` because OA record/query depends on it.
+Readiness now probes `worklog_private_pending_actions` because OA record/query operation depends on it.
 
 ## Rich Menu operator configuration after backend is green
 
-In LINE Official Account Manager, configure the private OA Rich Menu so the first two buttons send these **exact text messages**:
+In LINE Official Account Manager, configure the private OA Rich Menu with **Postback actions**:
 
-- button label: `快速記錄`; action/message text: `快速記錄`
-- button label: `查詢紀錄`; action/message text: `查詢紀錄`
+- button label: `快速記錄`; Postback data: `aftertrace:record`
+- button label: `查詢紀錄`; Postback data: `aftertrace:query`
+- cancellation UI (Rich Menu or later Quick Reply): Postback data: `aftertrace:cancel`
 
-Additional buttons can link to `我的紀錄` and `方案 / AI 點數` Web/PWA destinations later. No LINE postback protocol is required for this first version.
+For mode-selection actions, leave visible `displayText` empty unless a later product decision explicitly wants a visible chat line. The goal is that tapping the Rich Menu does not send a fake user message such as `快速記錄`.
+
+Additional buttons can link to `我的紀錄` and `方案 / AI 點數` Web/PWA destinations later.
 
 ## Web/PWA `AI 幫我記`
 
 Accepted architecture remains preview-first and shared with LINE AI interpretation. Implementation is still pending after the current LINE/OA runtime work is green.
 
-## Current validation status for the Rich Menu batch
+## Current validation status for the Rich Menu/Postback batch
 
-The assistant has authored the code/tests/docs but has **not** executed them locally and has not deployed them.
+The assistant has authored the code/tests/docs but has **not** executed the latest Postback changes locally and has not deployed them.
 
-Because a new canonical table was added, do **not** deploy yet. Required validation order:
+Because the pending-action canonical table was added in the immediately preceding Rich Menu batch, do **not** deploy yet. Required validation order:
 
 1. pull latest branch
 2. API typecheck
-3. run `oa-input-mode.test.ts`, `oa-runtime-mode.test.ts`, existing `oa-runtime.test.ts`, `oa-webhook.test.ts`
+3. run `src/line/events.test.ts`, `oa-input-mode.test.ts`, `oa-runtime-mode.test.ts`, existing `oa-runtime.test.ts`, `oa-webhook.test.ts`
 4. regenerate canonical baseline with `pnpm db:baseline:regenerate --confirm-prelaunch-reset`
 5. run `pnpm db:baseline:guard`
 6. review baseline diff for `worklog_private_pending_actions`; commit generated Drizzle artifacts with `[skip ci]`
 7. run the existing Dev forward migration using `.env.dev`; do not rebuild Dev DB
 8. verify new pending-action table + preserved AI runtime/FREE plan
 9. deploy Dev API and verify `/health` + `/health/ready`
-10. configure Dev OA Rich Menu exact action texts
+10. configure Dev OA Rich Menu Postbacks exactly as above
 11. real OA E2E:
     - tap `快速記錄` -> prompt -> `晴空案今天收3000清潔費` -> Record + AI semantic terms
     - tap `查詢紀錄` -> prompt -> `晴空案目前收款進度如何` -> DB facts + deep link
+    - tap cancel -> pending action cleared, next ordinary sentence must not be recorded/queried
 12. if OA still gives no webhook response, inspect Cloudflare Worker logs and LINE Developers webhook delivery/config rather than guessing from the UI
 
 No GitHub Actions workflow was run, dispatched, rerun, enabled, modified, triggered, or used as validation.
 
-Current deployment status: **PREVIOUS DEV DB/SEMANTIC-SEARCH FOUNDATION GREEN; NEW PRIVATE OA INPUT-MODE SCHEMA/CODE REQUIRES TYPECHECK + TARGETED TESTS + BASELINE REGEN/GUARD + DEV FORWARD MIGRATION BEFORE DEPLOYMENT.**
+Current deployment status: **PREVIOUS DEV DB/SEMANTIC-SEARCH FOUNDATION GREEN; NEW PRIVATE OA INPUT-MODE SCHEMA + POSTBACK CODE REQUIRES TYPECHECK + TARGETED TESTS + BASELINE REGEN/GUARD + DEV FORWARD MIGRATION BEFORE DEPLOYMENT.**
