@@ -34,8 +34,7 @@ type GeminiGenerateContentResponse = {
 
 const PRODUCT_TIME_ZONE = 'Asia/Taipei';
 const THINKING_LEVEL = 'low';
-const intents = ['RECORD', 'QUERY', 'EDIT', 'DELETE', 'RESTORE', 'MOVE', 'SYSTEM_QUERY', 'UNKNOWN'] as const;
-const systemQueries = ['AI_STATUS', 'AI_BALANCE', 'AI_RESPONSIBLE_USER'] as const;
+const intents = ['RECORD', 'QUERY', 'EDIT', 'DELETE', 'RESTORE', 'MOVE', 'UNKNOWN'] as const;
 
 const structuredOutputSchema = z.object({
   intent: z.enum(intents),
@@ -51,7 +50,6 @@ const structuredOutputSchema = z.object({
   edit_title: z.string().trim().min(1).max(255).nullable(),
   edit_title_requires_confirmation: z.boolean(),
   move_title: z.string().trim().min(1).max(255).nullable(),
-  system_query: z.enum(systemQueries).nullable(),
   reason: z.string().trim().min(1).max(500).nullable(),
 }).strict();
 
@@ -72,14 +70,13 @@ const responseJsonSchema = {
     edit_title: { anyOf: [{ type: 'string' }, { type: 'null' }] },
     edit_title_requires_confirmation: { type: 'boolean' },
     move_title: { anyOf: [{ type: 'string' }, { type: 'null' }] },
-    system_query: { anyOf: [{ type: 'string', enum: [...systemQueries] }, { type: 'null' }] },
     reason: { anyOf: [{ type: 'string' }, { type: 'null' }] },
   },
   required: [
     'intent', 'record_content', 'record_title', 'record_title_requires_confirmation',
     'record_occurred_at', 'record_search_terms', 'query_text', 'edit_instruction',
     'edit_raw_text', 'edit_occurred_at', 'edit_title', 'edit_title_requires_confirmation',
-    'move_title', 'system_query', 'reason',
+    'move_title', 'reason',
   ],
 } as const;
 
@@ -97,7 +94,8 @@ export function buildGeminiWorklogLineNaturalInterpreterRequestBody(
     systemInstruction: {
       parts: [{ text: [
         'You are the bounded natural-language interpreter for AFTERTRACE LINE assistant 小跡.',
-        'Interpret exactly one user message into RECORD, QUERY, EDIT, DELETE, RESTORE, MOVE, SYSTEM_QUERY, or UNKNOWN.',
+        'Interpret exactly one user message into RECORD, QUERY, EDIT, DELETE, RESTORE, MOVE, or UNKNOWN.',
+        'System status is a deterministic fixed command handled before this interpreter; never classify a request as a system-status intent.',
         'Do not call tools, answer the user, summarize historical records, or invent stored facts.',
         'RECORD preserves a work fact. Remove control wording such as 幫我記一下 while preserving durable content; also propose one filing title, optional date, and at most 12 grounded search terms.',
         `Resolve relative dates against reference_timestamp in ${PRODUCT_TIME_ZONE}; record_occurred_at must be YYYY-MM-DD or null when no date expression is present.`,
@@ -105,7 +103,6 @@ export function buildGeminiWorklogLineNaturalInterpreterRequestBody(
         'EDIT changes content/date and may also change title. It requires an exact backend target; never guess which Record.',
         'DELETE means soft-delete the exact replied-to Record. RESTORE means restore an exact replied-to deleted Record. Never infer a target from phrases such as 剛剛那筆 if no exact target is supplied.',
         'MOVE means change only the filing title/Entity of the exact replied-to Record while keeping its content/date unchanged. Put the requested destination title in move_title.',
-        'SYSTEM_QUERY is only for AI operating facts: AI_STATUS means whether AI is usable/configured for this Source, AI_BALANCE means remaining AI points, AI_RESPONSIBLE_USER means who currently funds GROUP AI.',
         'If a Reply contains quoted ordinary text and the user asks to record it, use quoted_text as durable fact context.',
         'UNKNOWN is for genuinely ambiguous or unsupported requests. Do not silently convert uncertainty into RECORD.',
         'Fields unrelated to the chosen intent must still be present using null, false, or empty arrays as appropriate.',
@@ -224,10 +221,6 @@ function normalizeInterpretation(parsed: z.infer<typeof structuredOutputSchema>,
   if (parsed.intent === 'MOVE') {
     if (!parsed.move_title) throw new WorklogLineNaturalInterpreterError('GEMINI_INVALID_RESPONSE', 'MOVE requires move_title');
     return { intent: 'MOVE', title: parsed.move_title };
-  }
-  if (parsed.intent === 'SYSTEM_QUERY') {
-    if (!parsed.system_query) throw new WorklogLineNaturalInterpreterError('GEMINI_INVALID_RESPONSE', 'SYSTEM_QUERY requires system_query');
-    return { intent: 'SYSTEM_QUERY', query: parsed.system_query };
   }
   return { intent: 'UNKNOWN', reason: parsed.reason };
 }
