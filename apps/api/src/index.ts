@@ -22,7 +22,9 @@ import { DrizzleWorklogCollaborationRepository } from './worklog/drizzle-collabo
 import { DrizzleWorklogGroupProfileRepository } from './worklog/drizzle-group-profile';
 import { DrizzleWorklogInterpretedEditStageRepository } from './worklog/drizzle-interpreted-edit';
 import { DrizzleWorklogInterpretedRecordRepository } from './worklog/drizzle-interpreted-record';
+import { DrizzleWorklogLineRecordActionRepository } from './worklog/drizzle-line-record-actions';
 import { DrizzleWorklogLineRecordEditRepository } from './worklog/drizzle-line-record-edit';
+import { DrizzleWorklogLineSystemQueryRepository } from './worklog/drizzle-line-system-query';
 import { DrizzleWorklogRecordWriteRepository } from './worklog/drizzle-records';
 import { DrizzleWorklogTextNormalizationRepository } from './worklog/drizzle-text-normalization';
 import { GeminiWorklogLineNaturalInterpreter } from './worklog/gemini-line-natural-interpreter';
@@ -35,6 +37,8 @@ import { WorklogInterpretedEditService } from './worklog/interpreted-edit';
 import { WorklogInterpretedRecordService } from './worklog/interpreted-record';
 import { WorklogLineNaturalInterpreterService } from './worklog/line-natural-interpreter';
 import { WorklogLineNaturalRuntime } from './worklog/line-natural-runtime';
+import { WorklogLineRecordActionService } from './worklog/line-record-actions';
+import { WorklogLineSystemQueryService } from './worklog/line-system-query';
 import { WorklogOaNaturalRuntime } from './worklog/oa-natural-runtime';
 import { processWorklogOaWebhook } from './worklog/oa-webhook';
 import { WorklogRecordWriteService } from './worklog/records';
@@ -63,9 +67,7 @@ app.get('/health', (c) => c.json({ service: 'after-trace-api', product: 'worklog
 
 app.get('/health/ready', async (c) => {
   const missing = launchConfigErrors(c.env);
-  if (missing.length > 0) {
-    return c.json({ service: 'after-trace-api', product: 'worklog', status: 'not_ready', error: 'RUNTIME_CONFIG_INCOMPLETE', missing }, 503);
-  }
+  if (missing.length > 0) return c.json({ service: 'after-trace-api', product: 'worklog', status: 'not_ready', error: 'RUNTIME_CONFIG_INCOMPLETE', missing }, 503);
   const database = createDatabase(c.env.DATABASE_URL);
   try {
     await database.execute(sql`
@@ -93,28 +95,20 @@ app.get('/health/ready', async (c) => {
     return c.json({ service: 'after-trace-api', product: 'worklog', status: 'not_ready', error: 'WORKLOG_DATABASE_OR_SCHEMA_UNAVAILABLE' }, 503);
   }
   try {
-    const runtime = await database.execute(sql`
-      SELECT provider, model, output_usd_per_million FROM worklog_ai_runtime_config WHERE id = 1 LIMIT 1
-    `);
+    const runtime = await database.execute(sql`SELECT provider, model, output_usd_per_million FROM worklog_ai_runtime_config WHERE id = 1 LIMIT 1`);
     const row = runtime.rows[0] as { provider?: unknown; model?: unknown; output_usd_per_million?: unknown } | undefined;
     const outputPrice = Number(row?.output_usd_per_million ?? 0);
     const provider = typeof row?.provider === 'string' ? row.provider.trim().toUpperCase() : '';
     const model = typeof row?.model === 'string' ? row.model.trim() : '';
-    if (provider !== SUPPORTED_AI_PROVIDER || !model || !Number.isFinite(outputPrice) || outputPrice <= 0) {
-      return c.json({ service: 'after-trace-api', product: 'worklog', status: 'not_ready', error: 'AI_RUNTIME_CONFIG_NOT_INITIALIZED' }, 503);
-    }
+    if (provider !== SUPPORTED_AI_PROVIDER || !model || !Number.isFinite(outputPrice) || outputPrice <= 0) return c.json({ service: 'after-trace-api', product: 'worklog', status: 'not_ready', error: 'AI_RUNTIME_CONFIG_NOT_INITIALIZED' }, 503);
   } catch {
     return c.json({ service: 'after-trace-api', product: 'worklog', status: 'not_ready', error: 'AI_RUNTIME_CONFIG_NOT_INITIALIZED' }, 503);
   }
   try {
-    const free = await database.execute(sql`
-      SELECT plan_type, price_twd, grant_points, enabled FROM worklog_subscription_plans WHERE code = 'FREE' LIMIT 1
-    `);
+    const free = await database.execute(sql`SELECT plan_type, price_twd, grant_points, enabled FROM worklog_subscription_plans WHERE code = 'FREE' LIMIT 1`);
     const row = free.rows[0] as { plan_type?: unknown; price_twd?: unknown; grant_points?: unknown; enabled?: unknown } | undefined;
     const grantPoints = Number(row?.grant_points ?? -1);
-    if (row?.enabled !== true || row.plan_type !== 'FREE' || Number(row.price_twd ?? -1) !== 0 || !Number.isSafeInteger(grantPoints) || grantPoints < 0) {
-      return c.json({ service: 'after-trace-api', product: 'worklog', status: 'not_ready', error: 'FREE_PLAN_NOT_INITIALIZED' }, 503);
-    }
+    if (row?.enabled !== true || row.plan_type !== 'FREE' || Number(row.price_twd ?? -1) !== 0 || !Number.isSafeInteger(grantPoints) || grantPoints < 0) return c.json({ service: 'after-trace-api', product: 'worklog', status: 'not_ready', error: 'FREE_PLAN_NOT_INITIALIZED' }, 503);
   } catch {
     return c.json({ service: 'after-trace-api', product: 'worklog', status: 'not_ready', error: 'FREE_PLAN_NOT_INITIALIZED' }, 503);
   }
@@ -124,9 +118,7 @@ app.get('/health/ready', async (c) => {
 app.post('/webhooks/line', async (c) => {
   const rawBody = await c.req.text();
   const signature = c.req.header('x-line-signature');
-  if (!signature || !(await verifyLineSignature(rawBody, signature, c.env.LINE_CHANNEL_SECRET))) {
-    return c.json({ ok: false, error: 'INVALID_LINE_SIGNATURE' }, 401);
-  }
+  if (!signature || !(await verifyLineSignature(rawBody, signature, c.env.LINE_CHANNEL_SECRET))) return c.json({ ok: false, error: 'INVALID_LINE_SIGNATURE' }, 401);
   let payload: unknown;
   try { payload = JSON.parse(rawBody) as unknown; } catch { return c.json({ ok: false, error: 'INVALID_JSON' }, 400); }
   const parsedGroup = parseLineWebhook(payload);
@@ -138,9 +130,7 @@ app.post('/webhooks/line', async (c) => {
   const database = createDatabase(c.env.DATABASE_URL);
   const webAppUrl = c.env.WEB_APP_URL?.trim();
   const webAuthSecret = c.env.WEB_AUTH_SECRET?.trim();
-  const webAuthService = webAppUrl && webAuthSecret
-    ? new WebAuthService(new DrizzleWebAuthRepository(database), c.env.LINE_CHANNEL_ACCESS_TOKEN, webAuthSecret)
-    : null;
+  const webAuthService = webAppUrl && webAuthSecret ? new WebAuthService(new DrizzleWebAuthRepository(database), c.env.LINE_CHANNEL_ACCESS_TOKEN, webAuthSecret) : null;
   const lineReplyClient = new LineMessagingReplyClient(c.env.LINE_CHANNEL_ACCESS_TOKEN);
   const lineGroupSummaryClient = new LineGroupSummaryClient(c.env.LINE_CHANNEL_ACCESS_TOKEN);
   const worklogAnomalies = new DrizzleWorklogAnomalyRepository(database);
@@ -153,34 +143,15 @@ app.post('/webhooks/line', async (c) => {
   const worklogRecordWriteService = new WorklogRecordWriteService(new DrizzleWorklogRecordWriteRepository(database));
   const normalizationRepository = new DrizzleWorklogTextNormalizationRepository(database);
   const lineEditRepository = new DrizzleWorklogLineRecordEditRepository(database);
-  const worklogNaturalInterpreter = new WorklogLineNaturalInterpreterService(
-    normalizationRepository,
-    worklogAiPoints,
-    new GeminiWorklogLineNaturalInterpreter({ apiKey: c.env.GEMINI_API_KEY }),
-  );
+  const worklogNaturalInterpreter = new WorklogLineNaturalInterpreterService(normalizationRepository, worklogAiPoints, new GeminiWorklogLineNaturalInterpreter({ apiKey: c.env.GEMINI_API_KEY }));
   const worklogInterpretedRecords = new WorklogInterpretedRecordService(new DrizzleWorklogInterpretedRecordRepository(database));
-  const worklogInterpretedEdits = new WorklogInterpretedEditService(
-    lineEditRepository,
-    new DrizzleWorklogInterpretedEditStageRepository(database),
-  );
+  const worklogInterpretedEdits = new WorklogInterpretedEditService(lineEditRepository, new DrizzleWorklogInterpretedEditStageRepository(database));
+  const worklogRecordActions = new WorklogLineRecordActionService(new DrizzleWorklogLineRecordActionRepository(database));
+  const worklogSystemQueries = new WorklogLineSystemQueryService(new DrizzleWorklogLineSystemQueryRepository(database), worklogAiGrants);
   const worklogManualCollaboration = new WorklogCollaborationService(new DrizzleWorklogCollaborationRepository(database));
   const worklogCollaboration = new WorklogGrantBackedCollaboration(worklogManualCollaboration, worklogAiResponsibility);
-  const worklogLineRuntime = new WorklogLineNaturalRuntime(
-    worklogBootstrapService,
-    worklogCollaboration,
-    worklogRecordWriteService,
-    worklogNaturalInterpreter,
-    worklogInterpretedRecords,
-    worklogInterpretedEdits,
-  );
-  const worklogOaRuntime = new WorklogOaNaturalRuntime(
-    worklogBootstrapService,
-    worklogRecordWriteService,
-    worklogNaturalInterpreter,
-    worklogInterpretedRecords,
-    worklogInterpretedEdits,
-    worklogAiGrants,
-  );
+  const worklogLineRuntime = new WorklogLineNaturalRuntime(worklogBootstrapService, worklogCollaboration, worklogRecordWriteService, worklogNaturalInterpreter, worklogInterpretedRecords, worklogInterpretedEdits, worklogRecordActions, worklogSystemQueries);
+  const worklogOaRuntime = new WorklogOaNaturalRuntime(worklogBootstrapService, worklogRecordWriteService, worklogNaturalInterpreter, worklogInterpretedRecords, worklogInterpretedEdits, worklogRecordActions, worklogSystemQueries, worklogAiGrants);
 
   const [groupCounters, oaCounters] = await Promise.all([
     processWorklogGroupWebhook({
@@ -192,9 +163,7 @@ app.post('/webhooks/line', async (c) => {
       anomalies: worklogAnomalies,
       refreshGroupProfile: async (lineGroupId, at) => worklogGroupProfiles.refreshIfStale({ lineGroupId, at }),
       queryHistory: async (target) => worklogHistory.query(target.sourceId, target.filters),
-      createQueryUrl: webAuthService && webAppUrl
-        ? async (target) => appendHistoryFilters(await webAuthService.createBotEntry({ webAppUrl, lineUserId: target.lineUserId, lineGroupId: target.lineGroupId, at: target.at }), target.filters)
-        : undefined,
+      createQueryUrl: webAuthService && webAppUrl ? async (target) => appendHistoryFilters(await webAuthService.createBotEntry({ webAppUrl, lineUserId: target.lineUserId, lineGroupId: target.lineGroupId, at: target.at }), target.filters) : undefined,
     }),
     processWorklogOaWebhook({
       parsed: parsedOa,
@@ -203,9 +172,7 @@ app.post('/webhooks/line', async (c) => {
       replyTargets: worklogRecordWriteService,
       anomalies: worklogAnomalies,
       queryHistory: async (target) => worklogHistory.query(target.sourceId, target.filters),
-      createQueryUrl: webAuthService && webAppUrl
-        ? async (target) => appendHistoryFilters(await webAuthService.createPrivateBotEntry({ webAppUrl, lineUserId: target.lineUserId, userId: target.userId, sourceId: target.sourceId, at: target.at }), target.filters)
-        : undefined,
+      createQueryUrl: webAuthService && webAppUrl ? async (target) => appendHistoryFilters(await webAuthService.createPrivateBotEntry({ webAppUrl, lineUserId: target.lineUserId, userId: target.userId, sourceId: target.sourceId, at: target.at }), target.filters) : undefined,
     }),
   ]);
   return c.json({ ok: true, ...groupCounters, ...oaCounters });
