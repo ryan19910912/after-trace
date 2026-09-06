@@ -100,7 +100,7 @@ Branch work:
 - group/OA query replies can read recent DB matches before creating the deep link;
 - natural progress/status query detection avoids saving questions such as `晴空案目前收款進度如何` as Records;
 - history retrieval remains provider-free;
-- `history-query.test.ts` now covers title extraction, semantic query cleanup, zero-result handling, top-five wording and fact-only/deep-link reply formatting. This new test file is committed but still needs to be executed locally by the user.
+- `history-query.test.ts` covers title extraction, semantic query cleanup, zero-result handling, top-five wording and fact-only/deep-link reply formatting.
 
 ## Semantic search metadata — schema/provider implementation in branch
 
@@ -182,12 +182,12 @@ Executed by the user on Windows:
   - `src/worklog/oa-runtime.test.ts`
   - `src/worklog/group-webhook.test.ts`
   - `src/worklog/oa-webhook.test.ts`
+- `src/worklog/history-query.test.ts` — PASS, 1 file / 4 tests.
 
-The stderr lines in the webhook test run are expected anomaly logs from deliberately simulated failure cases; all 57 tests passed.
+The stderr lines in the webhook test run are expected anomaly logs from deliberately simulated failure cases; all tests passed.
 
 Not yet runtime-validated:
 
-- the newly added `history-query.test.ts` itself;
 - existing Dev forward migration for `search_terms`;
 - deployed Dev query behavior;
 - real Gemini production-style `search_terms` output;
@@ -208,14 +208,13 @@ Current product/development contracts include:
 
 ## Immediate next validation/development order
 
-1. Pull latest branch and run `src/worklog/history-query.test.ts` locally.
-2. Run existing Dev forward migration; verify `search_terms` exists and existing data remains intact.
-3. Deploy Dev API and verify `/health` + `/health/ready`.
-4. Real LINE test: create a semantic Record such as `晴空案今天收3千清潔費`, then query `晴空案目前收款進度如何`; expect DB facts + deep link, not AI summary.
-5. Regression test delayed GROUP Reply-to-TEXT: original message date must remain the event date even when Reply occurs later.
-6. Finish original-timestamp handling/fail-closed behavior for delayed attachment Reply paths before claiming all Reply types compliant.
-7. Continue Web non-friend prompt smoke and Web `AI 幫我記` implementation.
+1. Run existing Dev forward migration using the Dev environment; verify `search_terms` exists and existing data remains intact.
+2. Deploy Dev API and verify `/health` + `/health/ready`.
+3. Real LINE test: create a semantic Record such as `晴空案今天收3千清潔費`, then query `晴空案目前收款進度如何`; expect DB facts + deep link, not AI summary.
+4. Regression test delayed GROUP Reply-to-TEXT: original message date must remain the event date even when Reply occurs later.
+5. Finish original-timestamp handling/fail-closed behavior for delayed attachment Reply paths before claiming all Reply types compliant.
+6. Continue Web non-friend prompt smoke and Web `AI 幫我記` implementation.
 
 No GitHub Actions workflow was run, dispatched, rerun, enabled, modified, triggered, or used as validation.
 
-Current deployment status: **TYPECHECK + NORMALIZATION TESTS + BASELINE REGEN/GUARD + 57 COMMAND/HISTORY/LINE RUNTIME TESTS PASS; HISTORY-QUERY UNIT TEST + DEV FORWARD MIGRATION + DEPLOYED RUNTIME E2E STILL PENDING.**
+Current deployment status: **TYPECHECK + NORMALIZATION TESTS + BASELINE REGEN/GUARD + 57 COMMAND/HISTORY/LINE RUNTIME TESTS + 4 HISTORY-QUERY TESTS PASS; DEV FORWARD MIGRATION + DEPLOYED RUNTIME E2E STILL PENDING.**
