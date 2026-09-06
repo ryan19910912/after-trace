@@ -101,10 +101,6 @@ export async function processWorklogOaWebhook(input: {
       continue;
     }
 
-    // Rich Menu Postback record/query modes were intentionally retired before launch.
-    // Unknown/legacy OA postbacks are ignored fail-closed.
-    if (parsedEvent.kind === 'OA_POSTBACK') continue;
-
     const message = parsedEvent.message;
     const explicitCommand = parseWorklogOaCommand(message) !== null;
     let result: WorklogOaRuntimeResult;
