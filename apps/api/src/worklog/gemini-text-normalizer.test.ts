@@ -21,13 +21,14 @@ const input = {
 };
 
 describe('GeminiWorklogTextNormalizer', () => {
-  it('builds a narrow title/time request without legacy summary/category fields', () => {
+  it('builds a narrow title/date/search request without legacy summary/category fields', () => {
     const body = buildGeminiWorklogTextRequestBody(input, 256);
     const serialized = JSON.stringify(body);
 
     expect(serialized).toContain('record_text');
     expect(serialized).toContain('title_requires_confirmation');
     expect(serialized).toContain('occurred_at');
+    expect(serialized).toContain('search_terms');
     expect(serialized).toContain('Asia/Taipei');
     expect(serialized).not.toContain('customer_hint');
     expect(serialized).not.toContain('project_hint');
@@ -36,7 +37,7 @@ describe('GeminiWorklogTextNormalizer', () => {
   });
 
   it('uses the configured model and preserves provider usage', async () => {
-    const fetchFn = vi.fn(async () => new Response(JSON.stringify({
+    const fetchFn = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({
       responseId: 'provider-response-1',
       candidates: [{
         content: {
@@ -44,7 +45,8 @@ describe('GeminiWorklogTextNormalizer', () => {
             text: JSON.stringify({
               title: '晴空案',
               title_requires_confirmation: false,
-              occurred_at: '2026-09-04T09:00:00+08:00',
+              occurred_at: '2026-09-04',
+              search_terms: ['冷氣', '維修'],
             }),
           }],
         },
@@ -57,14 +59,15 @@ describe('GeminiWorklogTextNormalizer', () => {
     }), { status: 200, headers: { 'content-type': 'application/json' } }));
     const provider = new GeminiWorklogTextNormalizer({
       apiKey: 'test-key',
-      fetchFn: fetchFn as typeof fetch,
+      fetchFn,
     });
 
     await expect(provider.normalize(input, config)).resolves.toEqual({
       output: {
         title: '晴空案',
         titleRequiresConfirmation: false,
-        occurredAt: '2026-09-04T01:00:00.000Z',
+        occurredAt: '2026-09-03T16:00:00.000Z',
+        searchTerms: ['冷氣', '維修'],
       },
       inputTokens: 120,
       outputTokens: 30,
@@ -72,31 +75,35 @@ describe('GeminiWorklogTextNormalizer', () => {
       latencyMs: expect.any(Number),
     });
     expect(fetchFn).toHaveBeenCalledTimes(1);
-    expect(String(fetchFn.mock.calls[0]?.[0])).toContain('/models/gemini-3.5-flash-lite:generateContent');
+    const firstCall = fetchFn.mock.calls[0];
+    expect(firstCall).toBeDefined();
+    expect(String(firstCall![0])).toContain('/models/gemini-3.5-flash-lite:generateContent');
   });
 
   it('accepts a null title when the provider explicitly marks it for confirmation', async () => {
-    const fetchFn = vi.fn(async () => new Response(JSON.stringify({
+    const fetchFn = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({
       candidates: [{ content: { parts: [{ text: JSON.stringify({
         title: null,
         title_requires_confirmation: true,
         occurred_at: null,
+        search_terms: [],
       }) }] } }],
       usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5 },
     }), { status: 200 }));
-    const provider = new GeminiWorklogTextNormalizer({ apiKey: 'test-key', fetchFn: fetchFn as typeof fetch });
+    const provider = new GeminiWorklogTextNormalizer({ apiKey: 'test-key', fetchFn });
 
     await expect(provider.normalize(input, config)).resolves.toMatchObject({
       output: {
         title: null,
         titleRequiresConfirmation: true,
         occurredAt: null,
+        searchTerms: [],
       },
     });
   });
 
   it('rejects the removed legacy summary/category response shape', async () => {
-    const fetchFn = vi.fn(async () => new Response(JSON.stringify({
+    const fetchFn = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({
       candidates: [{ content: { parts: [{ text: JSON.stringify({
         summary: '舊格式',
         category: 'WORK',
@@ -105,7 +112,7 @@ describe('GeminiWorklogTextNormalizer', () => {
       }) }] } }],
       usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5 },
     }), { status: 200 }));
-    const provider = new GeminiWorklogTextNormalizer({ apiKey: 'test-key', fetchFn: fetchFn as typeof fetch });
+    const provider = new GeminiWorklogTextNormalizer({ apiKey: 'test-key', fetchFn });
 
     await expect(provider.normalize(input, config)).rejects.toMatchObject({
       code: 'GEMINI_INVALID_RESPONSE',
