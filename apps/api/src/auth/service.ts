@@ -135,7 +135,12 @@ export class WebAuthService {
       if (consumed !== 'CONSUMED') return { status: 'INVALID_OR_EXPIRED' };
       return {
         status: 'AUTHORIZED',
-        sessionToken: await issueWebSessionToken({ lineUserId: privateClaims.lineUserId, secret: this.authSecret, now: at }),
+        sessionToken: await issueWebSessionToken({
+          userId: privateClaims.userId,
+          lineUserId: privateClaims.lineUserId,
+          secret: this.authSecret,
+          now: at,
+        }),
         lineUserId: privateClaims.lineUserId,
         entryContext: { type: 'PRIVATE', userId: privateClaims.userId, sourceId: privateClaims.sourceId },
       };
@@ -159,6 +164,8 @@ export class WebAuthService {
       at,
     });
     if (!consumed) return { status: 'ALREADY_USED' };
+    // Legacy GROUP bot entry does not carry a durable user id yet. Keep this one
+    // fallback path bounded until the retired LINE entry flow is removed.
     return {
       status: 'AUTHORIZED',
       sessionToken: await issueWebSessionToken({ lineUserId: claims.lineUserId, secret: this.authSecret, now: at }),
