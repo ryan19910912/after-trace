@@ -14,8 +14,8 @@ Core surfaces:
 
 - **PWA Quick Capture**: fastest personal and cross-group capture entry; voice/text input, Source selection, AI preview, Draft, confirmation.
 - **Web/PWA records**: timeline, search/filter, free manual create/edit/delete/restore/title move, Draft continuation, AI-point status.
-- **LINE group bot**: capture/query/edit inside existing group conversation and Reply context.
-- **LINE OA/private chat**: lightweight `小跡` command entry for PRIVATE Source plus links/help; not a Rich-Menu pending-mode workflow.
+- **LINE group bot**: natural-language capture/query/edit inside existing group conversation and Reply context.
+- **LINE OA/private chat**: lightweight `小跡` natural-language entry for PRIVATE Source plus links/help; not a Rich-Menu pending-mode workflow.
 - **Internal Admin**: users/groups/plans/Grants/usage/subsidy/anomalies/audit and AI/provider pricing analytics.
 
 The universal domain stays general-purpose. Do not hard-code construction, finance, Customer, Project, payment, materials, etc. as universal schema.
@@ -164,7 +164,7 @@ Search may match:
 - raw Record text;
 - AI-derived `search_terms`.
 
-Do not silently call AI for normal PWA search. Current history search remains deterministic/provider-free.
+Do not silently call AI for normal PWA search. Current PWA history search remains deterministic/provider-free.
 
 ## GROUP Source authorization — strict membership rule
 
@@ -214,67 +214,101 @@ Group profile metadata may be cached in PostgreSQL with fields equivalent to:
 Refresh policy is **lazy, not scheduled**:
 
 - if group profile metadata is older than 24 hours, refresh only when the group is actually used;
-- eligible use includes a LINE `小跡` group command, PWA Source-list access that needs the group, or opening that GROUP Source;
+- eligible use includes a LINE `小跡` group request, PWA Source-list access that needs the group, or opening that GROUP Source;
 - if no user uses the group, do not run cron merely to refresh its name/picture;
 - within 24 hours use cached metadata;
 - LINE leave/member lifecycle remains primary authorization evidence. A failed/404 group-summary refresh may support inactivation handling but must not weaken deterministic lifecycle/access checks.
 
-## Unified LINE command language — 小跡
+## Unified LINE natural-language assistant — 小跡
 
-LINE OA and LINE GROUP use one customer-facing Chinese command prefix: **`小跡`**.
+LINE OA and LINE GROUP use one customer-facing Chinese prefix: **`小跡`**.
 
 The prefix must appear at the start of the message. Accept natural spacing/punctuation after it, for example:
 
-- `小跡 晴空案今天收了三千`
-- `小跡，晴空案今天收了三千`
-- `小跡：晴空案今天收了三千`
+- `小跡 幫我記一下今天晴空案收了三千`
+- `小跡，我要查詢一下今天晴空案的內容`
+- `小跡：我想把這筆金額改成 2800`
 
 No `@` prefix is required. This avoids LINE's member-mention UI conflict and is faster for Chinese input.
 
-### Commands
+### Fixed system commands
 
-`小跡 <內容>`
-
-- default = create a Record;
-- example: `小跡 晴空案今天收了三千`.
-
-`小跡 查 <關鍵字>` / `小跡 查詢 <關鍵字>`
-
-- deterministic history query;
-- example: `小跡 查 晴空案收款`.
-
-`小跡 今天`
-
-- show today's matching/recent Records in the current Source.
-
-`小跡 最近`
-
-- show newest Records in the current Source.
+Only these are customer-facing fixed commands in the current product contract:
 
 `小跡 幫助`
 
-- show concise command guidance.
+- show concise guidance and natural-language examples;
+- provider-free.
 
-Reply a message and send `小跡 記`
+GROUP `小跡 啟用 AI`
 
-- record the replied-to content when it can be deterministically recovered/processed under LINE content rules.
+- the member who sends the command becomes this GROUP's AI 額度負責人 when the group currently has no different responsible user;
+- if another responsible user already exists, do not overwrite them;
+- provider-free;
+- success reply should clearly identify the responsible member, preferably using a real LINE mention.
 
-Reply-edit may continue to support explicit edit language such as `小跡 幫我改成 2800` when the target is deterministic.
+GROUP `小跡 取消 AI`
 
-Group AI responsibility setup may continue to use `小跡 啟用` until a later UX replaces it.
+- only the **current AI 額度負責人 themself** may execute it;
+- success removes the AI responsibility binding only;
+- the user remains in the LINE group and remains a normal GROUP member;
+- GROUP Source, Records, history and normal membership-based access are not deleted/revoked by this action;
+- after success the GROUP has no AI 額度負責人 until another member uses `小跡 啟用 AI`;
+- another group member may not cancel someone else's AI responsibility;
+- provider-free.
+
+OA/private must not execute GROUP AI responsibility controls; it should tell the user to perform them inside the corresponding LINE group.
+
+### Natural-language requests
+
+Everything else after `小跡` is treated as a natural-language request rather than requiring memorized Record/Query/Edit command verbs.
+
+Examples:
+
+- `小跡 紀錄一下今天晴空案收了三千清潔費`
+- `小跡 幫我記一下今天晴空案收了三千`
+- `小跡 我要查詢一下今天晴空案的內容`
+- `小跡 幫我查晴空案收款`
+- Reply an exact Record and say `小跡 我想把金額改成 2800`.
+
+The AI interpreter should produce a strict bounded action plan. Initial intents:
+
+- `RECORD`
+- `QUERY`
+- `EDIT`
+- `UNKNOWN`
+
+Future room may include:
+
+- `DELETE`
+- `RESTORE`
+- `MOVE`
+- `SYSTEM_QUERY`
+
+but destructive or mutating actions must never let AI guess the target. `EDIT`, `DELETE`, `RESTORE`, and `MOVE` require an exact deterministic target such as a validated Reply target or explicit PWA selection. Without one, ask the user to Reply/select the Record instead of guessing.
+
+The intended interaction is **one bounded AI interpretation call whenever practical, then one deterministic backend action**. Do not build an open-ended agent/tool loop.
+
+For a `RECORD`, the same interpretation call should ideally return the normalized Record information needed by the shared pipeline—content, one title/Entity proposal, event date and bounded grounded `search_terms`—instead of first calling AI only to classify intent and then calling AI again to normalize the same text.
+
+For a `QUERY`, AI may derive bounded query/date filters from the current message, then PostgreSQL performs deterministic retrieval. AI does not receive the returned history for a second summarization pass.
+
+For an `EDIT`, AI may interpret the requested change, but the target remains deterministic. The architecture should converge on one interpretation of instruction + exact target context rather than classifier-call + editor-call duplication.
+
+Natural-language interpreter provider usage remains normal audited AI usage under the AI-point policy. The optimization goal is to avoid duplicate provider calls, not to make hidden classifier calls free.
 
 ### Source semantics
 
-The same command means the same operation; only Source differs:
+The same natural-language request has the same intent semantics; only Source differs:
 
 - LINE OA/private -> user's PRIVATE Source;
 - LINE group -> current GROUP Source.
 
-Query intent is explicit (`查` / `查詢`) rather than inferred from every natural-language sentence. This prevents a work fact such as `小跡 晴空案目前收款進度如何` from being silently reclassified as a query; without `查`, it is treated as Record input.
+Ordinary messages not starting with `小跡` are not product requests.
 
-Ordinary messages not starting with `小跡` are not product commands.
+Temporary compatibility for old `查/查詢`, `今天/最近`, `記/紀錄`, or edit keywords may exist during migration, but these are not separate fixed commands the customer must memorize.
 
-The retired customer-facing syntaxes `@AFTERTRACE ...`, `@紀錄`, `/紀錄`, and Rich Menu record/query pending-mode Postbacks are not the accepted product contract.
+The retired customer-facing syntaxes `小跡 啟用` without `AI`, `@AFTERTRACE ...`, `@紀錄`, `/紀錄`, and Rich Menu record/query pending-mode Postbacks are not the accepted product contract.
 
 ## LINE OA role
 
@@ -290,15 +324,15 @@ It does not need the previously proposed Rich Menu Postback -> pending mode -> n
 
 ## LINE GROUP role
 
-LINE GROUP remains valuable because users can capture/query without leaving an existing collaboration conversation.
+LINE GROUP remains valuable because users can capture/query/edit without leaving an existing collaboration conversation.
 
 Examples:
 
-- `小跡 晴空案今天收了三千`
-- `小跡 查 晴空案收款`
-- Reply earlier group text -> `小跡 記`.
+- `小跡 幫我記一下今天晴空案收了三千`
+- `小跡 我要查詢一下晴空案收款`
+- Reply an exact Record -> `小跡 我想把金額改成 2800`.
 
-GROUP ordinary text may still be temporarily cached under `WORKLOG_LINE_CONTENT_POLICY.md` solely to support later deterministic Reply-to-text recording. Ordinary chat is not automatically a Record.
+GROUP ordinary text may still be temporarily cached under `WORKLOG_LINE_CONTENT_POLICY.md` solely to support later deterministic Reply-to-text/attachment handling. Ordinary chat is not automatically a Record.
 
 ## Shared AI-assisted Record pipeline
 
@@ -307,11 +341,11 @@ LINE and PWA must not maintain separate title/entity/date/point/persistence busi
 The reusable core conceptually separates:
 
 1. input capture/extraction;
-2. AI interpretation into normalized draft;
+2. AI interpretation into normalized draft/action plan;
 3. same-Source Entity/title/Alias resolution;
 4. semantic `search_terms`;
 5. AI point reservation/settlement and provider-cost audit;
-6. deterministic authorized commit.
+6. deterministic authorized commit/action.
 
 Input/channel metadata should distinguish operations such as LINE AI create and PWA AI create without duplicating domain rules.
 
@@ -348,18 +382,18 @@ Rules:
 Example:
 
 - 9/3 original says `晴空案今天收3000清潔費`;
-- 9/5 Reply `小跡 記`;
+- 9/5 Reply asks 小跡 to record it;
 - event date = 9/3; `created_at` may be 9/5.
 
 ## Deterministic LINE history answer
 
-Current LINE history lookup is **Query -> Retrieve -> Answer -> Deep Link** and does not call AI for historical summarization.
+LINE history lookup is **Interpret -> Query -> Retrieve -> Answer -> Deep Link** when natural-language interpretation is needed, and does not call AI for historical summarization.
 
 After Source authorization:
 
-1. resolve explicit same-Source Entity/Alias where possible;
-2. derive deterministic query/date filters;
-3. query PostgreSQL;
+1. interpret the current addressed request into bounded query/date filters when needed;
+2. resolve explicit same-Source Entity/Alias where possible;
+3. query PostgreSQL deterministically;
 4. return up to newest 5 matching Records;
 5. include total match count when available;
 6. append secure filtered PWA link when available.
@@ -396,6 +430,7 @@ Customer-facing allowance is **AI 點數**.
 - Actual provider input/output/thinking/media cost is converted using immutable request pricing snapshots.
 - Positive fractional point usage rounds up.
 - Provider/model/cost/customer-charge/subsidy facts remain auditable.
+- Natural-language interpretation that actually calls the provider is audited/charged under the same rules; fixed help/AI responsibility commands are provider-free.
 
 Admin commercial templates have exactly three plan types:
 
