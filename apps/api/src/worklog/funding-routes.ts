@@ -132,23 +132,23 @@ async function personalFundingView(database: Database, userId: number, sourceId:
       SELECT
         COALESCE(SUM(
           LEAST(
-            grant.remaining_points,
+            g.remaining_points,
             CASE
-              WHEN scope.cap_points IS NULL THEN grant.remaining_points
+              WHEN scope.cap_points IS NULL THEN g.remaining_points
               ELSE GREATEST(0, scope.cap_points - scope.used_points - scope.reserved_points)
             END
           )
         ), 0)::bigint AS available_points,
         COALESCE(SUM(scope.reserved_points), 0)::bigint AS reserved_points
-      FROM worklog_ai_grants grant
+      FROM worklog_ai_grants g
       INNER JOIN worklog_ai_grant_scopes scope
-        ON scope.grant_id = grant.id
+        ON scope.grant_id = g.id
        AND scope.source_id = ${sourceId}
        AND scope.enabled = TRUE
-      WHERE grant.owner_user_id = ${userId}
-        AND grant.status IN ('ACTIVE', 'EXHAUSTED')
-        AND grant.effective_at <= NOW()
-        AND (grant.expires_at IS NULL OR grant.expires_at > NOW())
+      WHERE g.owner_user_id = ${userId}
+        AND g.status IN ('ACTIVE', 'EXHAUSTED')
+        AND g.effective_at <= NOW()
+        AND (g.expires_at IS NULL OR g.expires_at > NOW())
     `),
     database.execute(sql`
       SELECT
@@ -159,13 +159,13 @@ async function personalFundingView(database: Database, userId: number, sourceId:
     `),
     database.execute(sql`
       SELECT
-        grant.id::text AS id,
-        grant.type,
-        grant.status,
-        grant.original_points,
-        grant.remaining_points,
-        grant.effective_at,
-        grant.expires_at,
+        g.id::text AS id,
+        g.type,
+        g.status,
+        g.original_points,
+        g.remaining_points,
+        g.effective_at,
+        g.expires_at,
         scope.cap_points,
         COALESCE(scope.used_points, 0) AS scope_used_points,
         COALESCE(scope.reserved_points, 0) AS scope_reserved_points,
@@ -173,20 +173,20 @@ async function personalFundingView(database: Database, userId: number, sourceId:
         CASE
           WHEN scope.id IS NULL OR scope.enabled = FALSE THEN 0
           ELSE LEAST(
-            grant.remaining_points,
+            g.remaining_points,
             CASE
-              WHEN scope.cap_points IS NULL THEN grant.remaining_points
+              WHEN scope.cap_points IS NULL THEN g.remaining_points
               ELSE GREATEST(0, scope.cap_points - scope.used_points - scope.reserved_points)
             END
           )
         END AS source_available_points
-      FROM worklog_ai_grants grant
+      FROM worklog_ai_grants g
       LEFT JOIN worklog_ai_grant_scopes scope
-        ON scope.grant_id = grant.id
+        ON scope.grant_id = g.id
        AND scope.source_id = ${sourceId}
-      WHERE grant.owner_user_id = ${userId}
-        AND grant.status <> 'REVOKED'
-      ORDER BY grant.expires_at ASC NULLS LAST, grant.effective_at ASC, grant.id ASC
+      WHERE g.owner_user_id = ${userId}
+        AND g.status <> 'REVOKED'
+      ORDER BY g.expires_at ASC NULLS LAST, g.effective_at ASC, g.id ASC
     `),
   ]);
   const balanceRow = balances.rows[0] as {
@@ -263,23 +263,23 @@ async function fundingView(database: Database, viewerUserId: number, sourceId: n
     SELECT
       COALESCE(SUM(
         LEAST(
-          grant.remaining_points,
+          g.remaining_points,
           CASE
-            WHEN scope.cap_points IS NULL THEN grant.remaining_points
+            WHEN scope.cap_points IS NULL THEN g.remaining_points
             ELSE GREATEST(0, scope.cap_points - scope.used_points - scope.reserved_points)
           END
         )
       ), 0)::bigint AS available_points,
       COALESCE(SUM(scope.reserved_points), 0)::bigint AS reserved_points
-    FROM worklog_ai_grants grant
+    FROM worklog_ai_grants g
     INNER JOIN worklog_ai_grant_scopes scope
-      ON scope.grant_id = grant.id
+      ON scope.grant_id = g.id
      AND scope.source_id = ${sourceId}
      AND scope.enabled = TRUE
-    WHERE grant.owner_user_id = ${responsibleUserId}
-      AND grant.status IN ('ACTIVE', 'EXHAUSTED')
-      AND grant.effective_at <= NOW()
-      AND (grant.expires_at IS NULL OR grant.expires_at > NOW())
+    WHERE g.owner_user_id = ${responsibleUserId}
+      AND g.status IN ('ACTIVE', 'EXHAUSTED')
+      AND g.effective_at <= NOW()
+      AND (g.expires_at IS NULL OR g.expires_at > NOW())
   `);
   const balanceRow = balances.rows[0] as {
     available_points?: number | string | null;
@@ -291,13 +291,13 @@ async function fundingView(database: Database, viewerUserId: number, sourceId: n
   if (canManage) {
     const result = await database.execute(sql`
       SELECT
-        grant.id::text AS id,
-        grant.type,
-        grant.status,
-        grant.original_points,
-        grant.remaining_points,
-        grant.effective_at,
-        grant.expires_at,
+        g.id::text AS id,
+        g.type,
+        g.status,
+        g.original_points,
+        g.remaining_points,
+        g.effective_at,
+        g.expires_at,
         scope.cap_points,
         COALESCE(scope.used_points, 0) AS scope_used_points,
         COALESCE(scope.reserved_points, 0) AS scope_reserved_points,
@@ -305,20 +305,20 @@ async function fundingView(database: Database, viewerUserId: number, sourceId: n
         CASE
           WHEN scope.id IS NULL OR scope.enabled = FALSE THEN 0
           ELSE LEAST(
-            grant.remaining_points,
+            g.remaining_points,
             CASE
-              WHEN scope.cap_points IS NULL THEN grant.remaining_points
+              WHEN scope.cap_points IS NULL THEN g.remaining_points
               ELSE GREATEST(0, scope.cap_points - scope.used_points - scope.reserved_points)
             END
           )
         END AS source_available_points
-      FROM worklog_ai_grants grant
+      FROM worklog_ai_grants g
       LEFT JOIN worklog_ai_grant_scopes scope
-        ON scope.grant_id = grant.id
+        ON scope.grant_id = g.id
        AND scope.source_id = ${sourceId}
-      WHERE grant.owner_user_id = ${viewerUserId}
-        AND grant.status <> 'REVOKED'
-      ORDER BY grant.expires_at ASC NULLS LAST, grant.effective_at ASC, grant.id ASC
+      WHERE g.owner_user_id = ${viewerUserId}
+        AND g.status <> 'REVOKED'
+      ORDER BY g.expires_at ASC NULLS LAST, g.effective_at ASC, g.id ASC
     `);
     grants = result.rows;
   }
@@ -360,7 +360,7 @@ async function configureGrantScope(
     ), current_scope AS (
       SELECT scope.used_points, scope.reserved_points
       FROM worklog_ai_grant_scopes scope
-      INNER JOIN owned_grant grant ON grant.id = scope.grant_id
+      INNER JOIN owned_grant owned ON owned.id = scope.grant_id
       WHERE scope.source_id = ${input.sourceId}
       FOR UPDATE
     ), state AS (
