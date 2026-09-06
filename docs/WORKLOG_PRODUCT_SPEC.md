@@ -8,10 +8,24 @@ Core surfaces:
 
 - LINE OA/private chat: AI-assisted Record capture/edit and navigation to filtered PWA history.
 - LINE group bot: shared AI-assisted Record capture/edit and navigation to group PWA history.
-- Web/PWA: free manual browse/search/filter/create/edit/delete/restore, title moves/batch moves, AI allowance usage/settings, and later paid export.
+- Web/PWA: free manual browse/search/filter/create/edit/delete/restore, title moves/batch moves, explicit AI-assisted Record creation, AI allowance usage/settings, and later paid export.
 - Internal Admin: users/groups/plans/Grants/usage/subsidy/anomalies/audit and AI/provider pricing analytics.
 
 The universal domain stays general-purpose. Do not hard-code construction, finance, Customer, Project, payment, materials, etc. as universal schema.
+
+## Account onboarding and LINE OA friendship
+
+LINE Login identifies the customer account but LINE OA friendship is not required to own/use an AFTERTRACE Web/PWA account.
+
+Rules:
+
+- Successful LINE Login may idempotently create the `worklog_users` row, workspace, PRIVATE Source and first eligible `FREE_INITIAL` Grant.
+- LINE Login must **not** set `is_oa_friend=true`; only real LINE OA follow/unfollow lifecycle events own that state.
+- Web/PWA manual PRIVATE use remains available whether or not the user is currently an OA friend.
+- OA friendship unlocks the LINE-native capture/edit/navigation experience and other LINE-specific capabilities.
+- A non-friend Web user should see a non-blocking prompt explaining the benefits of adding AFTERTRACE as a LINE friend, with a configurable add-friend link/QR code where available.
+- Removing/blocking the OA must not delete the AFTERTRACE account, PRIVATE Source, Records or historical Grants.
+- `FREE_INITIAL` remains idempotent; a later OA follow event must not issue a duplicate acquisition Grant.
 
 ## Monetization principle
 
@@ -107,11 +121,26 @@ The accepted MVP does not use a generic PRIMARY/RELATED many-to-many Entity mode
 
 Ambiguous title/identity decisions must be durable, not Worker-memory-only. Pending confirmations support at least `ALIAS_MATCH`, `RECORD_TITLE`, and `ENTITY_MATCH` with `PENDING` and resolved states such as `CONFIRMED`, `REJECTED`, `EXPIRED`.
 
+## Shared AI-assisted Record pipeline
+
+LINE and Web/PWA must not maintain separate AI interpretation logic.
+
+The reusable core pipeline should conceptually separate:
+
+1. **interpret** user input into a normalized Record draft;
+2. resolve same-Source Entity/title/Alias and ambiguity;
+3. reserve/charge AI points and record provider-cost facts through the shared AI ledger;
+4. **commit** an authorized Record/revision using deterministic backend rules.
+
+Input channel is metadata/audit context, not a separate domain model. At minimum distinguish `LINE_AI_CREATE` and `PWA_AI_CREATE` (or equivalent durable operation/channel facts) without duplicating title resolution, point accounting, provider usage or persistence logic.
+
+Future Web/PWA voice/image/PDF input may reuse this pipeline, but text is the first Web AI input type.
+
 ## AI-assisted Record creation
 
 AI-assisted creation stays narrow:
 
-- classify create/edit/history-navigation intent;
+- classify create/edit/history-navigation intent where relevant to the calling surface;
 - determine one Record title/Entity;
 - resolve existing title/Alias within the same Source;
 - detect possible Alias/title ambiguity requiring confirmation;
@@ -119,6 +148,23 @@ AI-assisted creation stays narrow:
 - preserve durable raw/textual Record content.
 
 Do not require universal amount/address/payment/material/task extraction and do not create extra Related Entities.
+
+### Web/PWA `AI 幫我記`
+
+Web/PWA provides an explicit **AI 幫我記** action in addition to free manual create.
+
+Initial Web AI flow is **preview-first**:
+
+1. user enters natural-language text;
+2. backend checks positive eligible AI balance before provider execution;
+3. shared AI pipeline interprets title/content/time and same-Source title ambiguity;
+4. Web shows the proposed result/required confirmation;
+5. user explicitly confirms before a new Record is committed;
+6. canceling the preview must not silently create a Record.
+
+AI provider work that already ran for the preview is billable/point-consuming according to the normal AI point rules even if the user later cancels the Record commit. The system must not call the provider again merely to commit an unchanged accepted preview.
+
+LINE may keep its accepted direct/confirmation flow; the difference is interaction UX, not duplicated AI business logic.
 
 ## Record model and time
 
