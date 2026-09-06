@@ -17,6 +17,12 @@ export interface WorklogAiResponsibilityRepository {
     reason: string;
     at: Date;
   }): Promise<'ASSIGNED' | 'ALREADY_ASSIGNED' | 'CONFLICT' | 'SOURCE_NOT_FOUND' | 'ACTOR_NOT_ACTIVE'>;
+  releaseIfResponsible(input: {
+    sourceId: number;
+    actorUserId: number;
+    reason: string;
+    at: Date;
+  }): Promise<'RELEASED' | 'UNBOUND' | 'NOT_RESPONSIBLE' | 'SOURCE_NOT_FOUND' | 'ACTOR_NOT_ACTIVE'>;
 }
 
 export type GroupAiAuthorizationResult =
@@ -34,6 +40,12 @@ export type GroupAiAuthorizationResult =
 export type GroupAiResponsibilityClaimResult =
   | { status: 'BOUND' | 'ALREADY_BOUND'; sourceId: number; responsibleUserId: number }
   | { status: 'CONFLICT'; sourceId: number }
+  | { status: 'GROUP_NOT_FOUND' | 'NOT_ACTIVE_MEMBER'; sourceId: number };
+
+export type GroupAiResponsibilityReleaseResult =
+  | { status: 'RELEASED'; sourceId: number; previousResponsibleUserId: number }
+  | { status: 'UNBOUND'; sourceId: number }
+  | { status: 'NOT_RESPONSIBLE'; sourceId: number }
   | { status: 'GROUP_NOT_FOUND' | 'NOT_ACTIVE_MEMBER'; sourceId: number };
 
 /**
@@ -87,6 +99,27 @@ export class WorklogAiResponsibilityService {
     if (result === 'ASSIGNED') return { status: 'BOUND', sourceId, responsibleUserId: actorUserId };
     if (result === 'ALREADY_ASSIGNED') return { status: 'ALREADY_BOUND', sourceId, responsibleUserId: actorUserId };
     if (result === 'CONFLICT') return { status: 'CONFLICT', sourceId };
+    if (result === 'ACTOR_NOT_ACTIVE') return { status: 'NOT_ACTIVE_MEMBER', sourceId };
+    return { status: 'GROUP_NOT_FOUND', sourceId };
+  }
+
+  async release(input: {
+    sourceId: number;
+    actorUserId: number;
+    reason?: string;
+    at?: Date;
+  }): Promise<GroupAiResponsibilityReleaseResult> {
+    const sourceId = positiveInteger(input.sourceId, 'sourceId');
+    const actorUserId = positiveInteger(input.actorUserId, 'actorUserId');
+    const result = await this.repository.releaseIfResponsible({
+      sourceId,
+      actorUserId,
+      reason: normalizeReason(input.reason ?? 'EXPLICIT_RELEASE'),
+      at: validDate(input.at ?? new Date(), 'at'),
+    });
+    if (result === 'RELEASED') return { status: 'RELEASED', sourceId, previousResponsibleUserId: actorUserId };
+    if (result === 'UNBOUND') return { status: 'UNBOUND', sourceId };
+    if (result === 'NOT_RESPONSIBLE') return { status: 'NOT_RESPONSIBLE', sourceId };
     if (result === 'ACTOR_NOT_ACTIVE') return { status: 'NOT_ACTIVE_MEMBER', sourceId };
     return { status: 'GROUP_NOT_FOUND', sourceId };
   }
