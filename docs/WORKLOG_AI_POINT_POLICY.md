@@ -1,156 +1,173 @@
-# AFTERTRACE AI Point / Pricing Policy
-
-Durable product/development contract for branch `revive/line-worklog`.
+# AFTERTRACE AI Subscription / Usage Policy
 
 ## Goal
 
-Customer-facing AI allowance is shown as **AI 點數**, not raw provider tokens or USD cost. Provider usage/cost remains separately auditable in Admin.
+AI is a **paid per-user subscription capability**. Free users receive no provider-backed AI allowance. Manual Web/PWA Record use remains available without AI.
 
-## Admin pricing workflow
+The target product no longer exposes LINE group AI responsible-user funding. GROUP data authorization and each user's AI subscription are separate concerns.
 
-Plan/product configuration is intentionally human-controlled.
+## Customer-facing model
 
-Admin pricing tools may use customer price, target gross margin, selected model/pricing snapshot, FX, and the current AI-point conversion rule to suggest a point amount. The final `grant_points` value is explicitly entered/confirmed by Admin and persisted.
+Do not advertise mathematically unlimited provider compute.
 
-Current commercial planning defaults:
+Preferred customer wording:
 
-- one-time purchases / top-ups: about **50% target gross margin**;
-- subscription included allowance: about **40% target gross margin**.
+> **日常使用不限次數；AI 功能仍受公平使用原則與每月方案資源上限限制。達到上限後，AI 功能將於下一個週期恢復。**
 
-These are editable planning defaults, not immutable business constants. Backend must never silently resize existing Grants when price, FX, model pricing, target margin, or plan templates change.
+Customer UI may show:
 
-## Three plan/product point meanings
+- AI 可使用 / 正常;
+- 接近本月使用上限;
+- 本月 AI 使用量已達上限;
+- next reset/billing date.
 
-`worklog_subscription_plans.grant_points` is a generic commercial-template value. Its meaning is determined by `plan_type`:
+Do not expose provider USD/TWD cost, target margin, or internal point-conversion details to customers.
 
-- `FREE`: **首次贈送 AI 點數** — issued once as `FREE_INITIAL` to an eligible user who has not received it before.
-- `SUBSCRIPTION`: **訂閱週期 AI 點數** — frozen into each successful `SUBSCRIPTION_PERIOD` Grant.
-- `ONE_TIME`: **購買可得 AI 點數** — frozen into one successful one-time/TOP_UP Grant.
+## Per-user entitlement
 
-The template is not the user's live balance. Grants are durable accounting facts.
+AI entitlement belongs to the requesting user.
 
-## FREE acquisition grant — Admin configured
+- paid user in PRIVATE Source: may use entitled AI features;
+- paid user in authorized GROUP Source: may use entitled AI features against authorized GROUP data;
+- free user in the same GROUP: may use permitted manual features but cannot invoke provider AI;
+- no GROUP AI responsible-user binding is required.
 
-FREE has no purchase price, so its initial grant is a customer-acquisition/product-trial subsidy rather than a gross-margin-derived purchase allowance.
+## Free plan
+
+FREE has no provider-backed AI entitlement in the target product.
+
+Free users may still use browser/device speech-to-text when it does not consume AFTERTRACE provider AI. That capability is plain voice input, not AI interpretation.
+
+Existing prelaunch `FREE_INITIAL` Grants/point balances are legacy migration data and must not define the future customer contract.
+
+## Paid plan configuration
+
+Admin must be able to configure plan economics and feature boundaries. Target fields/capabilities include:
+
+- `price_twd`;
+- `ai_enabled`;
+- monthly AI resource/point cap;
+- monthly provider-cost cap in TWD;
+- optional per-request maximum resource/cost cap;
+- optional audio duration limit;
+- optional image count/size limit;
+- optional file size/page/text limit;
+- natural-language search enabled;
+- time-range summary enabled;
+- AI rewrite enabled;
+- image/file AI enabled;
+- AI Q&A enabled when shipped.
+
+Existing capability-definition infrastructure may be reused where it fits.
+
+## Hard cap rule
+
+Each provider-backed request must pass entitlement/resource checks before provider work begins.
+
+At minimum runtime should fail closed when either of these has reached the configured subscription-period limit:
+
+1. internal AI resource/point usage cap;
+2. actual provider-cost cap in TWD.
+
+Whichever hard cap is reached first blocks new AI work until the next entitled period or operator adjustment.
+
+The provider-cost cap is mandatory operational protection because model/token/modality mix can change even when internal point estimates remain stable.
+
+## Reservation / settlement
+
+The existing reservation/settlement accounting model may be retained internally if useful for concurrency and audit.
 
 Rules:
 
-- Exactly one `FREE` plan exists.
-- FREE `grant_points` is configured in Admin/DB, not hard-coded in source code and not stored in environment variables.
-- A new eligible user receives the currently configured amount once.
-- Eligibility may begin from successful AFTERTRACE account bootstrap via LINE Login; OA friendship is not required merely to receive/use the Web/PWA account.
-- A later OA follow event must not issue a duplicate `FREE_INITIAL` Grant.
-- No calendar refresh and no calendar expiry unless a later explicit product decision changes that policy.
-- After FREE reaches zero, manual PWA remains available for free.
-- Changing the FREE template affects only users who have not yet received `FREE_INITIAL`.
-- Existing FREE Grants are never resized or recalculated retroactively.
-- Admin should measure average real provider subsidy, exhaustion rate, and FREE-to-paid conversion before changing the acquisition amount.
+- reserve enough bounded capacity before provider execution;
+- provider work must not start when the request cannot be safely admitted;
+- settle against actual provider usage/cost after completion;
+- release unused reservation on failure/cancel where applicable;
+- do not let customer-facing balance presentation become the product's primary UX.
 
-The operator may currently configure **400,000** points as the launch value, but that number is not frozen in code or in this policy.
+Internal points are an accounting unit, not the product promise.
 
-## Subscription allowance
+## Actual provider cost
 
-Each successful subscription period freezes that plan's current `grant_points` into a separate `SUBSCRIPTION_PERIOD` Grant. Later template changes do not change the already-created period Grant.
+For every provider call retain enough immutable facts to calculate actual cost:
 
-Unused subscription-period allowance does not roll into the next period unless a later explicit product decision changes the policy.
+- provider;
+- model;
+- input/output/thinking/media usage;
+- pricing snapshot;
+- FX snapshot when TWD cost is shown/enforced;
+- actual provider cost USD/TWD;
+- operation;
+- requesting user;
+- Source/group;
+- subscription plan/period;
+- reservation/settlement references when used.
 
-## One-time / buyout allowance
+## AI operations
 
-Each successful ONE_TIME purchase freezes that product's current `grant_points` into a separate one-time/TOP_UP Grant. It does not create a recurring subscription allowance and never refreshes monthly.
+Provider-backed operations may include:
 
-## Web/PWA AI preview charging
+- natural-language Record create;
+- AI voice interpretation;
+- image/file/PDF interpretation;
+- title/keyword/date/entity enrichment for new AI operations;
+- natural-language search interpretation;
+- related-record ranking when AI is actually used;
+- time-range summary;
+- AI rewrite;
+- AI Q&A;
+- task extraction/proposal when provider-backed.
 
-`AI 幫我記` is an explicit provider-backed AI operation and follows the same point accounting as LINE AI.
+Manual CRUD/search/date filtering and non-provider browser speech-to-text consume no AI allowance.
 
-Rules:
+## Historical data
 
-- positive eligible points are required before starting preview interpretation;
-- the shared AI point reservation/settlement path is used rather than a Web-specific quota system;
-- provider usage incurred to produce the preview is real usage and therefore consumes points even if the user later cancels the Record commit;
-- canceling a preview must not create a Record, but it does not retroactively erase provider cost already incurred;
-- confirming an unchanged preview must not call the provider again merely to persist the accepted result;
-- if additional provider work is explicitly requested before commit, that additional usage is separately accounted;
-- operation/channel metadata must allow Admin analytics to distinguish Web/PWA AI creation from LINE AI creation while preserving one point definition and one Grant ledger.
+Subscribing to AI does **not** trigger historical free-Record enrichment.
 
-## Conservative allowance sizing and actual charging
+- old Records stay unchanged;
+- no bulk provider backfill cost is incurred;
+- future AI search can still search old raw `content` deterministically;
+- new AI Records can carry richer metadata.
 
-Allowance sizing may use the selected provider/model's output-token price as the conservative reference price when converting an AI budget into suggested customer points.
+## Usage warnings
 
-This does **not** mean actual provider accounting ignores input or other usage. Every successful AI call records/charges from actual provider cost including billable input, output, thinking/reasoning, and modality-specific usage where applicable.
+The product should warn users before a hard stop where practical.
 
-## Provider cost vs customer points
+Recommended states are based on plan-period utilization thresholds, for example:
 
-Provider-dollar cost and customer AI points are separate facts.
+- normal;
+- approaching limit;
+- limit reached.
 
-For every provider call retain sufficient usage/pricing facts to calculate actual cost, including input tokens, output tokens, thinking/reasoning where applicable, model, immutable pricing snapshot, and modality-specific usage where applicable.
+Exact warning percentages are Admin/product configuration, not immutable business constants.
 
-Admin profitability reports use actual provider cost rather than assuming points equal provider cost.
+## Subscription-period reset
 
-## AI point conversion — frozen
+Usage limits apply to the current successful subscription period. At period renewal, new period accounting/caps begin according to the plan active for that successful renewal.
 
-**1 AI point = 1 output-price-equivalent token.**
+No carry-over promise is required unless a later explicit product decision adds one.
 
-For a successful provider call:
+## Admin economics
 
-1. calculate full actual provider cost using the immutable pricing snapshot for that request;
-2. use the same snapshot's output price per token as the point reference price;
-3. convert total provider cost into output-price-equivalent tokens;
-4. round any positive fractional result upward (`ceil`). Zero cost remains zero points.
+Admin should expose at minimum:
 
-Conceptual formula:
+- plan price;
+- current-period AI requests;
+- internal resource/point use;
+- actual provider cost USD/TWD;
+- configured provider-cost cap;
+- cost-cap utilization;
+- active/blocked users;
+- average provider cost per request/user;
+- model/operation/modality breakdown;
+- period revenue facts only when durable successful-payment data exists.
 
-`AI points used = ceil(total actual provider cost / output reference price per token)`
+The operator must be able to set a provider-cost ceiling below the subscription selling price to protect unit economics after infrastructure/payment costs.
 
-All billable input/output/thinking/media costs are therefore represented in point consumption even though the reference unit is output price.
+## Legacy point definition
 
-Large balances such as hundreds of thousands or millions are intentional. Customer UI should use readable separators and percentages.
+Historical prelaunch AI points and Grants remain auditable migration facts while legacy code is removed. Do not silently rewrite historical usage accounting.
 
-Do not silently change the definition of one AI point or the historical rounding rule. A future unit change requires explicit versioning/migration so historical Grants and usage stay auditable.
-
-## Model pricing snapshot
-
-Provider/model prices are durable configurable pricing snapshots, not entitlement constants. Historical usage retains the exact provider/model pricing snapshot that applied when the request ran.
-
-Do not hard-code current provider web prices into entitlement logic.
-
-## AI provider/model runtime rule
-
-Provider may be restricted to implemented adapters (currently `GOOGLE`). Model identifiers are runtime data and must not be hard-coded or allowlisted. The current intended operator model is `gemini-3.5-flash-lite`; future compatible model identifiers may be selected without a code release.
-
-## Legacy point values
-
-Legacy values such as FREE `500`, PRO `500`, TEAM `2500`, or any old aggregate quota unit are not accepted customer allowances under the current point definition.
-
-Current point amounts for FREE, subscription products, and ONE_TIME products are explicit Admin configuration. Prelaunch disposable data may be rebuilt to remove obsolete defaults.
-
-## Admin usage and profitability analytics
-
-Admin should support periods such as today / 7 days / 30 days / current billing month and expose at minimum:
-
-- total AI requests and AI points consumed;
-- provider cost USD/TWD;
-- average points/provider cost per request and per active user;
-- platform-subsidized points/provider cost;
-- allowance exhaustion and utilization;
-- FREE real subsidy and conversion where available;
-- model, operation/input type, PRIVATE/GROUP, Grant type, channel/surface, and commercial plan/product breakdowns;
-- realized revenue/cost/margin only when durable successful-payment facts exist.
-
-Customer PWA shows customer-friendly point balances/usage percentages, not internal provider pricing or margins.
-
-## Gross-margin interpretation
-
-Target gross margin is a planning aid, not guaranteed net profit. Direct AI/infrastructure/payment costs must be distinguished from broader operating expenses.
-
-## User-facing usage display
-
-PWA should display remaining, used and available/included AI points plus usage/remaining percentage/progress. GROUP PWA exposes only authorized group-scoped availability/usage under the current AI 額度負責人, not unrelated balances.
-
-## Zero-balance / overage rule
-
-- eligible AI points must be greater than zero before starting an AI operation;
-- if zero at request start, do not call provider AI;
-- if the request starts with positive balance and real usage exceeds remaining points, customer balance floors at zero and AFTERTRACE absorbs the shortfall for that already-started request;
-- Admin records customer charge, provider cost, and platform subsidy separately.
+The old customer contract in which FREE received a large AI-point grant and GROUP AI was funded by a responsible user's scoped Grant is retired for the target product.
 
 GitHub Actions must not be used as validation unless explicitly requested by the user.
