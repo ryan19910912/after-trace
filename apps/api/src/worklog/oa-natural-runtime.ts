@@ -38,14 +38,14 @@ export class WorklogOaNaturalRuntime {
   }
 
   async handleMessage(message: BufferedPrivateMessage): Promise<WorklogOaRuntimeResult> {
-    const touched = await this.bootstrap.touchPrivateInteraction({ lineUserId: message.lineUserId, at: message.lineTimestamp });
+    // A delivered LINE private-message webhook is already the LINE entry surface.
+    // touchPrivateInteraction keeps lifecycle/analytics state fresh, but OA friendship is not authorization.
+    await this.bootstrap.touchPrivateInteraction({ lineUserId: message.lineUserId, at: message.lineTimestamp });
     const command = parseWorklogOaCommand(message);
     if (!command) return { status: 'NOT_HANDLED' };
-    if (!touched.isOaFriend) return notFriend();
 
     if (isWorklogStatusCommand(message)) {
       const personal = await this.bootstrap.bootstrapPrivateInteraction({ lineUserId: message.lineUserId, at: message.lineTimestamp });
-      if (personal.status !== 'READY') return notFriend();
       return { status: 'HELP', replyText: await this.systemQueries.personalStatus({ userId: personal.userId, sourceId: personal.sourceId, at: message.lineTimestamp }) };
     }
 
@@ -56,7 +56,6 @@ export class WorklogOaNaturalRuntime {
     if (command.kind !== 'NATURAL_TEXT') return { status: 'REJECTED', reason: 'SOURCE_NOT_FOUND', replyText: '小跡目前無法處理這個舊版指令格式，請直接用自然語言描述你要做的事。' };
 
     const personal = await this.bootstrap.bootstrapPrivateInteraction({ lineUserId: message.lineUserId, at: message.lineTimestamp });
-    if (personal.status !== 'READY') return notFriend();
     if (!(await this.safeCanStartAi(personal.userId, personal.sourceId, message.lineTimestamp))) {
       return { status: 'REJECTED', reason: 'AI_POINTS_EXHAUSTED', replyText: '你的 AI 點數不足，這次沒有呼叫 AI；你仍可前往 AFTERTRACE 免費手動新增、查詢或編輯紀錄。' };
     }
@@ -149,10 +148,6 @@ function recordActionResult(result: WorklogLineRecordActionResult, recordId: num
     case 'VERSION_CONFLICT': return { status: 'REJECTED', reason: 'EDIT_RECORD_CHANGED', replyText: '這筆紀錄剛剛已被其他操作變更，請重新查看後再試。' };
     case 'NOT_FOUND': return { status: 'REJECTED', reason: 'EDIT_TARGET_NOT_FOUND', replyText: '找不到這筆個人 AFTERTRACE 紀錄。' };
   }
-}
-
-function notFriend(): Extract<WorklogOaRuntimeResult, { status: 'REJECTED' }> {
-  return { status: 'REJECTED', reason: 'NOT_OA_FRIEND', replyText: '請先加入 AFTERTRACE LINE 官方帳號好友後再使用小跡。' };
 }
 
 function privateLineEditResult(recordId: number, result: Awaited<ReturnType<WorklogInterpretedEditService['apply']>>): WorklogOaRuntimeResult {
