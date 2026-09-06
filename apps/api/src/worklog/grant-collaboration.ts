@@ -1,4 +1,8 @@
-import type { GroupAiAuthorizationResult, WorklogAiResponsibilityService } from './ai-responsibility';
+import type {
+  GroupAiAuthorizationResult,
+  GroupAiResponsibilityReleaseResult,
+  WorklogAiResponsibilityService,
+} from './ai-responsibility';
 import type { GroupAccessAuthorizationResult, WorklogCollaborationService } from './collaboration';
 
 /**
@@ -9,7 +13,7 @@ import type { GroupAccessAuthorizationResult, WorklogCollaborationService } from
 export class WorklogGrantBackedCollaboration {
   constructor(
     private readonly manual: Pick<WorklogCollaborationService, 'authorizeGroupAccess'>,
-    private readonly responsibility: Pick<WorklogAiResponsibilityService, 'authorizeGroupAi'>,
+    private readonly responsibility: Pick<WorklogAiResponsibilityService, 'authorizeGroupAi' | 'release'>,
   ) {}
 
   authorizeGroupAccess(input: {
@@ -25,5 +29,13 @@ export class WorklogGrantBackedCollaboration {
     at?: Date;
   }): Promise<GroupAiAuthorizationResult> {
     return this.responsibility.authorizeGroupAi(input);
+  }
+
+  releaseGroupAiResponsibility(input: {
+    sourceId: number;
+    actorUserId: number;
+    at?: Date;
+  }): Promise<GroupAiResponsibilityReleaseResult> {
+    return this.responsibility.release({ ...input, reason: 'EXPLICIT_RELEASE' });
   }
 }
