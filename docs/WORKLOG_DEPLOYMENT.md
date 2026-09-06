@@ -103,13 +103,11 @@ A Cloudflare **Cron Trigger is unrelated to logging**. If Dashboard has a stale 
 - PRIVATE AI requires positive eligible user-owned Grant for the PRIVATE Source.
 - Retired AI capability flags must not return as a second entitlement system.
 
-## Prelaunch database policy
-
-AFTERTRACE is not live yet. Dev/prod databases may be destructively rebuilt while schema is finalized. Once real production data exists, immediately switch to forward-only migrations.
+## Database migration policy
 
 Authoritative Drizzle export: `apps/api/src/db/schema-all.ts`.
 
-Current baseline artifacts:
+Current fresh-database baseline artifacts:
 
 - `drizzle/0000_worklog_baseline.sql`
 - `drizzle/meta/0000_snapshot.json`
@@ -117,14 +115,31 @@ Current baseline artifacts:
 
 Never hand-fabricate snapshot metadata.
 
-After an accepted prelaunch schema change, regenerate using:
+While the product is still prelaunch, the current baseline may be regenerated after an accepted schema change using:
 
 ```text
 pnpm db:baseline:regenerate --confirm-prelaunch-reset
 pnpm db:baseline:guard
 ```
 
-If the environment DB already recorded an older `0000_worklog_baseline`, merely rerunning migration may not apply the changed baseline. For a disposable prelaunch Dev DB, reset/recreate the Dev schema/database and then apply the regenerated baseline once. This is especially important after changing existing baseline columns such as plan fields.
+The regenerated `0000` is the canonical schema for a **fresh** database only. Regenerating it does not mean an already-existing environment database must be destroyed.
+
+For an environment that previously recorded an older `0000_worklog_baseline`, `apps/api/scripts/migrate.mjs` first applies idempotent forward-compatibility migrations and only then runs the Drizzle migrator. A forward migration must preserve durable environment data whenever a safe mapping exists. Do not reset Dev/Prod merely because the canonical fresh baseline changed.
+
+Current compatibility rule for the commercial plan schema:
+
+- create `worklog_plan_type` only if the existing database does not already have it;
+- add `plan_type` and `grant_points` only when missing;
+- map legacy `code = FREE` to `plan_type = FREE`;
+- map all other legacy plans to `plan_type = SUBSCRIPTION`, because `ONE_TIME` did not exist in the legacy model;
+- copy each row's exact `subscription_period_points` value to `grant_points`, including the existing FREE value;
+- validate the FREE identity/price invariant and non-negative points before removing the obsolete column;
+- drop `subscription_period_points` only after the new columns are populated and constrained;
+- leave `worklog_ai_runtime_config`, Grants, usage, users, groups and unrelated tables unchanged.
+
+The compatibility migration is intentionally idempotent. On a fresh database it no-ops before Drizzle creates the current baseline. On an already-upgraded database it also no-ops on subsequent deploys.
+
+Destructive database recreation is a last resort only when a safe forward mapping is genuinely impossible and must not be the default response to baseline drift.
 
 ## Current commercial plan schema
 
@@ -162,6 +177,8 @@ FREE `grant_points` is **not hard-coded**. Changing it affects only users who ha
 7. Configure FREE in Admin with the invariant above and the desired initial `grant_points`.
 8. Recheck `/health/ready` until `ready`.
 9. Only then continue Web/runtime smoke.
+
+For an existing environment, do not repeat fresh-database bootstrap if its durable AI runtime/FREE configuration already exists. Apply the forward migration, verify readiness and Admin data, and preserve the existing configuration.
 
 Readiness schema probe must cover current plan fields plus current Source/Grant/reservation structures. It must fail when an obsolete DB schema is missing fields required by Admin/runtime; a shallow false-green readiness is not acceptable.
 
