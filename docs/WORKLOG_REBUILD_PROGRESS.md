@@ -149,7 +149,15 @@ After pulling that fix, the user reran Dev migration against `.env.dev`; both st
 - `AFTERTRACE forward compatibility migrations applied successfully.` — PASS.
 - `AFTERTRACE database migrations applied successfully.` — PASS.
 
-This confirms the existing Dev DB accepted the semantic-search forward migration without rebuild. Post-migration integrity/readiness verification is still required before deployed runtime is considered green.
+Post-migration Dev DB verification also passed:
+
+- `worklog_records.search_terms` exists as `jsonb`, `NOT NULL`, default `'[]'::jsonb` — PASS;
+- `worklog_records` currently contains 0 rows, so there were no legacy Record rows to preserve/check in this environment and no invalid `search_terms` rows — PASS;
+- recent-record query returns no rows because the table is currently empty — expected;
+- AI runtime preserved as `GOOGLE / gemini-3.5-flash-lite` with configured pricing still present — PASS;
+- FREE plan preserved as `FREE / FREE / NT$0 / grant_points=400000 / enabled=true` — PASS.
+
+This confirms the existing Dev DB accepted the semantic-search forward migration without rebuild and preserved current runtime/commercial configuration.
 
 ## Event date and Reply/Replay source timestamp — accepted hard rule
 
@@ -194,12 +202,12 @@ Executed by the user on Windows:
 - `src/worklog/history-query.test.ts` — PASS, 1 file / 4 tests.
 - existing Dev forward compatibility migration after Neon multi-command fix — PASS.
 - Drizzle migration on existing Dev DB — PASS.
+- post-migration Dev DB schema/runtime/commercial verification — PASS.
 
 The stderr lines in the webhook test run are expected anomaly logs from deliberately simulated failure cases; all tests passed.
 
 Not yet runtime-validated:
 
-- post-migration Dev DB integrity (`search_terms` shape, AI runtime, FREE plan, existing data accessibility);
 - deployed Dev query behavior;
 - real Gemini production-style `search_terms` output;
 - real delayed Reply event-date regression;
@@ -219,13 +227,12 @@ Current product/development contracts include:
 
 ## Immediate next validation/development order
 
-1. Verify existing Dev DB after forward migration: `worklog_records.search_terms` exists/is array-shaped, existing Records remain readable, AI runtime is preserved, and FREE plan is intact.
-2. Deploy Dev API and verify `/health` + `/health/ready`.
-3. Real LINE test: create a semantic Record such as `晴空案今天收3千清潔費`, then query `晴空案目前收款進度如何`; expect DB facts + deep link, not AI summary.
-4. Regression test delayed GROUP Reply-to-TEXT: original message date must remain the event date even when Reply occurs later.
-5. Finish original-timestamp handling/fail-closed behavior for delayed attachment Reply paths before claiming all Reply types compliant.
-6. Continue Web non-friend prompt smoke and Web `AI 幫我記` implementation.
+1. Deploy Dev API and verify `/health` + `/health/ready`.
+2. Real LINE test: create a semantic Record such as `晴空案今天收3千清潔費`, then query `晴空案目前收款進度如何`; expect DB facts + deep link, not AI summary.
+3. Regression test delayed GROUP Reply-to-TEXT: original message date must remain the event date even when Reply occurs later.
+4. Finish original-timestamp handling/fail-closed behavior for delayed attachment Reply paths before claiming all Reply types compliant.
+5. Continue Web non-friend prompt smoke and Web `AI 幫我記` implementation.
 
 No GitHub Actions workflow was run, dispatched, rerun, enabled, modified, triggered, or used as validation.
 
-Current deployment status: **TYPECHECK + NORMALIZATION TESTS + BASELINE REGEN/GUARD + 57 COMMAND/HISTORY/LINE RUNTIME TESTS + 4 HISTORY-QUERY TESTS + EXISTING DEV FORWARD MIGRATION PASS; POST-MIGRATION DB CHECK + DEPLOYED RUNTIME E2E STILL PENDING.**
+Current deployment status: **TYPECHECK + NORMALIZATION TESTS + BASELINE REGEN/GUARD + 57 COMMAND/HISTORY/LINE RUNTIME TESTS + 4 HISTORY-QUERY TESTS + EXISTING DEV FORWARD MIGRATION + POST-MIGRATION DB VERIFICATION PASS; DEV API DEPLOY + REAL LINE E2E STILL PENDING.**
