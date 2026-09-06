@@ -9,14 +9,14 @@ import {
 } from './token';
 
 const secret = '0123456789abcdef0123456789abcdef';
-const userId = 'U0123456789abcdef0123456789abcdef';
+const lineUserId = 'U0123456789abcdef0123456789abcdef';
 const groupId = 'C0123456789abcdef0123456789abcdef';
 const now = new Date('2026-08-30T07:00:00.000Z');
 
 describe('web auth tokens', () => {
   it('issues and verifies a short-lived group entry token', async () => {
     const token = await issueWebEntryToken({
-      lineUserId: userId,
+      lineUserId,
       lineGroupId: groupId,
       nonce: 'abcdefghijklmnop',
       secret,
@@ -26,7 +26,7 @@ describe('web auth tokens', () => {
 
     await expect(verifyWebEntryToken(token, secret, now)).resolves.toEqual({
       type: 'WEB_ENTRY',
-      lineUserId: userId,
+      lineUserId,
       lineGroupId: groupId,
       nonce: 'abcdefghijklmnop',
       expiresAt: Math.floor(now.getTime() / 1000) + 300,
@@ -35,7 +35,7 @@ describe('web auth tokens', () => {
 
   it('issues and verifies a private entry token without inventing a group id', async () => {
     const token = await issuePrivateWebEntryToken({
-      lineUserId: userId,
+      lineUserId,
       userId: 41,
       sourceId: 73,
       nonce: 'private-entry-nonce',
@@ -46,7 +46,7 @@ describe('web auth tokens', () => {
 
     await expect(verifyPrivateWebEntryToken(token, secret, now)).resolves.toEqual({
       type: 'PRIVATE_WEB_ENTRY',
-      lineUserId: userId,
+      lineUserId,
       userId: 41,
       sourceId: 73,
       nonce: 'private-entry-nonce',
@@ -57,7 +57,7 @@ describe('web auth tokens', () => {
 
   it('rejects invalid private database ids before issuing a token', async () => {
     await expect(issuePrivateWebEntryToken({
-      lineUserId: userId,
+      lineUserId,
       userId: 0,
       sourceId: 73,
       nonce: 'private-entry-nonce',
@@ -68,7 +68,7 @@ describe('web auth tokens', () => {
 
   it('rejects an expired entry token', async () => {
     const token = await issueWebEntryToken({
-      lineUserId: userId,
+      lineUserId,
       lineGroupId: groupId,
       nonce: 'abcdefghijklmnop',
       secret,
@@ -81,18 +81,42 @@ describe('web auth tokens', () => {
     ).resolves.toBeNull();
   });
 
-  it('keeps entry and session token types separate', async () => {
-    const session = await issueWebSessionToken({ lineUserId: userId, secret, now });
+  it('issues target web sessions from durable user id without requiring LINE identity', async () => {
+    const session = await issueWebSessionToken({ userId: 41, secret, now });
     await expect(verifyWebEntryToken(session, secret, now)).resolves.toBeNull();
     await expect(verifyPrivateWebEntryToken(session, secret, now)).resolves.toBeNull();
-    await expect(verifyWebSessionToken(session, secret, now)).resolves.toMatchObject({
+    await expect(verifyWebSessionToken(session, secret, now)).resolves.toEqual({
       type: 'WEB_SESSION',
-      lineUserId: userId,
+      userId: 41,
+      lineUserId: null,
+      expiresAt: Math.floor(now.getTime() / 1000) + 60 * 60 * 24 * 30,
     });
   });
 
+  it('keeps bounded compatibility with already-issued LINE-only web sessions', async () => {
+    const session = await issueWebSessionToken({ lineUserId, secret, now });
+    await expect(verifyWebSessionToken(session, secret, now)).resolves.toMatchObject({
+      type: 'WEB_SESSION',
+      userId: null,
+      lineUserId,
+    });
+  });
+
+  it('can carry both durable and legacy identities during migration', async () => {
+    const session = await issueWebSessionToken({ userId: 41, lineUserId, secret, now });
+    await expect(verifyWebSessionToken(session, secret, now)).resolves.toMatchObject({
+      type: 'WEB_SESSION',
+      userId: 41,
+      lineUserId,
+    });
+  });
+
+  it('requires at least one user identity for a web session', async () => {
+    await expect(issueWebSessionToken({ secret, now })).rejects.toThrow('web session requires user identity');
+  });
+
   it('rejects tokens signed by another secret', async () => {
-    const token = await issueWebSessionToken({ lineUserId: userId, secret, now });
+    const token = await issueWebSessionToken({ userId: 41, secret, now });
     await expect(
       verifyWebSessionToken(token, 'fedcba9876543210fedcba9876543210', now),
     ).resolves.toBeNull();
