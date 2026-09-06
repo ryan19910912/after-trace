@@ -134,13 +134,13 @@ describe('WorklogRecordWriteService', () => {
 });
 
 describe('WorklogRecordReadService personal scope', () => {
-  it('does not expose personal records to a user who is not an OA friend', async () => {
+  it('exposes the LINE Login personal source even before OA friendship', async () => {
     const repository = new FakeRepository(); repository.personalSources.set(1, 10); repository.records.set(10, [record(10)]);
     const service = new WorklogRecordReadService(repository);
-    await expect(service.personalRecords(1)).resolves.toEqual([]); expect(repository.listCalls).toEqual([]);
+    await expect(service.personalRecords(1)).resolves.toEqual([record(10)]); expect(repository.listCalls).toEqual([10]);
   });
 
-  it('exposes only the OA friend personal source', async () => {
+  it('continues exposing the same personal source after OA friendship', async () => {
     const repository = new FakeRepository(); repository.oaFriends.add(1); repository.personalSources.set(1, 10); repository.records.set(10, [record(10)]);
     const service = new WorklogRecordReadService(repository);
     await expect(service.personalRecords(1)).resolves.toEqual([record(10)]); expect(repository.listCalls).toEqual([10]);
@@ -163,15 +163,15 @@ describe('WorklogRecordReadService group scope', () => {
 });
 
 describe('WorklogRecordReadService PWA surfaces', () => {
-  it('keeps personal and group surfaces separated for an OA friend who also belongs to groups', async () => {
+  it('keeps personal and group surfaces separated and reports OA friendship', async () => {
     const repository = new FakeRepository(); repository.oaFriends.add(1); repository.personalSources.set(1, 10); repository.groupSurfaces.set(1, [{ sourceId: 20, lineGroupId: 'group-a' }, { sourceId: 21, lineGroupId: 'group-b' }]);
     const service = new WorklogRecordReadService(repository);
-    await expect(service.surfaces(1)).resolves.toEqual({ personal: { sourceId: 10 }, groups: [{ sourceId: 20, lineGroupId: 'group-a' }, { sourceId: 21, lineGroupId: 'group-b' }] });
+    await expect(service.surfaces(1)).resolves.toEqual({ personal: { sourceId: 10 }, groups: [{ sourceId: 20, lineGroupId: 'group-a' }, { sourceId: 21, lineGroupId: 'group-b' }], isOaFriend: true });
   });
 
-  it('never adds a personal surface merely because the user has group access', async () => {
+  it('keeps the personal PWA surface before OA friendship and reports that state', async () => {
     const repository = new FakeRepository(); repository.personalSources.set(2, 11); repository.groupSurfaces.set(2, [{ sourceId: 30, lineGroupId: 'group-c' }]);
     const service = new WorklogRecordReadService(repository);
-    await expect(service.surfaces(2)).resolves.toEqual({ personal: null, groups: [{ sourceId: 30, lineGroupId: 'group-c' }] });
+    await expect(service.surfaces(2)).resolves.toEqual({ personal: { sourceId: 11 }, groups: [{ sourceId: 30, lineGroupId: 'group-c' }], isOaFriend: false });
   });
 });
