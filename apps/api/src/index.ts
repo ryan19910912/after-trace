@@ -5,6 +5,7 @@ import { createWebAuthRoutes } from './auth/routes';
 import { WebAuthService } from './auth/service';
 import { createDatabase } from './db/client';
 import { parseLineWebhook, parseOaWebhook } from './line/events';
+import { LineGroupSummaryClient } from './line/group-summary';
 import { LineMessagingReplyClient } from './line/reply';
 import { verifyLineSignature } from './line/signature';
 import { WorklogAiGrantService } from './worklog/ai-grants';
@@ -18,12 +19,14 @@ import { DrizzleWorklogAiPointLedgerRepository } from './worklog/drizzle-ai-poin
 import { DrizzleWorklogAiResponsibilityRepository } from './worklog/drizzle-ai-responsibility';
 import { DrizzleWorklogBootstrapRepository } from './worklog/drizzle-bootstrap';
 import { DrizzleWorklogCollaborationRepository } from './worklog/drizzle-collaboration';
+import { DrizzleWorklogGroupProfileRepository } from './worklog/drizzle-group-profile';
 import { DrizzleWorklogLineRecordEditRepository } from './worklog/drizzle-line-record-edit';
 import { DrizzleWorklogRecordWriteRepository } from './worklog/drizzle-records';
 import { DrizzleWorklogTextNormalizationRepository } from './worklog/drizzle-text-normalization';
 import { GeminiWorklogLineRecordEditor } from './worklog/gemini-line-record-editor';
 import { GeminiWorklogTextNormalizer } from './worklog/gemini-text-normalizer';
 import { WorklogGrantBackedCollaboration } from './worklog/grant-collaboration';
+import { WorklogGroupProfileService } from './worklog/group-profile';
 import type { WorklogHistoryFilters } from './worklog/history-navigation';
 import { WorklogHistoryQueryService } from './worklog/history-query';
 import { processWorklogGroupWebhook } from './worklog/group-webhook';
@@ -67,6 +70,7 @@ app.get('/health/ready', async (c) => {
       SELECT
         (SELECT COUNT(*) FROM worklog_users WHERE FALSE) AS users_probe,
         (SELECT COUNT(*) FROM worklog_source_members WHERE FALSE) AS members_probe,
+        (SELECT COUNT(*) FROM worklog_source_line_profiles WHERE FALSE) AS group_profiles_probe,
         (SELECT COUNT(*) FROM worklog_user_subscriptions WHERE FALSE) AS subscriptions_probe,
         (SELECT COUNT(plan_type) FROM worklog_subscription_plans WHERE FALSE) AS plan_type_probe,
         (SELECT COUNT(grant_points) FROM worklog_subscription_plans WHERE FALSE) AS plan_points_probe,
@@ -136,8 +140,10 @@ app.post('/webhooks/line', async (c) => {
     ? new WebAuthService(new DrizzleWebAuthRepository(database), c.env.LINE_CHANNEL_ACCESS_TOKEN, webAuthSecret)
     : null;
   const lineReplyClient = new LineMessagingReplyClient(c.env.LINE_CHANNEL_ACCESS_TOKEN);
+  const lineGroupSummaryClient = new LineGroupSummaryClient(c.env.LINE_CHANNEL_ACCESS_TOKEN);
   const worklogAnomalies = new DrizzleWorklogAnomalyRepository(database);
   const worklogHistory = new WorklogHistoryQueryService(database);
+  const worklogGroupProfiles = new WorklogGroupProfileService(new DrizzleWorklogGroupProfileRepository(database), lineGroupSummaryClient);
   const worklogAiGrants = new WorklogAiGrantService(new DrizzleWorklogAiGrantRepository(database));
   const worklogAiPoints = new WorklogAiPointLedgerService(new DrizzleWorklogAiPointLedgerRepository(database));
   const worklogAiResponsibility = new WorklogAiResponsibilityService(new DrizzleWorklogAiResponsibilityRepository(database), worklogAiGrants);
@@ -157,6 +163,7 @@ app.post('/webhooks/line', async (c) => {
       reply: lineReplyClient,
       replyTargets: worklogRecordWriteService,
       anomalies: worklogAnomalies,
+      refreshGroupProfile: async (lineGroupId, at) => worklogGroupProfiles.refreshIfStale({ lineGroupId, at }),
       queryHistory: async (target) => worklogHistory.query(target.sourceId, target.filters),
       createQueryUrl: webAuthService && webAppUrl
         ? async (target) => appendHistoryFilters(await webAuthService.createBotEntry({ webAppUrl, lineUserId: target.lineUserId, lineGroupId: target.lineGroupId, at: target.at }), target.filters)
