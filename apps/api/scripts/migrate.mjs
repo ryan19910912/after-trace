@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { neon } from '@neondatabase/serverless';
 import { drizzle } from 'drizzle-orm/neon-http';
 import { migrate } from 'drizzle-orm/neon-http/migrator';
+import { applyForwardCompatibilityMigrations } from './forward-compat.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../../..');
@@ -27,6 +28,8 @@ const sql = neon(databaseUrl);
 const db = drizzle(sql);
 
 try {
+  await applyForwardCompatibilityMigrations(db);
+  console.log('AFTERTRACE forward compatibility migrations applied successfully.');
   await migrate(db, { migrationsFolder });
   console.log('AFTERTRACE database migrations applied successfully.');
 } catch (error) {
