@@ -8,6 +8,7 @@ export type WorklogCommand =
   | { kind: 'QUERY'; naturalText: string | null }
   | { kind: 'HELP' }
   | { kind: 'CLAIM_GROUP' }
+  | { kind: 'RELEASE_GROUP' }
   | { kind: 'EDIT_REQUEST'; instruction: string; quotedLineMessageId: string | null }
   | { kind: 'RECORD_TEXT'; text: string }
   | { kind: 'RECORD_QUOTED'; quotedLineMessageId: string; instruction: string | null };
@@ -22,9 +23,11 @@ function stripBotPrefix(text: string): { addressed: boolean; body: string } {
 }
 
 /**
- * LINE OA and GROUP share one customer-facing command language.
- * A command must start with the Chinese bot name `小跡`; this avoids LINE @mention UI
- * conflicts and prevents ordinary conversation from becoming a Worklog operation.
+ * LINE OA and GROUP share one customer-facing command boundary.
+ *
+ * `幫助` and GROUP AI responsibility controls are deterministic system commands.
+ * The remaining legacy parsing branches are transitional compatibility only while the
+ * bounded one-call natural-language interpreter is wired into both LINE surfaces.
  */
 export function parseWorklogCommand(message: WorklogCommandMessage): WorklogCommand | null {
   return parsePrefixedCommand(message, true);
@@ -34,30 +37,31 @@ export function parseWorklogOaCommand(message: WorklogCommandMessage): WorklogCo
   return parsePrefixedCommand(message, false);
 }
 
-function parsePrefixedCommand(message: WorklogCommandMessage, allowGroupClaim: boolean): WorklogCommand | null {
+function parsePrefixedCommand(message: WorklogCommandMessage, allowGroupControl: boolean): WorklogCommand | null {
   if (message.messageType !== 'text' || !message.textContent) return null;
   const prefix = stripBotPrefix(message.textContent);
   if (!prefix.addressed) return null;
-  return parseCommandBody(prefix.body, message.quotedLineMessageId, allowGroupClaim);
+  return parseCommandBody(prefix.body, message.quotedLineMessageId, allowGroupControl);
 }
 
 function parseCommandBody(
   body: string,
   quotedLineMessageId: string | null,
-  allowGroupClaim: boolean,
+  allowGroupControl: boolean,
 ): WorklogCommand | null {
   const normalized = body.replace(/[！!。.]$/, '').trim();
 
   if (/^(?:幫助|帮助|說明|说明|help)$/i.test(normalized)) return { kind: 'HELP' };
+  if (/^啟用\s*AI$/iu.test(normalized)) return allowGroupControl ? { kind: 'CLAIM_GROUP' } : { kind: 'CLAIM_GROUP' };
+  if (/^取消\s*AI$/iu.test(normalized)) return allowGroupControl ? { kind: 'RELEASE_GROUP' } : { kind: 'RELEASE_GROUP' };
+
+  // Transitional compatibility while natural-language intent interpretation is being
+  // migrated. These are no longer customer-facing fixed commands.
   if (/^今天$/u.test(normalized)) return { kind: 'QUERY', naturalText: '今天' };
   if (/^最近$/u.test(normalized)) return { kind: 'QUERY', naturalText: null };
 
   const query = normalized.match(/^(?:查詢|查询|查)\s*[：:,-]?\s*(.*)$/iu);
   if (query) return { kind: 'QUERY', naturalText: (query[1] ?? '').trim() || null };
-
-  if (allowGroupClaim && /^(?:啟用|启用|啟用群組|启用群组|認領|认领|綁定|绑定)$/iu.test(normalized)) {
-    return { kind: 'CLAIM_GROUP' };
-  }
 
   if (looksLikeEditRequest(body)) {
     return {
@@ -87,8 +91,7 @@ function parseCommandBody(
 
   if (!normalized) return null;
 
-  // `小跡 <內容>` is intentionally the shortest common path and defaults to Record.
-  // Query must be explicit (`小跡 查 ...`) so a work fact is never silently reclassified.
+  // Temporary fallback until the one-call AI interpreter replaces this branch.
   return { kind: 'RECORD_TEXT', text: body.trim() };
 }
 
@@ -96,20 +99,15 @@ export function worklogLineHelpText(): string {
   return [
     `${BOT_NAME} 使用方式`,
     '',
-    `${BOT_NAME} 晴空案今天收了三千`,
-    '→ 記錄一件事',
+    `直接用自然語言告訴${BOT_NAME}你想做什麼，例如：`,
+    `${BOT_NAME} 幫我記一下今天晴空案收了三千清潔費`,
+    `${BOT_NAME} 我要查詢一下今天晴空案的內容`,
+    `Reply 一筆紀錄後說「${BOT_NAME} 我想把金額改成 2800」`,
     '',
-    `${BOT_NAME} 查 晴空案收款`,
-    '→ 查詢相關紀錄',
-    '',
-    `${BOT_NAME} 今天`,
-    '→ 查看今天的紀錄',
-    '',
-    `${BOT_NAME} 最近`,
-    '→ 查看最近紀錄',
-    '',
-    `Reply 一則訊息後輸入「${BOT_NAME} 記」`,
-    '→ 記錄被 Reply 的內容',
+    '固定系統指令：',
+    `${BOT_NAME} 幫助`,
+    `${BOT_NAME} 啟用 AI`,
+    `${BOT_NAME} 取消 AI`,
   ].join('\n');
 }
 
