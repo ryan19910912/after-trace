@@ -16,7 +16,12 @@ export interface WorklogLineSystemQueryRepository {
 
 /** Provider-free deterministic status presentation for fixed `小跡 狀態`. */
 export class WorklogLineSystemQueryService {
-  constructor(private readonly repository: WorklogLineSystemQueryRepository) {}
+  constructor(
+    private readonly repository: WorklogLineSystemQueryRepository,
+    // Retained temporarily so existing composition can pass the historical grant service
+    // without making status depend on provider-backed routing or a second entitlement path.
+    _legacyGrants?: unknown,
+  ) {}
 
   async groupStatus(input: { sourceId: number; at?: Date }): Promise<string> {
     const state = await this.repository.groupState(input.sourceId);
