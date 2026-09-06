@@ -49,13 +49,13 @@ function emptyCounters(): WorklogOaWebhookCounters {
 
 function logMessageFailure(message: {
   lineUserId: string;
-  lineMessageId: string;
+  lineMessageId: string | null;
   webhookEventId: string | null;
 }, event: string, error: unknown, extra?: Record<string, unknown>): void {
   console.error(JSON.stringify({
     event,
     lineUserId: message.lineUserId,
-    lineMessageId: message.lineMessageId,
+    ...(message.lineMessageId ? { lineMessageId: message.lineMessageId } : {}),
     webhookEventId: message.webhookEventId,
     ...extra,
     message: error instanceof Error ? error.message : 'unknown error',
@@ -68,7 +68,7 @@ async function replySafely(input: {
   replyToken: string;
   text: string;
   lineUserId: string;
-  lineMessageId: string;
+  lineMessageId: string | null;
   webhookEventId: string | null;
   counters: WorklogOaWebhookCounters;
 }): Promise<WorklogSentReply | null> {
@@ -127,7 +127,7 @@ async function rememberReplyTargetSafely(input: {
 
 export async function processWorklogOaWebhook(input: {
   parsed: ParsedOaWebhook;
-  runtime: Pick<WorklogOaRuntime, 'handleLifecycle' | 'handleMessage'>;
+  runtime: Pick<WorklogOaRuntime, 'handleLifecycle' | 'handlePostback' | 'handleMessage'>;
   reply: WorklogOaReplyPort;
   replyTargets?: WorklogBotReplyTargetPort;
   anomalies?: WorklogAnomalyPort;
@@ -164,9 +164,58 @@ export async function processWorklogOaWebhook(input: {
       continue;
     }
 
+    if (parsedEvent.kind === 'OA_POSTBACK') {
+      const event = parsedEvent.event;
+      let result: WorklogOaRuntimeResult;
+      try {
+        result = await input.runtime.handlePostback(event);
+      } catch (error) {
+        counters.oaErrors += 1;
+        counters.oaWorklogCommands += 1;
+        counters.oaWorklogRejected += 1;
+        logMessageFailure({ lineUserId: event.lineUserId, lineMessageId: null, webhookEventId: event.webhookEventId }, 'worklog_oa_postback_failed', error, { data: event.data });
+        await recordAnomalySafely(input.anomalies, {
+          category: 'LINE_OA_POSTBACK',
+          errorCode: anomalyErrorCode(error, 'OA_POSTBACK_FAILED'),
+          summary: anomalyErrorSummary(error, 'LINE OA postback failed'),
+          requestRef: event.webhookEventId,
+          metadata: { lineUserId: event.lineUserId, data: event.data },
+        });
+        if (event.replyToken) {
+          await replySafely({
+            reply: input.reply,
+            anomalies: input.anomalies,
+            replyToken: event.replyToken,
+            text: 'AFTERTRACE 這次沒有成功切換操作，請稍後再試。',
+            lineUserId: event.lineUserId,
+            lineMessageId: null,
+            webhookEventId: event.webhookEventId,
+            counters,
+          });
+        }
+        continue;
+      }
+
+      if (result.status === 'NOT_HANDLED') continue;
+      counters.oaWorklogCommands += 1;
+      if (result.status === 'REJECTED') counters.oaWorklogRejected += 1;
+      if (event.replyToken && 'replyText' in result) {
+        await replySafely({
+          reply: input.reply,
+          anomalies: input.anomalies,
+          replyToken: event.replyToken,
+          text: result.replyText,
+          lineUserId: event.lineUserId,
+          lineMessageId: null,
+          webhookEventId: event.webhookEventId,
+          counters,
+        });
+      }
+      continue;
+    }
+
     const message = parsedEvent.message;
-    const explicitCommand = parseWorklogCommand(message) !== null
-      || /^(?:[📝✏️🔍]\s*)?(?:快速記錄|快速紀錄|查詢紀錄|查詢記錄)$/u.test(message.textContent?.trim() ?? '');
+    const explicitCommand = parseWorklogCommand(message) !== null || /^取消$/u.test(message.textContent?.trim() ?? '');
     let result: WorklogOaRuntimeResult;
     try {
       result = await input.runtime.handleMessage(message);
@@ -215,6 +264,7 @@ export async function processWorklogOaWebhook(input: {
       counters.oaWorklogQueries += 1;
     } else if (
       result.status !== 'MODE_SELECTED'
+      && result.status !== 'MODE_CANCELED'
       && result.status !== 'EDITED'
       && result.status !== 'EDIT_CONFIRMATION_PENDING'
       && result.status !== 'EDIT_IN_PROGRESS'
