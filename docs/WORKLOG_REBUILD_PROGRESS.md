@@ -41,7 +41,7 @@ Do not resurrect the obsolete instruction that Dev DB must be rebuilt. Existing 
 
 The stale Dashboard `* * * * *` Cron Trigger is unrelated to this work and should still be removed separately; do not add an empty `scheduled()` handler.
 
-## Account onboarding — accepted and implemented, still needs local/runtime validation
+## Account onboarding — accepted and implemented, still needs runtime validation
 
 Accepted behavior now in branch:
 
@@ -101,8 +101,6 @@ Branch work in this batch:
 - added natural progress/status query detection to avoid saving questions such as `晴空案目前收款進度如何` as Records;
 - history retrieval remains provider-free.
 
-These changes have **not yet been locally typechecked or runtime-tested**.
-
 ## Semantic search metadata — schema/provider work started
 
 Accepted purpose: a Record should remain findable by common semantic wording even when the literal raw text differs.
@@ -156,6 +154,18 @@ Regression example:
 
 Existing GROUP Reply-to-TEXT already passes cached `lineTimestamp` as `sourceTimestamp`, which matches the rule. Other delayed Reply paths, especially attachment paths where LINE content fetch does not itself provide the original message timestamp, must not continue fabricating the Reply command timestamp as source time. That remaining gap is explicitly open work.
 
+## Current local validation for this batch
+
+Executed by the user on Windows after pulling commit `48a5986eff7593457bccf97694313d7e377dd99c`:
+
+- `pnpm --filter @aftertrace/api typecheck` — PASS.
+- targeted Vitest — PASS, 3 files / 13 tests:
+  - `src/worklog/gemini-text-normalizer.test.ts`
+  - `src/worklog/text-normalization.test.ts`
+  - `src/worklog/text-normalization-persistence.test.ts`
+
+These runs validate the new `searchTerms` normalization contract and provider/persistence typing. They do not yet validate command/history-query/LINE Reply runtime behavior, baseline regeneration, existing Dev forward migration, or deployed Worker behavior.
+
 ## Durable docs updated
 
 Current product/development contracts now include:
@@ -170,18 +180,17 @@ Current product/development contracts now include:
 
 ## Immediate next validation/development order
 
-1. Pull latest branch.
-2. Run API typecheck locally; do not use GitHub Actions.
-3. Run targeted tests for command/history/text-normalization/LINE Reply paths.
-4. Regenerate canonical baseline with `pnpm db:baseline:regenerate --confirm-prelaunch-reset` and run `pnpm db:baseline:guard`.
-5. Review generated baseline diff for `worklog_records.search_terms`; commit generated artifacts with `[skip ci]`.
-6. Run existing Dev forward migration; verify `search_terms` exists and existing data remains intact.
-7. Deploy Dev API and verify `/health` + `/health/ready`.
-8. Real LINE test: create a semantic Record such as `晴空案今天收3千清潔費`, then query `晴空案目前收款進度如何`; expect DB facts + deep link, not AI summary.
-9. Regression test delayed GROUP Reply-to-TEXT: original message date must remain the event date even when Reply occurs later.
-10. Finish original-timestamp handling/fail-closed behavior for delayed attachment Reply paths before claiming all Reply types compliant.
-11. Continue Web non-friend prompt smoke and Web `AI 幫我記` implementation.
+1. Regenerate canonical baseline with `pnpm db:baseline:regenerate --confirm-prelaunch-reset`.
+2. Run `pnpm db:baseline:guard`.
+3. Review generated baseline diff for `worklog_records.search_terms`; commit generated artifacts with `[skip ci]`.
+4. Run targeted command/history/LINE Reply tests before runtime deployment.
+5. Run existing Dev forward migration; verify `search_terms` exists and existing data remains intact.
+6. Deploy Dev API and verify `/health` + `/health/ready`.
+7. Real LINE test: create a semantic Record such as `晴空案今天收3千清潔費`, then query `晴空案目前收款進度如何`; expect DB facts + deep link, not AI summary.
+8. Regression test delayed GROUP Reply-to-TEXT: original message date must remain the event date even when Reply occurs later.
+9. Finish original-timestamp handling/fail-closed behavior for delayed attachment Reply paths before claiming all Reply types compliant.
+10. Continue Web non-friend prompt smoke and Web `AI 幫我記` implementation.
 
 No GitHub Actions workflow was run, dispatched, rerun, enabled, modified, triggered, or used as validation.
 
-Current deployment status: **DEV BASELINE WAS GREEN BEFORE THIS BATCH; NEW SEARCH/QUERY/DATE CHANGES REQUIRE LOCAL TYPECHECK + BASELINE REGENERATION + DEV RUNTIME VALIDATION BEFORE DEPLOYMENT IS CONSIDERED GREEN.**
+Current deployment status: **NEW SEARCH/QUERY/DATE CODE TYPECHECKS AND TARGETED NORMALIZATION TESTS PASS; BASELINE REGENERATION + QUERY/REPLY TESTS + DEV RUNTIME VALIDATION STILL PENDING.**
