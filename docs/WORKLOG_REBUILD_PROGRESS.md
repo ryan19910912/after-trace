@@ -15,225 +15,236 @@ Read first every substantive development run, in this exact order:
 
 Latest docs are the only product/development specification. Never use GitHub Actions unless explicitly requested. Every development commit contains `[skip ci]`.
 
-## Current checkpoint — 2026-09-07 first Web/PWA schema foundation authored; validation and baseline regeneration pending
+## Current checkpoint — 2026-09-07 native GROUP domain/persistence primitives authored; HTTP/auth wiring and executable validation pending
 
 AFTERTRACE target product is **Web + PWA-first work memory**, with optional Chrome extension. LINE is retired/migration-only and must not drive new product design.
 
-The first target-schema batch is now authored without deleting legacy LINE tables or historical Grant/usage data.
+This checkpoint continues the first Web/PWA schema foundation and adds the first target AFTERTRACE-native GROUP runtime primitives. No GitHub Actions workflow was run, dispatched, rerun, enabled, modified, triggered, or used as validation.
 
-### Completed this run
+## Web/PWA schema foundation already present
 
-Record foundation:
+The preceding foundation remains the accepted starting point:
 
-- `worklog_records.occurred_at` is now nullable and no longer defaults to current time; a free/manual Record may legitimately have no business event time;
-- Record revisions allow nullable previous/new event times;
-- direct nullable Record `title` is available without requiring the legacy Entity/Alias model;
-- nullable `extracted_metadata` and `ai_enriched_at` were added;
-- explicit `worklog_record_ai_enrichment_status = NONE | ENRICHED | LEGACY` was added so historical state is not guessed from nullable metadata;
-- existing pre-reset rows are marked `LEGACY` by the forward migration rather than retroactively claiming they are paid-AI enriched;
-- record list/read mapping now handles nullable event time and sorts undated Records by `created_at` fallback;
-- record title read path uses direct `record.title` first with legacy Entity name fallback.
+- `worklog_records.occurred_at` is nullable with no implicit current-time business default;
+- Record revisions permit nullable prior/new event dates;
+- Record has nullable direct `title`, `extracted_metadata`, `ai_enriched_at` and explicit `ai_enrichment_status = NONE | ENRICHED | LEGACY`;
+- existing rows are forward-migrated to `LEGACY` enrichment state instead of being mislabeled as current paid AI output;
+- record list/read paths can expose nullable `occurredAt` and use `created_at` as ordering fallback where already migrated;
+- `worklog_users.line_user_id` is nullable so future accounts are not structurally required to have LINE identity;
+- provider-neutral `worklog_auth_identities` exists;
+- GROUP Source supports a native `name`, nullable legacy `line_group_id`, and `created_by_user_id`;
+- GROUP membership has `OWNER | MEMBER` role;
+- `worklog_source_invites` stores token hash metadata only;
+- subscription plans carry `ai_enabled`, monthly AI-point/resource cap, monthly provider-cost TWD hard cap, and optional per-request cap;
+- forward migration preserves existing Dev/legacy data and adds target structures without destructive reset;
+- target product schema is exported through the canonical Drizzle schema export.
 
-Web/PWA identity and native GROUP foundation:
+The canonical generated `drizzle/0000` baseline is still behind these TypeScript schema changes and must be regenerated only in a real repository checkout after executable validation.
 
-- `worklog_users.line_user_id` is nullable in the target schema so future accounts do not require LINE identity;
-- new provider-neutral `worklog_auth_identities` table maps `(provider, subject)` to a user;
-- GROUP Source now supports a native non-empty `name` without `line_group_id`; legacy LINE GROUP rows remain valid;
-- GROUP Source has nullable `created_by_user_id` for migration compatibility;
-- Source membership now has explicit `OWNER | MEMBER` role, defaulting existing/unspecified membership to `MEMBER`;
-- new `worklog_source_invites` stores only invite-token hashes plus revoke/expiry/use-limit facts; raw invite tokens are not persisted;
-- an invite is only metadata and does not itself grant access; authenticated join must still write actual membership in later runtime work.
+## Native GROUP service — authored this run
 
-Paid AI plan foundation:
+New target domain module:
 
-- plan schema now has `ai_enabled`;
-- monthly internal AI point/resource cap;
-- monthly actual provider-cost cap in TWD;
-- optional per-request AI point cap;
-- schema checks require positive cap values and require an AI-enabled plan to be a paid SUBSCRIPTION with both monthly hard caps configured;
-- legacy `grant_points` remains temporarily for historical/prelaunch accounting and existing runtime compatibility.
+- `apps/api/src/worklog/native-groups.ts`
 
-Migration/export foundation:
+It defines provider/channel-neutral GROUP contracts for:
 
-- `schema-worklog-product.ts` is exported by canonical `schema-all.ts`;
-- idempotent forward-compatibility migration was added for existing databases;
-- migration preserves all existing user/Record/revision/Grant/usage data and does not delete LINE tables;
-- existing LINE identities/group ids remain intact while new target fields/tables are added.
+- create named native GROUP;
+- minimal `OWNER | MEMBER` roles;
+- create invite;
+- revoke invite;
+- authenticated join by invite token;
+- idempotent `ALREADY_MEMBER` result;
+- invalid/revoked/expired/exhausted invite result;
+- one-time raw invite token return with persistence receiving only SHA-256 token hash.
 
-### Files / commits this run
+`WebCryptoNativeGroupInviteTokenCodec` generates 32 random bytes, returns a URL-safe raw token to the caller, and hashes it with SHA-256 before repository persistence. Raw invite token must never be stored in PostgreSQL or logs.
 
-- `63ea7eecb8d70c8973be98c2f93007d293960237` — `[skip ci] make records compatible with free manual capture` — `apps/api/src/db/schema-worklog-record-core.ts`
-- `452e3d32dcb26febdcc7e2893033202403b834d3` — `[skip ci] add record product reset forward migration` — `apps/api/scripts/forward-compat.mjs`
-- `e57055668950d7055105d7271de082af97be8e4e` — `[skip ci] allow records without event time` — `apps/api/src/worklog/records.ts`
-- `a13fde97df9091e53f382a2eeffd97d340059c2d` — `[skip ci] read nullable event times safely` — `apps/api/src/worklog/drizzle-records.ts`
-- `3e0b53a3123794d8a3d8a7e66a46e6c227316ec1` — `[skip ci] cover free record schema contract` — `apps/api/src/worklog/product-record-schema.test.ts`
-- `1f7c10e82e7b4d39148be8c994ddbba1a6e43be5` — `[skip ci] add native group and AI plan schema foundation` — `apps/api/src/db/schema-worklog.ts`
-- `9b7926a4c0eb12050e0aa2a43d93a7a5a2daaf40` — `[skip ci] add web auth identity and group invite schema` — `apps/api/src/db/schema-worklog-product.ts`
-- `33b8cb6baf13d7db5a797d331832ab5781bd82a7` — `[skip ci] export web PWA product schema` — `apps/api/src/db/schema-all.ts`
-- `0c4363ba7b117f781c9fa26c3545c03d2e34f7cf` — `[skip ci] add web PWA foundation forward migration` — `apps/api/scripts/forward-compat.mjs`
-- `e087cefb50c46219b3bc259ae0792e63b585fc06` — `[skip ci] cover native product foundation schema` — `apps/api/src/worklog/product-foundation-schema.test.ts`
+Service validation currently enforces:
 
-### Tests / validation
+- positive user/source/invite ids;
+- trimmed non-empty GROUP name, max 255 characters;
+- future expiry when supplied;
+- positive max-use count when supplied;
+- SHA-256 hex token-hash shape.
 
-- `apps/api/src/worklog/product-record-schema.test.ts` — **AUTHORED / NOT RUN**;
-- `apps/api/src/worklog/product-foundation-schema.test.ts` — **AUTHORED / NOT RUN**;
-- API TypeScript typecheck — **NOT RUN**;
-- focused API Vitest tests — **NOT RUN**;
-- full API test suite — **NOT RUN**;
-- canonical Drizzle baseline regeneration — **NOT RUN**;
-- baseline guard — **NOT RUN**;
-- forward migration against existing Dev DB — **NOT RUN**;
-- Dev runtime verification — **NOT RUN**;
-- GitHub Actions — **NOT USED**.
+## Native GROUP persistence — authored this run
 
-The repository connector can edit GitHub but does not provide a local Node execution environment. A separate container attempt could not reach GitHub, so no test result is being inferred or claimed.
+New target Drizzle repository:
 
-### Known blockers / risks
+- `apps/api/src/worklog/drizzle-native-groups.ts`
 
-1. **Canonical fresh-DB baseline is temporarily behind the TypeScript schema.** `drizzle/0000` and snapshot metadata must be regenerated with the repository command before any fresh-DB/deployment claim. Do not hand-edit Drizzle snapshot metadata.
-2. **Typecheck is still required.** Making `line_user_id` and `occurred_at` nullable may expose legacy TypeScript assumptions that must be adapted; no compile-green claim exists yet.
-3. **Forward migration is authored but not executed against Dev.** Preserve Dev DB; run the normal idempotent migration path only after local static/unit validation.
-4. **Native GROUP runtime is not implemented yet.** Existing Web/PWA group listing still exposes legacy `lineGroupId`; invite create/join/revoke and OWNER authorization are schema-only so far.
-5. **Provider-neutral auth runtime is not implemented yet.** Existing login/bootstrap remains LINE-oriented while `worklog_auth_identities` is only the target storage foundation.
-6. **Paid AI hard caps are not enforced yet.** Fields/checks exist, but Admin UI/API and provider admission/settlement still use legacy Grant-era behavior.
-7. **Task/reminder/push schema is still pending Phase 1 work.** Do not add an intentional Cloudflare reminder Cron until its durable scheduler/delivery model exists.
-8. Legacy LINE runtime/schema remains intentionally present until replacement Web/PWA paths are proven.
+Implemented primitives:
 
-## Accepted target product summary
+### Create GROUP
 
-- PWA landing is microphone-first;
-- Web is full timeline/search/edit/group/subscription surface;
-- Chrome extension is fast desktop capture;
-- groups are native AFTERTRACE groups joined by invite link;
-- free users have manual Record CRUD + deterministic content/date search;
-- free browser/device speech-to-text is allowed when it does not call AFTERTRACE provider AI;
-- free Records require content plus system timestamps; `occurred_at` is optional;
-- free Records do not require title/keywords/entities;
-- AI is a paid per-user subscription capability;
-- GROUP AI responsible-user model is retired;
-- no historical AI backfill when a free user later subscribes;
-- new paid AI operations may generate title/keywords/date/bounded retrieval entities;
-- paid AI supports natural-language search, related Records, time-range summaries, AI rewrite, multimodal input and task extraction;
-- AI Q&A is later/conditional on grounding quality;
-- native tasks + PWA push are accepted before Calendar integration;
-- Cloudflare Cron is the intended reminder scheduler, with Queue only when fan-out requires it;
-- paid AI has Admin-configurable fair-use/resource caps and actual provider-cost cap in TWD;
-- frontend subscription copy discloses fair-use/monthly resource limits;
-- product name remains AFTERTRACE for now.
+- derives the creator's existing workspace;
+- inserts a native `GROUP` Source with `name`, `created_by_user_id`, and `line_group_id = NULL`;
+- atomically inserts the creator as active `OWNER` membership;
+- returns `USER_NOT_READY` when the required bootstrap workspace does not yet exist.
 
-## Target implementation phases
+### Create invite
 
-### Phase 1 — schema/domain foundation
+- only an active `OWNER` of an active AFTERTRACE-native GROUP may create an invite;
+- only token hash reaches the table;
+- optional expiry and max-use metadata are persisted;
+- legacy LINE-backed GROUP rows are deliberately not mutated through this repository.
 
-Completed/authored in first batch:
+### Revoke invite
 
-- optional Record event time and AI enrichment metadata/status;
-- provider-neutral auth identity storage;
-- native GROUP name/creator/member roles;
-- hashed invite-token storage;
-- subscription AI hard-cap fields;
-- safe existing-DB forward migration for those fields/tables.
+- only an active native-GROUP `OWNER` may revoke;
+- revocation is durable and idempotent through `COALESCE(revoked_at, NOW())`;
+- no raw token is required to revoke by invite id.
 
-Still pending:
+### Join invite
 
-- local validation and canonical baseline regeneration;
-- native GROUP/invite service rules;
-- target auth service/repository rules;
-- task/reminder/push subscription schema;
-- optional subscription-period usage aggregate structure only if current usage rows cannot enforce the target caps safely.
+Join is one SQL statement with the invite row locked for concurrent use-count correctness.
 
-### Phase 2 — free Web/PWA core
+- active existing member -> `ALREADY_MEMBER` and does not consume another invite use;
+- eligible non-member/inactive former member -> membership upsert + one invite-use increment;
+- revoked, expired, exhausted, unknown, inactive-source, or non-native invite -> `INVALID_INVITE`;
+- invite join always grants/re-grants `MEMBER`, never `OWNER`;
+- an inactive historical OWNER row therefore cannot regain owner authority merely by possessing a member invite;
+- Source authorization after join remains ordinary active-membership authorization.
 
-- manual Record create/edit/delete/restore;
-- deterministic content/date search;
-- PRIVATE + native GROUP authorization;
-- invite-link group join;
-- PWA microphone-first capture shell;
-- free speech-to-text path where browser support permits;
-- no provider AI on free/manual paths.
+No role-transfer/remove-member product flow is implemented yet; do not invent one until accepted product rules require it.
 
-### Phase 3 — paid AI core
+## PWA GROUP surfaces — moved away from LINE identity this run
 
-- per-user AI entitlement checks;
-- hard monthly resource/point cap;
-- hard monthly actual provider-cost cap TWD;
-- feature capability gates;
-- AI text/voice/image/file interpretation;
-- new-record title/keywords/date/entity enrichment only;
-- no old-record backfill.
+Changed:
 
-### Phase 4 — retrieval/value features
+- `apps/api/src/worklog/records.ts`
+- `apps/api/src/worklog/drizzle-records.ts`
+- `apps/api/src/worklog/records.test.ts`
 
-- natural-language search across old raw content + new AI metadata;
-- related Records;
-- time-range summary;
-- AI rewrite preview/accept;
-- grounded Q&A only after retrieval quality is adequate.
+Target `WorklogGroupSurface` is now:
 
-### Phase 5 — tasks/reminders
+- `sourceId`;
+- display `name`;
+- `role: OWNER | MEMBER`;
+- nullable `legacyLineGroupId` migration trace only.
 
-- task list;
-- AI task proposal + confirmation;
-- reminder timestamps;
-- PWA Web Push subscription;
-- Cloudflare `scheduled()` due scan;
-- idempotent notification delivery;
-- Queue fan-out only if needed.
+Native GROUP rows no longer require `line_group_id` to appear in PWA surfaces. The repository derives display name from native `source.name`, with legacy `line_group_id` only as a temporary fallback for old rows.
 
-### Phase 6 — Chrome extension
+`WorklogPwaSurfaces` no longer exposes `isOaFriend`, and `WorklogRecordReadRepository` no longer queries OA friendship merely to render Web/PWA surfaces. This removes one LINE-only runtime dependency from the target PWA read model.
 
-- auth/session handoff;
-- quick text;
-- microphone capture;
-- destination Source/group;
-- optional current-page title/URL later.
+Legacy LINE record-write/reply-cache code remains in the same files only for migration compatibility and was not expanded.
 
-### Phase 7 — legacy cleanup
+## Current auth boundary discovered this run
 
-- remove LINE webhook/OA/GROUP command runtime;
-- remove Reply cache/attachment replay/mentions/profile refresh;
-- remove LINE membership authorization dependencies;
-- remove GROUP AI responsible-user runtime;
-- remove obsolete schema/bindings only after retained data/dependency review;
-- update readiness/deployment env requirements.
+Native GROUP persistence is intentionally not mounted to HTTP yet because the current Web session claim is still LINE-shaped:
 
-## Exact next run
+- `WebSessionClaims` currently requires `lineUserId`;
+- `issueWebSessionToken` currently accepts only LINE user identity;
+- `apps/api/src/worklog/routes.ts` sets Hono context variable `lineUserId` and resolves `worklog_users` from that value;
+- LINE Login callback already knows the durable numeric `user.userId`, but does not put it into the Web session token;
+- legacy bot-entry exchange also issues LINE-only Web sessions.
 
-1. re-read this checkpoint and inspect only the files needed for the next batch;
-2. inspect current native-group-related service/routes and target auth boundary, not the retired LINE feature surface broadly;
-3. implement native GROUP repository/service primitives: create named GROUP, OWNER membership, create/revoke invite, authenticated join, membership authorization;
-4. ensure invite use is atomic/idempotent and raw invite tokens are never persisted;
-5. change the target PWA surface DTO away from mandatory `lineGroupId` toward native group `name`, while preserving any legacy adapter needed temporarily;
-6. author focused native-group/invite tests and mark them **AUTHORED / NOT RUN** unless actually executed;
-7. if a local execution environment becomes available, run API typecheck plus the two schema tests and new group tests before adding more schema;
-8. regenerate canonical Drizzle baseline + guard only in a real repository checkout; do not fabricate snapshot metadata;
-9. only after local green, apply the idempotent forward migration to Dev and verify schema/readiness manually;
-10. then continue free manual Web/PWA Record CRUD/search before paid AI runtime work.
+Do not add new native GROUP routes on top of a new LINE-specific identity dependency. The next runtime batch should first make the normal Web session capable of carrying/resolving durable `userId` while keeping a bounded compatibility path for already-issued LINE sessions during migration.
 
-## Estimated remaining development time
+The new `worklog_auth_identities` schema exists but provider-neutral login/runtime binding has not yet been implemented.
 
-After authoring the first schema foundation batch, current planning estimate is approximately:
+## Record-route debt observed but not changed this run
 
-- finish Phase 1 validation/native group/auth/task foundations: **~8–15 focused hours**;
-- free Web/PWA core: **~14–24 hours**;
-- paid AI core and hard-cap runtime/Admin wiring: **~16–28 hours**;
-- related Records/summaries/rewrite/tasks-push completion: **~13–22 hours**;
-- Chrome extension first usable version: **~8–15 hours**;
-- safe LINE cleanup/migration hardening + Dev/Prod smoke: **~8–16 hours**.
+`apps/api/src/worklog/routes.ts` still contains pre-reset manual Record assumptions that must be corrected in the later free CRUD batch:
 
-Current total range: **~67–120 focused development hours**. This range is slightly wider rather than artificially lower because the first schema inspection exposed real replacement work for provider-neutral auth and native GROUP runtime. Re-estimate after typecheck/migration validation and after the first native GROUP E2E.
+- `RecordSnapshot.occurredAt` is still typed as non-null `Date`;
+- snapshot mapping constructs `new Date(String(row.occurred_at))`, which is invalid for null event dates;
+- mutation input still requires non-null `occurredAt`;
+- some timeline/filter ordering remains based directly on `record.occurred_at` rather than the accepted nullable-event semantics;
+- manual title/entity creation paths still reflect the older required-Entity model and must be reconciled with the free Record rule where content alone is sufficient.
 
-## Hourly run handoff format
+Do not fix these piecemeal inside retired LINE code. Handle them as a focused Web/PWA free-manual CRUD/search batch after native auth/GROUP HTTP wiring.
 
-Every scheduled run must update this checkpoint with:
+## Commits in this run
 
-- **Completed this run**;
-- **Files/commits**;
-- **Tests** (`AUTHORED`, `NOT RUN`, `PASS`, `FAIL`, `RUNTIME VERIFIED`);
-- **Known blockers/risks**;
-- **Next run**;
-- **Estimated remaining time**.
+All commits contain `[skip ci]`:
 
-Do not restart broad static audit each hour. Continue from the exact latest checkpoint and only inspect code needed for the next planned batch.
+- `13b05ef4` — add native group domain service;
+- `6ebd57c8` — persist native groups and invites;
+- `493cd7da` — cover native group service contract;
+- `82acd8ba` — expose native group PWA surfaces;
+- `9b1ac81b` — list native groups in PWA surfaces;
+- `15bcfa1a` — align record surface tests with native groups;
+- `8bd9487b` — prevent invite joins from restoring owner role;
+- checkpoint doc commit follows this list.
 
-No GitHub Actions. Preserve Dev DB. Manual deployment only.
+No schema file was changed in this run; this runtime batch consumes the native GROUP/invite schema authored in the preceding foundation.
+
+## Validation status
+
+### Authored / updated tests
+
+- `apps/api/src/worklog/native-groups.test.ts` — **AUTHORED / NOT RUN**
+  - name normalization;
+  - one-time raw invite token vs hash-only persistence boundary;
+  - hash-before-join boundary;
+  - expiry rejection before persistence;
+  - repository authorization result propagation.
+- `apps/api/src/worklog/records.test.ts` — **AUTHORED/UPDATED / NOT RUN**
+  - native GROUP name/role surface without LINE group id;
+  - nullable legacy LINE id migration trace.
+- preceding `product-record-schema.test.ts` — **AUTHORED / NOT RUN**
+- preceding `product-foundation-schema.test.ts` — **AUTHORED / NOT RUN**
+
+### Executable validation
+
+- API TypeScript typecheck — **NOT RUN**
+- `native-groups.test.ts` — **NOT RUN**
+- `records.test.ts` — **NOT RUN**
+- focused schema tests — **NOT RUN**
+- full API Vitest — **NOT RUN**
+- Drizzle baseline regenerate / guard — **NOT RUN**
+- Dev DB forward migration — **NOT RUN**
+- Native GROUP Dev runtime smoke — **NOT RUN**
+
+Reason: this run has GitHub repository mutation access but no mounted executable checkout/dependency environment. No test result is being inferred from authored code or GitHub state.
+
+## Known blockers / risks
+
+1. **Executable validation is still pending.** New TypeScript and SQL have not yet been executed.
+2. **Canonical Drizzle baseline remains behind target schema.** Do not deploy/migrate until real-checkout validation and baseline regeneration are green.
+3. **Web session remains LINE-shaped.** Native GROUP HTTP routes should not deepen that dependency.
+4. **Provider-neutral auth runtime is not implemented.** `worklog_auth_identities` is schema-only so far.
+5. **Native GROUP HTTP/UI is not wired.** Service/repository primitives exist but customers cannot create/join/revoke through Web yet.
+6. **Invite SQL needs real PostgreSQL concurrency smoke.** The intended locking/idempotency behavior is authored but not runtime verified.
+7. **Manual Web Record routes still assume required event date/title in important paths.** They need a focused target-model rewrite.
+8. **AI subscription hard caps are schema-only.** Runtime admission/accounting still follows legacy Grant-era paths.
+9. **Tasks/reminders/push and Chrome extension remain unimplemented.**
+10. Legacy LINE runtime remains for migration compatibility; do not extend it.
+
+## Exact next development order
+
+1. Re-read this checkpoint and the required product docs; do not broad-audit the repo.
+2. Update Web session token contract to carry durable numeric `userId` for target Web/PWA sessions.
+3. Preserve bounded verification compatibility for already-issued legacy LINE-only sessions while migration is in progress; do not require future providers to have LINE ids.
+4. Change target Worklog route authentication/context to prefer durable `userId`; legacy `lineUserId` lookup should be fallback only.
+5. Wire authenticated native GROUP HTTP endpoints for:
+   - create named GROUP;
+   - create invite as OWNER;
+   - revoke invite as OWNER;
+   - join via raw invite token as authenticated user;
+   - list/display via the already-migrated PWA surfaces.
+6. Keep raw invite token response one-time and never log/store it.
+7. Add route-level tests for owner/member authorization, revoked/expired/exhausted token, idempotent repeated join, and no owner escalation.
+8. If a real executable checkout is available, run API typecheck plus focused `token`, native-group, records, route and schema tests. Record exact PASS/FAIL only from actual execution.
+9. After local green, regenerate canonical `drizzle/0000`, run baseline guard, then apply the forward migration to Dev while preserving existing data.
+10. Run Dev native GROUP smoke: create -> invite -> second authenticated user join -> surfaces/list -> revoke -> rejected new join -> existing member still authorized.
+11. Then perform the focused free Web/PWA manual Record CRUD/search rewrite for nullable date and optional AI metadata/title.
+12. Only after the free core is stable, wire paid per-user AI entitlement/hard caps, Related Records, summaries/rewrite, Tasks/Push, Chrome extension, and final LINE cleanup.
+
+## Remaining development estimate
+
+Current estimate: **about 61–111 focused development hours** remaining.
+
+Approximate remaining buckets:
+
+- provider-neutral Web auth + native GROUP HTTP/UI/runtime verification: 8–16h;
+- free Web/PWA Record CRUD/search model cleanup + PWA UX: 10–18h;
+- paid per-user AI entitlement/caps + capture/enrichment/search: 15–28h;
+- Related Records + summary/rewrite: 7–12h;
+- Tasks/reminders + PWA Push/Cron: 7–13h;
+- Chrome extension: 6–10h;
+- baseline/migration/Dev/Prod hardening and LINE cleanup: 8–14h.
+
+This estimate should be tightened after the first successful executable typecheck/migration and native GROUP E2E, because those will reveal the actual compatibility cost of the legacy LINE-era route/auth code.
