@@ -20,15 +20,8 @@ function stripAftertraceMention(text: string): { mentioned: boolean; body: strin
 
 /**
  * Parses only deterministic/safety-sensitive LINE command boundaries.
- *
- * Natural-language history detection here is deliberately conservative: it exists to
- * prevent obvious lookup requests from being persisted as new Records before the
- * provider-backed intent layer is fully wired to the grant ledger. The actual history
- * result is still a deterministic PWA filter/link, never an AI-composed history answer.
- *
- * Likewise, obvious edit requests are separated before persistence so an edit command
- * cannot accidentally become a new Record. Runtime must require a reliable Reply target
- * before any future LINE AI edit is allowed to mutate data.
+ * History recognition may accept natural progress/status questions, but retrieval
+ * remains deterministic and provider-free; a query must never be persisted as a Record.
  */
 export function parseWorklogCommand(message: WorklogCommandMessage): WorklogCommand | null {
   if (message.messageType !== 'text' || !message.textContent) return null;
@@ -76,7 +69,8 @@ export function looksLikeHistoryRequest(text: string): boolean {
   // never classify as history because they are common Record content.
   return /(?:查(?:一下|詢|看)?|查詢|查询|搜尋|搜索|找(?:一下|找)?|查看|看看).*(?:紀錄|記錄|資料|歷史|做|發生|工作)?/i.test(value)
     || /(?:做了什麼|做了哪些|做過什麼|發生什麼|發生了什麼|有哪些紀錄|有什麼紀錄|哪些紀錄|最近怎樣|最近如何)[？?]?$/i.test(value)
-    || /(?:今天|昨天|這週|本週|上週|這個月|本月|上個月).*(?:做了什麼|做了哪些|發生什麼|發生了什麼)[？?]?$/i.test(value);
+    || /(?:今天|昨天|這週|本週|上週|這個月|本月|上個月).*(?:做了什麼|做了哪些|發生什麼|發生了什麼)[？?]?$/i.test(value)
+    || /(?:目前|現在|最近|當前)?.*(?:進度|狀況|情況|狀態).*(?:如何|怎樣|怎麼樣|怎麼)[？?]?$/i.test(value);
 }
 
 export function looksLikeEditRequest(text: string): boolean {
