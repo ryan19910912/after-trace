@@ -5,6 +5,7 @@ import {
   type WorklogBootstrapRepository,
   type WorklogBootstrapUser,
   type WorklogBoundGroup,
+  type WorklogLineUserProfilePort,
 } from './bootstrap';
 
 class FakeRepository implements WorklogBootstrapRepository {
@@ -21,10 +22,15 @@ class FakeRepository implements WorklogBootstrapRepository {
 
   async upsertLineUser(input: Parameters<WorklogBootstrapRepository['upsertLineUser']>[0]) {
     const existing = this.usersByLineId.get(input.lineUserId);
-    if (existing) return existing;
+    if (existing) {
+      const updated = input.displayName ? { ...existing, displayName: input.displayName } : existing;
+      this.usersByLineId.set(input.lineUserId, updated);
+      return updated;
+    }
     const created: WorklogBootstrapUser = {
       userId: this.nextUserId++,
       lineUserId: input.lineUserId,
+      displayName: input.displayName,
       isOaFriend: false,
     };
     this.usersByLineId.set(input.lineUserId, created);
@@ -115,6 +121,13 @@ class FakeAiResponsibility implements WorklogAiResponsibilityClaimPort {
   }
 }
 
+class FakeLineProfiles implements WorklogLineUserProfilePort {
+  privateCalls: string[] = [];
+  groupCalls: Array<{ lineGroupId: string; lineUserId: string }> = [];
+  async getUserProfile(lineUserId: string) { this.privateCalls.push(lineUserId); return { displayName: 'Private Ryan' }; }
+  async getGroupMemberProfile(lineGroupId: string, lineUserId: string) { this.groupCalls.push({ lineGroupId, lineUserId }); return { displayName: 'Ryan Hsu' }; }
+}
+
 describe('LINE private bootstrap', () => {
   it('creates a stable personal workspace/source on follow and preserves it across refollow', async () => {
     const repository = new FakeRepository();
@@ -143,11 +156,18 @@ describe('LINE private bootstrap', () => {
     const followed = await service.handleOaFollow({ lineUserId: 'U1' });
     await service.handleOaUnfollow({ lineUserId: 'U1' });
     expect(repository.usersByLineId.get('U1')?.isOaFriend).toBe(false);
-
     const interaction = await service.bootstrapPrivateInteraction({ lineUserId: 'U1' });
-
     expect(interaction).toEqual({ status: 'READY', userId: followed.userId, workspaceId: followed.workspaceId, sourceId: followed.sourceId });
     expect(repository.privateSources.size).toBe(1);
+  });
+
+  it('fills a missing private display name from the LINE profile API without making friendship an authorization gate', async () => {
+    const repository = new FakeRepository();
+    const profiles = new FakeLineProfiles();
+    const service = new WorklogBootstrapService(repository, undefined, undefined, profiles);
+    await service.bootstrapPrivateInteraction({ lineUserId: 'U1' });
+    expect(profiles.privateCalls).toEqual(['U1']);
+    expect(repository.usersByLineId.get('U1')?.displayName).toBe('Private Ryan');
   });
 });
 
@@ -170,6 +190,17 @@ describe('group bootstrap', () => {
     expect(repository.ensureGroupCalls).toHaveLength(1);
     expect(repository.boundMembers.get(`${first.sourceId}:1`)).toBe(true);
     expect(repository.boundMembers.get(`${first.sourceId}:2`)).toBe(true);
+  });
+
+  it('hydrates the responsible member LINE name when webhook payload did not carry one', async () => {
+    const repository = new FakeRepository();
+    const responsibility = new FakeAiResponsibility();
+    const profiles = new FakeLineProfiles();
+    const service = new WorklogBootstrapService(repository, undefined, responsibility, profiles);
+    const result = await service.claimGroupAiResponsibility({ lineGroupId: 'C1', lineUserId: 'RESPONSIBLE', evidence: 'EXPLICIT_CLAIM' });
+    expect(result.status).toBe('BOUND');
+    expect(profiles.groupCalls).toEqual([{ lineGroupId: 'C1', lineUserId: 'RESPONSIBLE' }]);
+    expect(repository.usersByLineId.get('RESPONSIBLE')?.displayName).toBe('Ryan Hsu');
   });
 
   it('claims AI responsibility later without changing Source identity', async () => {
