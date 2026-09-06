@@ -127,6 +127,64 @@ export class DrizzleWorklogAiResponsibilityRepository implements WorklogAiRespon
       ? 'ALREADY_ASSIGNED'
       : 'CONFLICT';
   }
+
+  async releaseIfResponsible(input: {
+    sourceId: number;
+    actorUserId: number;
+    reason: string;
+    at: Date;
+  }): Promise<'RELEASED' | 'UNBOUND' | 'NOT_RESPONSIBLE' | 'SOURCE_NOT_FOUND' | 'ACTOR_NOT_ACTIVE'> {
+    const source = await this.db.execute(sql`
+      SELECT
+        source.id::text AS id,
+        COALESCE(member.is_active, FALSE) AS actor_is_active,
+        responsibility.responsible_user_id::text AS responsible_user_id
+      FROM worklog_sources source
+      LEFT JOIN worklog_source_members member
+        ON member.source_id = source.id
+       AND member.user_id = ${input.actorUserId}
+      LEFT JOIN worklog_source_ai_responsibility responsibility
+        ON responsibility.source_id = source.id
+      WHERE source.id = ${input.sourceId}
+        AND source.type = 'GROUP'
+        AND source.status = 'ACTIVE'
+      LIMIT 1
+    `);
+    const row = source.rows[0] as { id?: string; actor_is_active?: boolean; responsible_user_id?: string | null } | undefined;
+    if (!row?.id) return 'SOURCE_NOT_FOUND';
+    if (!row.actor_is_active) return 'ACTOR_NOT_ACTIVE';
+    if (!row.responsible_user_id) return 'UNBOUND';
+    if (positiveInteger(row.responsible_user_id, 'responsible user id') !== input.actorUserId) return 'NOT_RESPONSIBLE';
+
+    const released = await this.db.execute(sql`
+      WITH removed AS (
+        DELETE FROM worklog_source_ai_responsibility
+        WHERE source_id = ${input.sourceId}
+          AND responsible_user_id = ${input.actorUserId}
+        RETURNING source_id, responsible_user_id
+      ), history AS (
+        INSERT INTO worklog_source_ai_responsibility_history (
+          source_id,
+          previous_user_id,
+          next_user_id,
+          actor_user_id,
+          reason,
+          created_at
+        )
+        SELECT
+          removed.source_id,
+          removed.responsible_user_id,
+          NULL,
+          ${input.actorUserId},
+          ${input.reason},
+          ${input.at}
+        FROM removed
+        RETURNING id
+      )
+      SELECT source_id::text AS source_id FROM removed
+    `);
+    return released.rows.length > 0 ? 'RELEASED' : 'NOT_RESPONSIBLE';
+  }
 }
 
 function positiveInteger(value: unknown, label: string): number {
