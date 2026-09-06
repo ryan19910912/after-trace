@@ -229,10 +229,7 @@ export class DrizzleNativeGroupRepository implements NativeGroupRepository {
         FROM eligible_invite
         WHERE NOT EXISTS (SELECT 1 FROM active_member_before)
         ON CONFLICT (source_id, user_id) DO UPDATE
-        SET role = CASE
-              WHEN worklog_source_members.role = 'OWNER' THEN 'OWNER'::worklog_source_member_role
-              ELSE 'MEMBER'::worklog_source_member_role
-            END,
+        SET role = 'MEMBER',
             is_active = TRUE,
             last_seen_at = NOW(),
             updated_at = NOW()
