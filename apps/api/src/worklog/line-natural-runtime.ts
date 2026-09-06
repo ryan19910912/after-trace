@@ -47,6 +47,12 @@ export class WorklogLineNaturalRuntime {
 
     const group = await this.bootstrap.bootstrapGroupInteraction({ lineGroupId: message.lineGroupId, lineUserId: message.lineUserId, at: message.lineTimestamp });
 
+    if (command.kind === 'STATUS') {
+      const access = await this.collaboration.authorizeGroupAccess({ sourceId: group.sourceId, actorUserId: group.userId });
+      if (access.status !== 'OK') return rejectedAuthorization(access.status);
+      return { status: 'STATUS', replyText: await this.systemQueries.groupStatus({ sourceId: group.sourceId, at: message.lineTimestamp }) };
+    }
+
     if (command.kind === 'RELEASE_GROUP') {
       const released = await this.collaboration.releaseGroupAiResponsibility({ sourceId: group.sourceId, actorUserId: group.userId, at: message.lineTimestamp });
       if (released.status === 'RELEASED') return { status: 'AI_RESPONSIBILITY_RELEASED', sourceId: released.sourceId, replyText: '已取消你在這個群組的 AI 額度負責人設定。\n\n目前這個群組沒有 AI 額度負責人。' };
@@ -87,10 +93,6 @@ export class WorklogLineNaturalRuntime {
       const access = await this.collaboration.authorizeGroupAccess({ sourceId: group.sourceId, actorUserId: group.userId });
       if (access.status !== 'OK') return rejectedAuthorization(access.status);
       return { status: 'QUERY', sourceId: group.sourceId, userId: group.userId, filters: historyFiltersFromText(intent.queryText, message.lineTimestamp) };
-    }
-
-    if (intent.intent === 'SYSTEM_QUERY') {
-      return { status: 'HELP', replyText: await this.systemQueries.group({ sourceId: group.sourceId, query: intent.query, at: message.lineTimestamp }) };
     }
 
     if (intent.intent === 'EDIT') {
