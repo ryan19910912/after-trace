@@ -1,5 +1,6 @@
 export type WorklogInputType = 'TEXT' | 'AUDIO' | 'IMAGE' | 'FILE';
 export type WorklogRecordStatus = 'ACTIVE' | 'DELETED';
+export type NativeGroupRole = 'OWNER' | 'MEMBER';
 
 const WEB_SESSION_KEY = 'aftertrace.worklog.session';
 const WEB_SCOPE_KEY = 'aftertrace.worklog.scope';
@@ -13,20 +14,12 @@ export type WorklogRecord = {
   authorDisplayName: string | null;
   inputType: WorklogInputType;
   rawText: string;
-  occurredAt: string;
+  occurredAt: string | null;
   status: WorklogRecordStatus;
   version: number;
   deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
-};
-
-export type WorklogEntity = {
-  id: number;
-  name: string;
-  entityType: string | null;
-  status: string;
-  aliases: string[];
 };
 
 export type WorklogRecordRevision = {
@@ -38,8 +31,8 @@ export type WorklogRecordRevision = {
   channel: string;
   previousRawText: string;
   newRawText: string;
-  previousOccurredAt: string;
-  newOccurredAt: string;
+  previousOccurredAt: string | null;
+  newOccurredAt: string | null;
   previousEntityId: number | null;
   previousTitle: string | null;
   newEntityId: number | null;
@@ -57,7 +50,6 @@ export type RecordPage = {
 };
 
 export type RecordFilters = {
-  entityId?: number;
   query?: string;
   from?: string;
   to?: string;
@@ -65,87 +57,61 @@ export type RecordFilters = {
   offset?: number;
 };
 
-export type FundingGrant = {
-  id: number;
-  type: string;
-  status: string;
-  originalPoints: number;
-  remainingPoints: number;
-  effectiveAt: string;
-  expiresAt: string | null;
-  capPoints: number | null;
-  usedPoints: number;
-  reservedPoints: number;
-  enabled: boolean;
-  sourceAvailablePoints: number;
-};
-
-export type PersonalFunding = {
+export type WorklogGroupSurface = {
   sourceId: number;
-  userId: number;
-  availablePoints: number;
-  reservedPoints: number;
-  usedPoints: number;
-  platformSubsidizedPoints: number;
-  grants: FundingGrant[];
-};
-
-export type GroupFunding = {
-  sourceId: number;
-  responsibleUser: { id: number; displayName: string | null } | null;
-  responsibleUserActive: boolean;
-  availablePoints: number;
-  reservedPoints: number;
-  usedPoints: number;
-  platformSubsidizedPoints: number;
-  canManage: boolean;
-  grants: FundingGrant[];
-};
-
-export type WorklogConfirmationCandidate = {
-  entityId: number;
   name: string;
-  matchedVia: 'ENTITY' | 'ALIAS' | 'FUZZY';
+  role: NativeGroupRole;
+  legacyLineGroupId: string | null;
 };
-
-export type WorklogConfirmation = {
-  id: number;
-  sourceId: number;
-  recordId: number;
-  confirmationType: 'ALIAS_MATCH' | 'RECORD_TITLE' | 'ENTITY_MATCH';
-  candidateEntityId: number | null;
-  candidateTitle: string | null;
-  proposedName: string | null;
-  reason: string | null;
-  operation: 'CREATE_TITLE' | 'LINE_AI_EDIT';
-  proposedRawText: string | null;
-  occurredAt: string;
-  recordOccurredAt: string;
-  expectedRecordVersion: number;
-  candidates: WorklogConfirmationCandidate[];
-  recordRawText: string;
-  expiresAt: string | null;
-  createdAt: string;
-};
-
-export type WorklogConfirmationDecision =
-  | { action: 'USE_EXISTING'; entityId: number }
-  | { action: 'CREATE_TITLE'; title?: string }
-  | { action: 'REJECT' };
 
 export type WorklogSurfaces = {
   personal: { sourceId: number } | null;
-  groups: Array<{ sourceId: number; lineGroupId: string }>;
+  groups: WorklogGroupSurface[];
 };
 
+/** Migration-only deep-link context retained while old LINE entry links still exist. */
 export type WebEntryContext =
   | { type: 'GROUP'; lineGroupId: string }
   | { type: 'PRIVATE'; userId: number; sourceId: number };
 
 export type EntryExchange = {
   sessionToken: string;
-  lineUserId: string;
+  lineUserId?: string;
   entryContext: WebEntryContext;
+};
+
+export type RecordScope =
+  | { type: 'PERSONAL'; sourceId: number }
+  | { type: 'GROUP'; sourceId: number };
+
+export type ManualRecordInput = {
+  rawText: string;
+  occurredAt?: string | null;
+  /** Legacy compatibility only. New free/manual clients do not require a title. */
+  title?: string | null;
+  /** Legacy compatibility only. New free/manual clients do not require an Entity. */
+  entityId?: number;
+};
+
+export type NativeGroupSummary = {
+  sourceId: number;
+  name: string;
+  role: NativeGroupRole;
+};
+
+export type NativeGroupInvite = {
+  id: number;
+  sourceId: number;
+  expiresAt: string | null;
+  maxUses: number | null;
+  useCount: number;
+  revokedAt: string | null;
+  createdAt: string;
+};
+
+export type CreatedNativeGroupInvite = {
+  invite: NativeGroupInvite;
+  inviteToken: string;
 };
 
 export type SubscriptionPlan = {
@@ -176,17 +142,6 @@ export type CheckoutIntent = {
   message?: string;
 };
 
-export type RecordScope =
-  | { type: 'PERSONAL'; sourceId: number }
-  | { type: 'GROUP'; sourceId: number };
-
-export type ManualRecordInput = {
-  entityId?: number;
-  title?: string;
-  rawText: string;
-  occurredAt: string;
-};
-
 async function json<T>(response: Response, fallback: string): Promise<T & { error?: string }> {
   const text = await response.text();
   let body: T & { error?: string };
@@ -214,7 +169,6 @@ function recoverExpiredWebSession(): void {
     window.localStorage.removeItem(WEB_SESSION_KEY);
     window.localStorage.removeItem(WEB_SCOPE_KEY);
   } finally {
-    // Defer navigation so the current promise rejects normally and React cleanup can run.
     window.setTimeout(() => window.location.reload(), 0);
   }
 }
@@ -232,6 +186,7 @@ export class WorklogApi {
     return `${this.baseUrl.replace(/\/$/, '')}${path}`;
   }
 
+  /** Migration-era authentication entry. Target auth will replace this without changing Web domain APIs. */
   lineLoginUrl() {
     return this.base('/api/v1/auth/line/start');
   }
@@ -244,11 +199,12 @@ export class WorklogApi {
     }), '登入連結驗證失敗');
   }
 
-  async surfaces(sessionToken: string) {
-    return (await json<{ surfaces: WorklogSurfaces }>(
+  async surfaces(sessionToken: string): Promise<WorklogSurfaces> {
+    const body = await json<{ surfaces: Record<string, unknown> }>(
       await this.request(sessionToken, '/api/v1/worklog/surfaces'),
       '紀錄範圍載入失敗',
-    )).surfaces;
+    );
+    return surfacesFromApi(body.surfaces);
   }
 
   async personalRecords(
@@ -277,18 +233,6 @@ export class WorklogApi {
     return this.recordPage(sessionToken, path, filters, '回收桶載入失敗');
   }
 
-  async entities(sessionToken: string, scope: RecordScope, query?: string): Promise<WorklogEntity[]> {
-    const path = scope.type === 'PERSONAL'
-      ? '/api/v1/worklog/entities/personal'
-      : `/api/v1/worklog/entities/group/${scope.sourceId}`;
-    const suffix = query?.trim() ? `?q=${encodeURIComponent(query.trim())}` : '';
-    const body = await json<{ entities: Array<Record<string, unknown>> }>(
-      await this.request(sessionToken, `${path}${suffix}`),
-      '紀錄標題載入失敗',
-    );
-    return body.entities.map(entityFromApi);
-  }
-
   async createRecord(sessionToken: string, scope: RecordScope, input: ManualRecordInput) {
     const path = scope.type === 'PERSONAL'
       ? '/api/v1/worklog/records/personal'
@@ -303,36 +247,13 @@ export class WorklogApi {
   async updateRecord(
     sessionToken: string,
     recordId: number,
-    input: { expectedVersion: number; rawText?: string; occurredAt?: string },
+    input: { expectedVersion: number; rawText?: string; occurredAt?: string | null },
   ) {
     const body = await json<{ record: Record<string, unknown> }>(
       await this.request(sessionToken, `/api/v1/worklog/records/${recordId}`, this.body('PATCH', input)),
       '更新紀錄失敗',
     );
     return recordFromApi(body.record);
-  }
-
-  async moveRecord(
-    sessionToken: string,
-    recordId: number,
-    input: { expectedVersion: number; entityId?: number; title?: string },
-  ) {
-    const body = await json<{ record: Record<string, unknown> }>(
-      await this.request(sessionToken, `/api/v1/worklog/records/${recordId}/move`, this.body('POST', input)),
-      '移動紀錄失敗',
-    );
-    return recordFromApi(body.record);
-  }
-
-  async batchMoveRecords(
-    sessionToken: string,
-    records: Array<{ id: number; expectedVersion: number }>,
-    target: { entityId?: number; title?: string },
-  ) {
-    return json<{ updatedCount: number }>(
-      await this.request(sessionToken, '/api/v1/worklog/records/batch-move', this.body('POST', { records, ...target })),
-      '批次移動失敗',
-    );
   }
 
   async deleteRecord(sessionToken: string, recordId: number, expectedVersion: number) {
@@ -367,63 +288,47 @@ export class WorklogApi {
     return body.revisions.map(revisionFromApi);
   }
 
-  async personalFunding(sessionToken: string): Promise<PersonalFunding> {
-    const body = await json<{ funding: Record<string, unknown> }>(
-      await this.request(sessionToken, '/api/v1/worklog/funding/personal'),
-      '個人 AI 點數載入失敗',
+  async groups(sessionToken: string): Promise<NativeGroupSummary[]> {
+    const body = await json<{ groups: Array<Record<string, unknown>> }>(
+      await this.request(sessionToken, '/api/v1/groups'),
+      '群組載入失敗',
     );
-    return personalFundingFromApi(body.funding);
+    return body.groups.map(nativeGroupFromApi);
   }
 
-  async groupFunding(sessionToken: string, sourceId: number): Promise<GroupFunding> {
-    const body = await json<{ funding: Record<string, unknown> }>(
-      await this.request(sessionToken, `/api/v1/worklog/funding/group/${sourceId}`),
-      '群組 AI 點數載入失敗',
+  async createGroup(sessionToken: string, name: string): Promise<NativeGroupSummary> {
+    const body = await json<{ group: Record<string, unknown> }>(
+      await this.request(sessionToken, '/api/v1/groups', this.body('POST', { name })),
+      '建立群組失敗',
     );
-    return groupFundingFromApi(body.funding);
+    return nativeGroupFromApi(body.group);
   }
 
-  async configureGroupGrant(
+  async createGroupInvite(
     sessionToken: string,
     sourceId: number,
-    grantId: number,
-    input: { enabled: boolean; capPoints: number | null },
-  ): Promise<GroupFunding> {
-    const body = await json<{ funding: Record<string, unknown> }>(
-      await this.request(
-        sessionToken,
-        `/api/v1/worklog/funding/group/${sourceId}/grants/${grantId}`,
-        this.body('PUT', input),
-      ),
-      '群組 AI 點數設定失敗',
+    input: { expiresAt?: string | null; maxUses?: number | null } = {},
+  ): Promise<CreatedNativeGroupInvite> {
+    const body = await json<{ invite: Record<string, unknown>; inviteToken: string }>(
+      await this.request(sessionToken, `/api/v1/groups/${sourceId}/invites`, this.body('POST', input)),
+      '建立邀請失敗',
     );
-    return groupFundingFromApi(body.funding);
+    return { invite: nativeGroupInviteFromApi(body.invite), inviteToken: String(body.inviteToken) };
   }
 
-  async pendingConfirmations(sessionToken: string, scope: RecordScope): Promise<WorklogConfirmation[]> {
-    const path = scope.type === 'PERSONAL'
-      ? '/api/v1/worklog/confirmations/personal'
-      : `/api/v1/worklog/confirmations/group/${scope.sourceId}`;
-    const body = await json<{ confirmations: Array<Record<string, unknown>> }>(
-      await this.request(sessionToken, path),
-      '待確認紀錄載入失敗',
+  async revokeGroupInvite(sessionToken: string, sourceId: number, inviteId: number): Promise<void> {
+    await json(
+      await this.request(sessionToken, `/api/v1/groups/${sourceId}/invites/${inviteId}`, { method: 'DELETE' }),
+      '撤銷邀請失敗',
     );
-    return body.confirmations.map(confirmationFromApi);
   }
 
-  async resolveConfirmation(
-    sessionToken: string,
-    scope: RecordScope,
-    confirmationId: number,
-    decision: WorklogConfirmationDecision,
-  ) {
-    const path = scope.type === 'PERSONAL'
-      ? `/api/v1/worklog/confirmations/personal/${confirmationId}/resolve`
-      : `/api/v1/worklog/confirmations/group/${scope.sourceId}/${confirmationId}/resolve`;
-    return json<{ resolution: Record<string, unknown> }>(
-      await this.request(sessionToken, path, this.body('POST', decision)),
-      '待確認紀錄處理失敗',
+  async joinGroup(sessionToken: string, inviteToken: string): Promise<{ status: 'JOINED' | 'ALREADY_MEMBER'; group: NativeGroupSummary }> {
+    const body = await json<{ status: 'JOINED' | 'ALREADY_MEMBER'; group: Record<string, unknown> }>(
+      await this.request(sessionToken, '/api/v1/groups/join', this.body('POST', { token: inviteToken })),
+      '加入群組失敗',
     );
+    return { status: body.status, group: nativeGroupFromApi(body.group) };
   }
 
   async submitFeedback(
@@ -438,12 +343,10 @@ export class WorklogApi {
   }
 
   async subscriptionPlans(sessionToken: string): Promise<SubscriptionPlans> {
-    const response = await this.request(sessionToken, '/api/v1/subscription/plans');
-    const value = await json<{
-      currentPlanCode: string;
-      checkoutEnabled: boolean;
-      plans: SubscriptionPlan[];
-    }>(response, '方案載入失敗');
+    const value = await json<SubscriptionPlans>(
+      await this.request(sessionToken, '/api/v1/subscription/plans'),
+      '方案載入失敗',
+    );
     return {
       currentPlanCode: value.currentPlanCode,
       checkoutEnabled: value.checkoutEnabled,
@@ -473,7 +376,6 @@ export class WorklogApi {
     fallback: string,
   ) {
     const params = new URLSearchParams();
-    if (filters.entityId) params.set('entityId', String(filters.entityId));
     if (filters.query?.trim()) params.set('q', filters.query.trim());
     if (filters.from) params.set('from', filters.from);
     if (filters.to) params.set('to', filters.to);
@@ -510,24 +412,14 @@ function recordFromApi(raw: Record<string, unknown>): WorklogRecord {
     title: nullableString(raw.title),
     authorUserId: nullableNumber(raw.author_user_id ?? raw.authorUserId),
     authorDisplayName: nullableString(raw.author_display_name ?? raw.authorDisplayName),
-    inputType: String(raw.input_type ?? raw.inputType) as WorklogInputType,
-    rawText: String(raw.raw_text ?? raw.rawText ?? ''),
-    occurredAt: String(raw.occurred_at ?? raw.occurredAt),
+    inputType: String(raw.input_type ?? raw.inputType ?? 'TEXT') as WorklogInputType,
+    rawText: String(raw.raw_text ?? raw.rawText ?? raw.content ?? ''),
+    occurredAt: nullableString(raw.occurred_at ?? raw.occurredAt),
     status: String(raw.status) as WorklogRecordStatus,
     version: Number(raw.version),
     deletedAt: nullableString(raw.deleted_at ?? raw.deletedAt),
     createdAt: String(raw.created_at ?? raw.createdAt),
     updatedAt: String(raw.updated_at ?? raw.updatedAt),
-  };
-}
-
-function entityFromApi(raw: Record<string, unknown>): WorklogEntity {
-  return {
-    id: Number(raw.id),
-    name: String(raw.name),
-    entityType: nullableString(raw.entity_type ?? raw.entityType),
-    status: String(raw.status),
-    aliases: Array.isArray(raw.aliases) ? raw.aliases.map(String) : [],
   };
 }
 
@@ -541,8 +433,8 @@ function revisionFromApi(raw: Record<string, unknown>): WorklogRecordRevision {
     channel: String(raw.channel),
     previousRawText: String(raw.previous_raw_text ?? raw.previousRawText ?? ''),
     newRawText: String(raw.new_raw_text ?? raw.newRawText ?? ''),
-    previousOccurredAt: String(raw.previous_occurred_at ?? raw.previousOccurredAt),
-    newOccurredAt: String(raw.new_occurred_at ?? raw.newOccurredAt),
+    previousOccurredAt: nullableString(raw.previous_occurred_at ?? raw.previousOccurredAt),
+    newOccurredAt: nullableString(raw.new_occurred_at ?? raw.newOccurredAt),
     previousEntityId: nullableNumber(raw.previous_entity_id ?? raw.previousEntityId),
     previousTitle: nullableString(raw.previous_title ?? raw.previousTitle),
     newEntityId: nullableNumber(raw.new_entity_id ?? raw.newEntityId),
@@ -553,88 +445,42 @@ function revisionFromApi(raw: Record<string, unknown>): WorklogRecordRevision {
   };
 }
 
-function personalFundingFromApi(raw: Record<string, unknown>): PersonalFunding {
-  return {
-    sourceId: Number(raw.sourceId),
-    userId: Number(raw.userId),
-    availablePoints: nonNegativeNumber(raw.availablePoints),
-    reservedPoints: nonNegativeNumber(raw.reservedPoints),
-    usedPoints: nonNegativeNumber(raw.usedPoints),
-    platformSubsidizedPoints: nonNegativeNumber(raw.platformSubsidizedPoints),
-    grants: Array.isArray(raw.grants)
-      ? raw.grants.map((value) => fundingGrantFromApi(value as Record<string, unknown>))
-      : [],
-  };
-}
-
-function groupFundingFromApi(raw: Record<string, unknown>): GroupFunding {
-  const responsible = raw.responsibleUser;
-  const responsibleUser = responsible && typeof responsible === 'object' && !Array.isArray(responsible)
-    ? {
-        id: Number((responsible as Record<string, unknown>).id),
-        displayName: nullableString((responsible as Record<string, unknown>).displayName),
-      }
+function surfacesFromApi(raw: Record<string, unknown>): WorklogSurfaces {
+  const personalRaw = raw.personal;
+  const personal = personalRaw && typeof personalRaw === 'object' && !Array.isArray(personalRaw)
+    ? { sourceId: Number((personalRaw as Record<string, unknown>).sourceId ?? (personalRaw as Record<string, unknown>).source_id) }
     : null;
+  const groupsRaw = Array.isArray(raw.groups) ? raw.groups : [];
   return {
-    sourceId: Number(raw.sourceId),
-    responsibleUser,
-    responsibleUserActive: Boolean(raw.responsibleUserActive),
-    availablePoints: nonNegativeNumber(raw.availablePoints),
-    reservedPoints: nonNegativeNumber(raw.reservedPoints),
-    usedPoints: nonNegativeNumber(raw.usedPoints),
-    platformSubsidizedPoints: nonNegativeNumber(raw.platformSubsidizedPoints),
-    canManage: Boolean(raw.canManage),
-    grants: Array.isArray(raw.grants)
-      ? raw.grants.map((value) => fundingGrantFromApi(value as Record<string, unknown>))
-      : [],
+    personal,
+    groups: groupsRaw.map((value) => {
+      const group = value as Record<string, unknown>;
+      return {
+        sourceId: Number(group.sourceId ?? group.source_id),
+        name: String(group.name ?? '未命名群組'),
+        role: (String(group.role) === 'OWNER' ? 'OWNER' : 'MEMBER') as NativeGroupRole,
+        legacyLineGroupId: nullableString(group.legacyLineGroupId ?? group.legacy_line_group_id ?? group.lineGroupId ?? group.line_group_id),
+      };
+    }),
   };
 }
 
-function fundingGrantFromApi(raw: Record<string, unknown>): FundingGrant {
+function nativeGroupFromApi(raw: Record<string, unknown>): NativeGroupSummary {
   return {
-    id: Number(raw.id),
-    type: String(raw.type ?? ''),
-    status: String(raw.status ?? ''),
-    originalPoints: nonNegativeNumber(raw.original_points ?? raw.originalPoints),
-    remainingPoints: nonNegativeNumber(raw.remaining_points ?? raw.remainingPoints),
-    effectiveAt: String(raw.effective_at ?? raw.effectiveAt ?? ''),
-    expiresAt: nullableString(raw.expires_at ?? raw.expiresAt),
-    capPoints: nullableNumber(raw.cap_points ?? raw.capPoints),
-    usedPoints: nonNegativeNumber(raw.scope_used_points ?? raw.usedPoints),
-    reservedPoints: nonNegativeNumber(raw.scope_reserved_points ?? raw.reservedPoints),
-    enabled: Boolean(raw.scope_enabled ?? raw.enabled),
-    sourceAvailablePoints: nonNegativeNumber(raw.source_available_points ?? raw.sourceAvailablePoints),
+    sourceId: Number(raw.sourceId ?? raw.source_id),
+    name: String(raw.name ?? ''),
+    role: (String(raw.role) === 'OWNER' ? 'OWNER' : 'MEMBER') as NativeGroupRole,
   };
 }
 
-function confirmationFromApi(raw: Record<string, unknown>): WorklogConfirmation {
-  const operation = String(raw.operation ?? 'CREATE_TITLE') === 'LINE_AI_EDIT' ? 'LINE_AI_EDIT' : 'CREATE_TITLE';
+function nativeGroupInviteFromApi(raw: Record<string, unknown>): NativeGroupInvite {
   return {
     id: Number(raw.id),
     sourceId: Number(raw.sourceId ?? raw.source_id),
-    recordId: Number(raw.recordId ?? raw.record_id),
-    confirmationType: String(raw.confirmationType ?? raw.confirmation_type) as WorklogConfirmation['confirmationType'],
-    candidateEntityId: nullableNumber(raw.candidateEntityId ?? raw.candidate_entity_id),
-    candidateTitle: nullableString(raw.candidateTitle ?? raw.candidate_title),
-    proposedName: nullableString(raw.proposedName ?? raw.proposed_name),
-    reason: nullableString(raw.reason),
-    operation,
-    proposedRawText: operation === 'LINE_AI_EDIT' ? nullableString(raw.proposedRawText ?? raw.proposed_raw_text) : null,
-    occurredAt: String(raw.occurredAt ?? raw.occurred_at),
-    recordOccurredAt: String(raw.recordOccurredAt ?? raw.record_occurred_at ?? raw.occurredAt ?? raw.occurred_at),
-    expectedRecordVersion: Number(raw.expectedRecordVersion ?? raw.expected_record_version),
-    candidates: Array.isArray(raw.candidates)
-      ? raw.candidates.map((value) => {
-          const candidate = value as Record<string, unknown>;
-          return {
-            entityId: Number(candidate.entityId ?? candidate.entity_id),
-            name: String(candidate.name ?? ''),
-            matchedVia: String(candidate.matchedVia ?? candidate.matched_via) as WorklogConfirmationCandidate['matchedVia'],
-          };
-        })
-      : [],
-    recordRawText: String(raw.recordRawText ?? raw.record_raw_text ?? ''),
     expiresAt: nullableString(raw.expiresAt ?? raw.expires_at),
+    maxUses: nullableNumber(raw.maxUses ?? raw.max_uses),
+    useCount: Number(raw.useCount ?? raw.use_count ?? 0),
+    revokedAt: nullableString(raw.revokedAt ?? raw.revoked_at),
     createdAt: String(raw.createdAt ?? raw.created_at),
   };
 }
@@ -643,11 +489,6 @@ function nullableNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
-}
-
-function nonNegativeNumber(value: unknown): number {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : 0;
 }
 
 function nullableString(value: unknown): string | null {
