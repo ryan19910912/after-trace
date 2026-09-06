@@ -1,10 +1,11 @@
 import { Hono } from 'hono';
 import { sql } from 'drizzle-orm';
-import { verifyWebSessionToken } from '../auth/token';
+import { resolveWebSessionUserId } from '../auth/session-user';
+import { verifyWebSessionToken, type WebSessionClaims } from '../auth/token';
 import { createDatabase } from '../db/client';
 
 type Bindings = { DATABASE_URL: string; WEB_AUTH_SECRET?: string; WEB_APP_ORIGIN?: string };
-type Env = { Bindings: Bindings; Variables: { lineUserId: string } };
+type Env = { Bindings: Bindings; Variables: { session: WebSessionClaims } };
 
 const CHECKOUT_ENABLED = false;
 
@@ -47,13 +48,15 @@ export function createWorklogSubscriptionRoutes() {
     if (!match) return c.json({ ok: false, error: 'WEB_SESSION_REQUIRED' }, 401);
     const session = await verifyWebSessionToken(match[1], secret);
     if (!session) return c.json({ ok: false, error: 'INVALID_WEB_SESSION' }, 401);
-    c.set('lineUserId', session.lineUserId);
+    c.set('session', session);
     await next();
   });
 
   app.get('/plans', async (c) => {
     const db = createDatabase(c.env.DATABASE_URL);
-    const user = await userRow(db, c.get('lineUserId'));
+    const userId = await resolveWebSessionUserId(db, c.get('session'));
+    if (!userId) return c.json({ ok: false, error: 'WORKLOG_USER_NOT_FOUND' }, 404);
+    const user = await userRow(db, userId);
     if (!user) return c.json({ ok: false, error: 'WORKLOG_USER_NOT_FOUND' }, 404);
 
     const result = await db.execute(sql`
@@ -97,7 +100,9 @@ export function createWorklogSubscriptionRoutes() {
     if (!CHECKOUT_ENABLED) return c.json({ ok: false, error: 'CHECKOUT_NOT_ENABLED' }, 503);
 
     const db = createDatabase(c.env.DATABASE_URL);
-    const user = await userRow(db, c.get('lineUserId'));
+    const userId = await resolveWebSessionUserId(db, c.get('session'));
+    if (!userId) return c.json({ ok: false, error: 'WORKLOG_USER_NOT_FOUND' }, 404);
+    const user = await userRow(db, userId);
     if (!user) return c.json({ ok: false, error: 'WORKLOG_USER_NOT_FOUND' }, 404);
 
     let body: unknown;
@@ -148,7 +153,7 @@ export function createWorklogSubscriptionRoutes() {
   return app;
 }
 
-async function userRow(db: ReturnType<typeof createDatabase>, lineUserId: string): Promise<UserSubscriptionRow | null> {
+async function userRow(db: ReturnType<typeof createDatabase>, userId: number): Promise<UserSubscriptionRow | null> {
   const result = await db.execute(sql`
     SELECT
       u.id::text AS id,
@@ -165,7 +170,7 @@ async function userRow(db: ReturnType<typeof createDatabase>, lineUserId: string
     FROM worklog_users u
     LEFT JOIN worklog_user_subscriptions subscription ON subscription.user_id = u.id
     LEFT JOIN worklog_subscription_plans plan ON plan.code = subscription.plan_code
-    WHERE u.line_user_id = ${lineUserId}
+    WHERE u.id = ${userId}
     LIMIT 1
   `);
   const row = result.rows[0] as { id?: string; plan_code?: string; effective_state?: UserSubscriptionRow['effectiveState'] } | undefined;
