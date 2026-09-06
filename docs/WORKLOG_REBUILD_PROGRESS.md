@@ -15,7 +15,7 @@ Read first every substantive development run, in this exact order:
 
 Latest docs are the only product/development specification. Never use GitHub Actions unless explicitly requested. Every development commit contains `[skip ci]`.
 
-## Current checkpoint — 2026-09-06 PWA-first product pivot + unified 小跡 LINE command language
+## Current checkpoint — 2026-09-06 PWA-first product pivot + unified 小跡 LINE command language locally green
 
 Cloudflare deployment remains manual:
 
@@ -196,11 +196,11 @@ It has now been removed from the branch:
 
 Because the table was never migrated into Dev and never included in a regenerated canonical baseline, **no DB rollback is required**.
 
-The previous 42-test green result applies to the retired prototype and is not current-branch validation after the PWA-first/小跡 refactor.
+The previous 42-test green result applies only to the retired prototype.
 
 ## Current branch work in this pivot
 
-Implemented in code/docs:
+Implemented in code/docs and locally validated:
 
 - shared `小跡` parser for OA/GROUP
 - explicit query commands + Record-first default
@@ -212,7 +212,7 @@ Implemented in code/docs:
 - readiness/index/forward-compat cleanup
 - PRODUCT_SPEC rewritten PWA-first
 - ENTITY_MODEL / RECORD_EDIT_POLICY / LINE_CONTENT_POLICY / DEVELOPMENT_POLICY aligned
-- command/OA runtime/OA webhook/event tests updated for new syntax
+- command/OA runtime/OA webhook/event/GROUP runtime/GROUP webhook tests updated for new syntax
 
 Not yet implemented:
 
@@ -225,32 +225,38 @@ Not yet implemented:
 
 These are accepted next development work, not claimed shipped.
 
-## Current validation status
+## Current validation status — PASS
 
-**Current PWA-first/小跡 refactor has not yet been locally validated by the user.**
+Latest user-executed local validation on Windows after the small test-fixture fixes:
 
-Do not reuse the prior Postback 42/42 result as proof for the new branch state.
+- `pnpm --filter @aftertrace/api typecheck` — **PASS**
+- targeted current LINE/PWA-first command batch — **PASS, 6 files / 55 tests**
+  - `src/line/events.test.ts` — 7 tests
+  - `src/worklog/command.test.ts` — 8 tests
+  - `src/worklog/oa-runtime.test.ts` — 10 tests
+  - `src/worklog/oa-webhook.test.ts` — 8 tests
+  - `src/worklog/line-runtime.test.ts` — 14 tests
+  - `src/worklog/group-webhook.test.ts` — 8 tests
+- expected stderr logs came from deliberate simulated failure/anomaly tests (`reply unavailable`, `boom`) and were not test failures.
 
-Immediate validation should run API typecheck and targeted command/OA/GROUP tests. Existing GROUP runtime/webhook test files may still need expectation updates from old `@AFTERTRACE` syntax; fix any failures on branch rather than changing the accepted product contract back.
+The prior stale-fixture issues were test-only:
+
+- OA/GROUP webhook mock `WorklogHistoryQueryResult` still used obsolete `totalCount` shape; fixed to current `total/title/query/records/filters` shape.
+- GROUP `MEMBER_LEFT` lifecycle expectation omitted the propagated source timestamp; fixed to expect the correct `at` field rather than changing runtime behavior.
 
 No new schema is currently required solely from the retired pending-mode work, so do not regenerate baseline for `worklog_private_pending_actions`.
 
 ## Immediate next order
 
-1. pull latest branch
-2. run API typecheck
-3. run targeted current LINE tests:
-   - `src/line/events.test.ts`
-   - `src/worklog/command.test.ts`
-   - `src/worklog/oa-runtime.test.ts`
-   - `src/worklog/oa-webhook.test.ts`
-   - `src/worklog/line-runtime.test.ts`
-   - `src/worklog/group-webhook.test.ts`
-4. fix any stale old-syntax expectations
-5. after LINE refactor is green, implement group profile metadata + lazy refresh as the next bounded schema/runtime batch
-6. then implement PWA AI Draft/Quick Capture shared pipeline incrementally
-7. only deploy Dev after the currently selected batch is locally green and any required forward migration is verified
+1. implement LINE GROUP profile metadata persistence + 24h lazy refresh as the next bounded schema/runtime batch;
+2. refresh only on actual use, never on cron; preserve original LINE group name/picture;
+3. enforce current active membership on all GROUP reads/actions and use member-left evidence for immediate revocation;
+4. locally typecheck/test that bounded batch;
+5. apply reviewed Dev forward migration without rebuilding the existing Dev DB if a new profile schema column/table is required;
+6. then implement durable non-expiring PWA AI Draft + last-used Source preference + Quick Capture shared pipeline incrementally;
+7. add Voice as another input modality on top of the same preview/commit core;
+8. deploy Dev only after each selected batch is locally green and any required migration has been verified.
 
 No GitHub Actions workflow was run, dispatched, rerun, enabled, modified, triggered, or used as validation.
 
-Current deployment status: **PREVIOUS DEV SEARCH/DB FOUNDATION GREEN; PWA-FIRST/小跡 PRODUCT + LINE CODE REFACTOR COMMITTED BUT CURRENT LOCAL TYPECHECK/TEST VALIDATION PENDING; QUICK CAPTURE/DRAFT/GROUP PROFILE IMPLEMENTATION PENDING.**
+Current deployment status: **PREVIOUS DEV SEARCH/DB FOUNDATION GREEN; PWA-FIRST/小跡 PRODUCT + LINE CODE REFACTOR LOCALLY GREEN (TYPECHECK + 55/55 TARGETED TESTS); QUICK CAPTURE/DRAFT/GROUP PROFILE IMPLEMENTATION PENDING.**
