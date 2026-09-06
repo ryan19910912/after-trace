@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BufferedGroupMessage } from '../line/events';
-import { parseWorklogCommand, parseWorklogOaCommand, worklogLineHelpText } from './command';
+import { isWorklogStatusCommand, parseWorklogCommand, parseWorklogOaCommand, worklogLineHelpText } from './command';
 
 function message(textContent: string, quotedLineMessageId: string | null = null): BufferedGroupMessage {
   return {
@@ -38,19 +38,26 @@ describe('小跡 LINE command parser', () => {
     expect(parseWorklogCommand(message('小跡 我想把金額改成 2800', 'quoted-record-1'))).toEqual({ kind: 'NATURAL_TEXT', text: '我想把金額改成 2800', quotedLineMessageId: 'quoted-record-1' });
   });
 
-  it('keeps only help and GROUP AI responsibility as fixed system commands', () => {
+  it('keeps help, status and GROUP AI responsibility as provider-free system commands', () => {
     expect(parseWorklogCommand(message('小跡 幫助'))).toEqual({ kind: 'HELP' });
+    expect(parseWorklogCommand(message('小跡 狀態'))).toEqual({ kind: 'HELP' });
+    expect(isWorklogStatusCommand(message('小跡 狀態'))).toBe(true);
+    expect(isWorklogStatusCommand(message('小跡 状态。'))).toBe(true);
+    expect(isWorklogStatusCommand(message('小跡 我想知道狀態'))).toBe(false);
     expect(parseWorklogCommand(message('小跡 啟用 AI'))).toEqual({ kind: 'CLAIM_GROUP' });
     expect(parseWorklogCommand(message('小跡 取消 AI'))).toEqual({ kind: 'RELEASE_GROUP', text: '取消 AI' });
     expect(parseWorklogCommand(message('小跡 啟用'))).toEqual({ kind: 'NATURAL_TEXT', text: '啟用', quotedLineMessageId: null });
 
     const help = worklogLineHelpText();
+    expect(help).toContain('小跡 狀態');
     expect(help).toContain('小跡 啟用 AI');
     expect(help).toContain('小跡 取消 AI');
     expect(help).toContain('自然語言');
   });
 
-  it('lets OA runtime reject group-only AI controls explicitly', () => {
+  it('lets OA runtime reject group-only AI controls explicitly while status remains shared', () => {
+    expect(parseWorklogOaCommand(message('小跡 狀態'))).toEqual({ kind: 'HELP' });
+    expect(isWorklogStatusCommand(message('小跡 狀態'))).toBe(true);
     expect(parseWorklogOaCommand(message('小跡 啟用 AI'))).toEqual({ kind: 'CLAIM_GROUP' });
     expect(parseWorklogOaCommand(message('小跡 取消 AI'))).toEqual({ kind: 'RELEASE_GROUP', text: '取消 AI' });
   });
