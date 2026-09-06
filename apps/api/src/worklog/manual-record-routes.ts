@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { resolveWebSessionUserId } from '../auth/session-user';
 import { verifyWebSessionToken, type WebSessionClaims } from '../auth/token';
 import { createDatabase, type Database } from '../db/client';
@@ -114,6 +114,8 @@ type ManualRecordEnv = {
     repository: ManualRecordRouteRepository;
   };
 };
+
+type ManualRecordContext = Context<ManualRecordEnv>;
 
 export function createManualRecordRoutes(dependencies: ManualRecordRouteDependencies = {}) {
   const databaseFactory = dependencies.databaseFactory ?? createDatabase;
@@ -239,12 +241,12 @@ export function createManualRecordRoutes(dependencies: ManualRecordRouteDependen
 }
 
 async function listScopedRecords(
-  c: Parameters<ReturnType<typeof createManualRecordRoutes>['request']>[0] extends never ? never : any,
+  c: ManualRecordContext,
   scope: 'PERSONAL' | 'GROUP',
   status: 'ACTIVE' | 'DELETED',
 ) {
-  const repository = c.get('repository') as ManualRecordRouteRepository;
-  const userId = c.get('userId') as number;
+  const repository = c.get('repository');
+  const userId = c.get('userId');
   const sourceId = await scopedSourceId(c, repository, userId, scope);
   if ('response' in sourceId) return sourceId.response;
   const filters = recordFilters(c.req.query());
@@ -252,9 +254,9 @@ async function listScopedRecords(
   return c.json({ ok: true, ...(await repository.listRecords({ sourceId: sourceId.value, status, filters })) });
 }
 
-async function createScopedRecord(c: any, scope: 'PERSONAL' | 'GROUP') {
-  const repository = c.get('repository') as ManualRecordRouteRepository;
-  const userId = c.get('userId') as number;
+async function createScopedRecord(c: ManualRecordContext, scope: 'PERSONAL' | 'GROUP') {
+  const repository = c.get('repository');
+  const userId = c.get('userId');
   const sourceId = await scopedSourceId(c, repository, userId, scope);
   if ('response' in sourceId) return sourceId.response;
   const body = await objectBody(c);
@@ -284,11 +286,11 @@ async function createScopedRecord(c: any, scope: 'PERSONAL' | 'GROUP') {
   return c.json({ ok: true, record }, 201);
 }
 
-async function mutateStatus(c: any, nextStatus: 'ACTIVE' | 'DELETED') {
+async function mutateStatus(c: ManualRecordContext, nextStatus: 'ACTIVE' | 'DELETED') {
   const recordId = positiveId(c.req.param('recordId'));
   if (!recordId) return c.json({ ok: false, error: 'INVALID_RECORD_ID' }, 400);
-  const repository = c.get('repository') as ManualRecordRouteRepository;
-  const userId = c.get('userId') as number;
+  const repository = c.get('repository');
+  const userId = c.get('userId');
   const current = await repository.record(recordId);
   if (!current) return c.json({ ok: false, error: 'RECORD_NOT_FOUND' }, 404);
   if (!(await canAccessRecord(repository, userId, current))) {
@@ -316,7 +318,7 @@ async function mutateStatus(c: any, nextStatus: 'ACTIVE' | 'DELETED') {
 }
 
 async function scopedSourceId(
-  c: any,
+  c: ManualRecordContext,
   repository: ManualRecordRouteRepository,
   userId: number,
   scope: 'PERSONAL' | 'GROUP',
