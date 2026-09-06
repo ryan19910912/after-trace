@@ -9,14 +9,16 @@ import type { WorklogAiUsageCommit } from './ai-provider-usage';
  * Persisted interpretation for a newly-created LINE text Record.
  *
  * The raw Record text remains the durable source of truth. AI only proposes the
- * single filing title and, when explicitly present in the text, a corrected event
- * time. Ambiguous title decisions are resolved by the repository into a durable
- * worklog_ai_confirmations row instead of being guessed here.
+ * single filing title, a day-precision event date, and bounded retrieval metadata.
+ * Ambiguous title decisions are resolved into durable confirmations.
  */
 export type WorklogTextNormalizationOutput = {
   title: string | null;
   titleRequiresConfirmation: boolean;
+  /** Canonical Asia/Taipei day marker encoded as an ISO instant, never meaningful clock time. */
   occurredAt: string | null;
+  /** Grounded retrieval terms/synonyms only; never a replacement for rawText. */
+  searchTerms: string[];
 };
 
 export type WorklogAiRuntimeConfigSnapshot = {
@@ -41,7 +43,7 @@ export type WorklogTextNormalizationContext = {
 
 export type WorklogTextProviderInput = {
   text: string;
-  /** Initial LINE/create timestamp. Relative time expressions are resolved against this. */
+  /** Original source timestamp. Relative dates must resolve against this, not processing time. */
   referenceOccurredAt: string;
 };
 
@@ -106,7 +108,6 @@ export interface WorklogTextNormalizationProvider {
   normalize(input: WorklogTextProviderInput, config: WorklogAiRuntimeConfigSnapshot): Promise<WorklogTextProviderResponse>;
 }
 
-/** Grant-ledger accounting port used by provider execution. */
 export interface WorklogTextNormalizationAiPointPort {
   reserveAi(input: {
     chargedUserId: number;
@@ -130,14 +131,6 @@ export type WorklogTextNormalizationResult =
   | { status: 'FAILED'; reason: string }
   | { status: 'NOT_ELIGIBLE' };
 
-/**
- * AI interpretation deliberately happens after the raw LINE Record is durable.
- *
- * The state row is a one-record claim. LINE redelivery may resume after durable
- * provider success / point settlement, but it never starts a second provider call
- * after an uncertain provider attempt. The provider output is limited to title/time;
- * raw Record content is never replaced by this pipeline.
- */
 export class WorklogTextNormalizationService {
   constructor(
     private readonly repository: WorklogTextNormalizationRepository,
@@ -189,9 +182,6 @@ export class WorklogTextNormalizationService {
       return { status: 'DEFERRED', reason: 'AI_RUNTIME_CONFIG_INVALID' };
     }
 
-    // The point ledger holds up to requestedPoints, but a smaller positive eligible
-    // balance is still sufficient to start the provider request. Any actual overage
-    // after provider success is platform subsidy, never customer negative balance.
     const reservation = await this.aiPoints.reserveAi({
       chargedUserId: context.chargedUserId,
       actorUserId: context.actorUserId,
@@ -253,11 +243,7 @@ export class WorklogTextNormalizationService {
         usage,
       };
     } catch (error) {
-      if (providerCompleted) {
-        // Provider returned, but durable persistence is uncertain. Never release the
-        // reservation or automatically issue a second provider request.
-        return { status: 'IN_PROGRESS' };
-      }
+      if (providerCompleted) return { status: 'IN_PROGRESS' };
 
       await this.safeRelease(reservationToken);
       const detail = errorDetail(error);
@@ -315,8 +301,7 @@ export class WorklogTextNormalizationService {
     try {
       await this.aiPoints.releaseAi(token);
     } catch {
-      // Reservation expiry is the durable fallback. Never turn raw-record success
-      // into a user-visible failure because cleanup itself had a transient DB error.
+      // Reservation expiry is the durable fallback.
     }
   }
 }
@@ -331,8 +316,12 @@ export function normalizeWorklogTextOutput(value: unknown): WorklogTextNormaliza
     row.titleRequiresConfirmation ?? row.title_requires_confirmation,
     'titleRequiresConfirmation',
   );
-  const occurredAt = optionalDateTime(row.occurredAt ?? row.occurred_at, 'occurredAt');
-  return { title, titleRequiresConfirmation, occurredAt };
+  const occurredAt = optionalDayMarker(
+    row.occurredAt ?? row.occurred_at ?? row.occurredOn ?? row.occurred_on,
+    'occurredAt',
+  );
+  const searchTerms = searchTermsValue(row.searchTerms ?? row.search_terms);
+  return { title, titleRequiresConfirmation, occurredAt, searchTerms };
 }
 
 function requiredBoolean(value: unknown, label: string): boolean {
@@ -340,14 +329,48 @@ function requiredBoolean(value: unknown, label: string): boolean {
   return value;
 }
 
-function optionalDateTime(value: unknown, label: string): string | null {
+/** Converts YYYY-MM-DD or an RFC3339 value to the canonical Taipei day-start instant. */
+function optionalDayMarker(value: unknown, label: string): string | null {
   if (value === null || value === undefined) return null;
   if (typeof value !== 'string') throw new Error(`${label} must be text or null`);
   const normalized = value.trim();
   if (!normalized) return null;
+  const dateOnly = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly) return taipeiDayStartIso(Number(dateOnly[1]), Number(dateOnly[2]), Number(dateOnly[3]), label);
   const parsed = new Date(normalized);
   if (!Number.isFinite(parsed.getTime())) throw new Error(`invalid ${label}`);
-  return parsed.toISOString();
+  const taipei = new Date(parsed.getTime() + 8 * 60 * 60 * 1000);
+  return taipeiDayStartIso(taipei.getUTCFullYear(), taipei.getUTCMonth() + 1, taipei.getUTCDate(), label);
+}
+
+function taipeiDayStartIso(year: number, month: number, day: number, label: string): string {
+  const utc = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0) - 8 * 60 * 60 * 1000);
+  const roundTrip = new Date(utc.getTime() + 8 * 60 * 60 * 1000);
+  if (
+    roundTrip.getUTCFullYear() !== year
+    || roundTrip.getUTCMonth() + 1 !== month
+    || roundTrip.getUTCDate() !== day
+  ) throw new Error(`invalid ${label}`);
+  return utc.toISOString();
+}
+
+function searchTermsValue(value: unknown): string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new Error('searchTerms must be an array');
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== 'string') throw new Error('searchTerms items must be text');
+    const normalized = item.trim();
+    if (!normalized) continue;
+    if (normalized.length > 64) throw new Error('searchTerms item is too long');
+    const key = normalized.toLocaleLowerCase('zh-TW');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(normalized);
+    if (result.length >= 12) break;
+  }
+  return result;
 }
 
 function requiredText(value: unknown, label: string, max: number): string {
