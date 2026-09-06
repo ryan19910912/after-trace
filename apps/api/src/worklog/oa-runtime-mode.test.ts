@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { BufferedPrivateMessage } from '../line/events';
+import type { BufferedPrivateMessage, OaPostbackEvent } from '../line/events';
 import type { PrivateBootstrapResult } from './bootstrap';
 import {
   WorklogOaRuntime,
@@ -27,6 +27,16 @@ function message(textContent: string | null, messageType = 'text', at = '2026-09
   };
 }
 
+function postback(data: string, at = '2026-09-06T13:00:00+08:00'): OaPostbackEvent {
+  return {
+    webhookEventId: 'postback-event-1',
+    replyToken: 'postback-reply-1',
+    lineUserId: 'line-user-1',
+    data,
+    lineTimestamp: new Date(at),
+  };
+}
+
 class Bootstrap implements WorklogOaBootstrapPort {
   async handleOaFollow() { return { userId: 7, workspaceId: 8, sourceId: 9 }; }
   async handleOaUnfollow() { return { userId: 7 }; }
@@ -41,6 +51,7 @@ class Modes implements WorklogOaInputModePort {
   expired = false;
   sets: Array<'RECORD' | 'QUERY'> = [];
   consumes = 0;
+  clears = 0;
 
   async set(_userId: number, action: 'RECORD' | 'QUERY') {
     this.action = action;
@@ -57,6 +68,11 @@ class Modes implements WorklogOaInputModePort {
     const action = this.action;
     this.action = null;
     return action ? { status: 'ACTIVE' as const, action } : { status: 'NONE' as const };
+  }
+
+  async clear() {
+    this.clears += 1;
+    this.action = null;
   }
 }
 
@@ -88,12 +104,12 @@ function subject(modes: Modes, records = new Records(), grants = new Grants()) {
   };
 }
 
-describe('WorklogOaRuntime Rich Menu input modes', () => {
-  it('sets RECORD mode and treats the next text as the exact Record input', async () => {
+describe('WorklogOaRuntime Rich Menu postback input modes', () => {
+  it('sets RECORD mode from postback and treats the next text as the exact Record input', async () => {
     const modes = new Modes();
     const { runtime, records, grants } = subject(modes);
 
-    await expect(runtime.handleMessage(message('快速記錄'))).resolves.toMatchObject({
+    await expect(runtime.handlePostback(postback('aftertrace:record'))).resolves.toMatchObject({
       status: 'MODE_SELECTED',
       action: 'RECORD',
     });
@@ -111,11 +127,11 @@ describe('WorklogOaRuntime Rich Menu input modes', () => {
     expect(modes.action).toBeNull();
   });
 
-  it('sets QUERY mode and routes the next text to deterministic history without AI preflight', async () => {
+  it('sets QUERY mode from postback and routes the next text without AI preflight', async () => {
     const modes = new Modes();
     const { runtime, records, grants } = subject(modes);
 
-    await runtime.handleMessage(message('查詢紀錄'));
+    await runtime.handlePostback(postback('aftertrace:query'));
     await expect(runtime.handleMessage(message('晴空案目前收款進度如何'))).resolves.toEqual({
       status: 'QUERY',
       sourceId: 9,
@@ -126,11 +142,37 @@ describe('WorklogOaRuntime Rich Menu input modes', () => {
     expect(grants.calls).toBe(0);
   });
 
+  it('cancels a pending action through postback before the next text arrives', async () => {
+    const modes = new Modes();
+    const { runtime, records } = subject(modes);
+
+    await runtime.handlePostback(postback('aftertrace:record'));
+    await expect(runtime.handlePostback(postback('aftertrace:cancel'))).resolves.toEqual({
+      status: 'MODE_CANCELED',
+      replyText: '已取消這次操作。',
+    });
+    expect(modes.clears).toBe(1);
+    await expect(runtime.handleMessage(message('晴空案完成清潔'))).resolves.toEqual({ status: 'NOT_HANDLED' });
+    expect(records.calls).toHaveLength(0);
+  });
+
+  it('also treats a literal 取消 message as cancellation instead of Record content', async () => {
+    const modes = new Modes();
+    const { runtime, records } = subject(modes);
+
+    await runtime.handlePostback(postback('aftertrace:record'));
+    await expect(runtime.handleMessage(message('取消'))).resolves.toEqual({
+      status: 'MODE_CANCELED',
+      replyText: '已取消這次操作。',
+    });
+    expect(records.calls).toHaveLength(0);
+  });
+
   it('does not consume a pending text mode when a sticker arrives', async () => {
     const modes = new Modes();
     const { runtime, records } = subject(modes);
 
-    await runtime.handleMessage(message('快速記錄'));
+    await runtime.handlePostback(postback('aftertrace:record'));
     await expect(runtime.handleMessage(message(null, 'sticker'))).resolves.toEqual({ status: 'NOT_HANDLED' });
     expect(modes.consumes).toBe(0);
     await runtime.handleMessage(message('晴空案完成清潔'));
@@ -141,12 +183,19 @@ describe('WorklogOaRuntime Rich Menu input modes', () => {
     const modes = new Modes();
     const { runtime, records } = subject(modes);
 
-    await runtime.handleMessage(message('快速記錄'));
+    await runtime.handlePostback(postback('aftertrace:record'));
     modes.expired = true;
     await expect(runtime.handleMessage(message('晴空案完成清潔'))).resolves.toMatchObject({
       status: 'REJECTED',
       reason: 'MODE_EXPIRED',
     });
     expect(records.calls).toHaveLength(0);
+  });
+
+  it('ignores unrelated postback data', async () => {
+    const modes = new Modes();
+    const { runtime } = subject(modes);
+    await expect(runtime.handlePostback(postback('other:action'))).resolves.toEqual({ status: 'NOT_HANDLED' });
+    expect(modes.sets).toHaveLength(0);
   });
 });
