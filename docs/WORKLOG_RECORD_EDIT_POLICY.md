@@ -1,179 +1,97 @@
 # AFTERTRACE Record Edit / Revision Policy
 
-This document is part of the durable product/development contract for branch `revive/line-worklog`.
-
 ## Core rule
 
-A work record may be created and edited manually in PWA. Editing never destroys prior content. The current Record row represents the latest visible state; every content-changing edit also creates immutable revision/history facts.
+Records may be created and edited manually in Web/PWA. Editing never destroys prior content. The current Record row represents the latest visible state; every content-changing mutation preserves immutable revision/history facts.
 
-Each Record belongs to exactly one Source-scoped Entity / user-facing **紀錄標題**. The accepted MVP does not use PRIMARY/RELATED many-to-many Entity associations.
+A Record does not require an AI title. Free/manual Records may contain only content plus event/system timestamps.
 
 ## Record times
 
 A Record distinguishes:
 
-- `created_at`: when AFTERTRACE stored it;
-- business event date: day-precision Asia/Taipei semantics, currently represented by compatibility field `occurred_at`;
+- `occurred_at`: user/business event date/time, nullable;
+- `created_at`: when AFTERTRACE stored the Record;
 - `updated_at`: last current-row modification time.
 
-Do not invent a clock time the user never supplied. Relative date interpretation follows the original-source timestamp rules in PRODUCT_SPEC / LINE_CONTENT_POLICY.
+Do not invent a time the user never supplied. AI date interpretation is allowed only on provider-backed operations and must use an explicit reference timestamp/timezone.
 
-## Record revision history
+## Revision history
 
-Every content-changing edit must preserve previous state and actor.
-
-Recommended revision facts include:
+Every content-changing edit preserves previous state and actor. Recommended revision facts include:
 
 - revision id;
-- record id;
-- revision/version number;
+- record id/version;
 - editor user id;
-- edit channel such as `PWA_MANUAL` or `LINE_AI_EDIT`;
-- previous/new raw text;
-- previous/new event date when changed;
-- previous/new `entity_id` when title is explicitly moved;
+- edit channel such as `WEB_MANUAL`, `PWA_MANUAL`, `CHROME_MANUAL`, `AI_REWRITE`;
+- previous/new content;
+- previous/new `occurred_at` when changed;
+- previous/new AI metadata when the accepted operation explicitly changes it;
 - edit timestamp.
 
-Prefer complete snapshots for MVP when simpler/safer than reconstructing long diff chains.
-
-## PWA presentation
-
-When a Record has been edited:
-
-- show `已編輯`;
-- allow authorized users to inspect edit history;
-- history shows who/when/prior-current content;
-- history is read-only audit data and later edits do not rewrite older revisions.
-
-Restoring old content is a new edit/revision, never deletion of newer history.
+Prefer complete snapshots when simpler/safer than reconstructing diff chains.
 
 ## Concurrency
 
-Use database-backed optimistic concurrency, not process memory or Redis locking.
+Use database-backed optimistic concurrency:
 
 - current Record has integer `version`;
 - save includes expected version;
-- update succeeds only when DB version still matches;
+- update succeeds only when version matches;
 - successful save increments version;
-- stale save fails and asks user to reload instead of overwriting newer data.
+- stale save fails and asks user to reload rather than overwriting newer work.
 
 ## Soft deletion
 
-Deletion is status-based, not physical deletion.
+Deletion is status-based, not physical deletion. Normal search excludes deleted Records. Restore preserves history.
 
-- current Record becomes `DELETED`;
-- Entity/title and revisions remain durable;
-- normal search excludes deleted Records;
-- recycle-bin/history may show them;
-- restore preserves all prior edit/delete/restore audit facts.
+## Free/manual editing
 
-## PWA manual editing
+Manual Web/PWA editing is free and non-AI.
 
-PWA manual editing is free and non-AI.
+- edit `content` directly;
+- edit `occurred_at` directly when allowed;
+- consume zero provider AI;
+- do not silently generate/re-generate title, keywords or extracted metadata;
+- old free Records remain valid without AI enrichment.
 
-- user edits raw Record content directly;
-- saving manual edit consumes zero AI points;
-- manual text editing does not silently re-evaluate title/entity/search metadata;
-- title changes/moves are explicit deterministic actions;
-- single/batch title transfer consumes no AI.
+## AI rewrite / cleanup
 
-This avoids unexpected AI cost and silent reclassification.
+Paid AI may propose a rewrite of one exact selected Record.
 
-## PWA authorization
+Flow:
+
+1. authorize user and Source;
+2. resolve exact Record id/version;
+3. call AI once for the bounded rewrite request;
+4. show proposed content;
+5. user explicitly accepts/cancels;
+6. accept commits through normal optimistic version/revision rules;
+7. cancel leaves durable Record unchanged while provider usage remains auditable.
+
+AI never receives authority to write arbitrary SQL or silently overwrite the Record.
+
+## AI metadata on edit
+
+AI title/keywords/entities are optional enrichment. A normal manual edit does not automatically re-run AI. A later explicit `重新整理 AI` feature may exist only as a paid, separately accounted action.
+
+Historical free Records that gain a subscription later are not automatically enriched or rewritten.
+
+## Authorization
 
 Authorization is checked on every operation.
 
-- PRIVATE: current user must own/authorize PRIVATE Source.
-- GROUP: current user must be an active member of the active GROUP Source.
-- GROUP read/create/edit/delete/restore/title move must not depend on legacy Owner, subscription or positive AI balance.
-- **When a user leaves/is removed from the LINE group, all GROUP Source rights are lost immediately**, including manual edits, Draft access and deep links.
+- PRIVATE: authorized owner/user only;
+- GROUP: current AFTERTRACE group membership and role permissions;
+- GROUP authorization no longer depends on LINE membership, LINE bot state, subscription, or an AI responsible user;
+- AI entitlement is checked only when provider compute is requested by the current user.
 
-AI entitlement is checked only when provider compute is actually requested.
+## Tasks
 
-## PWA AI Draft editing before commit
+Changing a Record does not silently rewrite or delete Tasks derived from it. If a Task is explicitly linked to a Record, task state remains its own durable fact unless the user accepts a specific task update.
 
-Quick Capture / `AI 幫我記` uses preview-first Draft semantics.
+## AI summaries / Q&A
 
-A Draft may be manually corrected before commit without invoking provider AI again merely to persist the correction. The backend must re-authorize Source and validate the Draft on commit rather than trusting arbitrary client data as an original provider result.
-
-Drafts do not auto-expire. They remain until confirmed or explicitly deleted. Losing GROUP membership makes the GROUP Draft inaccessible/uncommittable while authorization is absent.
-
-## LINE natural-language edit — 小跡
-
-OA and GROUP share the customer-facing assistant prefix `小跡`.
-
-A normal LINE edit requires a deterministic Reply target. Example:
-
-Record context:
-
-`王大明冷氣清潔費 3000`
-
-Reply command:
-
-`小跡 幫我改成 2800`
-
-### Target resolution
-
-1. Verify the command is a LINE Reply and map the replied-to context deterministically to one AFTERTRACE Record.
-2. Use that exact Record target when found.
-3. Without deterministic target, never let AI guess from phrases such as `上面那筆`.
-4. Reply clearly that the user should Reply the correct Record or use PWA editing.
-5. A product-issued durable Record deep link/id may also establish exact target context.
-
-If LINE limitations require a bounded Bot-reply-to-Record mapping, persist/use that mapping. Never fall back to display-text guessing.
-
-### AI allowance
-
-LINE natural-language edit is AI-assisted.
-
-- PRIVATE requires eligible user points for PRIVATE Source.
-- GROUP requires active member authorization plus current AI 額度負責人 / eligible scoped Grant according to the AI policy.
-- zero eligible balance before request start => do not call provider;
-- if request starts positive and real usage later exceeds balance, floor at zero and record platform subsidy per policy.
-
-Manual PWA editing remains free.
-
-### AI edit interpretation / title change
-
-For a valid target, AI may interpret requested content change and whether the user explicitly intends a title change.
-
-Example:
-
-Current:
-
-- content: `王大明去晴空案換冷氣`
-- title: `晴空案`
-
-Reply:
-
-`小跡 幫我改成去信義案換冷氣`
-
-AI may propose:
-
-- updated content concerning `信義案`;
-- title move from `晴空案` to `信義案`.
-
-Same-Source title/Alias rules still apply. If title intent is ambiguous, do not silently reclassify; require confirmation.
-
-Names appearing in content do not automatically become Related Entities.
-
-### Backend mutation boundary
-
-AI never writes arbitrary SQL. It produces a bounded interpreted edit plan; deterministic backend code authorizes and commits.
-
-Before commit:
-
-- verify PRIVATE owner or active GROUP membership;
-- verify Record is active/editable;
-- verify target Source matches current surface;
-- verify Entity/title belongs to same Source;
-- enforce optimistic `version`;
-- write immutable revision atomically with Record update.
-
-If material target/title decision is ambiguous, do not partially mutate.
-
-## AI summaries
-
-Persistent per-record AI summaries are not MVP. Durable truth is Record text, event date, Entity/title and revision history. Future explicit reports/summaries may consume AI points and remain separate.
+Summaries and Q&A are separate paid retrieval features. They do not replace durable Record content or revision history.
 
 GitHub Actions must not be used as validation unless explicitly requested by the user.
