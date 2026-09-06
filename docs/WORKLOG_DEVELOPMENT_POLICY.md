@@ -33,7 +33,7 @@ AFTERTRACE is **PWA-first, LINE-integrated**.
 
 - PWA Quick Capture is the primary fast capture UX.
 - PWA/Web is the authoritative full records/search/edit/Draft surface.
-- LINE GROUP and OA are convenience/integration surfaces using the same `小跡` command language.
+- LINE GROUP and OA are convenience/integration surfaces using the same `小跡` language.
 - PRIVATE and GROUP Sources are independent data spaces.
 - Manual PWA read/create/edit/delete/restore/title move is free and non-AI.
 - AI allowance is checked only for operations requiring provider compute.
@@ -126,33 +126,59 @@ Refresh lazily:
 - within 24h use cached values;
 - lifecycle events remain primary status/membership evidence; summary refresh failures may support diagnostics/inactivation but must not substitute weaker authorization logic.
 
-## Unified LINE command language — 小跡
+## Unified LINE language — 小跡
 
 Both OA and GROUP use a sentence-start prefix `小跡`.
 
-Parser rules:
+Parser/dispatcher rules:
 
 - accept `小跡 `, `小跡，`, `小跡：` and similar bounded separators;
 - no LINE `@` mention is required;
 - ordinary text not starting with `小跡` is not a command;
-- GROUP and OA share command semantics; Source is determined by surface.
+- GROUP and OA share natural-language semantics; Source is determined by surface;
+- customer UX must not require memorizing Record/Query/Edit command verbs.
 
-Accepted initial commands:
+Exactly three customer-facing fixed/system commands are part of the current contract:
 
-- `小跡 <內容>` -> RECORD (default);
-- `小跡 記錄 <內容>` / `小跡 紀錄 <內容>` -> RECORD;
-- `小跡 查 <query>` / `小跡 查詢 <query>` -> QUERY;
-- `小跡 今天` -> today's deterministic query;
-- `小跡 最近` -> newest deterministic query;
-- `小跡 幫助` -> command help;
-- Reply + `小跡 記` -> quoted-content record when recoverable;
-- Reply + explicit edit language such as `小跡 幫我改成 ...` -> deterministic target edit;
-- GROUP `小跡 啟用` may remain the explicit AI 額度負責人 claim command until replaced by an accepted UX.
+- `小跡 幫助`;
+- GROUP `小跡 啟用 AI`;
+- GROUP `小跡 取消 AI`.
 
-Do not infer query merely because a sentence sounds interrogative. Query requires explicit `查/查詢` or a fixed shortcut such as `今天/最近`. This keeps `小跡 <content>` predictably Record-first.
+`小跡 啟用 AI` is deterministic and provider-free. The member who sends it becomes the GROUP AI 額度負責人 only when no different responsible user is already bound. It must never silently overwrite another responsible user.
+
+`小跡 取消 AI` is deterministic and provider-free. Only the currently bound AI 額度負責人 themself may execute it. Success removes only the AI responsibility binding: the user remains a normal active group member, the GROUP Source/history remain intact, and normal membership-based access remains unchanged. After release the GROUP has no AI 額度負責人 until a member runs `小跡 啟用 AI` again. Another member cannot cancel the current responsible user.
+
+All other addressed text is a natural-language request, for example:
+
+- `小跡 紀錄一下今天晴空案收了三千清潔費`;
+- `小跡 幫我記一下今天晴空案收了三千`;
+- `小跡 我要查詢一下今天晴空案的內容`;
+- `小跡 幫我查晴空案收款`;
+- Reply an exact Record and say `小跡 我想把金額改成 2800`.
+
+The intended runtime is a **bounded one-call interpreter**, not an agent loop:
+
+1. deterministic fixed-command check;
+2. authorize the exact Source/actor and establish AI funding eligibility when provider work is required;
+3. run at most one shared AI interpretation call for the addressed natural-language request whenever practical;
+4. return a strict structured plan such as `RECORD`, `QUERY`, `EDIT`, `UNKNOWN` plus action-specific normalized fields;
+5. execute the selected backend action deterministically;
+6. do not hand control back to an open-ended AI tool loop.
+
+Future structured intents may include `DELETE`, `RESTORE`, `MOVE`, and `SYSTEM_QUERY`, but destructive/mutating actions must never let AI invent the target. `EDIT`, `DELETE`, `RESTORE`, and `MOVE` require an exact deterministic target such as a validated Reply target or explicit PWA record selection. If an exact target is absent, ask the user to Reply/select it rather than guessing.
+
+`QUERY` interpretation may use AI to derive intent/query/date filters, but historical Record retrieval and the returned historical facts remain deterministic PostgreSQL behavior. Do not ask AI to summarize history or invent business conclusions.
+
+For `RECORD`, the interpreter should return the same normalized information needed by the shared Record core—durable content, title/Entity proposal, event date, bounded grounded `search_terms`—so the runtime does not perform a separate intent-classification provider call and then another provider call merely to normalize the same input.
+
+For `EDIT`, when an exact target exists, the design should converge on one provider interpretation of the instruction + deterministic target context rather than classifier-call + editor-call duplication.
+
+Temporary parser compatibility branches for old `查/查詢`, `今天/最近`, `記/紀錄`, or edit keywords may exist only during migration. They are not the customer-facing command contract and must not become a second permanent language beside the natural-language interpreter.
 
 Retired prelaunch UX that must not reappear as the customer contract:
 
+- bare `小跡 啟用`;
+- fixed Record/Query/Edit command memorization as a requirement;
 - `@AFTERTRACE ...`;
 - `@紀錄` / `@查詢`;
 - `/紀錄` slash-command design;
@@ -166,6 +192,8 @@ OA is a lightweight convenience surface. It may offer menu links such as:
 - 指令教學;
 - 開啟 AFTERTRACE;
 - AI 點數 / 方案.
+
+`小跡 啟用 AI` and `小跡 取消 AI` are GROUP-only controls; OA/private must reject them with guidance to use the corresponding LINE group.
 
 Do not rebuild a Postback -> pending mode -> next-message state machine unless a later explicit product decision reverses this policy.
 
@@ -191,7 +219,11 @@ Channel/input type is audit metadata, not a forked domain model.
 
 Any provider-backed operation requires positive eligible points at request start.
 
-If balance is zero, do not call provider. Manual PWA CRUD remains free.
+This includes the natural-language interpreter whenever it actually calls the provider. Do not treat routing/provider work as free merely because its output is only an intent. Provider work must still use the existing reservation/settlement/cost audit rules unless the product policy is explicitly changed later.
+
+The optimization goal is therefore to **avoid duplicate provider calls**, not to hide an extra classifier call from point accounting.
+
+If balance is zero, do not call provider. Manual PWA CRUD remains free. Fixed commands `小跡 幫助`, `小跡 啟用 AI`, and `小跡 取消 AI` remain provider-free.
 
 If balance starts positive and actual usage exceeds remaining points, floor customer balance at zero and record the shortfall as platform subsidy for that started request.
 
@@ -244,23 +276,23 @@ Record business event is day-precision for MVP.
 Regression:
 
 - 9/3 original: `晴空案今天收3000清潔費`;
-- 9/5 Reply: `小跡 記`;
+- 9/5 Reply asks 小跡 to record the quoted content;
 - event date must be 9/3.
 
 Delayed attachment Reply still needs reliable original-timestamp handling before all attachment replay paths can be called compliant.
 
 ## Deterministic LINE history
 
-History = **Query -> Retrieve -> Answer -> Deep Link**.
+History = **Interpret -> Query -> Retrieve -> Answer -> Deep Link** when a natural-language interpretation call is needed.
 
 - authorize Source first;
+- AI may derive bounded query/date filters from the current addressed request;
 - resolve same-Source title/Alias where possible;
-- deterministic query/date filters;
 - PostgreSQL title/alias/raw/search_terms lookup;
 - return newest up to 5;
 - include total count when available;
 - append secure filtered PWA link;
-- no provider call for history summary;
+- no provider call for history summarization after retrieval;
 - never invent business conclusions/progress/payment state.
 
 ## PWA timeline/search/manual CRUD
