@@ -15,7 +15,7 @@ Read first every substantive development run, in this exact order:
 
 Latest docs are the only product/development specification. Never use GitHub Actions unless explicitly requested. Every development commit contains `[skip ci]`.
 
-## Current checkpoint — 2026-09-06 LINE group profile 24h lazy-refresh batch locally green; baseline + Dev forward migration + Dev API health/readiness verified; real LINE GROUP E2E pending
+## Current checkpoint — 2026-09-06 natural-language 小跡 contract accepted; explicit GROUP AI enable/cancel implementation in branch; one-call AI interpreter still pending local validation/implementation
 
 Cloudflare deployment remains manual:
 
@@ -25,9 +25,42 @@ Cloudflare deployment remains manual:
 
 Do not reintroduce Pages or automatic Git deployment.
 
+## Latest accepted LINE interaction contract
+
+Customer-facing fixed commands are now only:
+
+- `小跡 幫助`
+- GROUP `小跡 啟用 AI`
+- GROUP `小跡 取消 AI`
+
+`小跡 啟用 AI` binds the sender as GROUP AI 額度負責人 only when no different responsible user is already bound. It is deterministic/provider-free and must not overwrite another responsible user.
+
+`小跡 取消 AI` may be executed only by the currently bound AI 額度負責人. Success deletes only the responsibility binding: the user remains in the LINE group, remains a normal member, GROUP Source/history remain intact, and normal membership-based access is unchanged. The GROUP then has no AI responsible user until another member runs `小跡 啟用 AI`.
+
+Everything else after `小跡` is intended to become a natural-language request interpreted into a bounded structured plan. Initial intents: `RECORD`, `QUERY`, `EDIT`, `UNKNOWN`; future room may include `DELETE`, `RESTORE`, `MOVE`, `SYSTEM_QUERY`, but mutating/destructive actions may never guess a target.
+
+Target architecture is fixed-command check -> one bounded provider interpretation whenever practical -> deterministic backend action. Do not build an open-ended function/tool loop. For RECORD, the same provider interpretation should also return title/date/search terms so there is not a classifier call followed by a second normalization call. QUERY may use provider interpretation for filters but historical retrieval/answer remains deterministic and is never AI-summarized. EDIT still requires an exact Reply/PWA target.
+
+Natural-language provider work remains audited/charged under the existing AI-point policy. Do not make hidden routing provider calls free; reduce duplicate calls instead.
+
+### Code already changed in this migration batch
+
+- `command.ts`: formal fixed wording changed to `小跡 啟用 AI` / `小跡 取消 AI`; help text now teaches natural-language examples. Old query/record/edit parsing branches remain **temporary compatibility only** until the one-call interpreter is wired.
+- `ai-responsibility.ts`: added owner-checked responsibility release domain result/service.
+- `drizzle-ai-responsibility.ts`: added responsibility delete + immutable history row (`previous_user_id -> NULL`) with `EXPLICIT_RELEASE`.
+- `grant-collaboration.ts`: exposes GROUP AI release without conflating it with manual membership access.
+- `line-runtime.ts`: supports `AI_RESPONSIBILITY_RELEASED`, rejects non-owner cancellation, and points unbound AI guidance to `小跡 啟用 AI`.
+- `oa-runtime.ts`: rejects both GROUP AI controls in OA/private.
+- `command.test.ts`, `line-runtime.test.ts`, new `ai-responsibility.test.ts`: coverage authored for the new contract/release semantics.
+- Previous mention UX remains: successful GROUP responsibility bind can use LINE textV2 user mention and fallback to plain text if mention delivery fails.
+
+No schema migration is required for cancellation because existing `worklog_source_ai_responsibility_history.previous_user_id/next_user_id` already allow nullable endpoints.
+
+**Important:** tests/typecheck for this new migration batch have NOT been executed yet. Do not claim green until local validation is run. Do not deploy this batch to Dev before that validation.
+
 ## Stable Dev foundation
 
-Already user/runtime verified:
+Already user/runtime verified before the current unvalidated migration batch:
 
 - commercial-plan forward migration on existing Dev DB — PASS
 - semantic `search_terms` canonical baseline/guard — PASS
@@ -42,13 +75,13 @@ Already user/runtime verified:
 - Admin Users/Groups/Plans smoke — PASS
 - Dev Web shell/routes — PASS
 - LINE Login callback/redirect stage — PASS
-- PWA-first / unified 小跡 LINE refactor — PASS typecheck + 6 files / 55 tests
+- earlier PWA-first / unified 小跡 refactor — PASS typecheck + 6 files / 55 tests, before the latest command migration
 
 The stale Dashboard `* * * * *` Cron Trigger remains unrelated to logging. Remove it separately; do not add an empty `scheduled()` handler.
 
 ## Deterministic history / semantic retrieval — retained
 
-- history = **Query -> Retrieve -> Answer -> Deep Link**
+- history retrieval = **Query -> Retrieve -> Answer -> Deep Link** after any current-request interpretation step
 - no AI historical summary in MVP
 - same-Source Entity/Alias resolution
 - title/alias/raw/search_terms lookup
@@ -71,7 +104,7 @@ The stale Dashboard `* * * * *` Cron Trigger remains unrelated to logging. Remov
 Regression:
 
 - 9/3 original `晴空案今天收3000清潔費`
-- 9/5 Reply `小跡 記`
+- 9/5 Reply asks 小跡 to record it
 - event date remains 9/3
 
 Delayed attachment Reply original-timestamp recovery remains open debt and must not be claimed fully compliant.
@@ -150,50 +183,20 @@ Accepted policy:
 - within 24h use cached metadata
 - LINE lifecycle/member state remains primary authorization evidence
 
-Current code now includes:
+Current code includes:
 
 - `worklog_source_line_profiles` table: one cached LINE profile row per GROUP Source
 - `group_name`, optional `picture_url`, `synced_at`, created/updated timestamps
 - `LineGroupSummaryClient` using `GET /v2/bot/group/{groupId}/summary`
 - 24h `WorklogGroupProfileService` stale check
 - Drizzle cache repository
-- GROUP webhook lazy-refresh hook for explicit handled 小跡 commands only
-- profile refresh failure is best-effort/non-blocking: the user command still succeeds and an anomaly is recorded
+- GROUP webhook lazy-refresh hook for explicit handled 小跡 requests only
+- profile refresh failure is best-effort/non-blocking: the user request still succeeds and an anomaly is recorded
 - ordinary group chat does not trigger profile refresh
-- LINE 404 during a live group command does not revoke access or overwrite cached metadata; webhook/lifecycle evidence remains the authorization source
-- readiness now probes the new table
+- LINE 404 during a live group request does not revoke access or overwrite cached metadata; webhook/lifecycle evidence remains the authorization source
+- readiness probes the new table
 - existing Dev DB is preserved through an idempotent forward-compat migration; do not rebuild merely for this table
 - PWA Source-list/open-group invocation of the same lazy-refresh service is still pending until that PWA surface is implemented
-
-## Unified LINE command language — 小跡
-
-OA and GROUP share one Chinese command prefix: `小跡`.
-
-Accepted customer syntax:
-
-- `小跡 晴空案今天收了三千` -> Record
-- `小跡 記錄 晴空案今天收了三千` -> Record
-- `小跡 查 晴空案收款` / `小跡 查詢 ...` -> deterministic Query
-- `小跡 今天` -> today query
-- `小跡 最近` -> newest query
-- `小跡 幫助` -> help
-- Reply -> `小跡 記` -> quoted Record when recoverable
-- Reply -> `小跡 幫我改成 ...` -> deterministic target edit
-- GROUP `小跡 啟用` may remain AI 額度負責人 claim
-
-Prefix must be sentence-start and may be followed by whitespace / Chinese comma / colon.
-
-No `@` is required, avoiding LINE mention UI conflicts.
-
-Query intent is explicit. `小跡 <內容>` defaults to Record; a question is not silently changed to Query without `查/查詢` or fixed query shortcuts.
-
-Retired before launch:
-
-- `@AFTERTRACE`
-- `@紀錄` / `@查詢`
-- `/紀錄` slash-command design
-- OA Rich Menu Postback record/query pending mode
-- `worklog_private_pending_actions`
 
 ## OA Rich Menu pending-mode experiment — fully retired before DB migration
 
@@ -201,9 +204,9 @@ The short-lived Postback/pending-action implementation was prototyped and locall
 
 It has been removed from the branch and requires no DB rollback.
 
-## Current validation status — group profile batch PASS
+## Previous group-profile validation status — PASS before current command migration
 
-Latest user-executed local validation on Windows:
+Latest user-executed local validation before this migration batch:
 
 - `pnpm --filter @aftertrace/api typecheck` — **PASS**
 - targeted group-profile batch — **PASS, 5 files / 40 tests**
@@ -224,7 +227,7 @@ Canonical fresh-database baseline was regenerated and committed successfully:
 - `pnpm db:baseline:guard` — **PASS**
 - generated baseline commit was rebased onto the latest remote branch and pushed successfully
 
-Existing Dev DB forward migration was then applied without rebuilding the database and verified:
+Existing Dev DB forward migration was applied without rebuilding and verified:
 
 - `worklog_source_line_profiles` exists — **PASS**
 - primary key `worklog_source_line_profiles_pkey` exists — **PASS**
@@ -233,23 +236,24 @@ Existing Dev DB forward migration was then applied without rebuilding the databa
 - AI pricing preserved: input `0.30000000`, output `2.50000000` USD per million — **PASS**
 - FREE plan preserved: `FREE / FREE / 0.00 / 400000 / enabled=true` — **PASS**
 
-Dev API was then manually deployed and runtime health verified:
+Dev API was manually deployed and runtime health verified before this latest command migration:
 
 - `https://after-trace-api-dev.a0955625660.workers.dev/health` -> `status=ok` — **PASS**
 - `https://after-trace-api-dev.a0955625660.workers.dev/health/ready` -> `status=ready` — **PASS**
-- therefore the deployed Worker can reach the preserved Dev DB/runtime configuration and the new readiness dependency is available.
 
 The unrelated local untracked file `apps/api/verify-admin-schema.mjs` remains outside this batch and must not be staged/committed unless separately reviewed.
 
 ## Immediate next order
 
-1. perform a real LINE GROUP `小跡` command E2E on Dev;
-2. confirm the command receives the expected user-visible reply and creates/queries the correct GROUP Source behavior;
-3. query `worklog_source_line_profiles` and confirm the first missing/stale profile access writes the current LINE `group_name`, optional `picture_url`, and `synced_at`;
-4. repeat another `小跡` command within 24h and confirm `synced_at` remains unchanged, proving the cached profile was reused instead of calling summary again;
-5. after real GROUP E2E is green, treat this bounded group-profile batch as complete;
-6. then implement durable non-expiring PWA AI Draft + last-used Source preference + Quick Capture shared pipeline incrementally;
-7. wire PWA Source-list/open-group use into the same 24h lazy profile refresh service;
-8. add Voice as another input modality on top of the same preview/commit core.
+1. locally validate the new explicit AI control/release batch with typecheck + targeted tests;
+2. fix any compile/test regressions before Dev deployment;
+3. implement the bounded one-call natural-language interpreter shared by GROUP/OA without introducing classifier + normalizer/editor duplicate provider calls;
+4. keep QUERY retrieval deterministic and EDIT target deterministic;
+5. update/retire transitional parser compatibility once the interpreter is actually wired;
+6. manually deploy Dev API only after validation;
+7. E2E `小跡 啟用 AI`, mention display, `小跡 取消 AI`, re-enable by another member, and natural-language RECORD/QUERY/EDIT;
+8. then continue durable non-expiring PWA AI Draft + last-used Source preference + Quick Capture shared pipeline;
+9. wire PWA Source-list/open-group use into the same 24h lazy profile refresh service;
+10. add Voice as another input modality on top of the same preview/commit core.
 
 No GitHub Actions workflow was run, dispatched, rerun, enabled, modified, triggered, or used as validation.
