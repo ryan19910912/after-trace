@@ -34,9 +34,11 @@ type GeminiGenerateContentResponse = {
 
 const PRODUCT_TIME_ZONE = 'Asia/Taipei';
 const THINKING_LEVEL = 'low';
+const intents = ['RECORD', 'QUERY', 'EDIT', 'DELETE', 'RESTORE', 'MOVE', 'SYSTEM_QUERY', 'UNKNOWN'] as const;
+const systemQueries = ['AI_STATUS', 'AI_BALANCE', 'AI_RESPONSIBLE_USER'] as const;
 
 const structuredOutputSchema = z.object({
-  intent: z.enum(['RECORD', 'QUERY', 'EDIT', 'UNKNOWN']),
+  intent: z.enum(intents),
   record_content: z.string().trim().min(1).max(20_000).nullable(),
   record_title: z.string().trim().min(1).max(255).nullable(),
   record_title_requires_confirmation: z.boolean(),
@@ -48,6 +50,8 @@ const structuredOutputSchema = z.object({
   edit_occurred_at: z.string().trim().min(1).max(64).nullable(),
   edit_title: z.string().trim().min(1).max(255).nullable(),
   edit_title_requires_confirmation: z.boolean(),
+  move_title: z.string().trim().min(1).max(255).nullable(),
+  system_query: z.enum(systemQueries).nullable(),
   reason: z.string().trim().min(1).max(500).nullable(),
 }).strict();
 
@@ -55,7 +59,7 @@ const responseJsonSchema = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    intent: { type: 'string', enum: ['RECORD', 'QUERY', 'EDIT', 'UNKNOWN'] },
+    intent: { type: 'string', enum: [...intents] },
     record_content: { anyOf: [{ type: 'string' }, { type: 'null' }] },
     record_title: { anyOf: [{ type: 'string' }, { type: 'null' }] },
     record_title_requires_confirmation: { type: 'boolean' },
@@ -67,22 +71,15 @@ const responseJsonSchema = {
     edit_occurred_at: { anyOf: [{ type: 'string' }, { type: 'null' }] },
     edit_title: { anyOf: [{ type: 'string' }, { type: 'null' }] },
     edit_title_requires_confirmation: { type: 'boolean' },
+    move_title: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+    system_query: { anyOf: [{ type: 'string', enum: [...systemQueries] }, { type: 'null' }] },
     reason: { anyOf: [{ type: 'string' }, { type: 'null' }] },
   },
   required: [
-    'intent',
-    'record_content',
-    'record_title',
-    'record_title_requires_confirmation',
-    'record_occurred_at',
-    'record_search_terms',
-    'query_text',
-    'edit_instruction',
-    'edit_raw_text',
-    'edit_occurred_at',
-    'edit_title',
-    'edit_title_requires_confirmation',
-    'reason',
+    'intent', 'record_content', 'record_title', 'record_title_requires_confirmation',
+    'record_occurred_at', 'record_search_terms', 'query_text', 'edit_instruction',
+    'edit_raw_text', 'edit_occurred_at', 'edit_title', 'edit_title_requires_confirmation',
+    'move_title', 'system_query', 'reason',
   ],
 } as const;
 
@@ -100,15 +97,16 @@ export function buildGeminiWorklogLineNaturalInterpreterRequestBody(
     systemInstruction: {
       parts: [{ text: [
         'You are the bounded natural-language interpreter for AFTERTRACE LINE assistant 小跡.',
-        'Exactly one user message must be interpreted into RECORD, QUERY, EDIT, or UNKNOWN.',
-        'Do not call tools, do not answer the user, do not summarize historical records, and do not invent stored facts.',
-        'RECORD means the user wants to preserve a work fact. Remove conversational control wording such as 幫我記一下 while preserving the durable fact in record_content.',
-        'For RECORD also propose exactly one concise filing title, an optional calendar event date, and at most 12 grounded search terms.',
+        'Interpret exactly one user message into RECORD, QUERY, EDIT, DELETE, RESTORE, MOVE, SYSTEM_QUERY, or UNKNOWN.',
+        'Do not call tools, answer the user, summarize historical records, or invent stored facts.',
+        'RECORD preserves a work fact. Remove control wording such as 幫我記一下 while preserving durable content; also propose one filing title, optional date, and at most 12 grounded search terms.',
         `Resolve relative dates against reference_timestamp in ${PRODUCT_TIME_ZONE}; record_occurred_at must be YYYY-MM-DD or null when no date expression is present.`,
-        'QUERY means the user wants existing records searched. Put a concise natural query in query_text and preserve useful date words such as 今天、昨天、這週、最近 so deterministic backend filtering can resolve them.',
-        'EDIT means the user wants to modify the replied-to existing Record. EDIT is valid as intent even when target context is missing, but never guess which Record to edit.',
-        'When target context is supplied for EDIT, return the complete edited durable text in edit_raw_text. edit_title is only a requested title move; null means keep current title. edit_occurred_at is only a requested date change; null means keep current date.',
-        'If a Reply contains quoted ordinary text and the user asks to record it, use quoted_text as the durable fact context.',
+        'QUERY searches existing records. Put a concise natural query in query_text and preserve useful date words such as 今天、昨天、這週、最近.',
+        'EDIT changes content/date and may also change title. It requires an exact backend target; never guess which Record.',
+        'DELETE means soft-delete the exact replied-to Record. RESTORE means restore an exact replied-to deleted Record. Never infer a target from phrases such as 剛剛那筆 if no exact target is supplied.',
+        'MOVE means change only the filing title/Entity of the exact replied-to Record while keeping its content/date unchanged. Put the requested destination title in move_title.',
+        'SYSTEM_QUERY is only for AI operating facts: AI_STATUS means whether AI is usable/configured for this Source, AI_BALANCE means remaining AI points, AI_RESPONSIBLE_USER means who currently funds GROUP AI.',
+        'If a Reply contains quoted ordinary text and the user asks to record it, use quoted_text as durable fact context.',
         'UNKNOWN is for genuinely ambiguous or unsupported requests. Do not silently convert uncertainty into RECORD.',
         'Fields unrelated to the chosen intent must still be present using null, false, or empty arrays as appropriate.',
       ].join(' ') }],
@@ -149,19 +147,11 @@ export class GeminiWorklogLineNaturalInterpreter implements WorklogLineNaturalIn
     const requestBytes = new TextEncoder().encode(JSON.stringify(
       buildGeminiWorklogLineNaturalInterpreterRequestBody(input, this.maxOutputTokens),
     )).byteLength;
-    const conservativeCostUsd =
-      ((requestBytes + this.maxOutputTokens * 2) / 1_000_000) *
-      Math.max(config.inputUsdPerMillion, config.outputUsdPerMillion);
-    return Math.max(1, providerCostToAiPoints({
-      providerCostUsd: conservativeCostUsd,
-      outputUsdPerMillion: config.outputUsdPerMillion,
-    }));
+    const conservativeCostUsd = ((requestBytes + this.maxOutputTokens * 2) / 1_000_000) * Math.max(config.inputUsdPerMillion, config.outputUsdPerMillion);
+    return Math.max(1, providerCostToAiPoints({ providerCostUsd: conservativeCostUsd, outputUsdPerMillion: config.outputUsdPerMillion }));
   }
 
-  async interpret(
-    input: WorklogLineNaturalInterpreterInput,
-    config: WorklogAiRuntimeConfigSnapshot,
-  ): Promise<WorklogLineNaturalInterpreterResponse> {
+  async interpret(input: WorklogLineNaturalInterpreterInput, config: WorklogAiRuntimeConfigSnapshot): Promise<WorklogLineNaturalInterpreterResponse> {
     this.assertConfig(config);
     const requestBody = buildGeminiWorklogLineNaturalInterpreterRequestBody(input, this.maxOutputTokens);
     const requestTokenUpperBound = new TextEncoder().encode(JSON.stringify(requestBody)).byteLength;
@@ -170,19 +160,14 @@ export class GeminiWorklogLineNaturalInterpreter implements WorklogLineNaturalIn
     try {
       response = await this.fetchFn(`${this.endpoint}/models/${encodeURIComponent(config.model.trim())}:generateContent`, {
         method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-goog-api-key': this.options.apiKey.trim(),
-        },
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': this.options.apiKey.trim() },
         body: JSON.stringify(requestBody),
       });
     } catch {
       throw new WorklogLineNaturalInterpreterError('GEMINI_NETWORK_ERROR', 'Gemini LINE interpreter request failed');
     }
     const latencyMs = Math.max(0, Date.now() - startedAt);
-    if (!response.ok) {
-      throw new WorklogLineNaturalInterpreterError(`GEMINI_HTTP_${response.status}`, (await response.text()).slice(0, 500));
-    }
+    if (!response.ok) throw new WorklogLineNaturalInterpreterError(`GEMINI_HTTP_${response.status}`, (await response.text()).slice(0, 500));
 
     let body: GeminiGenerateContentResponse;
     try { body = (await response.json()) as GeminiGenerateContentResponse; }
@@ -223,37 +208,26 @@ export class GeminiWorklogLineNaturalInterpreter implements WorklogLineNaturalIn
   }
 }
 
-function normalizeInterpretation(
-  parsed: z.infer<typeof structuredOutputSchema>,
-  input: WorklogLineNaturalInterpreterInput,
-): WorklogLineNaturalInterpretation {
+function normalizeInterpretation(parsed: z.infer<typeof structuredOutputSchema>, input: WorklogLineNaturalInterpreterInput): WorklogLineNaturalInterpretation {
   if (parsed.intent === 'RECORD') {
     if (!parsed.record_content) throw new WorklogLineNaturalInterpreterError('GEMINI_INVALID_RESPONSE', 'RECORD requires record_content');
-    return {
-      intent: 'RECORD',
-      content: parsed.record_content,
-      record: {
-        title: parsed.record_title,
-        titleRequiresConfirmation: parsed.record_title_requires_confirmation,
-        occurredAt: normalizeDay(parsed.record_occurred_at),
-        searchTerms: dedupeTerms(parsed.record_search_terms),
-      },
-    };
+    return { intent: 'RECORD', content: parsed.record_content, record: { title: parsed.record_title, titleRequiresConfirmation: parsed.record_title_requires_confirmation, occurredAt: normalizeDay(parsed.record_occurred_at), searchTerms: dedupeTerms(parsed.record_search_terms) } };
   }
   if (parsed.intent === 'QUERY') return { intent: 'QUERY', queryText: parsed.query_text };
   if (parsed.intent === 'EDIT') {
     if (!parsed.edit_instruction) throw new WorklogLineNaturalInterpreterError('GEMINI_INVALID_RESPONSE', 'EDIT requires edit_instruction');
     const targetText = input.target?.rawText ?? null;
-    return {
-      intent: 'EDIT',
-      instruction: parsed.edit_instruction,
-      edit: {
-        rawText: parsed.edit_raw_text ?? targetText ?? parsed.edit_instruction,
-        occurredAt: normalizeDay(parsed.edit_occurred_at),
-        title: parsed.edit_title,
-        titleRequiresConfirmation: parsed.edit_title_requires_confirmation,
-      },
-    };
+    return { intent: 'EDIT', instruction: parsed.edit_instruction, edit: { rawText: parsed.edit_raw_text ?? targetText ?? parsed.edit_instruction, occurredAt: normalizeDay(parsed.edit_occurred_at), title: parsed.edit_title, titleRequiresConfirmation: parsed.edit_title_requires_confirmation } };
+  }
+  if (parsed.intent === 'DELETE') return { intent: 'DELETE' };
+  if (parsed.intent === 'RESTORE') return { intent: 'RESTORE' };
+  if (parsed.intent === 'MOVE') {
+    if (!parsed.move_title) throw new WorklogLineNaturalInterpreterError('GEMINI_INVALID_RESPONSE', 'MOVE requires move_title');
+    return { intent: 'MOVE', title: parsed.move_title };
+  }
+  if (parsed.intent === 'SYSTEM_QUERY') {
+    if (!parsed.system_query) throw new WorklogLineNaturalInterpreterError('GEMINI_INVALID_RESPONSE', 'SYSTEM_QUERY requires system_query');
+    return { intent: 'SYSTEM_QUERY', query: parsed.system_query };
   }
   return { intent: 'UNKNOWN', reason: parsed.reason };
 }
@@ -266,9 +240,7 @@ function normalizeDay(value: string | null): string | null {
   const [year, month, day] = dateOnly.slice(1).map(Number);
   const utc = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0) - 8 * 60 * 60 * 1000);
   const roundTrip = new Date(utc.getTime() + 8 * 60 * 60 * 1000);
-  if (roundTrip.getUTCFullYear() !== year || roundTrip.getUTCMonth() + 1 !== month || roundTrip.getUTCDate() !== day) {
-    throw new WorklogLineNaturalInterpreterError('GEMINI_INVALID_RESPONSE', 'invalid event date');
-  }
+  if (roundTrip.getUTCFullYear() !== year || roundTrip.getUTCMonth() + 1 !== month || roundTrip.getUTCDate() !== day) throw new WorklogLineNaturalInterpreterError('GEMINI_INVALID_RESPONSE', 'invalid event date');
   return utc.toISOString();
 }
 
