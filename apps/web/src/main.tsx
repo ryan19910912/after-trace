@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { FeedbackRoot } from './FeedbackRoot';
 import { HelpRoot } from './HelpRoot';
+import { LineOaFriendHint } from './LineOaFriendHint';
 import { SubscriptionRoot } from './SubscriptionRoot';
 import { installTaipeiDateDisplayPolicy } from './time-display';
 import { WorklogRoot } from './WorklogRoot';
@@ -34,7 +35,7 @@ function bootstrap() {
   if (window.location.pathname === '/subscription') content = <SubscriptionRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/feedback') content = <FeedbackRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/help') content = <HelpRoot />;
-  else content = <WorklogRoot apiBaseUrl={apiBaseUrl} />;
+  else content = <><WorklogRoot apiBaseUrl={apiBaseUrl} /><LineOaFriendHint apiBaseUrl={apiBaseUrl} /></>;
   ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode>{content}</React.StrictMode>);
 }
 
