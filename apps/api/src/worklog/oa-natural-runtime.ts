@@ -1,6 +1,6 @@
 import type { BufferedPrivateMessage, OaLifecycleEvent } from '../line/events';
 import { worklogAttachmentRuntime } from './attachment-runtime';
-import { parseWorklogOaCommand, worklogLineHelpText } from './command';
+import { isWorklogStatusCommand, parseWorklogOaCommand, worklogLineHelpText } from './command';
 import { historyFiltersFromText } from './history-navigation';
 import type { WorklogInterpretedEditService } from './interpreted-edit';
 import type { WorklogInterpretedRecordService } from './interpreted-record';
@@ -42,20 +42,21 @@ export class WorklogOaNaturalRuntime {
     const command = parseWorklogOaCommand(message);
     if (!command) return { status: 'NOT_HANDLED' };
     if (!touched.isOaFriend) return notFriend();
+
+    if (isWorklogStatusCommand(message)) {
+      const personal = await this.bootstrap.bootstrapPrivateInteraction({ lineUserId: message.lineUserId, at: message.lineTimestamp });
+      if (personal.status !== 'READY') return notFriend();
+      return { status: 'HELP', replyText: await this.systemQueries.personalStatus({ userId: personal.userId, sourceId: personal.sourceId, at: message.lineTimestamp }) };
+    }
+
     if (command.kind === 'HELP') return { status: 'HELP', replyText: worklogLineHelpText() };
     if (command.kind === 'CLAIM_GROUP' || command.kind === 'RELEASE_GROUP') {
       return { status: 'REJECTED', reason: 'GROUP_COMMAND_IN_PRIVATE', replyText: '「啟用 AI / 取消 AI」是 LINE 群組設定，請在對應群組內操作。' };
     }
+    if (command.kind !== 'NATURAL_TEXT') return { status: 'REJECTED', reason: 'SOURCE_NOT_FOUND', replyText: '小跡目前無法處理這個舊版指令格式，請直接用自然語言描述你要做的事。' };
 
     const personal = await this.bootstrap.bootstrapPrivateInteraction({ lineUserId: message.lineUserId, at: message.lineTimestamp });
     if (personal.status !== 'READY') return notFriend();
-
-    if (command.kind === 'STATUS') {
-      return { status: 'STATUS', replyText: await this.systemQueries.personalStatus({ userId: personal.userId, sourceId: personal.sourceId, at: message.lineTimestamp }) };
-    }
-
-    if (command.kind !== 'NATURAL_TEXT') return { status: 'REJECTED', reason: 'SOURCE_NOT_FOUND', replyText: '小跡目前無法處理這個舊版指令格式，請直接用自然語言描述你要做的事。' };
-
     if (!(await this.safeCanStartAi(personal.userId, personal.sourceId, message.lineTimestamp))) {
       return { status: 'REJECTED', reason: 'AI_POINTS_EXHAUSTED', replyText: '你的 AI 點數不足，這次沒有呼叫 AI；你仍可前往 AFTERTRACE 免費手動新增、查詢或編輯紀錄。' };
     }
