@@ -10,7 +10,7 @@ const env = {
 
 async function authorization() {
   const token = await issueWebSessionToken({
-    lineUserId: 'U0123456789abcdef0123456789abcdef',
+    userId: 42,
     secret: env.WEB_AUTH_SECRET,
     ttlSeconds: 3600,
   });
@@ -18,7 +18,7 @@ async function authorization() {
 }
 
 describe('subscription route launch boundary', () => {
-  it('fails closed before persistence while payment checkout is disabled', async () => {
+  it('accepts a durable user-id session and still fails closed before persistence while checkout is disabled', async () => {
     const response = await createWorklogSubscriptionRoutes().request('/checkout-intents', {
       method: 'POST',
       headers: {
