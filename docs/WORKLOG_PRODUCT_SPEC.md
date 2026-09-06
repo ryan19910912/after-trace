@@ -6,8 +6,8 @@ AFTERTRACE is a general-purpose LINE-first work-record assistant for individuals
 
 Core surfaces:
 
-- LINE OA/private chat: AI-assisted Record capture/edit and navigation to filtered PWA history.
-- LINE group bot: shared AI-assisted Record capture/edit and navigation to group PWA history.
+- LINE OA/private chat: AI-assisted Record capture/edit and deterministic in-chat history lookup with deeper PWA navigation.
+- LINE group bot: shared AI-assisted Record capture/edit and deterministic in-chat history lookup with deeper PWA navigation.
 - Web/PWA: free manual browse/search/filter/create/edit/delete/restore, title moves/batch moves, explicit AI-assisted Record creation, AI allowance usage/settings, and later paid export.
 - Internal Admin: users/groups/plans/Grants/usage/subsidy/anomalies/audit and AI/provider pricing analytics.
 
@@ -68,7 +68,7 @@ Initial commercial direction may include PRO around NT$99/month and TEAM around 
 - Admin may add, edit, disable, and delete unused one-time product templates.
 - `grant_points` means **購買可得 AI 點數**.
 - One successful purchase creates one separate immutable `TOP_UP`/one-time Grant.
-- It does not create or modify a recurring subscription period and never refreshes monthly.
+- It does not create or modify a recurring subscription allowance and never refreshes monthly.
 - Editing the product template never changes a previously purchased Grant.
 
 Deleting any non-FREE plan/product must fail closed while current subscriptions, immutable history, checkout/payment facts, or other durable references still depend on it; disabling it is the safe fallback.
@@ -129,8 +129,9 @@ The reusable core pipeline should conceptually separate:
 
 1. **interpret** user input into a normalized Record draft;
 2. resolve same-Source Entity/title/Alias and ambiguity;
-3. reserve/charge AI points and record provider-cost facts through the shared AI ledger;
-4. **commit** an authorized Record/revision using deterministic backend rules.
+3. derive bounded semantic `search_terms` used only for retrieval;
+4. reserve/charge AI points and record provider-cost facts through the shared AI ledger;
+5. **commit** an authorized Record/revision using deterministic backend rules.
 
 Input channel is metadata/audit context, not a separate domain model. At minimum distinguish `LINE_AI_CREATE` and `PWA_AI_CREATE` (or equivalent durable operation/channel facts) without duplicating title resolution, point accounting, provider usage or persistence logic.
 
@@ -144,8 +145,11 @@ AI-assisted creation stays narrow:
 - determine one Record title/Entity;
 - resolve existing title/Alias within the same Source;
 - detect possible Alias/title ambiguity requiring confirmation;
-- resolve `occurred_at` from date/time language when present;
+- resolve the event **date** from date/time language when present;
+- derive a small set of grounded semantic search terms/synonyms that make the Record findable by common wording;
 - preserve durable raw/textual Record content.
+
+`search_terms` is retrieval metadata, not user-visible generated content and not a domain-specific finance/project schema. Example: `晴空案今天收3千清潔費` may keep grounded terms such as `收款`, `款項`, `清潔費`, `3000`, allowing a later query for `收款` to find the Record even when the literal raw text only says `收`.
 
 Do not require universal amount/address/payment/material/task extraction and do not create extra Related Entities.
 
@@ -157,7 +161,7 @@ Initial Web AI flow is **preview-first**:
 
 1. user enters natural-language text;
 2. backend checks positive eligible AI balance before provider execution;
-3. shared AI pipeline interprets title/content/time and same-Source title ambiguity;
+3. shared AI pipeline interprets title/content/event date/search terms and same-Source title ambiguity;
 4. Web shows the proposed result/required confirmation;
 5. user explicitly confirms before a new Record is committed;
 6. canceling the preview must not silently create a Record.
@@ -166,11 +170,48 @@ AI provider work that already ran for the preview is billable/point-consuming ac
 
 LINE may keep its accepted direct/confirmation flow; the difference is interaction UX, not duplicated AI business logic.
 
-## Record model and time
+## Record model and event-date semantics
 
-A durable Record stores Source, one `entity_id`, author, `raw_text`, `occurred_at`, `created_at`, `updated_at`, status/version, input type, LINE trace ids, and revision/delete facts.
+A durable Record stores Source, one `entity_id`, author, `raw_text`, event-date value, `search_terms`, `created_at`, `updated_at`, status/version, input type, LINE trace ids, and revision/delete facts.
 
-If AI-assisted input gives no event time, `occurred_at` defaults to message/create time.
+For MVP, the business meaning of the event field is **day precision**, not a guessed clock time. The current physical `occurred_at` column may remain during the compatibility transition, but application semantics must treat it as a canonical Asia/Taipei calendar-day marker; UI and AI must not invent a time-of-day the user never supplied.
+
+Rules:
+
+- Direct LINE record: date interpretation reference = that LINE message's original timestamp.
+- Reply/Replay of an older LINE message: date interpretation reference = the **quoted/original message timestamp**, never the later command/reply timestamp and never Worker current time.
+- Example: original message sent on 9/3 says `晴空案今天收3000清潔費`; user Replies `@AFTERTRACE 幫我記` on 9/5; the event date is 9/3.
+- Relative phrases such as `今天`, `昨天`, `上週五` are resolved in `Asia/Taipei` against the source/original timestamp.
+- If no event date is stated, use the source/original message date for LINE, or the create/reference date for explicit Web AI/manual create.
+- `created_at` remains the actual database creation timestamp and must not be confused with the event date.
+- If the original timestamp required for a Reply/Replay cannot be recovered, do not silently substitute the current time; fail clearly or request the content again.
+
+## Deterministic LINE history answer
+
+LINE history lookup follows **Query → Retrieve → Answer → Deep Link**.
+
+Initial MVP behavior does **not** use AI to summarize retrieved history.
+
+1. Resolve the authorized Source.
+2. Resolve an explicitly mentioned existing title/Entity or Alias within that Source when possible.
+3. Resolve the remaining natural-language search text into deterministic filters.
+4. Query PostgreSQL first.
+5. Return up to the most recent **5 matching Records** directly in LINE, ordered by event date descending with stable tie-breaking.
+6. Include the total match count when available.
+7. Always include the secure PWA/RWA-style filtered link for deeper history when the entry service is available.
+
+Example user request:
+
+`晴空案目前收款進度如何`
+
+Expected deterministic interpretation may be:
+
+- title = `晴空案`
+- fuzzy/semantic query = `收款`
+
+The reply may show the latest matching Records plus `查看更多紀錄` link. It must not invent a percentage, payment state, conclusion, or summary that is not directly present in stored Records.
+
+Search matching may use title, aliases, raw Record text and AI-derived `search_terms`. AI is allowed during Record interpretation to create retrieval metadata; the history-answer path itself remains deterministic and provider-free for this MVP.
 
 ## PWA manual create/edit/search
 
@@ -180,19 +221,19 @@ Create fields:
 
 - 紀錄標題
 - 紀錄內容
-- 發生時間 via date/time picker
+- 發生日期
 
 MVP search/filter mechanisms:
 
 1. 紀錄標題 / Entity;
-2. fuzzy search across title names, aliases and Record content;
-3. date range based on `occurred_at`.
+2. fuzzy search across title names, aliases, Record content and available semantic `search_terms`;
+3. date range based on the Record event date.
 
 Authorized users may edit content, move one or multiple Records to another title, soft-delete/restore, and inspect edit history. A title move updates the Record's `entity_id`; generic Merge/Undo is not MVP.
 
 ## LINE history/navigation and edit
 
-LINE history requests become deterministic PWA filters/links. LINE is not an open-ended historical database agent in MVP.
+LINE history requests first return deterministic database matches in LINE and then provide a filtered PWA link for additional records. LINE is not an open-ended historical database agent and does not produce an AI summary in the current MVP.
 
 LINE natural-language edit requires a reliable Reply target and positive eligible AI balance. Never guess the target. AI interprets the requested change only after the Record id is deterministic; backend authorization/version/revision logic performs the mutation.
 
@@ -220,4 +261,4 @@ Stack: TypeScript/Node, Hono on Cloudflare Workers API, React/Vite Web/PWA, Reac
 
 ## Prelaunch DB policy
 
-Dev/prod are prelaunch and may be destructively rebuilt while schema is finalized. Once real production data exists, switch immediately to forward-only migrations.
+Dev/prod are prelaunch and may be destructively rebuilt while schema is finalized. Existing Dev data should still use safe forward compatibility when preservation has already been explicitly chosen. Once real production data exists, switch immediately to forward-only migrations.
