@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { WorklogLineSystemQueryService, type WorklogLineSystemQueryRepository } from './line-system-query';
+import {
+  WorklogLineSystemQueryService,
+  type WorklogGroupSystemState,
+  type WorklogLineSystemQueryRepository,
+} from './line-system-query';
 
 class FakeRepository implements WorklogLineSystemQueryRepository {
-  group = {
+  group: WorklogGroupSystemState = {
     responsibleUserId: 7,
     responsibleDisplayName: 'Ryan Hsu',
     responsibleLineUserId: 'U1',
