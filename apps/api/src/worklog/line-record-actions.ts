@@ -1,6 +1,7 @@
 export type WorklogLineActionTarget = {
   id: number;
   sourceId: number;
+  authorUserId: number | null;
   entityId: number | null;
   rawText: string;
   occurredAt: string;
