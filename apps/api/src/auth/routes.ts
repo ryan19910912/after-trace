@@ -147,9 +147,8 @@ export function createWebAuthRoutes() {
     const profile = (await profileResponse.json()) as LineProfile;
     if (typeof profile.userId !== 'string') return c.json({ ok: false, error: 'LINE_PROFILE_FAILED' }, 502);
 
-    // LINE Login establishes the AFTERTRACE account independently from OA friendship.
-    // Do not mark is_oa_friend here: only Messaging API follow/unfollow lifecycle owns
-    // that state. Web/PWA manual work remains usable even before the user adds the OA.
+    // LINE Login is currently a migration-era provider only. The durable AFTERTRACE
+    // session now carries numeric userId so future providers do not need LINE identity.
     const at = new Date();
     const database = createDatabase(c.env.DATABASE_URL);
     const bootstrap = new DrizzleWorklogBootstrapRepository(database);
@@ -166,7 +165,11 @@ export function createWebAuthRoutes() {
       at,
     });
 
-    const sessionToken = await issueWebSessionToken({ lineUserId: profile.userId, secret });
+    const sessionToken = await issueWebSessionToken({
+      userId: user.userId,
+      lineUserId: profile.userId,
+      secret,
+    });
     const webUrl = new URL(config.webAppUrl);
     webUrl.hash = new URLSearchParams({ session: sessionToken }).toString();
     return c.redirect(webUrl.toString(), 302);
