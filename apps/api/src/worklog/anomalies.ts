@@ -68,7 +68,7 @@ export async function recordAnomalySafely(
       event: 'worklog_anomaly_persist_failed',
       category: input.category,
       errorCode: input.errorCode ?? null,
-      message: error instanceof Error ? error.message : 'unknown error',
+      error: anomalyErrorDetail(error),
     }));
   }
 }
@@ -84,6 +84,55 @@ export function anomalyErrorCode(error: unknown, fallback: string): string {
 export function anomalyErrorSummary(error: unknown, fallback: string): string {
   const value = error instanceof Error ? error.message.trim() : String(error ?? '').trim();
   return (value || fallback).slice(0, 2000);
+}
+
+/**
+ * Preserve the useful Drizzle/Postgres cause chain without dumping arbitrary object fields
+ * that may contain credentials or request payloads. This is safe to persist in Admin anomaly metadata.
+ */
+export function anomalyErrorDetail(error: unknown, depth = 0): Record<string, unknown> {
+  if (depth >= 5) return { truncated: true };
+  if (!error || typeof error !== 'object') return { message: String(error ?? 'unknown error') };
+
+  const source = error as Record<string, unknown>;
+  const detail: Record<string, unknown> = {};
+  const name = error instanceof Error ? error.name : stringField(source.name);
+  const message = error instanceof Error ? error.message : stringField(source.message);
+  if (name) detail.name = name;
+  if (message) detail.message = message;
+
+  for (const key of [
+    'code',
+    'severity',
+    'detail',
+    'hint',
+    'position',
+    'internalPosition',
+    'internalQuery',
+    'where',
+    'schema',
+    'table',
+    'column',
+    'dataType',
+    'constraint',
+    'routine',
+  ]) {
+    const value = source[key];
+    if (typeof value === 'string' && value.trim()) detail[key] = value.slice(0, 4000);
+    else if (typeof value === 'number' || typeof value === 'boolean') detail[key] = value;
+  }
+
+  if (error instanceof Error && error.stack) detail.stack = error.stack.slice(0, 12000);
+  if ('cause' in source && source.cause !== undefined && source.cause !== null) {
+    detail.cause = anomalyErrorDetail(source.cause, depth + 1);
+  }
+  return Object.keys(detail).length > 0 ? detail : { message: String(error) };
+}
+
+function stringField(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  return normalized || null;
 }
 
 function text(value: string, max: number, fallback: string): string {
