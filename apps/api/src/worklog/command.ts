@@ -7,7 +7,7 @@ export type WorklogCommandMessage = {
 export type WorklogCommand =
   | { kind: 'HELP' }
   | { kind: 'CLAIM_GROUP' }
-  | { kind: 'RELEASE_GROUP' }
+  | { kind: 'RELEASE_GROUP'; text: string }
   | { kind: 'NATURAL_TEXT'; text: string; quotedLineMessageId: string | null }
   // Transitional internal variants retained until the old runtimes are removed.
   | { kind: 'QUERY'; naturalText: string | null }
@@ -37,7 +37,7 @@ export function parseWorklogOaCommand(message: WorklogCommandMessage): WorklogCo
   return parsePrefixedCommand(message, false);
 }
 
-function parsePrefixedCommand(message: WorklogCommandMessage, allowGroupControl: boolean): WorklogCommand | null {
+function parsePrefixedCommand(message: WorklogCommandMessage, _allowGroupControl: boolean): WorklogCommand | null {
   if (message.messageType !== 'text' || !message.textContent) return null;
   const prefix = stripBotPrefix(message.textContent);
   if (!prefix.addressed) return null;
@@ -46,7 +46,7 @@ function parsePrefixedCommand(message: WorklogCommandMessage, allowGroupControl:
 
   if (/^(?:幫助|帮助|說明|说明|help)$/i.test(normalized)) return { kind: 'HELP' };
   if (/^啟用\s*AI$/iu.test(normalized)) return { kind: 'CLAIM_GROUP' };
-  if (/^取消\s*AI$/iu.test(normalized)) return { kind: 'RELEASE_GROUP' };
+  if (/^取消\s*AI$/iu.test(normalized)) return { kind: 'RELEASE_GROUP', text: prefix.body };
 
   return { kind: 'NATURAL_TEXT', text: prefix.body, quotedLineMessageId: message.quotedLineMessageId };
 }
