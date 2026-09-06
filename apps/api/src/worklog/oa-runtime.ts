@@ -38,7 +38,7 @@ export type WorklogOaRuntimeResult =
   | { status: 'EDIT_CONFIRMATION_PENDING'; recordId: number; confirmationId: number; replyText: string }
   | { status: 'EDIT_IN_PROGRESS'; replyText: string }
   | { status: 'QUOTED_NOT_READY'; replyText: string }
-  | { status: 'REJECTED'; reason: 'NOT_OA_FRIEND' | 'GROUP_COMMAND_IN_PRIVATE' | 'SOURCE_NOT_FOUND' | 'IDEMPOTENCY_CONFLICT' | 'ATTACHMENT_FAILED' | 'AI_POINTS_EXHAUSTED' | 'EDIT_TARGET_REQUIRED' | 'EDIT_TARGET_NOT_FOUND' | 'EDIT_TARGET_AMBIGUOUS' | 'EDIT_TARGET_DELETED' | 'EDIT_NOT_READY' | 'EDIT_RECORD_CHANGED' | 'EDIT_FAILED'; replyText: string };
+  | { status: 'REJECTED'; reason: 'GROUP_COMMAND_IN_PRIVATE' | 'SOURCE_NOT_FOUND' | 'IDEMPOTENCY_CONFLICT' | 'ATTACHMENT_FAILED' | 'AI_POINTS_EXHAUSTED' | 'EDIT_TARGET_REQUIRED' | 'EDIT_TARGET_NOT_FOUND' | 'EDIT_TARGET_AMBIGUOUS' | 'EDIT_TARGET_DELETED' | 'EDIT_NOT_READY' | 'EDIT_RECORD_CHANGED' | 'EDIT_FAILED'; replyText: string };
 
 export class WorklogOaRuntime {
   constructor(
@@ -59,10 +59,9 @@ export class WorklogOaRuntime {
   }
 
   async handleMessage(message: BufferedPrivateMessage): Promise<WorklogOaRuntimeResult> {
-    const touched = await this.bootstrap.touchPrivateInteraction({ lineUserId: message.lineUserId, at: message.lineTimestamp });
+    await this.bootstrap.touchPrivateInteraction({ lineUserId: message.lineUserId, at: message.lineTimestamp });
     const command = parseWorklogOaCommand(message);
     if (!command) return { status: 'NOT_HANDLED' };
-    if (!touched.isOaFriend) return notFriend();
 
     if (command.kind === 'HELP') return { status: 'HELP', replyText: worklogLineHelpText() };
     if (command.kind === 'CLAIM_GROUP' || command.kind === 'RELEASE_GROUP') {
@@ -70,7 +69,6 @@ export class WorklogOaRuntime {
     }
 
     const personal = await this.readyPersonal(message);
-    if (isRejected(personal)) return personal;
 
     if (command.kind === 'QUERY') {
       return { status: 'QUERY', sourceId: personal.sourceId, userId: personal.userId, filters: historyFiltersFromText(command.naturalText, message.lineTimestamp) };
@@ -100,9 +98,9 @@ export class WorklogOaRuntime {
     return this.recordPrivateText(message, personal, command.text);
   }
 
-  private async readyPersonal(message: BufferedPrivateMessage): Promise<{ userId: number; sourceId: number } | Extract<WorklogOaRuntimeResult, { status: 'REJECTED' }>> {
+  private async readyPersonal(message: BufferedPrivateMessage): Promise<{ userId: number; sourceId: number }> {
     const personal = await this.bootstrap.bootstrapPrivateInteraction({ lineUserId: message.lineUserId, at: message.lineTimestamp });
-    return personal.status === 'READY' ? { userId: personal.userId, sourceId: personal.sourceId } : notFriend();
+    return { userId: personal.userId, sourceId: personal.sourceId };
   }
 
   private async recordPrivateText(message: BufferedPrivateMessage, personal: { userId: number; sourceId: number }, text: string): Promise<WorklogOaRuntimeResult> {
@@ -142,8 +140,6 @@ export class WorklogOaRuntime {
   }
 }
 
-function isRejected(value: { userId: number; sourceId: number } | Extract<WorklogOaRuntimeResult, { status: 'REJECTED' }>): value is Extract<WorklogOaRuntimeResult, { status: 'REJECTED' }> { return 'status' in value; }
-function notFriend(): Extract<WorklogOaRuntimeResult, { status: 'REJECTED' }> { return { status: 'REJECTED', reason: 'NOT_OA_FRIEND', replyText: '請先加入 AFTERTRACE LINE 官方帳號好友後再使用小跡。' }; }
 function normalizationReplyText(result: WorklogTextNormalizationResult | null, successText: string): string {
   if (result?.status === 'NORMALIZED' || result?.status === 'ALREADY_NORMALIZED') return successText;
   if (result?.status === 'PENDING_CONFIRMATION') return '原文已保存，AI 需要你確認紀錄標題。請到 AFTERTRACE 完成確認；不會再扣第二次 AI 點數。';
