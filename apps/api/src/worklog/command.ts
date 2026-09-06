@@ -19,46 +19,109 @@ function stripAftertraceMention(text: string): { mentioned: boolean; body: strin
 }
 
 /**
- * Parses only deterministic/safety-sensitive LINE command boundaries.
- * History recognition may accept natural progress/status questions, but retrieval
- * remains deterministic and provider-free; a query must never be persisted as a Record.
+ * Group parser. Group chat must keep an explicit @AFTERTRACE prefix so ordinary
+ * conversation can never become a Worklog command by accident.
  */
 export function parseWorklogCommand(message: WorklogCommandMessage): WorklogCommand | null {
   if (message.messageType !== 'text' || !message.textContent) return null;
 
   const mention = stripAftertraceMention(message.textContent);
   if (!mention.mentioned) return null;
+  return parseCommandBody(mention.body, message.quotedLineMessageId, true);
+}
 
-  const normalized = mention.body.replace(/[！!。.]$/, '').trim();
+/**
+ * LINE OA/private parser. The customer is already talking directly to AFTERTRACE,
+ * therefore mentioning the OA itself is not required or expected.
+ *
+ * Record creation still requires an explicit record verb (for example 記錄 / 幫我記)
+ * so greetings or ordinary human-support messages are not silently persisted.
+ * History and edit requests are safe to recognize from their strong intent phrases.
+ */
+export function parseWorklogOaCommand(message: WorklogCommandMessage): WorklogCommand | null {
+  if (message.messageType !== 'text' || !message.textContent) return null;
+
+  const mention = stripAftertraceMention(message.textContent);
+  if (mention.mentioned) return parseCommandBody(mention.body, message.quotedLineMessageId, false);
+
+  const body = message.textContent.trim();
+  if (!body) return null;
+
+  if (looksLikeEditRequest(body)) {
+    return {
+      kind: 'EDIT_REQUEST',
+      instruction: body,
+      quotedLineMessageId: message.quotedLineMessageId,
+    };
+  }
+
+  if (looksLikeHistoryRequest(body) || /^(?:查詢|查询|查看|records?)$/i.test(body.replace(/[！!。.]$/, '').trim())) {
+    return { kind: 'QUERY', naturalText: /^(?:查詢|查询|查看|records?)$/i.test(body) ? null : body };
+  }
+
+  const record = explicitOaRecordBody(body);
+  if (record !== null) {
+    if (message.quotedLineMessageId) {
+      return {
+        kind: 'RECORD_QUOTED',
+        quotedLineMessageId: message.quotedLineMessageId,
+        instruction: record || null,
+      };
+    }
+    return record ? { kind: 'RECORD_TEXT', text: record } : null;
+  }
+
+  return null;
+}
+
+function parseCommandBody(
+  body: string,
+  quotedLineMessageId: string | null,
+  allowGroupClaim: boolean,
+): WorklogCommand | null {
+  const normalized = body.replace(/[！!。.]$/, '').trim();
   if (/^(?:查詢|查询|查看|records?)$/i.test(normalized)) {
     return { kind: 'QUERY', naturalText: null };
   }
-  if (/^(?:啟用|启用|啟用群組|启用群组|認領|认领|綁定|绑定)$/i.test(normalized)) {
+  if (allowGroupClaim && /^(?:啟用|启用|啟用群組|启用群组|認領|认领|綁定|绑定)$/i.test(normalized)) {
     return { kind: 'CLAIM_GROUP' };
   }
 
-  if (looksLikeEditRequest(mention.body)) {
+  if (looksLikeEditRequest(body)) {
     return {
       kind: 'EDIT_REQUEST',
-      instruction: mention.body,
-      quotedLineMessageId: message.quotedLineMessageId,
+      instruction: body,
+      quotedLineMessageId,
     };
   }
 
-  if (looksLikeHistoryRequest(mention.body)) {
-    return { kind: 'QUERY', naturalText: mention.body };
+  if (looksLikeHistoryRequest(body)) {
+    return { kind: 'QUERY', naturalText: body };
   }
 
-  if (message.quotedLineMessageId) {
+  if (quotedLineMessageId) {
     return {
       kind: 'RECORD_QUOTED',
-      quotedLineMessageId: message.quotedLineMessageId,
-      instruction: mention.body || null,
+      quotedLineMessageId,
+      instruction: body || null,
     };
   }
 
-  if (!mention.body) return null;
-  return { kind: 'RECORD_TEXT', text: mention.body };
+  if (!body) return null;
+  return { kind: 'RECORD_TEXT', text: body };
+}
+
+function explicitOaRecordBody(text: string): string | null {
+  const normalized = text.trim();
+  const patterns = [
+    /^(?:請|麻煩)?(?:幫我)?(?:記錄|紀錄|記下|記一下|記)\s*[：:,-]?\s*(.*)$/i,
+    /^(?:新增|建立)(?:一筆)?(?:紀錄|記錄)?\s*[：:,-]?\s*(.*)$/i,
+  ];
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+    if (match) return (match[1] ?? '').trim();
+  }
+  return null;
 }
 
 export function looksLikeHistoryRequest(text: string): boolean {
