@@ -12,7 +12,7 @@ export type WorklogRecordListItem = {
   authorUserId: number | null;
   inputType: 'TEXT' | 'AUDIO' | 'IMAGE' | 'FILE';
   rawText: string;
-  occurredAt: string;
+  occurredAt: string | null;
   status: 'ACTIVE' | 'DELETED';
   version: number;
   deletedAt: string | null;
@@ -54,7 +54,7 @@ export type WorklogReplyEditTarget = {
   authorUserId: number | null;
   entityId: number | null;
   rawText: string;
-  occurredAt: string;
+  occurredAt: string | null;
   version: number;
 };
 
