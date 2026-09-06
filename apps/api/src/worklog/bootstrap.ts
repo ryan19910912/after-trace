@@ -48,9 +48,12 @@ export interface WorklogAiResponsibilityClaimPort {
   >;
 }
 
-export type PrivateBootstrapResult =
-  | { status: 'READY'; userId: number; workspaceId: number; sourceId: number }
-  | { status: 'NOT_OA_FRIEND'; userId: number };
+export type PrivateBootstrapResult = {
+  status: 'READY';
+  userId: number;
+  workspaceId: number;
+  sourceId: number;
+};
 
 /** GROUP Source existence is independent from AI funding responsibility. */
 export type GroupBootstrapResult = {
@@ -112,6 +115,10 @@ export class WorklogBootstrapService {
     });
   }
 
+  /**
+   * A delivered LINE private-message webhook is its own trusted entry surface.
+   * OA friendship remains lifecycle/analytics state only and never gates PRIVATE Source bootstrap.
+   */
   async bootstrapPrivateInteraction(input: {
     lineUserId: string;
     displayName?: string | null;
@@ -123,7 +130,6 @@ export class WorklogBootstrapService {
       displayName: normalizeDisplayName(input.displayName),
       at,
     });
-    if (!user.isOaFriend) return { status: 'NOT_OA_FRIEND', userId: user.userId };
 
     const workspaceId = await this.repository.ensureWorkspace(user.userId, at);
     const sourceId = await this.repository.ensurePrivateSource(user.userId, workspaceId, at);
