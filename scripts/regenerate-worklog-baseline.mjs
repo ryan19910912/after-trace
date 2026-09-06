@@ -1,9 +1,11 @@
 import {
   existsSync,
   mkdirSync,
+  readFileSync,
   readdirSync,
   renameSync,
   rmSync,
+  writeFileSync,
 } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -12,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const drizzleDir = resolve(root, 'drizzle');
 const metaDir = resolve(drizzleDir, 'meta');
+const journalPath = resolve(metaDir, '_journal.json');
 const resetFlag = '--confirm-prelaunch-reset';
 
 if (!process.argv.includes(resetFlag)) {
@@ -21,6 +24,7 @@ if (!process.argv.includes(resetFlag)) {
 }
 
 assertCurrentPrelaunchShape();
+const existingBaselineWhen = readExistingBaselineWhen();
 
 // Keep the backup on the same filesystem as the repository. Windows can deny
 // fs.cpSync into the user's Temp directory even when the repository itself is
@@ -32,7 +36,7 @@ renameSync(drizzleDir, backupDir);
 mkdirSync(drizzleDir, { recursive: true });
 
 try {
-  console.log('Regenerating the disposable prelaunch Drizzle baseline from apps/api/src/db/schema-all.ts...');
+  console.log('Regenerating the canonical fresh-database Drizzle baseline from apps/api/src/db/schema-all.ts...');
 
   try {
     run(
@@ -49,6 +53,7 @@ try {
       'Drizzle baseline generation',
       process.platform === 'win32',
     );
+    preserveBaselineMigrationIdentity(existingBaselineWhen);
   } catch (error) {
     // Generation itself failed, so the partially-created directory is not useful and
     // may be structurally incomplete. Restore the previous checked-in artifacts.
@@ -70,9 +75,46 @@ try {
   );
 
   console.log('Prelaunch baseline regenerated and guard passed.');
-  console.log('Next: inspect the generated diff and apply it to a fresh disposable PostgreSQL database before any deployment.');
+  console.log('Existing environment databases must use the forward-compatibility migration; do not rebuild them merely because 0000 changed.');
 } finally {
   if (existsSync(backupDir)) rmSync(backupDir, { recursive: true, force: true });
+}
+
+function readExistingBaselineWhen() {
+  let journal;
+  try {
+    journal = JSON.parse(readFileSync(journalPath, 'utf8'));
+  } catch {
+    fail('Existing Drizzle journal is unreadable; refusing to regenerate baseline identity.');
+  }
+
+  const entry = journal?.entries?.[0];
+  if (!entry || entry.idx !== 0 || entry.tag !== '0000_worklog_baseline' || !Number.isFinite(entry.when)) {
+    fail('Existing Drizzle journal does not contain a valid 0000_worklog_baseline identity.');
+  }
+  return entry.when;
+}
+
+function preserveBaselineMigrationIdentity(existingWhen) {
+  let journal;
+  try {
+    journal = JSON.parse(readFileSync(journalPath, 'utf8'));
+  } catch {
+    throw new Error('Generated Drizzle journal is unreadable.');
+  }
+
+  if (!Array.isArray(journal.entries) || journal.entries.length !== 1) {
+    throw new Error('Generated Drizzle journal must contain exactly one baseline entry.');
+  }
+
+  const entry = journal.entries[0];
+  if (entry?.idx !== 0 || entry?.tag !== '0000_worklog_baseline') {
+    throw new Error('Generated Drizzle journal baseline identity is unexpected.');
+  }
+
+  entry.when = existingWhen;
+  writeFileSync(journalPath, `${JSON.stringify(journal, null, 2)}\n`, 'utf8');
+  console.log(`Preserved 0000_worklog_baseline migration timestamp: ${existingWhen}`);
 }
 
 function assertCurrentPrelaunchShape() {
