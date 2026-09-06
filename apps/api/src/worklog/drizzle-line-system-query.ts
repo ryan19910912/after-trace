@@ -40,21 +40,11 @@ export class DrizzleWorklogLineSystemQueryRepository implements WorklogLineSyste
   async allowance(ownerUserId: number, sourceId: number, at: Date): Promise<WorklogAiAllowanceStatus> {
     const result = await this.db.execute(sql`
       SELECT
-        COALESCE(SUM(
-          LEAST(
-            grant.original_points,
-            CASE WHEN scope.cap_points IS NULL THEN grant.original_points ELSE scope.cap_points END
-          )
-        ), 0)::text AS total_points,
-        COALESCE(SUM(
-          LEAST(
-            grant.remaining_points,
-            CASE
-              WHEN scope.cap_points IS NULL THEN grant.remaining_points
-              ELSE GREATEST(0, scope.cap_points - scope.used_points - scope.reserved_points)
-            END
-          )
-        ), 0)::text AS remaining_points
+        grant.original_points,
+        grant.remaining_points,
+        scope.cap_points,
+        scope.used_points,
+        scope.reserved_points
       FROM worklog_ai_grants grant
       INNER JOIN worklog_ai_grant_scopes scope
         ON scope.grant_id = grant.id
@@ -64,16 +54,44 @@ export class DrizzleWorklogLineSystemQueryRepository implements WorklogLineSyste
         AND grant.status IN ('ACTIVE', 'EXHAUSTED')
         AND grant.effective_at <= ${at}
         AND (grant.expires_at IS NULL OR grant.expires_at > ${at})
+      ORDER BY grant.effective_at ASC, grant.id ASC
     `);
-    const row = result.rows[0] as { total_points?: string; remaining_points?: string } | undefined;
-    return {
-      totalPoints: nonNegativeSafeInteger(row?.total_points),
-      remainingPoints: nonNegativeSafeInteger(row?.remaining_points),
-    };
+
+    let totalPoints = 0;
+    let remainingPoints = 0;
+    for (const raw of result.rows) {
+      const row = raw as Record<string, unknown>;
+      const original = nonNegativeSafeInteger(row.original_points);
+      const remaining = nonNegativeSafeInteger(row.remaining_points);
+      const cap = nullableNonNegativeSafeInteger(row.cap_points);
+      const used = nonNegativeSafeInteger(row.used_points);
+      const reserved = nonNegativeSafeInteger(row.reserved_points);
+
+      const scopedTotal = cap === null ? original : Math.min(original, cap);
+      const scopeRemaining = cap === null ? remaining : Math.max(0, cap - used - reserved);
+      const scopedRemaining = Math.min(remaining, scopeRemaining);
+
+      totalPoints = safeAdd(totalPoints, scopedTotal);
+      remainingPoints = safeAdd(remainingPoints, scopedRemaining);
+    }
+
+    return { totalPoints, remainingPoints };
   }
+}
+
+function nullableNonNegativeSafeInteger(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  return nonNegativeSafeInteger(value);
 }
 
 function nonNegativeSafeInteger(value: unknown): number {
   const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
-  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
+  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error('invalid AI allowance point value');
+  return parsed;
+}
+
+function safeAdd(left: number, right: number): number {
+  const value = left + right;
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error('AI allowance exceeds safe integer range');
+  return value;
 }
