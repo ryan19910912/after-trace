@@ -15,7 +15,7 @@ Read first every substantive development run, in this exact order:
 
 Latest docs are the only product/development specification. Never use GitHub Actions unless explicitly requested. Every development commit contains `[skip ci]`.
 
-## Current checkpoint — 2026-09-06 LINE group profile 24h lazy-refresh batch locally green; baseline + Dev forward migration verified; Dev API deploy pending
+## Current checkpoint — 2026-09-06 LINE group profile 24h lazy-refresh batch locally green; baseline + Dev forward migration + Dev API health/readiness verified; real LINE GROUP E2E pending
 
 Cloudflare deployment remains manual:
 
@@ -233,15 +233,21 @@ Existing Dev DB forward migration was then applied without rebuilding the databa
 - AI pricing preserved: input `0.30000000`, output `2.50000000` USD per million — **PASS**
 - FREE plan preserved: `FREE / FREE / 0.00 / 400000 / enabled=true` — **PASS**
 
+Dev API was then manually deployed and runtime health verified:
+
+- `https://after-trace-api-dev.a0955625660.workers.dev/health` -> `status=ok` — **PASS**
+- `https://after-trace-api-dev.a0955625660.workers.dev/health/ready` -> `status=ready` — **PASS**
+- therefore the deployed Worker can reach the preserved Dev DB/runtime configuration and the new readiness dependency is available.
+
 The unrelated local untracked file `apps/api/verify-admin-schema.mjs` remains outside this batch and must not be staged/committed unless separately reviewed.
 
 ## Immediate next order
 
-1. deploy **Dev API only** with the existing manual deployment path;
-2. verify `https://after-trace-api-dev.a0955625660.workers.dev/health` returns `status=ok`;
-3. verify `/health/ready` returns `status=ready` and therefore the new group-profile table/readiness dependency is available in runtime;
-4. perform a real LINE GROUP `小跡` command E2E and confirm the first stale/missing profile access writes the current LINE group name/picture + `synced_at`;
-5. repeat within 24h and confirm cached metadata is reused without requiring a profile refresh;
+1. perform a real LINE GROUP `小跡` command E2E on Dev;
+2. confirm the command receives the expected user-visible reply and creates/queries the correct GROUP Source behavior;
+3. query `worklog_source_line_profiles` and confirm the first missing/stale profile access writes the current LINE `group_name`, optional `picture_url`, and `synced_at`;
+4. repeat another `小跡` command within 24h and confirm `synced_at` remains unchanged, proving the cached profile was reused instead of calling summary again;
+5. after real GROUP E2E is green, treat this bounded group-profile batch as complete;
 6. then implement durable non-expiring PWA AI Draft + last-used Source preference + Quick Capture shared pipeline incrementally;
 7. wire PWA Source-list/open-group use into the same 24h lazy profile refresh service;
 8. add Voice as another input modality on top of the same preview/commit core.
