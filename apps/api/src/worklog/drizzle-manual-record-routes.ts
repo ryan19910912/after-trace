@@ -108,7 +108,7 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
       LIMIT ${filters.limit + 1}
       OFFSET ${filters.offset}
     `);
-    const all = result.rows.map(recordView);
+    const all = (result.rows as Array<Record<string, unknown>>).map(recordView);
     const hasMore = all.length > filters.limit;
     const records = hasMore ? all.slice(0, filters.limit) : all;
     return {
@@ -124,7 +124,8 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
 
   async record(recordId: number): Promise<ManualRecordView | null> {
     const result = await this.database.execute(recordSelectSql(recordId));
-    return result.rows[0] ? recordView(result.rows[0]) : null;
+    const row = result.rows[0] as Record<string, unknown> | undefined;
+    return row ? recordView(row) : null;
   }
 
   async create(input: {
@@ -272,7 +273,7 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
       ORDER BY revision.version DESC, revision.id DESC
       LIMIT 200
     `);
-    return result.rows.map((row) => revisionView(row));
+    return (result.rows as Array<Record<string, unknown>>).map(revisionView);
   }
 }
 
