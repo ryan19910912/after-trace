@@ -15,7 +15,7 @@ Read first every substantive development run, in this exact order:
 
 Latest docs are the only product/development specification. Never use GitHub Actions unless explicitly requested. Every development commit contains `[skip ci]`.
 
-## Current checkpoint — 2026-09-06 PWA-first product pivot + unified 小跡 LINE command language locally green
+## Current checkpoint — 2026-09-06 LINE group profile 24h lazy-refresh batch committed, local validation pending
 
 Cloudflare deployment remains manual:
 
@@ -25,7 +25,7 @@ Cloudflare deployment remains manual:
 
 Do not reintroduce Pages or automatic Git deployment.
 
-## Stable Dev foundation before this pivot
+## Stable Dev foundation
 
 Already user/runtime verified:
 
@@ -38,11 +38,11 @@ Already user/runtime verified:
 - AI runtime preserved `GOOGLE / gemini-3.5-flash-lite` — PASS
 - FREE plan preserved `FREE / grant_points=400000 / enabled=true` — PASS
 - normalization tests — PASS, 3 files / 13 tests
-- prior command/history/LINE runtime tests — PASS, 6 files / 57 tests
 - history-query tests — PASS, 1 file / 4 tests
 - Admin Users/Groups/Plans smoke — PASS
 - Dev Web shell/routes — PASS
 - LINE Login callback/redirect stage — PASS
+- PWA-first / unified 小跡 LINE refactor — PASS typecheck + 6 files / 55 tests
 
 The stale Dashboard `* * * * *` Cron Trigger remains unrelated to logging. Remove it separately; do not add an empty `scheduled()` handler.
 
@@ -76,9 +76,9 @@ Regression:
 
 Delayed attachment Reply original-timestamp recovery remains open debt and must not be claimed fully compliant.
 
-## NEW accepted product direction — PWA-first, LINE-integrated
+## Accepted product direction — PWA-first, LINE-integrated
 
-PWA/Web is now the primary product surface.
+PWA/Web is the primary product surface.
 
 Primary MVP customer flow:
 
@@ -138,22 +138,38 @@ Data remains with GROUP Source.
 
 Authorization must be server-side on every operation.
 
-## LINE group name / picture decision
+## LINE group name / picture — current implementation batch
 
 PWA uses the original current LINE group name/picture. No separate AFTERTRACE custom group display name.
 
-Accepted refresh policy, implementation pending:
+Accepted policy:
 
 - cache group name/picture + sync timestamp
-- if older than 24h, refresh only when group is actually used
-- use includes LINE 小跡 group command, PWA Source-list access, opening group surface
+- refresh only when actual use occurs and cache is at least 24h old
 - no scheduled/cron profile refresh
 - within 24h use cached metadata
 - LINE lifecycle/member state remains primary authorization evidence
 
-## NEW unified LINE command language — 小跡
+Current code now includes:
 
-OA and GROUP now share one Chinese command prefix: `小跡`.
+- `worklog_source_line_profiles` table: one cached LINE profile row per GROUP Source
+- `group_name`, optional `picture_url`, `synced_at`, created/updated timestamps
+- `LineGroupSummaryClient` using `GET /v2/bot/group/{groupId}/summary`
+- 24h `WorklogGroupProfileService` stale check
+- Drizzle cache repository
+- GROUP webhook lazy-refresh hook for explicit handled 小跡 commands only
+- profile refresh failure is best-effort/non-blocking: the user command still succeeds and an anomaly is recorded
+- ordinary group chat does not trigger profile refresh
+- LINE 404 during a live group command does not revoke access or overwrite cached metadata; webhook/lifecycle evidence remains the authorization source
+- readiness now probes the new table
+- existing Dev DB is preserved through an idempotent forward-compat migration; do not rebuild merely for this table
+- PWA Source-list/open-group invocation of the same lazy-refresh service is still pending until that PWA surface is implemented
+
+Official LINE behavior used by this batch: group summary returns group ID/name/optional picture URL for a group the OA participates in; 404 also covers a group the OA does not participate in. Runtime access is therefore not inferred solely from summary fetch failure.
+
+## Unified LINE command language — 小跡
+
+OA and GROUP share one Chinese command prefix: `小跡`.
 
 Accepted customer syntax:
 
@@ -185,78 +201,36 @@ Retired before launch:
 
 The short-lived Postback/pending-action implementation was prototyped and locally green (42 targeted tests) but was rejected by subsequent product decision **before baseline regeneration or Dev migration**.
 
-It has now been removed from the branch:
+It has been removed from the branch and requires no DB rollback.
 
-- no pending-action schema export
-- no forward migration for the table
-- no repository/service/runtime wiring
-- no OA Postback product route
-- no readiness dependency
-- obsolete tests removed
+## Current validation status
 
-Because the table was never migrated into Dev and never included in a regenerated canonical baseline, **no DB rollback is required**.
+Last completed batch:
 
-The previous 42-test green result applies only to the retired prototype.
+- PWA-first / unified 小跡 refactor: `pnpm --filter @aftertrace/api typecheck` — PASS
+- targeted current LINE batch — PASS, 6 files / 55 tests
+- expected stderr logs were deliberate simulated anomaly/failure tests, not failures
 
-## Current branch work in this pivot
+Current LINE group profile batch is **not yet locally validated**. Do not claim it green until the user runs typecheck and targeted tests.
 
-Implemented in code/docs and locally validated:
+Because this batch adds a canonical table, after code tests pass the required order is:
 
-- shared `小跡` parser for OA/GROUP
-- explicit query commands + Record-first default
-- HELP command
-- Reply `小跡 記`
-- OA runtime simplified back to stateless command handling
-- GROUP runtime aligned to 小跡
-- OA Postback/pending schema/runtime removed
-- readiness/index/forward-compat cleanup
-- PRODUCT_SPEC rewritten PWA-first
-- ENTITY_MODEL / RECORD_EDIT_POLICY / LINE_CONTENT_POLICY / DEVELOPMENT_POLICY aligned
-- command/OA runtime/OA webhook/event/GROUP runtime/GROUP webhook tests updated for new syntax
-
-Not yet implemented:
-
-- PWA Quick Capture UI/API
-- durable non-expiring AI Draft schema/API/UI
-- last-used capture Source preference
-- PWA Source picker with strict GROUP authorization
-- LINE group name/picture persistence + lazy 24h refresh
-- PWA Voice capture/provider integration
-
-These are accepted next development work, not claimed shipped.
-
-## Current validation status — PASS
-
-Latest user-executed local validation on Windows after the small test-fixture fixes:
-
-- `pnpm --filter @aftertrace/api typecheck` — **PASS**
-- targeted current LINE/PWA-first command batch — **PASS, 6 files / 55 tests**
-  - `src/line/events.test.ts` — 7 tests
-  - `src/worklog/command.test.ts` — 8 tests
-  - `src/worklog/oa-runtime.test.ts` — 10 tests
-  - `src/worklog/oa-webhook.test.ts` — 8 tests
-  - `src/worklog/line-runtime.test.ts` — 14 tests
-  - `src/worklog/group-webhook.test.ts` — 8 tests
-- expected stderr logs came from deliberate simulated failure/anomaly tests (`reply unavailable`, `boom`) and were not test failures.
-
-The prior stale-fixture issues were test-only:
-
-- OA/GROUP webhook mock `WorklogHistoryQueryResult` still used obsolete `totalCount` shape; fixed to current `total/title/query/records/filters` shape.
-- GROUP `MEMBER_LEFT` lifecycle expectation omitted the propagated source timestamp; fixed to expect the correct `at` field rather than changing runtime behavior.
-
-No new schema is currently required solely from the retired pending-mode work, so do not regenerate baseline for `worklog_private_pending_actions`.
+1. regenerate canonical baseline with `pnpm db:baseline:regenerate --confirm-prelaunch-reset`
+2. run `pnpm db:baseline:guard`
+3. review generated Drizzle artifacts for `worklog_source_line_profiles`
+4. commit generated artifacts with `[skip ci]`
+5. run the existing Dev forward migration using `.env.dev`; do not rebuild Dev DB
+6. verify table/index exist and AI runtime/FREE plan are preserved
+7. only then deploy Dev API and verify `/health` + `/health/ready`
 
 ## Immediate next order
 
-1. implement LINE GROUP profile metadata persistence + 24h lazy refresh as the next bounded schema/runtime batch;
-2. refresh only on actual use, never on cron; preserve original LINE group name/picture;
-3. enforce current active membership on all GROUP reads/actions and use member-left evidence for immediate revocation;
-4. locally typecheck/test that bounded batch;
-5. apply reviewed Dev forward migration without rebuilding the existing Dev DB if a new profile schema column/table is required;
-6. then implement durable non-expiring PWA AI Draft + last-used Source preference + Quick Capture shared pipeline incrementally;
-7. add Voice as another input modality on top of the same preview/commit core;
-8. deploy Dev only after each selected batch is locally green and any required migration has been verified.
+1. locally typecheck/test the current LINE group-profile lazy-refresh batch;
+2. regenerate/guard canonical baseline;
+3. forward-migrate existing Dev DB and verify preservation;
+4. deploy Dev API only after schema/runtime green;
+5. then implement durable non-expiring PWA AI Draft + last-used Source preference + Quick Capture shared pipeline incrementally;
+6. wire PWA Source-list/open-group use into the same 24h lazy profile refresh service;
+7. add Voice as another input modality on top of the same preview/commit core.
 
 No GitHub Actions workflow was run, dispatched, rerun, enabled, modified, triggered, or used as validation.
-
-Current deployment status: **PREVIOUS DEV SEARCH/DB FOUNDATION GREEN; PWA-FIRST/小跡 PRODUCT + LINE CODE REFACTOR LOCALLY GREEN (TYPECHECK + 55/55 TARGETED TESTS); QUICK CAPTURE/DRAFT/GROUP PROFILE IMPLEMENTATION PENDING.**
