@@ -1,41 +1,73 @@
-import type { WorklogAiGrantService } from './ai-grants';
-import type { WorklogSystemQueryKind } from './line-natural-interpreter';
-
 export type WorklogGroupSystemState = {
   responsibleUserId: number | null;
   responsibleDisplayName: string | null;
   responsibleLineUserId: string | null;
 };
 
+export type WorklogAiAllowanceStatus = {
+  totalPoints: number;
+  remainingPoints: number;
+};
+
 export interface WorklogLineSystemQueryRepository {
   groupState(sourceId: number): Promise<WorklogGroupSystemState | null>;
+  allowance(ownerUserId: number, sourceId: number, at: Date): Promise<WorklogAiAllowanceStatus>;
 }
 
+/** Provider-free deterministic status presentation for fixed `小跡 狀態`. */
 export class WorklogLineSystemQueryService {
-  constructor(
-    private readonly repository: WorklogLineSystemQueryRepository,
-    private readonly grants: Pick<WorklogAiGrantService, 'eligibleBalance'>,
-  ) {}
+  constructor(private readonly repository: WorklogLineSystemQueryRepository) {}
 
-  async group(input: { sourceId: number; query: WorklogSystemQueryKind; at?: Date }): Promise<string> {
+  async groupStatus(input: { sourceId: number; at?: Date }): Promise<string> {
     const state = await this.repository.groupState(input.sourceId);
     if (!state) return '找不到這個 AFTERTRACE 群組設定。';
-    if (!state.responsibleUserId) return '目前這個群組沒有 AI 額度負責人。';
-    const name = state.responsibleDisplayName?.trim() || '目前的 AI 額度負責人';
-    if (input.query === 'AI_RESPONSIBLE_USER') return `目前這個群組的 AI 額度負責人是 ${name}。`;
-    const balance = await this.grants.eligibleBalance(state.responsibleUserId, input.sourceId, input.at ?? new Date());
-    if (input.query === 'AI_BALANCE') return `這個群組目前可用 AI 點數：${balance.totalRemainingPoints.toLocaleString('zh-TW')}。\nAI 額度負責人：${name}`;
-    return balance.totalRemainingPoints > 0
-      ? `這個群組目前可以使用 AI。\nAI 額度負責人：${name}\n可用 AI 點數：${balance.totalRemainingPoints.toLocaleString('zh-TW')}`
-      : `這個群組目前 AI 點數已用完。\nAI 額度負責人：${name}`;
+    if (!state.responsibleUserId) {
+      return [
+        'AFTERTRACE 群組狀態',
+        '',
+        'AI 負責人：尚未設定',
+        'AI 點數：—',
+        '目前額度使用率：—',
+        'AI 功能：暫停',
+        '',
+        '請輸入「小跡 啟用 AI」設定負責人。',
+      ].join('\n');
+    }
+
+    const allowance = await this.repository.allowance(
+      state.responsibleUserId,
+      input.sourceId,
+      input.at ?? new Date(),
+    );
+    const name = state.responsibleDisplayName?.trim() || '已設定的群組成員';
+    return formatStatus('AFTERTRACE 群組狀態', name, allowance);
   }
 
-  async personal(input: { userId: number; sourceId: number; query: WorklogSystemQueryKind; at?: Date }): Promise<string> {
-    const balance = await this.grants.eligibleBalance(input.userId, input.sourceId, input.at ?? new Date());
-    if (input.query === 'AI_BALANCE') return `你目前可用 AI 點數：${balance.totalRemainingPoints.toLocaleString('zh-TW')}。`;
-    if (input.query === 'AI_RESPONSIBLE_USER') return '個人 AFTERTRACE 的 AI 點數由你自己的帳號負責。';
-    return balance.totalRemainingPoints > 0
-      ? `你目前可以使用 AI。\n可用 AI 點數：${balance.totalRemainingPoints.toLocaleString('zh-TW')}`
-      : '你目前 AI 點數已用完；仍可在 AFTERTRACE 免費手動新增、查詢與編輯紀錄。';
+  async personalStatus(input: { userId: number; sourceId: number; at?: Date }): Promise<string> {
+    const allowance = await this.repository.allowance(
+      input.userId,
+      input.sourceId,
+      input.at ?? new Date(),
+    );
+    return formatStatus('AFTERTRACE 個人狀態', '你', allowance);
   }
+}
+
+function formatStatus(title: string, responsible: string, allowance: WorklogAiAllowanceStatus): string {
+  const total = safePoints(allowance.totalPoints);
+  const remaining = Math.min(total, safePoints(allowance.remainingPoints));
+  const used = Math.max(0, total - remaining);
+  const usedPercent = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
+  return [
+    title,
+    '',
+    `AI 負責人：${responsible}`,
+    `AI 點數：${remaining.toLocaleString('zh-TW')} / ${total.toLocaleString('zh-TW')}`,
+    `目前額度使用率：${usedPercent}%`,
+    `AI 功能：${remaining > 0 ? '可使用' : '目前無可用點數'}`,
+  ].join('\n');
+}
+
+function safePoints(value: number): number {
+  return Number.isSafeInteger(value) && value >= 0 ? value : 0;
 }
