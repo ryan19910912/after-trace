@@ -5,6 +5,10 @@ import { sql } from 'drizzle-orm';
  * regenerated 0000 baseline. Keep these migrations idempotent: fresh databases run
  * this before Drizzle creates the current baseline, while existing databases may run
  * it on every manual deploy.
+ *
+ * Neon HTTP prepared statements accept one SQL command per execute call. Keep each
+ * forward-compatibility DO block in its own db.execute(...) rather than concatenating
+ * multiple top-level commands into one prepared statement.
  */
 export async function applyForwardCompatibilityMigrations(db) {
   await db.execute(sql.raw(`
@@ -130,7 +134,9 @@ BEGIN
   END IF;
 END
 $aftertrace$;
+  `));
 
+  await db.execute(sql.raw(`
 DO $aftertrace_search$
 DECLARE
   records_table regclass := to_regclass('public.worklog_records');
