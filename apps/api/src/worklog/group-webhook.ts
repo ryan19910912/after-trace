@@ -7,6 +7,7 @@ import {
 } from './anomalies';
 import { parseWorklogCommand } from './command';
 import type { WorklogHistoryFilters } from './history-navigation';
+import { formatHistoryReply, type WorklogHistoryQueryResult } from './history-query';
 import type { WorklogLineRuntime, WorklogLineRuntimeResult } from './line-runtime';
 
 export interface WorklogGroupLifecyclePort {
@@ -190,6 +191,7 @@ export async function processWorklogGroupWebhook(input: {
   reply: WorklogGroupReplyPort;
   replyTargets?: WorklogBotReplyTargetPort;
   anomalies?: WorklogAnomalyPort;
+  queryHistory?: (target: WorklogGroupQueryTarget) => Promise<WorklogHistoryQueryResult>;
   createQueryUrl?: (target: WorklogGroupQueryTarget) => Promise<string | null>;
 }): Promise<WorklogGroupWebhookCounters> {
   const counters = emptyCounters();
@@ -294,17 +296,45 @@ export async function processWorklogGroupWebhook(input: {
 
     if (!message.replyToken) continue;
     if (result.status === 'QUERY') {
+      const target: WorklogGroupQueryTarget = {
+        lineUserId: message.lineUserId ?? '',
+        lineGroupId: message.lineGroupId,
+        sourceId: result.sourceId,
+        userId: result.userId,
+        at: message.lineTimestamp,
+        filters: result.filters,
+      };
+      let history: WorklogHistoryQueryResult | null = null;
+      if (message.lineUserId && input.queryHistory) {
+        try {
+          history = await input.queryHistory(target);
+          target.filters = history.filters;
+        } catch (error) {
+          counters.worklogErrors += 1;
+          logFailure({
+            event: 'worklog_group_query_read_failed',
+            lineGroupId: message.lineGroupId,
+            lineMessageId: message.lineMessageId,
+            webhookEventId: message.webhookEventId,
+            error,
+          });
+          await recordAnomalySafely(input.anomalies, {
+            category: 'LINE_GROUP_QUERY_READ',
+            errorCode: anomalyErrorCode(error, 'GROUP_QUERY_READ_FAILED'),
+            summary: anomalyErrorSummary(error, 'LINE group history query failed'),
+            userId: result.userId,
+            sourceId: result.sourceId,
+            lineMessageId: message.lineMessageId,
+            requestRef: message.webhookEventId,
+            metadata: { lineGroupId: message.lineGroupId, filters: result.filters },
+          });
+        }
+      }
+
       let url: string | null = null;
       if (message.lineUserId && input.createQueryUrl) {
         try {
-          url = await input.createQueryUrl({
-            lineUserId: message.lineUserId,
-            lineGroupId: message.lineGroupId,
-            sourceId: result.sourceId,
-            userId: result.userId,
-            at: message.lineTimestamp,
-            filters: result.filters,
-          });
+          url = await input.createQueryUrl(target);
         } catch (error) {
           counters.worklogErrors += 1;
           logFailure({
@@ -325,7 +355,7 @@ export async function processWorklogGroupWebhook(input: {
             metadata: {
               lineGroupId: message.lineGroupId,
               lineUserId: message.lineUserId,
-              filters: result.filters,
+              filters: target.filters,
             },
           });
         }
@@ -334,9 +364,11 @@ export async function processWorklogGroupWebhook(input: {
         reply: input.reply,
         anomalies: input.anomalies,
         replyToken: message.replyToken,
-        text: url
-          ? `AFTERTRACE｜查看紀錄\n${url}`
-          : 'AFTERTRACE 紀錄頁目前尚未設定完成，紀錄本身不受影響。',
+        text: history
+          ? formatHistoryReply(history, url)
+          : url
+            ? `AFTERTRACE｜查看紀錄\n${url}`
+            : 'AFTERTRACE 紀錄查詢目前暫時無法完成，既有紀錄不受影響。',
         lineGroupId: message.lineGroupId,
         lineUserId: message.lineUserId,
         lineMessageId: message.lineMessageId,
