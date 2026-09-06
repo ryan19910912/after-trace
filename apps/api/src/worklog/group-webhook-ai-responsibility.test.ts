@@ -3,7 +3,8 @@ import type { BufferedGroupMessage, ParsedLineWebhook } from '../line/events';
 import { processWorklogGroupWebhook } from './group-webhook';
 
 describe('processWorklogGroupWebhook AI responsibility accounting', () => {
-  it('counts AI_RESPONSIBILITY_BOUND without reviving the retired Owner status', async () => {
+  it('counts AI_RESPONSIBILITY_BOUND for 小跡 啟用 AI without reviving Owner semantics', async () => {
+    const textContent = '小跡 啟用 AI';
     const message: BufferedGroupMessage = {
       webhookEventId: 'event-claim-1',
       replyToken: 'reply-claim-1',
@@ -12,8 +13,8 @@ describe('processWorklogGroupWebhook AI responsibility accounting', () => {
       quotedLineMessageId: null,
       lineUserId: 'U11111111111111111111111111111111',
       messageType: 'text',
-      textContent: '@AFTERTRACE 啟用',
-      charCount: '@AFTERTRACE 啟用'.length,
+      textContent,
+      charCount: textContent.length,
       quoteToken: null,
       lineTimestamp: new Date('2026-09-04T15:00:00+08:00'),
       metadata: null,
