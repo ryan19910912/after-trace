@@ -22,8 +22,8 @@ Rules:
 - Successful LINE Login may idempotently create the `worklog_users` row, workspace, PRIVATE Source and first eligible `FREE_INITIAL` Grant.
 - LINE Login must **not** set `is_oa_friend=true`; only real LINE OA follow/unfollow lifecycle events own that state.
 - Web/PWA manual PRIVATE use remains available whether or not the user is currently an OA friend.
-- OA friendship unlocks the LINE-native capture/edit/navigation experience and other LINE-specific capabilities.
-- A non-friend Web user should see a non-blocking prompt explaining the benefits of adding AFTERTRACE as a LINE friend, with a configurable add-friend link/QR code where available.
+- OA friendship is an optional convenience path for faster LINE-native capture/edit/navigation and other LINE-specific capabilities; it is not an account, Web/PWA, or data-access requirement.
+- A non-friend Web user may see a dismissible, non-blocking prompt such as「想記得更快，也可以直接在 LINE 用 AFTERTRACE」with configurable official add-friend link/QR code where available. The copy must clearly state that the user can already keep using Web/PWA normally and must not imply that adding the OA is required.
 - Removing/blocking the OA must not delete the AFTERTRACE account, PRIVATE Source, Records or historical Grants.
 - `FREE_INITIAL` remains idempotent; a later OA follow event must not issue a duplicate acquisition Grant.
 
