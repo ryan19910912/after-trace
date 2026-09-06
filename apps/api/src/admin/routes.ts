@@ -12,6 +12,7 @@ import {
 } from './auth';
 import { ADMIN_CAPABILITY_DEFINITIONS, validateAdminCapabilities } from './capabilities';
 import { DrizzleGrantAdminRepository } from './grant-repository';
+import { DrizzleGroupNameAdminRepository } from './group-name-repository';
 import { presentAdminPayload } from './presentation';
 import type {
   AdminAiRuntimeInput,
@@ -265,7 +266,7 @@ export function createAdminRoutes() {
 }
 
 function repository(c: { env: AdminBindings }) {
-  return new DrizzleGrantAdminRepository(createDatabase(c.env.DATABASE_URL));
+  return new DrizzleGroupNameAdminRepository(createDatabase(c.env.DATABASE_URL));
 }
 
 async function jsonBody(c: { req: { json(): Promise<unknown> } }): Promise<Record<string, unknown> | null> {
