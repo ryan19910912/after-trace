@@ -19,84 +19,57 @@ DECLARE
   has_plan_type boolean;
   has_grant_points boolean;
 BEGIN
-  -- Fresh database: Drizzle will create the current canonical baseline afterwards.
-  IF plans_table IS NULL THEN
-    RETURN;
-  END IF;
+  IF plans_table IS NULL THEN RETURN; END IF;
 
   SELECT EXISTS (
-    SELECT 1
-    FROM pg_type t
-    JOIN pg_namespace n ON n.oid = t.typnamespace
+    SELECT 1 FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
     WHERE n.nspname = 'public' AND t.typname = 'worklog_plan_type'
   ) INTO has_plan_type;
-
   IF NOT has_plan_type THEN
     CREATE TYPE public.worklog_plan_type AS ENUM ('FREE', 'SUBSCRIPTION', 'ONE_TIME');
   END IF;
 
   SELECT EXISTS (
     SELECT 1 FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'worklog_subscription_plans'
+    WHERE table_schema = 'public' AND table_name = 'worklog_subscription_plans'
       AND column_name = 'subscription_period_points'
   ) INTO has_legacy_points;
 
   SELECT EXISTS (
     SELECT 1 FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'worklog_subscription_plans'
+    WHERE table_schema = 'public' AND table_name = 'worklog_subscription_plans'
       AND column_name = 'plan_type'
   ) INTO has_plan_type;
-
   IF NOT has_plan_type THEN
-    ALTER TABLE public.worklog_subscription_plans
-      ADD COLUMN plan_type public.worklog_plan_type;
+    ALTER TABLE public.worklog_subscription_plans ADD COLUMN plan_type public.worklog_plan_type;
   END IF;
 
   SELECT EXISTS (
     SELECT 1 FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'worklog_subscription_plans'
+    WHERE table_schema = 'public' AND table_name = 'worklog_subscription_plans'
       AND column_name = 'grant_points'
   ) INTO has_grant_points;
-
   IF NOT has_grant_points THEN
-    ALTER TABLE public.worklog_subscription_plans
-      ADD COLUMN grant_points integer;
+    ALTER TABLE public.worklog_subscription_plans ADD COLUMN grant_points integer;
   END IF;
 
   UPDATE public.worklog_subscription_plans
-  SET plan_type = CASE
-    WHEN code = 'FREE' THEN 'FREE'::public.worklog_plan_type
-    ELSE 'SUBSCRIPTION'::public.worklog_plan_type
-  END
+  SET plan_type = CASE WHEN code = 'FREE' THEN 'FREE'::public.worklog_plan_type ELSE 'SUBSCRIPTION'::public.worklog_plan_type END
   WHERE plan_type IS NULL;
 
   IF has_legacy_points THEN
-    UPDATE public.worklog_subscription_plans
-    SET grant_points = subscription_period_points
-    WHERE grant_points IS NULL;
+    UPDATE public.worklog_subscription_plans SET grant_points = subscription_period_points WHERE grant_points IS NULL;
   ELSE
-    UPDATE public.worklog_subscription_plans
-    SET grant_points = 0
-    WHERE grant_points IS NULL;
+    UPDATE public.worklog_subscription_plans SET grant_points = 0 WHERE grant_points IS NULL;
   END IF;
 
   IF EXISTS (
-    SELECT 1
-    FROM public.worklog_subscription_plans
+    SELECT 1 FROM public.worklog_subscription_plans
     WHERE (code = 'FREE' AND (plan_type <> 'FREE' OR price_twd <> 0))
        OR (code <> 'FREE' AND plan_type = 'FREE')
-  ) THEN
-    RAISE EXCEPTION 'AFTERTRACE forward migration refused inconsistent FREE plan data';
-  END IF;
+  ) THEN RAISE EXCEPTION 'AFTERTRACE forward migration refused inconsistent FREE plan data'; END IF;
 
-  IF EXISTS (
-    SELECT 1
-    FROM public.worklog_subscription_plans
-    WHERE grant_points < 0
-  ) THEN
+  IF EXISTS (SELECT 1 FROM public.worklog_subscription_plans WHERE grant_points < 0) THEN
     RAISE EXCEPTION 'AFTERTRACE forward migration refused negative grant_points';
   END IF;
 
@@ -106,31 +79,22 @@ BEGIN
     ALTER COLUMN grant_points SET NOT NULL;
 
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conrelid = plans_table
-      AND conname = 'worklog_plan_free_identity_ck'
+    SELECT 1 FROM pg_constraint WHERE conrelid = plans_table AND conname = 'worklog_plan_free_identity_ck'
   ) THEN
     ALTER TABLE public.worklog_subscription_plans
       ADD CONSTRAINT worklog_plan_free_identity_ck
-      CHECK ((
-        (code = 'FREE' AND plan_type = 'FREE' AND price_twd = 0)
-        OR
-        (code <> 'FREE' AND plan_type <> 'FREE')
-      ));
+      CHECK (((code = 'FREE' AND plan_type = 'FREE' AND price_twd = 0) OR (code <> 'FREE' AND plan_type <> 'FREE')));
   END IF;
 
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conrelid = plans_table
-      AND conname = 'worklog_plan_grant_points_ck'
+    SELECT 1 FROM pg_constraint WHERE conrelid = plans_table AND conname = 'worklog_plan_grant_points_ck'
   ) THEN
     ALTER TABLE public.worklog_subscription_plans
       ADD CONSTRAINT worklog_plan_grant_points_ck CHECK (grant_points >= 0);
   END IF;
 
   IF has_legacy_points THEN
-    ALTER TABLE public.worklog_subscription_plans
-      DROP COLUMN subscription_period_points;
+    ALTER TABLE public.worklog_subscription_plans DROP COLUMN subscription_period_points;
   END IF;
 END
 $aftertrace$;
@@ -142,31 +106,41 @@ DECLARE
   records_table regclass := to_regclass('public.worklog_records');
   has_search_terms boolean;
 BEGIN
-  -- Fresh database: canonical baseline creates search_terms after this hook returns.
-  IF records_table IS NULL THEN
-    RETURN;
-  END IF;
-
+  IF records_table IS NULL THEN RETURN; END IF;
   SELECT EXISTS (
     SELECT 1 FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'worklog_records'
-      AND column_name = 'search_terms'
+    WHERE table_schema = 'public' AND table_name = 'worklog_records' AND column_name = 'search_terms'
   ) INTO has_search_terms;
-
   IF NOT has_search_terms THEN
-    ALTER TABLE public.worklog_records
-      ADD COLUMN search_terms jsonb NOT NULL DEFAULT '[]'::jsonb;
+    ALTER TABLE public.worklog_records ADD COLUMN search_terms jsonb NOT NULL DEFAULT '[]'::jsonb;
   END IF;
-
   IF EXISTS (
-    SELECT 1
-    FROM public.worklog_records
-    WHERE jsonb_typeof(search_terms) <> 'array'
+    SELECT 1 FROM public.worklog_records WHERE jsonb_typeof(search_terms) <> 'array'
   ) THEN
     RAISE EXCEPTION 'AFTERTRACE forward migration refused non-array worklog_records.search_terms data';
   END IF;
 END
 $aftertrace_search$;
+  `));
+
+  await db.execute(sql.raw(`
+DO $aftertrace_oa_mode$
+BEGIN
+  -- Fresh database: canonical baseline creates this after the compatibility hook returns.
+  IF to_regclass('public.worklog_users') IS NULL THEN RETURN; END IF;
+
+  CREATE TABLE IF NOT EXISTS public.worklog_private_pending_actions (
+    user_id bigint PRIMARY KEY REFERENCES public.worklog_users(id) ON DELETE CASCADE,
+    action varchar(16) NOT NULL,
+    expires_at timestamptz NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT worklog_private_pending_action_type_ck CHECK (action IN ('RECORD', 'QUERY'))
+  );
+
+  CREATE INDEX IF NOT EXISTS worklog_private_pending_action_expiry_idx
+    ON public.worklog_private_pending_actions (expires_at);
+END
+$aftertrace_oa_mode$;
   `));
 }
