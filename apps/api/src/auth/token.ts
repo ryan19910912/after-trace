@@ -20,7 +20,8 @@ export type PrivateWebEntryClaims = {
 
 export type WebSessionClaims = {
   type: 'WEB_SESSION';
-  lineUserId: string;
+  userId: number | null;
+  lineUserId: string | null;
   expiresAt: number;
 };
 
@@ -101,19 +102,28 @@ async function verify(token: string, secret: string, now: Date): Promise<TokenCl
     );
     if (!valid) return null;
     const parsed = JSON.parse(decoder.decode(payload)) as Record<string, unknown>;
-    if (typeof parsed.type !== 'string' || typeof parsed.lineUserId !== 'string' || typeof parsed.expiresAt !== 'number') {
-      return null;
-    }
+    if (typeof parsed.type !== 'string' || typeof parsed.expiresAt !== 'number') return null;
     if (!Number.isSafeInteger(parsed.expiresAt) || parsed.expiresAt <= Math.floor(now.getTime() / 1000)) return null;
-    const userId = lineUserId(parsed.lineUserId);
+
     if (parsed.type === 'WEB_SESSION') {
-      return { type: 'WEB_SESSION', lineUserId: userId, expiresAt: parsed.expiresAt };
+      const sessionUserId = parsed.userId == null ? null : positiveDatabaseId(parsed.userId);
+      const legacyLineUserId = typeof parsed.lineUserId === 'string' ? lineUserId(parsed.lineUserId) : null;
+      if (!sessionUserId && !legacyLineUserId) return null;
+      return {
+        type: 'WEB_SESSION',
+        userId: sessionUserId,
+        lineUserId: legacyLineUserId,
+        expiresAt: parsed.expiresAt,
+      };
     }
+
+    if (typeof parsed.lineUserId !== 'string') return null;
+    const legacyUserId = lineUserId(parsed.lineUserId);
     if (typeof parsed.nonce !== 'string') return null;
     if (parsed.type === 'PRIVATE_WEB_ENTRY') {
       return {
         type: 'PRIVATE_WEB_ENTRY',
-        lineUserId: userId,
+        lineUserId: legacyUserId,
         userId: positiveDatabaseId(parsed.userId),
         sourceId: positiveDatabaseId(parsed.sourceId),
         nonce: nonce(parsed.nonce),
@@ -123,7 +133,7 @@ async function verify(token: string, secret: string, now: Date): Promise<TokenCl
     if (parsed.type !== 'WEB_ENTRY' || typeof parsed.lineGroupId !== 'string') return null;
     return {
       type: 'WEB_ENTRY',
-      lineUserId: userId,
+      lineUserId: legacyUserId,
       lineGroupId: lineGroupId(parsed.lineGroupId),
       nonce: nonce(parsed.nonce),
       expiresAt: parsed.expiresAt,
@@ -190,7 +200,8 @@ export async function verifyPrivateWebEntryToken(
 }
 
 export async function issueWebSessionToken(input: {
-  lineUserId: string;
+  userId?: number | null;
+  lineUserId?: string | null;
   secret: string;
   now?: Date;
   ttlSeconds?: number;
@@ -200,9 +211,13 @@ export async function issueWebSessionToken(input: {
   if (!Number.isSafeInteger(ttlSeconds) || ttlSeconds <= 0 || ttlSeconds > 60 * 60 * 24 * 90) {
     throw new Error('invalid web session ttl');
   }
+  const sessionUserId = input.userId == null ? null : positiveDatabaseId(input.userId);
+  const legacyLineUserId = input.lineUserId == null ? null : lineUserId(input.lineUserId);
+  if (!sessionUserId && !legacyLineUserId) throw new Error('web session requires user identity');
   return issue({
     type: 'WEB_SESSION',
-    lineUserId: lineUserId(input.lineUserId),
+    userId: sessionUserId,
+    lineUserId: legacyLineUserId,
     expiresAt: Math.floor(now.getTime() / 1000) + ttlSeconds,
   }, input.secret);
 }
