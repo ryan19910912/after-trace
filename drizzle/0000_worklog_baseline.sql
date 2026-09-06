@@ -231,6 +231,7 @@ CREATE TABLE "worklog_records" (
 	"quoted_line_message_id" varchar(64),
 	"input_type" "worklog_record_input_type" NOT NULL,
 	"raw_text" text NOT NULL,
+	"search_terms" jsonb DEFAULT '[]'::jsonb NOT NULL,
 	"occurred_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"status" "worklog_record_status" DEFAULT 'ACTIVE' NOT NULL,
 	"version" integer DEFAULT 1 NOT NULL,

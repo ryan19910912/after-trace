@@ -1,5 +1,5 @@
 {
-  "id": "3d9768ea-fe17-40b0-ad3a-7f264911d8db",
+  "id": "d91873d9-0a46-4ef8-b0a6-2cf335439f72",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -2095,6 +2095,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "search_terms": {
+          "name": "search_terms",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
         },
         "occurred_at": {
           "name": "occurred_at",
