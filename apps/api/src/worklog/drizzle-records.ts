@@ -20,7 +20,7 @@ type RecordRow = {
   author_user_id: string | null;
   input_type: WorklogRecordListItem['inputType'];
   raw_text: string;
-  occurred_at: Date | string;
+  occurred_at: Date | string | null;
   status: WorklogRecordListItem['status'];
   version: number;
   deleted_at: Date | string | null;
@@ -44,7 +44,7 @@ type ReplyEditTargetRow = {
   author_user_id: string | null;
   entity_id: string | null;
   raw_text: string;
-  occurred_at: Date | string;
+  occurred_at: Date | string | null;
   status: 'ACTIVE' | 'DELETED';
   version: number;
 };
@@ -245,7 +245,7 @@ export class DrizzleWorklogRecordReadRepository implements WorklogRecordReadRepo
       SELECT record.id::text AS id,
              record.source_id::text AS source_id,
              record.entity_id::text AS entity_id,
-             entity.name AS title,
+             COALESCE(record.title, entity.name) AS title,
              record.author_user_id::text AS author_user_id,
              record.input_type,
              record.raw_text,
@@ -259,7 +259,7 @@ export class DrizzleWorklogRecordReadRepository implements WorklogRecordReadRepo
       LEFT JOIN worklog_entities AS entity ON entity.id = record.entity_id
       WHERE record.source_id = ${sourceId}
         AND record.status = 'ACTIVE'
-      ORDER BY record.occurred_at DESC, record.id DESC
+      ORDER BY COALESCE(record.occurred_at, record.created_at) DESC, record.id DESC
       LIMIT ${limit}
     `);
     return (result.rows as RecordRow[]).map((row) => ({
@@ -270,7 +270,7 @@ export class DrizzleWorklogRecordReadRepository implements WorklogRecordReadRepo
       authorUserId: nullableNumber(row.author_user_id),
       inputType: row.input_type,
       rawText: row.raw_text,
-      occurredAt: new Date(row.occurred_at).toISOString(),
+      occurredAt: row.occurred_at ? new Date(row.occurred_at).toISOString() : null,
       status: row.status,
       version: Number(row.version),
       deletedAt: row.deleted_at ? new Date(row.deleted_at).toISOString() : null,
@@ -298,7 +298,7 @@ function replyEditTarget(row: ReplyEditTargetRow): WorklogReplyEditTarget {
     authorUserId: nullableNumber(row.author_user_id),
     entityId: nullableNumber(row.entity_id),
     rawText: row.raw_text,
-    occurredAt: new Date(row.occurred_at).toISOString(),
+    occurredAt: row.occurred_at ? new Date(row.occurred_at).toISOString() : null,
     version: Number(row.version),
   };
 }
