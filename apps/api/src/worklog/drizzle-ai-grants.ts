@@ -129,34 +129,37 @@ export class DrizzleWorklogAiGrantRepository implements WorklogAiGrantRepository
     sourceId: number;
     at: Date;
   }): Promise<WorklogAiEligibleBalance> {
+    // `GRANT` is a PostgreSQL keyword. Never use `grant` as an alias here; this
+    // eligibility path is used by canStartAi(), so a parser error would otherwise
+    // be interpreted by callers as an unavailable/zero balance.
     const result = await this.db.execute(sql`
       SELECT
-        grant.id::text AS grant_id,
+        g.id::text AS grant_id,
         scope.id::text AS grant_scope_id,
-        grant.remaining_points,
+        g.remaining_points,
         CASE
-          WHEN scope.cap_points IS NULL THEN grant.remaining_points
+          WHEN scope.cap_points IS NULL THEN g.remaining_points
           ELSE GREATEST(0, scope.cap_points - scope.used_points - scope.reserved_points)
         END AS scope_remaining_points,
         LEAST(
-          grant.remaining_points,
+          g.remaining_points,
           CASE
-            WHEN scope.cap_points IS NULL THEN grant.remaining_points
+            WHEN scope.cap_points IS NULL THEN g.remaining_points
             ELSE GREATEST(0, scope.cap_points - scope.used_points - scope.reserved_points)
           END
         ) AS usable_points,
-        grant.expires_at
-      FROM worklog_ai_grants grant
+        g.expires_at
+      FROM worklog_ai_grants g
       INNER JOIN worklog_ai_grant_scopes scope
-        ON scope.grant_id = grant.id
+        ON scope.grant_id = g.id
        AND scope.source_id = ${input.sourceId}
        AND scope.enabled = TRUE
-      WHERE grant.owner_user_id = ${input.ownerUserId}
-        AND grant.status = 'ACTIVE'
-        AND grant.remaining_points > 0
-        AND grant.effective_at <= ${input.at}
-        AND (grant.expires_at IS NULL OR grant.expires_at > ${input.at})
-      ORDER BY grant.expires_at ASC NULLS LAST, grant.effective_at ASC, grant.id ASC
+      WHERE g.owner_user_id = ${input.ownerUserId}
+        AND g.status = 'ACTIVE'
+        AND g.remaining_points > 0
+        AND g.effective_at <= ${input.at}
+        AND (g.expires_at IS NULL OR g.expires_at > ${input.at})
+      ORDER BY g.expires_at ASC NULLS LAST, g.effective_at ASC, g.id ASC
     `);
 
     const grants = result.rows.map((raw) => {
@@ -172,7 +175,7 @@ export class DrizzleWorklogAiGrantRepository implements WorklogAiGrantRepository
           : dateValue(row.expires_at, 'expires at'),
       };
     });
-    const totalRemainingPoints = grants.reduce((sum, grant) => safeAdd(sum, grant.usablePoints), 0);
+    const totalRemainingPoints = grants.reduce((sum, g) => safeAdd(sum, g.usablePoints), 0);
     return {
       ownerUserId: input.ownerUserId,
       sourceId: input.sourceId,
