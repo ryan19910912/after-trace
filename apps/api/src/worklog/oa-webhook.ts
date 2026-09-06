@@ -5,7 +5,7 @@ import {
   recordAnomalySafely,
   type WorklogAnomalyPort,
 } from './anomalies';
-import { parseWorklogOaCommand } from './command';
+import { isWorklogStatusCommand, parseWorklogOaCommand } from './command';
 import type { WorklogHistoryFilters } from './history-navigation';
 import { formatHistoryReply, type WorklogHistoryQueryResult } from './history-query';
 import type { WorklogOaRuntime, WorklogOaRuntimeResult } from './oa-runtime';
@@ -13,6 +13,7 @@ import type { WorklogBotReplyTargetPort, WorklogSentReply } from './group-webhoo
 
 export interface WorklogOaReplyPort {
   reply(replyToken: string, text: string): Promise<void | WorklogSentReply>;
+  replyUserMention?(replyToken: string, text: string, lineUserId: string): Promise<void | WorklogSentReply>;
 }
 export type WorklogOaWebhookCounters = {
   oaLifecycleEvents: number;
@@ -54,6 +55,28 @@ async function replySafely(input: { reply: WorklogOaReplyPort; anomalies?: Workl
       metadata: { lineUserId: input.lineUserId },
     });
     return null;
+  }
+}
+async function replyPersonalStatusMentionSafely(input: { reply: WorklogOaReplyPort; anomalies?: WorklogAnomalyPort; replyToken: string; text: string; lineUserId: string; lineMessageId: string | null; webhookEventId: string | null; counters: WorklogOaWebhookCounters }): Promise<void> {
+  const mentionText = input.text.replace('AI 負責人：你', 'AI 負責人：{responsible}');
+  if (!input.reply.replyUserMention || mentionText === input.text) {
+    await replySafely(input);
+    return;
+  }
+  try {
+    await input.reply.replyUserMention(input.replyToken, mentionText, input.lineUserId);
+  } catch (error) {
+    input.counters.oaErrors += 1;
+    logMessageFailure(input, 'worklog_oa_status_mention_failed', error);
+    await recordAnomalySafely(input.anomalies, {
+      category: 'LINE_OA_STATUS_MENTION',
+      errorCode: anomalyErrorCode(error, 'OA_STATUS_MENTION_FAILED'),
+      summary: anomalyErrorSummary(error, 'LINE OA personal status mention failed'),
+      lineMessageId: input.lineMessageId,
+      requestRef: input.webhookEventId,
+      metadata: { lineUserId: input.lineUserId },
+    });
+    await replySafely(input);
   }
 }
 async function rememberReplyTargetSafely(input: { target?: WorklogBotReplyTargetPort; recordId: number; sent: WorklogSentReply | null; lineUserId: string; lineMessageId: string; webhookEventId: string | null; anomalies?: WorklogAnomalyPort; counters: WorklogOaWebhookCounters }): Promise<void> {
@@ -136,6 +159,10 @@ export async function processWorklogOaWebhook(input: {
     else if (result.status === 'REJECTED' || result.status === 'QUOTED_NOT_READY') counters.oaWorklogRejected += 1;
 
     if (!message.replyToken) continue;
+    if (result.status === 'HELP' && isWorklogStatusCommand(message)) {
+      await replyPersonalStatusMentionSafely({ reply: input.reply, anomalies: input.anomalies, replyToken: message.replyToken, text: result.replyText, lineUserId: message.lineUserId, lineMessageId: message.lineMessageId, webhookEventId: message.webhookEventId, counters });
+      continue;
+    }
     if (result.status === 'QUERY') {
       const target: WorklogPrivateQueryTarget = { lineUserId: message.lineUserId, sourceId: result.sourceId, userId: result.userId, at: message.lineTimestamp, filters: result.filters };
       let history: WorklogHistoryQueryResult | null = null;
