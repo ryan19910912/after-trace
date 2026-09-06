@@ -6,11 +6,19 @@ This document is part of the durable development contract for branch `revive/lin
 
 LINE OA and GROUP use the sentence-start assistant prefix **`小跡`**.
 
-Examples:
+Fixed provider-free commands:
 
-- `小跡 晴空案今天收了三千`
-- `小跡 查 晴空案收款`
-- Reply a message -> `小跡 記`
+- `小跡 幫助`
+- `小跡 狀態`
+- GROUP `小跡 啟用 AI`
+- GROUP `小跡 取消 AI`
+
+All other addressed text is a natural-language request, for example:
+
+- `小跡 幫我記一下今天晴空案收了三千`
+- `小跡 我要查詢一下晴空案收款`
+- Reply a deterministic Record -> `小跡 我想把金額改成 2800`
+- Reply a deterministic Record -> `小跡 把這筆刪掉` / `小跡 幫我還原這筆` / `小跡 把這筆移到晴空案`
 
 Ordinary chat not starting with `小跡` is not a product command.
 
@@ -22,7 +30,7 @@ The old customer-facing `@AFTERTRACE` syntax and OA Rich Menu pending-mode Postb
 
 LINE Reply provides the quoted message id, but old text cannot be fetched back from LINE later. LINE content API can retrieve eligible binary user content; it cannot reconstruct arbitrary past text after the webhook.
 
-To support a group user who later Replies `小跡 記`:
+To support a group user who later Replies and naturally asks 小跡 to record that text:
 
 - temporarily cache ordinary GROUP TEXT in PostgreSQL only;
 - do not cache ordinary private/OA support text;
@@ -32,11 +40,11 @@ To support a group user who later Replies `小跡 記`:
 - default per-group cap = **1000 text messages**;
 - expired rows may be deleted; cap may prune oldest rows sooner;
 - cache is temporary context, never a permanent Record;
-- cached ordinary chat must not become AI input or a Record unless a user later explicitly Replies with `小跡 記`;
+- cached ordinary chat must not become AI input or a Record unless a user later explicitly Replies with a `小跡 ...` request that intends to preserve it;
 - cache rows keep LINE message id, group identity, author LINE user id when available, text, **original LINE timestamp**, created/expires timestamps;
 - lookup uses `quotedMessageId` within the same group;
-- if quoted GROUP text is no longer cached, ask user to re-enter the content, e.g. `小跡 原文內容`;
-- OA/private ordinary text is deliberately not cached. Replying later to private text therefore cannot recover that old text; ask user to send it again as a new `小跡 ...` Record command;
+- if quoted GROUP text is no longer cached, ask user to re-enter the content, e.g. `小跡 幫我記一下原文內容`;
+- OA/private ordinary text is deliberately not cached. Replying later to private text therefore cannot recover that old text; ask user to send it again as a new `小跡 ...` Record request;
 - do not weaken the privacy policy by adding private ordinary-text caching merely to emulate GROUP Reply-TEXT.
 
 ## Reply/Replay source timestamp — hard rule
@@ -46,7 +54,7 @@ The event-date reference for quoted/replayed content is the **original source me
 Example:
 
 - 9/3 original: `晴空案今天收3000清潔費`
-- 9/5 user Replies: `小跡 記`
+- 9/5 user Replies: `小跡 幫我記一下這則`
 - AI resolves `今天` against 9/3;
 - resulting event date = 9/3;
 - `created_at` may be 9/5.
@@ -54,7 +62,7 @@ Example:
 Required behavior:
 
 - GROUP Reply-to-TEXT uses cached `lineTimestamp` as `sourceTimestamp`;
-- direct LINE Record command uses that command message's original LINE timestamp;
+- direct LINE Record request uses that command message's original LINE timestamp;
 - Reply/Replay never uses Worker current time for relative dates;
 - Reply/Replay never silently substitutes the later command timestamp when quoted source time is required;
 - if original timestamp cannot be recovered, fail clearly/request resend rather than invent a current event date;
@@ -67,12 +75,12 @@ Record event semantics are day-precision for MVP. A physical timestamp column ma
 
 AUDIO / IMAGE / FILE binaries are **not cached** for delayed Reply recovery.
 
-When a user Replies to an attachment and sends `小跡 記`:
+When a user Replies to an attachment and naturally asks 小跡 to record/process it:
 
 1. read `quotedMessageId` from the command;
 2. call LINE message-content API using that id;
 3. if LINE still has content, process immediately;
-4. if LINE returns `202`, do not send response body to AI; ask user to wait and Reply `小跡 記` again later;
+4. if LINE returns `202`, do not send response body to AI; ask user to wait and Reply again later;
 5. if unavailable/expired, ask user to resend;
 6. if quoted id has no retrievable binary body, do not pretend it is an attachment;
 7. do not fall back to local binary cache;
@@ -136,9 +144,10 @@ Never overwrite a different Record merely because a quoted id collides; idempote
 
 ## Processing order / source-of-truth
 
-- direct TEXT command: persist raw/durable Record text first, then AI title/date/search-term interpretation where practical;
-- GROUP Reply-to-TEXT: resolve cached text first, then persist with both LINE ids and **cached original timestamp**;
-- PRIVATE Reply-to-TEXT: no private ordinary-text cache; when old text cannot be recovered, ask user to send it again as a new `小跡 ...` command;
+- fixed `小跡 狀態` reads deterministic DB state and never invokes Gemini;
+- direct TEXT natural request: run the bounded one-call interpretation, then persist/apply deterministically according to the resolved intent;
+- GROUP Reply-to-TEXT: resolve cached text first and preserve cached original timestamp as interpretation/reference time when recording;
+- PRIVATE Reply-to-TEXT: no private ordinary-text cache; when old text cannot be recovered, ask user to send it again as a new `小跡 ...` Record request;
 - AUDIO/IMAGE/FILE: fetch content, extract/transcribe enough durable text before declaring Record saved;
 - provider failure must not corrupt/overwrite durable raw text;
 - durable Record text is source of truth; no separate persistent AI summary is required.
@@ -168,4 +177,5 @@ Development/bug-audit rounds should cover:
 - idempotent retry after partial failure;
 - no binary data in PostgreSQL/logs;
 - cross-group text-cache isolation;
-- `小跡` is required at sentence start and ordinary chat stays ordinary.
+- `小跡` is required at sentence start and ordinary chat stays ordinary;
+- `小跡 狀態` bypasses provider/AI-point start checks and still works at zero balance.
