@@ -8,7 +8,12 @@ export type WorklogCommand =
   | { kind: 'HELP' }
   | { kind: 'CLAIM_GROUP' }
   | { kind: 'RELEASE_GROUP' }
-  | { kind: 'NATURAL_TEXT'; text: string; quotedLineMessageId: string | null };
+  | { kind: 'NATURAL_TEXT'; text: string; quotedLineMessageId: string | null }
+  // Transitional internal variants retained until the old runtimes are removed.
+  | { kind: 'QUERY'; naturalText: string | null }
+  | { kind: 'EDIT_REQUEST'; instruction: string; quotedLineMessageId: string | null }
+  | { kind: 'RECORD_TEXT'; text: string }
+  | { kind: 'RECORD_QUOTED'; quotedLineMessageId: string; instruction: string | null };
 
 const BOT_NAME = '小跡';
 
@@ -40,16 +45,8 @@ function parsePrefixedCommand(message: WorklogCommandMessage, allowGroupControl:
   if (!normalized) return null;
 
   if (/^(?:幫助|帮助|說明|说明|help)$/i.test(normalized)) return { kind: 'HELP' };
-  if (/^啟用\s*AI$/iu.test(normalized)) {
-    return allowGroupControl
-      ? { kind: 'CLAIM_GROUP' }
-      : { kind: 'NATURAL_TEXT', text: prefix.body, quotedLineMessageId: message.quotedLineMessageId };
-  }
-  if (/^取消\s*AI$/iu.test(normalized)) {
-    return allowGroupControl
-      ? { kind: 'RELEASE_GROUP' }
-      : { kind: 'NATURAL_TEXT', text: prefix.body, quotedLineMessageId: message.quotedLineMessageId };
-  }
+  if (/^啟用\s*AI$/iu.test(normalized)) return { kind: 'CLAIM_GROUP' };
+  if (/^取消\s*AI$/iu.test(normalized)) return { kind: 'RELEASE_GROUP' };
 
   return { kind: 'NATURAL_TEXT', text: prefix.body, quotedLineMessageId: message.quotedLineMessageId };
 }
