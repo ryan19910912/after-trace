@@ -15,7 +15,7 @@ Read first every substantive development run, in this exact order:
 
 Latest docs are the only product/development specification. Never use GitHub Actions unless explicitly requested. Every development commit contains `[skip ci]`.
 
-## Current checkpoint — 2026-09-06 fixed provider-free `小跡 狀態` + natural DELETE/RESTORE/MOVE wired in branch; local validation and Dev E2E pending
+## Current checkpoint — 2026-09-06 local validation green; first Dev `小跡 狀態` E2E hit runtime failure; allowance query simplified and regression coverage added, redeploy/retest pending
 
 Cloudflare deployment remains manual:
 
@@ -80,7 +80,7 @@ Examples:
 
 EDIT/DELETE/RESTORE/MOVE require an exact deterministic target. Never guess `剛剛那筆` / `上面那筆` without a validated Reply target or equivalent durable target.
 
-## One-call natural-language implementation — wired, not yet locally validated
+## One-call natural-language implementation — wired and locally validated
 
 Normal LINE text follows:
 
@@ -127,12 +127,14 @@ Current implementation files include:
 
 - `command.ts`: recognizes `小跡 狀態` as a fixed system command via `isWorklogStatusCommand`; help teaches all four fixed commands.
 - `line-system-query.ts`: provider-free GROUP/PRIVATE status formatting.
-- `drizzle-line-system-query.ts`: durable DB read of GROUP responsible user and current effective scoped allowance totals.
+- `drizzle-line-system-query.ts`: durable DB read of GROUP responsible user and current effective scoped allowance rows, with scoped total/remaining aggregation performed in TypeScript.
 - `line-natural-runtime.ts`: handles GROUP status before GROUP AI funding authorization/provider interpretation.
 - `oa-natural-runtime.ts`: handles PRIVATE status before AI balance/provider interpretation.
 - `line-natural-interpreter.ts`: no `SYSTEM_QUERY` union anymore.
 - `gemini-line-natural-interpreter.ts`: Gemini schema no longer includes `SYSTEM_QUERY` or AI status fields.
-- `line-system-query.test.ts`, `command.test.ts`, `gemini-line-natural-interpreter.test.ts`: tests authored for the new contract.
+- `line-system-query.test.ts`, `drizzle-line-system-query.test.ts`, `command.test.ts`, `gemini-line-natural-interpreter.test.ts`: tests authored for the current contract.
+
+First real Dev GROUP `小跡 狀態` E2E after deployment returned the generic runtime failure reply twice. The exact Worker exception was not captured in the chat. The highest-risk new path was the custom aggregate SQL in `allowance()`. That query was simplified to select bounded grant/scope rows and aggregate safely in TypeScript; this avoids relying on the new nested `SUM/LEAST/CASE` aggregate expression. A focused repository aggregation test was added. Root cause should not be declared proven until the redeployed command succeeds or the Worker log shows the prior exception.
 
 The current GROUP status shape is equivalent to:
 
@@ -164,14 +166,14 @@ Status currently uses the stored display name as plain text. The existing real L
 
 Natural-language provider work uses the existing Grant-backed point reservation/settlement path with operation `LINE_NATURAL_INTERPRET`.
 
-Provider/model remains runtime configured. Current verified Dev runtime before this unvalidated batch:
+Provider/model remains runtime configured. Current verified Dev runtime before this batch:
 
 - provider: `GOOGLE`
 - model: `gemini-3.5-flash-lite`
 - input price: `0.30000000` USD / million
 - output price: `2.50000000` USD / million
 
-Current verified FREE configuration before this unvalidated batch:
+Current verified FREE configuration before this batch:
 
 - `FREE / FREE / 0.00 / 400000 / enabled=true`
 
@@ -191,7 +193,7 @@ Quoted binary attachment processing remains a separate multimodal ingestion path
 
 Delayed attachment Reply original-timestamp recovery also remains open debt; never substitute later command time for missing original attachment time.
 
-## GROUP AI responsibility controls — implemented, current batch still unvalidated locally
+## GROUP AI responsibility controls — implemented and locally validated
 
 - explicit wording: `小跡 啟用 AI` / `小跡 取消 AI`;
 - only current responsible user can cancel;
@@ -200,7 +202,7 @@ Delayed attachment Reply original-timestamp recovery also remains open debt; nev
 - successful bind can use LINE textV2 user mention with plain-text fallback;
 - unbound AI guidance points to `小跡 啟用 AI`.
 
-## Stable Dev foundation — verified before current unvalidated batches
+## Stable Dev foundation
 
 Previously user/runtime verified:
 
@@ -261,9 +263,13 @@ Still pending:
 
 ## Current validation status
 
-**The one-call natural-language, DELETE/RESTORE/MOVE, responsibility-cancel, and fixed-status batches have not yet been executed locally as one current branch validation.**
+Latest user-run local validation on commit range through `03d6b55`:
 
-Do not claim typecheck/tests/runtime green until the user runs them.
+- `pnpm --filter @aftertrace/api typecheck` — **PASS**
+- targeted tests — **PASS, 10 files / 54 tests**
+- expected stderr came from simulated LINE/profile/reply/mention failure tests and was not a test failure.
+
+The subsequent status-runtime hotfix commits (`7862b47`, `4acde311`) have **not yet been locally validated**. Run typecheck plus focused status tests before redeploy.
 
 No GitHub Actions workflow was run, dispatched, rerun, enabled, modified, triggered, or used as validation.
 
@@ -275,11 +281,11 @@ The unrelated local untracked file `apps/api/verify-admin-schema.mjs` remains ou
 
 1. `git pull` current branch;
 2. run API typecheck;
-3. run targeted parser/interpreter/status/record-action/GROUP/OA/AI-responsibility/webhook/reply tests;
-4. fix all compile/test regressions before Dev deployment;
-5. do not rebuild or migrate Dev DB for this batch;
-6. manually deploy Dev API only after local green;
-7. E2E GROUP `小跡 狀態` before responsible user, `小跡 啟用 AI`, `小跡 狀態`, natural RECORD/QUERY, Reply EDIT/DELETE/RESTORE/MOVE, `小跡 取消 AI`, `小跡 狀態`, then re-enable;
+3. run `line-system-query.test.ts`, `drizzle-line-system-query.test.ts`, `line-runtime.test.ts`, `oa-runtime.test.ts`, `group-webhook.test.ts`, `oa-webhook.test.ts`;
+4. manually redeploy Dev API only after local green;
+5. retry real GROUP `小跡 狀態`;
+6. if it still fails, capture the `worklog_group_message_failed` Worker log exception before another speculative DB change;
+7. once status passes, continue E2E `小跡 啟用 AI`, `小跡 狀態`, natural RECORD/QUERY, Reply EDIT/DELETE/RESTORE/MOVE, `小跡 取消 AI`, `小跡 狀態`, then re-enable;
 8. verify `小跡 狀態` creates no Gemini/provider usage event and works at zero AI balance;
 9. verify normal text RECORD produces only one `LINE_NATURAL_INTERPRET` provider usage event and no second `TEXT_RECORD_CREATE` provider event;
 10. verify natural EDIT similarly produces no second `TEXT_RECORD_EDIT` provider event;
