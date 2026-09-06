@@ -25,6 +25,7 @@ import { GeminiWorklogLineRecordEditor } from './worklog/gemini-line-record-edit
 import { GeminiWorklogTextNormalizer } from './worklog/gemini-text-normalizer';
 import { WorklogGrantBackedCollaboration } from './worklog/grant-collaboration';
 import type { WorklogHistoryFilters } from './worklog/history-navigation';
+import { WorklogHistoryQueryService } from './worklog/history-query';
 import { processWorklogGroupWebhook } from './worklog/group-webhook';
 import { WorklogLineRecordEditService } from './worklog/line-record-edit';
 import { WorklogLineRuntime } from './worklog/line-runtime';
@@ -70,6 +71,7 @@ app.get('/health/ready', async (c) => {
         (SELECT COUNT(*) FROM worklog_user_subscriptions WHERE FALSE) AS subscriptions_probe,
         (SELECT COUNT(plan_type) FROM worklog_subscription_plans WHERE FALSE) AS plan_type_probe,
         (SELECT COUNT(grant_points) FROM worklog_subscription_plans WHERE FALSE) AS plan_points_probe,
+        (SELECT COUNT(search_terms) FROM worklog_records WHERE FALSE) AS record_search_terms_probe,
         (SELECT COUNT(*) FROM worklog_entities WHERE FALSE) AS entities_probe,
         (SELECT COUNT(*) FROM worklog_entity_aliases WHERE FALSE) AS aliases_probe,
         (SELECT COUNT(*) FROM worklog_record_revisions WHERE FALSE) AS revisions_probe,
@@ -169,6 +171,7 @@ app.post('/webhooks/line', async (c) => {
     : null;
   const lineReplyClient = new LineMessagingReplyClient(c.env.LINE_CHANNEL_ACCESS_TOKEN);
   const worklogAnomalies = new DrizzleWorklogAnomalyRepository(database);
+  const worklogHistory = new WorklogHistoryQueryService(database);
   const worklogAiGrants = new WorklogAiGrantService(new DrizzleWorklogAiGrantRepository(database));
   const worklogAiPoints = new WorklogAiPointLedgerService(new DrizzleWorklogAiPointLedgerRepository(database));
   const worklogAiResponsibility = new WorklogAiResponsibilityService(new DrizzleWorklogAiResponsibilityRepository(database), worklogAiGrants);
@@ -204,6 +207,7 @@ app.post('/webhooks/line', async (c) => {
       reply: lineReplyClient,
       replyTargets: worklogRecordWriteService,
       anomalies: worklogAnomalies,
+      queryHistory: async (target) => worklogHistory.query(target.sourceId, target.filters),
       createQueryUrl: webAuthService && webAppUrl
         ? async (target) => appendHistoryFilters(
             await webAuthService.createBotEntry({ webAppUrl, lineUserId: target.lineUserId, lineGroupId: target.lineGroupId, at: target.at }),
@@ -217,6 +221,7 @@ app.post('/webhooks/line', async (c) => {
       reply: lineReplyClient,
       replyTargets: worklogRecordWriteService,
       anomalies: worklogAnomalies,
+      queryHistory: async (target) => worklogHistory.query(target.sourceId, target.filters),
       createQueryUrl: webAuthService && webAppUrl
         ? async (target) => appendHistoryFilters(
             await webAuthService.createPrivateBotEntry({ webAppUrl, lineUserId: target.lineUserId, userId: target.userId, sourceId: target.sourceId, at: target.at }),
