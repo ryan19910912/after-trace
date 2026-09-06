@@ -80,6 +80,7 @@ describe('WorklogTextNormalizationService persistence uncertainty', () => {
         title: '浴室配線',
         titleRequiresConfirmation: false,
         occurredAt: referenceOccurredAt.toISOString(),
+        searchTerms: ['浴室', '配線'],
       },
       inputTokens: 20,
       outputTokens: 10,
