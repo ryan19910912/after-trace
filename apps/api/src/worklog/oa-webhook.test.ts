@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { BufferedPrivateMessage, OaLifecycleEvent, ParsedOaWebhook } from '../line/events';
+import type { BufferedPrivateMessage, OaLifecycleEvent, OaPostbackEvent, ParsedOaWebhook } from '../line/events';
 import type { WorklogAnomalyInput } from './anomalies';
 import type { WorklogOaRuntimeResult, WorklogOaLifecycleResult } from './oa-runtime';
 import { processWorklogOaWebhook } from './oa-webhook';
@@ -20,14 +20,33 @@ function privateMessage(textContent: string, replyToken: string | null = 'reply-
   };
 }
 
+function oaPostback(data: string): OaPostbackEvent {
+  return {
+    webhookEventId: 'postback-event-1',
+    replyToken: 'postback-reply-1',
+    lineUserId: 'U11111111111111111111111111111111',
+    data,
+    lineTimestamp: new Date('2026-09-02T08:29:00+08:00'),
+  };
+}
+
 class FakeRuntime {
   public nextMessage: WorklogOaRuntimeResult = { status: 'NOT_HANDLED' };
+  public nextPostback: WorklogOaRuntimeResult = { status: 'NOT_HANDLED' };
   public failMessage = false;
+  public failPostback = false;
   public lifecycleCalls = 0;
+  public postbackCalls = 0;
 
   async handleLifecycle(_event: OaLifecycleEvent): Promise<WorklogOaLifecycleResult> {
     this.lifecycleCalls += 1;
     return { status: 'FOLLOWED', userId: 7, sourceId: 9 };
+  }
+
+  async handlePostback(_event: OaPostbackEvent): Promise<WorklogOaRuntimeResult> {
+    this.postbackCalls += 1;
+    if (this.failPostback) throw new Error('postback boom');
+    return this.nextPostback;
   }
 
   async handleMessage(_message: BufferedPrivateMessage): Promise<WorklogOaRuntimeResult> {
@@ -57,7 +76,46 @@ function parsedWithMessage(message: BufferedPrivateMessage): ParsedOaWebhook {
   return { events: [{ kind: 'PRIVATE_MESSAGE', message }] };
 }
 
+function parsedWithPostback(event: OaPostbackEvent): ParsedOaWebhook {
+  return { events: [{ kind: 'OA_POSTBACK', event }] };
+}
+
 describe('processWorklogOaWebhook', () => {
+  it('routes Rich Menu postback to the OA runtime and replies with the mode prompt', async () => {
+    const runtime = new FakeRuntime();
+    runtime.nextPostback = {
+      status: 'MODE_SELECTED',
+      action: 'RECORD',
+      replyText: '請輸入你要記錄的事情。',
+    };
+    const reply = new FakeReply();
+
+    const result = await processWorklogOaWebhook({
+      parsed: parsedWithPostback(oaPostback('aftertrace:record')),
+      runtime,
+      reply,
+    });
+
+    expect(runtime.postbackCalls).toBe(1);
+    expect(result).toMatchObject({ oaWorklogCommands: 1, oaWorklogRejected: 0, oaErrors: 0 });
+    expect(reply.calls).toEqual([{ token: 'postback-reply-1', text: '請輸入你要記錄的事情。' }]);
+  });
+
+  it('routes cancel postback without counting it as rejection', async () => {
+    const runtime = new FakeRuntime();
+    runtime.nextPostback = { status: 'MODE_CANCELED', replyText: '已取消這次操作。' };
+    const reply = new FakeReply();
+
+    const result = await processWorklogOaWebhook({
+      parsed: parsedWithPostback(oaPostback('aftertrace:cancel')),
+      runtime,
+      reply,
+    });
+
+    expect(result).toMatchObject({ oaWorklogCommands: 1, oaWorklogRejected: 0 });
+    expect(reply.calls[0]).toEqual({ token: 'postback-reply-1', text: '已取消這次操作。' });
+  });
+
   it('counts ordinary OA text as human support and never auto-replies', async () => {
     const runtime = new FakeRuntime();
     const reply = new FakeReply();
