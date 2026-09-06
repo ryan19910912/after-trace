@@ -1,5 +1,5 @@
 import type { BufferedGroupMessage } from '../line/events';
-import type { GroupAiAuthorizationResult } from './ai-responsibility';
+import type { GroupAiAuthorizationResult, GroupAiResponsibilityReleaseResult } from './ai-responsibility';
 import { worklogAttachmentRuntime } from './attachment-runtime';
 import type { GroupAiResponsibilityBindResult, GroupBootstrapResult } from './bootstrap';
 import type { GroupAccessAuthorizationResult } from './collaboration';
@@ -21,6 +21,7 @@ export interface WorklogLineBootstrapPort {
 export interface WorklogLineCollaborationPort {
   authorizeGroupAccess(input: { sourceId: number; actorUserId: number }): Promise<GroupAccessAuthorizationResult>;
   authorizeGroupAi(input: { sourceId: number; actorUserId: number; at?: Date }): Promise<GroupAiAuthorizationResult>;
+  releaseGroupAiResponsibility(input: { sourceId: number; actorUserId: number; at?: Date }): Promise<GroupAiResponsibilityReleaseResult>;
 }
 export interface WorklogLineTextCachePort {
   remember(input: { lineMessageId: string; lineGroupId: string; lineUserId: string | null; text: string; lineTimestamp: Date }): ReturnType<WorklogLineTextCacheService['remember']>;
@@ -47,8 +48,9 @@ export type WorklogLineRuntimeResult =
   | { status: 'EDIT_CONFIRMATION_PENDING'; recordId: number; confirmationId: number; replyText: string }
   | { status: 'EDIT_IN_PROGRESS'; replyText: string }
   | { status: 'AI_RESPONSIBILITY_BOUND'; sourceId: number; replyText: string }
+  | { status: 'AI_RESPONSIBILITY_RELEASED'; sourceId: number; replyText: string }
   | { status: 'QUOTED_NOT_READY'; replyText: string }
-  | { status: 'REJECTED'; reason: 'USER_UNKNOWN' | 'AI_RESPONSIBILITY_CONFLICT' | 'GROUP_NOT_FOUND' | 'GROUP_INACTIVE' | 'AI_RESPONSIBLE_USER_UNBOUND' | 'AI_RESPONSIBLE_USER_ABSENT' | 'NOT_ACTIVE_MEMBER' | 'AI_POINTS_EXHAUSTED' | 'AI_MEDIA_DISABLED' | 'SOURCE_NOT_FOUND' | 'IDEMPOTENCY_CONFLICT' | 'ATTACHMENT_FAILED' | 'EDIT_TARGET_REQUIRED' | 'EDIT_TARGET_NOT_FOUND' | 'EDIT_TARGET_AMBIGUOUS' | 'EDIT_TARGET_DELETED' | 'EDIT_NOT_READY' | 'EDIT_RECORD_CHANGED' | 'EDIT_FAILED'; replyText: string };
+  | { status: 'REJECTED'; reason: 'USER_UNKNOWN' | 'AI_RESPONSIBILITY_CONFLICT' | 'AI_RESPONSIBILITY_NOT_OWNER' | 'AI_RESPONSIBILITY_UNBOUND' | 'GROUP_NOT_FOUND' | 'GROUP_INACTIVE' | 'AI_RESPONSIBLE_USER_UNBOUND' | 'AI_RESPONSIBLE_USER_ABSENT' | 'NOT_ACTIVE_MEMBER' | 'AI_POINTS_EXHAUSTED' | 'AI_MEDIA_DISABLED' | 'SOURCE_NOT_FOUND' | 'IDEMPOTENCY_CONFLICT' | 'ATTACHMENT_FAILED' | 'EDIT_TARGET_REQUIRED' | 'EDIT_TARGET_NOT_FOUND' | 'EDIT_TARGET_AMBIGUOUS' | 'EDIT_TARGET_DELETED' | 'EDIT_NOT_READY' | 'EDIT_RECORD_CHANGED' | 'EDIT_FAILED'; replyText: string };
 
 export class WorklogLineRuntime {
   constructor(
@@ -81,6 +83,21 @@ export class WorklogLineRuntime {
     }
 
     const group = await this.bootstrap.bootstrapGroupInteraction({ lineGroupId: message.lineGroupId, lineUserId: message.lineUserId, at: message.lineTimestamp });
+
+    if (command.kind === 'RELEASE_GROUP') {
+      const released = await this.collaboration.releaseGroupAiResponsibility({ sourceId: group.sourceId, actorUserId: group.userId, at: message.lineTimestamp });
+      if (released.status === 'RELEASED') {
+        return { status: 'AI_RESPONSIBILITY_RELEASED', sourceId: released.sourceId, replyText: '已取消你在這個群組的 AI 額度負責人設定。\n\n目前這個群組沒有 AI 額度負責人。' };
+      }
+      if (released.status === 'UNBOUND') {
+        return { status: 'REJECTED', reason: 'AI_RESPONSIBILITY_UNBOUND', replyText: '這個群組目前沒有 AI 額度負責人。' };
+      }
+      if (released.status === 'NOT_RESPONSIBLE') {
+        return { status: 'REJECTED', reason: 'AI_RESPONSIBILITY_NOT_OWNER', replyText: '你目前不是這個群組的 AI 額度負責人，因此沒有變更設定。' };
+      }
+      if (released.status === 'NOT_ACTIVE_MEMBER') return { status: 'REJECTED', reason: 'NOT_ACTIVE_MEMBER', replyText: '你目前不是這個 AFTERTRACE 群組的有效成員。' };
+      return { status: 'REJECTED', reason: 'GROUP_NOT_FOUND', replyText: '找不到這個 AFTERTRACE 群組設定。' };
+    }
 
     if (command.kind === 'QUERY') {
       const access = await this.collaboration.authorizeGroupAccess({ sourceId: group.sourceId, actorUserId: group.userId });
@@ -199,7 +216,7 @@ function rejectedAuthorization(result: RejectedAuthorization): WorklogLineRuntim
   switch (result.status) {
     case 'GROUP_NOT_FOUND': return { status: 'REJECTED', reason: result.status, replyText: '找不到這個 AFTERTRACE 群組設定。' };
     case 'GROUP_INACTIVE': return { status: 'REJECTED', reason: result.status, replyText: '這個 AFTERTRACE 群組目前已停用。' };
-    case 'AI_RESPONSIBLE_USER_UNBOUND': return { status: 'REJECTED', reason: result.status, replyText: '這個群組目前還沒有 AI 額度負責人，請先輸入「小跡 啟用」。' };
+    case 'AI_RESPONSIBLE_USER_UNBOUND': return { status: 'REJECTED', reason: result.status, replyText: '這個群組目前還沒有 AI 額度負責人，請先輸入「小跡 啟用 AI」。' };
     case 'AI_RESPONSIBLE_USER_ABSENT': return { status: 'REJECTED', reason: result.status, replyText: '目前 AI 額度負責人已不在此 LINE 群組，群組 AI 功能暫停。' };
     case 'NOT_ACTIVE_MEMBER': return { status: 'REJECTED', reason: result.status, replyText: '你目前不是這個 AFTERTRACE 群組的有效成員。' };
     case 'AI_POINTS_EXHAUSTED': return { status: 'REJECTED', reason: result.status, replyText: '目前這個群組可用的 AI 點數已用完。' };
