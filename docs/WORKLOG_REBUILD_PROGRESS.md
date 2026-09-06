@@ -15,257 +15,237 @@ Read first every substantive development run, in this exact order:
 
 Latest docs are the only product/development specification. Never use GitHub Actions unless explicitly requested. Every development commit contains `[skip ci]`.
 
-## Current checkpoint — 2026-09-07 durable-session free manual Record API authored and mounted; Web client/UI and executable/schema/runtime verification remain pending
+## Current checkpoint — 2026-09-07 target Web free Record UI + native GROUP invite UI authored; subscription Web boundary moved to durable user session; executable/schema/Dev verification still pending
 
-AFTERTRACE target product remains **Web + PWA-first work memory**, with optional Chrome extension. LINE is retired/migration-only and must not drive new product design.
+AFTERTRACE remains **Web + PWA-first work memory**, with optional Chrome extension. LINE is retired/migration-only and must not drive new customer behavior.
 
-This run continued directly from the durable user-id Web session + native GROUP HTTP checkpoint. It did not broad-audit the repository, did not run/modify/trigger GitHub Actions, did not reset Dev data, and did not touch the unrelated local `apps/api/verify-admin-schema.mjs`.
+This run continued directly from the durable-session free manual Record API checkpoint. It did not broad-audit the repository, did not run/modify/trigger GitHub Actions, did not reset Dev data, and did not touch the unrelated local `apps/api/verify-admin-schema.mjs`.
 
-## Foundation retained from prior runs
+## Foundation retained
 
-The accepted target foundation remains:
+The accepted target foundation from prior runs remains:
 
-- `worklog_records.occurred_at` nullable with no implicit current-time business default;
-- nullable Record `title`, `extracted_metadata`, `ai_enriched_at` and explicit `ai_enrichment_status = NONE | ENRICHED | LEGACY`;
-- existing rows forward-migrated to `LEGACY` rather than mislabeled as current paid-AI output;
-- `worklog_users.line_user_id` nullable;
-- provider-neutral `worklog_auth_identities` schema present;
-- signed `WEB_SESSION` supports durable numeric `userId`, with LINE id only as bounded migration fallback;
-- shared `resolveWebSessionUserId()` prefers durable `userId` and falls back to LINE only for old signed sessions;
-- native GROUP Source `name`, nullable legacy `line_group_id`, `created_by_user_id`;
-- GROUP membership `OWNER | MEMBER`;
-- `worklog_source_invites` stores token hashes only;
-- native GROUP HTTP API supports list/create/invite/revoke/join through durable Web sessions;
-- subscription-plan AI hard-cap fields are present in target TypeScript schema;
-- PWA GROUP surface model already exposes native `name` / `role` and treats LINE group id as migration-only trace.
+- `worklog_records.occurred_at` is nullable with no implicit current-time business default;
+- nullable Record `title`, `extracted_metadata`, `ai_enriched_at` plus explicit `ai_enrichment_status = NONE | ENRICHED | LEGACY`;
+- existing Records are forward-mapped to `LEGACY`, not mislabeled as current paid-AI output;
+- `worklog_users.line_user_id` is nullable;
+- provider-neutral `worklog_auth_identities` schema exists;
+- signed `WEB_SESSION` supports durable numeric `userId`; legacy LINE id is only bounded fallback for already-issued migration sessions;
+- `resolveWebSessionUserId()` prefers durable `userId`;
+- native GROUP Sources have `name`, nullable legacy `line_group_id`, creator, `OWNER | MEMBER` membership and hashed invite tokens;
+- `/api/v1/groups` supports list/create/invite/revoke/join through durable Web sessions;
+- target manual Record routes support content-only create, nullable event time, deterministic search/date filters, soft delete/restore, immutable revisions and optimistic versioning;
+- free/manual Web APIs are routed before legacy LINE/Gemini runtime construction;
+- subscription-plan AI hard-cap fields exist in target TypeScript schema.
 
-Canonical generated `drizzle/0000` is still behind target TypeScript schema. Do not deploy/migrate this branch until executable validation and baseline regeneration are complete.
+Canonical generated `drizzle/0000` is still behind the target TypeScript schema. **Do not deploy or migrate this branch until executable validation and baseline regeneration are green.**
 
-## Free manual Record target API — authored this run
+## Target Web API contract — reset this run
 
-New files:
+`apps/web/src/worklog-api.ts` was reduced from the retired Entity/funding/confirmation-centered client to the current Web/PWA contract.
 
-- `apps/api/src/worklog/manual-record-routes.ts`
-- `apps/api/src/worklog/drizzle-manual-record-routes.ts`
-- `apps/api/src/worklog/manual-record-routes.test.ts`
+Current behavior:
 
-Updated:
+- `WorklogRecord.occurredAt` is `string | null`;
+- revision previous/new event times are nullable;
+- API `null` stays `null` and is no longer converted to the literal string `"null"`;
+- GROUP surfaces use `sourceId`, native `name`, `OWNER | MEMBER` role and optional migration-only `legacyLineGroupId`;
+- manual create requires `rawText`; `occurredAt` is optional/null; title/Entity are only bounded legacy compatibility fields;
+- target client no longer exposes Entity listing/title-move, GROUP funding/responsible-user or pending LINE AI confirmation methods to the primary Worklog UI;
+- native GROUP methods now cover list/create/create-invite/revoke-invite/join;
+- raw invite token is returned only from invite creation response; normal group summaries contain no raw token.
 
-- `apps/api/src/worker.ts`
+The migration-era `lineLoginUrl()` and old entry-link exchange remain temporarily because provider-neutral login itself is not implemented yet. They are not target domain dependencies.
 
-### Durable Web-session authorization
+## Primary Worklog Web UI — reset this run
 
-The target free/manual route module no longer resolves the current user from `session.lineUserId` directly.
+`apps/web/src/WorklogRoot.tsx` now consumes the target free/manual Record model.
 
-Request flow is now:
+### Free Record UX
 
-1. verify signed `WEB_SESSION`;
-2. create DB connection;
-3. resolve authenticated AFTERTRACE user through `resolveWebSessionUserId()`;
-4. prefer signed durable `userId`;
-5. retain the shared resolver's legacy LINE fallback only for already-issued migration sessions;
-6. authorize PRIVATE ownership or active native GROUP membership server-side for every scoped operation.
+- create/edit requires only Record content;
+- event time is explicitly optional and may be cleared;
+- a new manual Record no longer defaults event time to now;
+- empty event time sends `occurredAt: null`;
+- Record card displays `發生時間` only when an event time exists;
+- otherwise it displays `createdAt` as `記錄時間`, avoiding a fabricated business event time;
+- title is not a save gate and is shown only when metadata already exists;
+- deterministic filters are content query + from/to time;
+- delete/restore/history stay available;
+- title move, batch move, Entity selector/datalist, pending AI confirmations, personal Grant panel and GROUP AI responsible-user/funding UI were removed from the primary target surface.
 
-This means a future provider-neutral login can use the free Record core without acquiring a LINE identity first.
+### Native GROUP UX
 
-### Mounted target endpoints
+A new `群組` tab now supports:
 
-`worker.ts` now routes the following `/api/v1/worklog` paths through the target manual Record module before legacy Worklog runtime initialization:
+- create AFTERTRACE group;
+- list current groups with native name and role;
+- open GROUP Record scope by `sourceId` only;
+- OWNER creates a one-use invite through the existing native GROUP API;
+- display/copy the raw share link only after creation;
+- revoke the currently displayed created invite;
+- paste an invite link/token and explicitly join;
+- `?invite=<token>` links are temporarily persisted client-side across the current login redirect, then consumed after authentication;
+- successful join switches to the joined GROUP Record scope.
 
-- `GET /surfaces`;
-- `GET /records/personal`;
-- `GET /records/personal/deleted`;
-- `GET /records/group/:sourceId`;
-- `GET /records/group/:sourceId/deleted`;
-- `POST /records/personal`;
-- `POST /records/group/:sourceId`;
-- `PATCH /records/:recordId`;
-- `DELETE /records/:recordId`;
-- `POST /records/:recordId/restore`;
-- `GET /records/:recordId/revisions`.
+The raw invite token is deliberately not recoverable from database state. Current Web UX creates `maxUses = 1`; the backend service remains capable of bounded expiry/use-count configuration.
 
-Legacy `/entities`, title move/batch-move, confirmations, funding and other old Worklog routes remain isolated behind the migration runtime for now. The target Web UI must stop depending on those old product surfaces before provider-neutral Web migration is considered complete.
+Legacy LINE `?t=` group entry links remain migration-only and resolve only through `legacyLineGroupId`. Normal native GROUP UI does not depend on LINE ids.
 
-### Free content-only create
+## Retired LINE customer UI removed/isolate further this run
 
-Manual create now accepts `rawText` or target-friendly `content` and requires no provider work.
+- `apps/web/src/main.tsx` no longer renders `LineOaFriendHint` on the main Web shell;
+- `HelpRoot.tsx` now documents Web/PWA manual Records, native GROUP invites and paid per-user AI direction instead of LINE bot commands/Reply/funding;
+- `FeedbackRoot.tsx` user-facing login/error copy now says AFTERTRACE rather than instructing users to use LINE;
+- `SubscriptionRoot.tsx` no longer advertises the retired FREE AI grant / GROUP funding model. It now states that FREE has no provider-backed AI, paid AI is per user, manual features stay free, and paid AI will be fair-use/hard-cap protected.
 
-Accepted target behavior:
+The actual migration-era authentication adapter still uses LINE underneath until a provider-neutral login is implemented. The UI copy change does not claim that replacement auth already exists.
 
-- content is required;
-- `occurredAt` may be omitted/null;
-- title may be omitted/null;
-- legacy `entityId` is optional compatibility only and is Source-validated when supplied by an older client;
-- created manual rows set `search_terms = []` and `ai_enrichment_status = NONE`;
-- no title inference, date inference, keyword extraction or any provider AI call occurs.
+## Subscription route identity boundary — improved this run
 
-The compatibility path may copy an explicitly selected legacy Entity name into nullable `record.title`, but new free clients do not need the Entity/Alias model.
+`apps/api/src/worklog/subscription-routes.ts` no longer stores `session.lineUserId` as its request identity.
 
-### Nullable event date and deterministic retrieval
+Current flow:
 
-Manual Record views now preserve missing event dates as `occurredAt: null` instead of constructing an invalid JS `Date` from SQL `NULL`.
+1. verify signed Web session;
+2. retain the full `WebSessionClaims` in request context;
+3. for DB-backed plan/checkout work, resolve AFTERTRACE user through `resolveWebSessionUserId()`;
+4. prefer durable signed `userId` and retain legacy LINE fallback only through the shared migration resolver;
+5. query subscription state by `worklog_users.id` rather than `line_user_id`.
 
-Manual update can explicitly clear `occurredAt` back to null. Invalid non-null date strings fail with `INVALID_OCCURRED_AT`.
+Checkout remains deliberately fail-closed (`CHECKOUT_ENABLED = false`). The plan query still returns legacy point/Grant compatibility fields because the paid runtime/accounting migration is not complete; the target Web page no longer presents those fields as the new product promise.
 
-Free deterministic list/search now:
+## Tests authored/updated this run
 
-- searches raw Record content;
-- also remains compatible with explicit title / legacy Entity / existing `search_terms` metadata when present;
-- scopes by authorized Source;
-- excludes deleted rows from normal lists;
-- date-filters on `COALESCE(occurred_at, created_at)`;
-- orders by `COALESCE(occurred_at, created_at) DESC, id DESC`.
+### Web contract
 
-Therefore a content-only Record with no event time remains visible and date-filterable by storage time without inventing a business event time.
+New `apps/web/src/worklog-api.test.ts` covers:
 
-### Revision / optimistic concurrency
+- nullable manual Record event time remains null;
+- nullable revision event times remain null;
+- native GROUP surface maps `name` / role without requiring a LINE group id;
+- content-only create sends explicit `occurredAt: null`;
+- invite creation returns the one-time raw invite token while invite metadata remains structured.
 
-Manual PATCH/delete/restore use the current integer `version` and fail stale mutations with `RECORD_VERSION_CONFLICT`.
+Status: **AUTHORED / NOT RUN**.
 
-The Drizzle mutation CTE writes the updated Record and immutable `worklog_record_revisions` snapshot in the same SQL statement. `previous_occurred_at` and `new_occurred_at` remain nullable and are not coerced to current time.
+### Subscription boundary
 
-Soft delete/restore remains status-based and keeps Record history.
+`apps/api/src/worklog/subscription-routes.test.ts` now issues a durable **userId-only** Web session for the disabled-checkout boundary. It verifies the route can accept the target session identity without requiring a LINE id before returning the intentional `CHECKOUT_NOT_ENABLED` fail-closed response.
 
-### Free paths no longer eagerly construct LINE/Gemini runtime
-
-Previously `worker.ts` called `configureWorklogRuntime(env)` before every non-health request. That function constructs legacy LINE attachment and Gemini normalization clients.
-
-The Worker now routes Admin, Subscription, native GROUP and the new free/manual Record core before the legacy runtime boundary. Only migration-era confirmations/funding/old Worklog fallback and other retained legacy paths proceed through `configureWorklogRuntime`.
-
-This is an important product boundary: provider-free manual Web/PWA use no longer needs to initialize retired LINE/Gemini machinery merely to read or edit Records.
-
-## Tests authored this run
-
-`apps/api/src/worklog/manual-record-routes.test.ts` covers the intended route contract with injected fake repository/session resolution:
-
-- durable user-id-only signed session can reach target surfaces;
-- signed LINE-only legacy session remains resolvable during migration;
-- content-only free Record create with null event date/title;
-- legacy Entity selection remains optional compatibility rather than a title requirement;
-- malformed `occurredAt` is rejected;
-- event date can be explicitly cleared to null;
-- GROUP membership is enforced before list/create;
-- delete/restore preserve optimistic version progression.
-
-Test harness and query-row typing received small cleanup commits after authoring. These changes are source-level only until executable validation runs.
-
-## Web client/UI mismatch discovered and intentionally left for next batch
-
-`apps/web/src/worklog-api.ts` and `apps/web/src/WorklogRoot.tsx` still reflect the retired pre-reset product assumptions:
-
-- `WorklogRecord.occurredAt` is typed as non-null string;
-- API parsing currently turns SQL/API null into the string `"null"`;
-- revision event dates are typed non-null;
-- GROUP scope still carries `lineGroupId`;
-- create/edit UI requires both title and event date;
-- Record cards call `new Date(record.occurredAt)` unconditionally;
-- the screen still eagerly loads legacy Entity, confirmation and GROUP-funding surfaces;
-- primary login copy/flow still describes LINE Login;
-- title move/batch-move and GROUP responsible-user funding UI remain visible legacy concepts.
-
-Do not paper over these mismatches in the backend. The next coherent product batch is the Web/PWA client reset so the customer surface actually consumes the new free Record contract.
+Status: **UPDATED / NOT RUN**.
 
 ## Commits in this run
 
 All commits contain `[skip ci]`:
 
-- `46785dce` — add durable-session manual Record routes;
-- `0062dda1` — persist nullable manual Records without AI;
-- `68ce9321` — type manual route helpers explicitly;
-- `c3d473a7` — route free core before legacy LINE/Gemini runtime;
-- `ba9dafbf` — author durable manual Record route tests;
-- `8a1ba925` — simplify manual route test harness;
-- `4a524bc6` — normalize Drizzle manual Record query row typing;
+- `93f284d5` — align Web API with free Records and native groups;
+- `701759eb` — reset Worklog UI to free Records and native groups;
+- `57c140ea` — remove retired LINE hint from target Web shell;
+- `f1d666ab` — add nullable Record/native GROUP Web API tests;
+- `6ff0f68e` — replace LINE help with Web/PWA guidance;
+- `165222ff` — remove retired LINE copy from feedback login;
+- `635f614e` — align subscription page with paid per-user AI model;
+- `acded79f` — resolve subscription user from durable Web session;
+- `00bfea7b` — cover durable user session on subscription boundary;
 - checkpoint doc commit follows this list.
 
 No GitHub Actions workflow was run, dispatched, rerun, enabled, modified, triggered, or used as validation.
 
 ## Validation status
 
-### Authored / updated this run
+### Authored / updated in this run
 
-- `apps/api/src/worklog/manual-record-routes.test.ts` — **AUTHORED / NOT RUN**
-- `apps/api/src/worklog/manual-record-routes.ts` — **AUTHORED / NOT RUN**
-- `apps/api/src/worklog/drizzle-manual-record-routes.ts` — **AUTHORED / NOT RUN**
-- `apps/api/src/worker.ts` target-route boundary — **UPDATED / NOT RUN**
+- `apps/web/src/worklog-api.ts` — **UPDATED / NOT RUN**
+- `apps/web/src/WorklogRoot.tsx` — **UPDATED / NOT RUN**
+- `apps/web/src/worklog-api.test.ts` — **AUTHORED / NOT RUN**
+- `apps/web/src/main.tsx` — **UPDATED / NOT RUN**
+- `apps/web/src/HelpRoot.tsx` — **UPDATED / NOT RUN**
+- `apps/web/src/FeedbackRoot.tsx` — **UPDATED / NOT RUN**
+- `apps/web/src/SubscriptionRoot.tsx` — **UPDATED / NOT RUN**
+- `apps/api/src/worklog/subscription-routes.ts` — **UPDATED / NOT RUN**
+- `apps/api/src/worklog/subscription-routes.test.ts` — **UPDATED / NOT RUN**
 
-### Retained earlier tests still awaiting execution
+### Earlier target tests still awaiting execution
 
 - `apps/api/src/auth/token.test.ts` — **AUTHORED/UPDATED / NOT RUN**
 - `apps/api/src/worklog/native-groups.test.ts` — **AUTHORED/UPDATED / NOT RUN**
 - `apps/api/src/worklog/native-group-routes.test.ts` — **AUTHORED / NOT RUN**
+- `apps/api/src/worklog/manual-record-routes.test.ts` — **AUTHORED / NOT RUN**
 - `apps/api/src/worklog/records.test.ts` — **AUTHORED/UPDATED / NOT RUN**
 - `product-record-schema.test.ts` — **AUTHORED / NOT RUN**
 - `product-foundation-schema.test.ts` — **AUTHORED / NOT RUN**
 
 ### Executable validation
 
+- Web TypeScript typecheck — **NOT RUN**
+- Web Vitest including `worklog-api.test.ts` — **NOT RUN**
+- Web production build — **NOT RUN**
 - API TypeScript typecheck — **NOT RUN**
-- focused auth/native-group/manual-record tests — **NOT RUN**
+- focused auth/native-group/manual-record/subscription/schema tests — **NOT RUN**
 - full API Vitest — **NOT RUN**
-- Web TypeScript/build tests for target nullable contract — **NOT RUN**
 - Drizzle baseline regenerate / guard — **NOT RUN**
 - Dev DB forward migration — **NOT RUN**
 - Native GROUP PostgreSQL invite concurrency smoke — **NOT RUN**
 - free manual Record PostgreSQL smoke — **NOT RUN**
 - Native GROUP + manual Record Dev HTTP E2E — **NOT RUN**
+- Web/PWA browser smoke — **NOT RUN**
 
-Reason: GitHub repository read/write access is available, but this run still has no mounted executable repository checkout. Container inspection found no `after-trace` working tree. No PASS or RUNTIME VERIFIED result is inferred from source review or commits.
+Reason: GitHub connector can read/write the repository, but no executable `after-trace` checkout is mounted in the runtime. A direct container `git ls-remote` attempt also failed DNS resolution for `github.com`. Therefore no compile/test/runtime success is inferred from source review.
 
 ## Known blockers / risks
 
-1. **Executable validation remains the main immediate blocker.** New route/repository/Worker TypeScript and SQL have not been compiled or executed.
-2. **Canonical Drizzle baseline remains behind target TypeScript schema.** Do not deploy/migrate until local executable validation and baseline regeneration are green.
-3. **Current Web UI cannot safely consume nullable event dates yet.** It may parse null as `"null"` and render invalid dates.
-4. **Current Web UI still requires title/date and retains Entity/move/funding/confirmation product concepts.** Backend target contract is ahead of the customer surface.
-5. **Provider-neutral login itself is not implemented.** `worklog_auth_identities` exists at schema level; current real login is still LINE migration-era bootstrap.
-6. **Several legacy Worklog routes remain LINE-shaped.** The target UI must stop depending on them or they must be migrated if a retained feature still needs them.
-7. **Native GROUP API still has no target Web/PWA UI.** Domain/persistence/routes are authored only.
-8. **Native GROUP invite locking and new manual Record SQL still need real PostgreSQL verification.**
-9. **AI subscription hard caps are schema-only.** Runtime still contains legacy Grant-era provider accounting paths.
-10. **Readiness/main app bindings still retain LINE migration dependencies.** Target free route isolation is improved, but full runtime cleanup is later.
-11. **Tasks/reminders/push and Chrome extension remain unimplemented.**
+1. **Executable validation is the immediate blocker to deployment.** The newly rewritten Web client/React code and target API code have not been compiled or executed.
+2. **Canonical Drizzle baseline is still behind target TypeScript schema.** No Dev migration/deploy until typecheck/tests and baseline regeneration are green.
+3. **Native GROUP invite SQL locking and manual Record SQL still need real PostgreSQL verification.**
+4. **Provider-neutral login itself remains unimplemented.** Session/domain APIs are userId-first, but the real login adapter is still migration-era LINE Login.
+5. **The invite UI has no durable invite-list endpoint.** OWNER can revoke the just-created invite while it is displayed; durable management/listing of older active invites is not implemented yet. Current MVP may remain single-use if validated, but do not claim complete invite administration yet.
+6. **Subscription route identity is userId-first, but paid entitlement/accounting is not.** Plan responses retain legacy Grant compatibility fields; provider-backed runtime still uses old Grant-era logic and target monthly resource/provider-cost hard caps are schema-only.
+7. **Some secondary legacy code/files remain present but unreferenced or migration-only**, including LINE OA hint implementation and old Worklog routes below the legacy runtime boundary. Remove only after dependency review.
+8. **PWA capture-first microphone/browser speech-to-text is not implemented yet.** Current target UI supports free manual text capture only.
+9. **Readiness/env requirements still contain migration-era LINE dependencies.** Free routes are isolated, but full application readiness has not been made LINE-independent yet.
+10. **Tasks/reminders/PWA Push, Related Records/summary/rewrite, paid AI capture/search and Chrome extension remain unimplemented.**
 
 ## Exact next development order
 
 1. Re-read required docs and this checkpoint; do not broad-audit.
-2. If an executable checkout becomes available, immediately run API typecheck plus focused `auth/token`, native GROUP, manual Record, `records` and product-schema tests. Fix compile/test failures before claiming further runtime progress.
-3. Reset `apps/web/src/worklog-api.ts` to the target free contract:
-   - `occurredAt: string | null`;
-   - revision previous/new event dates nullable;
-   - preserve API null rather than converting it to `"null"`;
-   - native GROUP surfaces carry `name` / `role` with only optional migration `legacyLineGroupId`;
-   - manual create/edit accept omitted/null event date and omitted title.
-4. Reset the primary `WorklogRoot.tsx` free UX:
-   - GROUP scope no longer requires `lineGroupId`;
-   - title is optional, not a save gate;
-   - event date is optional and may be cleared;
-   - no-event-date cards use `createdAt` for timeline presentation and label it as record/storage time rather than fabricated event time;
-   - stop eagerly loading/showing legacy GROUP funding/responsible-user and pending LINE AI confirmations on the target free surface;
-   - retire title move/batch-move from the primary free workflow unless later product requirements reintroduce an explicit user title feature;
-   - keep manual text capture free/provider-free.
-5. Add target native GROUP UI using `/api/v1/groups`: list/create, owner invite creation, invite join and revoke, with invite raw token displayed only at creation/share time.
-6. Add focused Web/API contract tests for nullable dates, native GROUP surface shape and content-only manual create.
-7. After API/Web local green, regenerate canonical `drizzle/0000`, run baseline guard, then apply the idempotent forward migration to Dev while preserving existing durable data.
-8. Run Dev E2E:
-   - target signed session -> surfaces;
-   - create content-only PRIVATE Record with null event date -> list/search/edit -> set/clear date -> delete/restore -> revision history;
-   - create native GROUP -> invite -> second authenticated user joins -> both can use manual GROUP Records -> revoke invite -> new join rejected while existing member retains access.
-9. Only after free core/native GROUP are runtime green, wire paid per-user AI entitlement/hard caps and new AI capture/enrichment/natural-language search.
-10. Then Related Records, summaries/rewrite, Tasks/Push, Chrome extension, readiness/runtime LINE isolation and final legacy schema cleanup.
+2. If an executable checkout becomes available, stop adding speculative layers long enough to run and fix:
+   - `pnpm --filter @aftertrace/web typecheck`;
+   - focused Web `worklog-api.test.ts` and Web build;
+   - API typecheck;
+   - focused auth/native GROUP/manual Record/subscription/product-schema tests.
+   Never mark them PASS without actual execution.
+3. If executable checkout is still unavailable, continue the next bounded source batch: **capture-first PWA/free voice input**:
+   - inspect only the existing Web entry/PWA manifest/service-worker surfaces needed for this feature;
+   - make microphone the primary PWA capture action without auto-starting it;
+   - implement best-effort browser/device speech-to-text as provider-free input where supported;
+   - fall back cleanly to manual text when unsupported/denied;
+   - never send this free speech-to-text path through Gemini/provider AI;
+   - reuse the same content-only manual Record API and optional event-time editor.
+4. Add focused Web tests around speech-input capability detection/state transitions where practical without browser-specific integration assumptions.
+5. Then finish Native GROUP Web polish needed for MVP, especially deciding whether an OWNER invite-list/revoke-old-invite endpoint is required before launch; do not expand roles beyond `OWNER | MEMBER` without a concrete need.
+6. After API/Web local green, regenerate canonical `drizzle/0000`, run baseline guard, then apply the idempotent forward migration to Dev while preserving existing durable data.
+7. Run Dev E2E:
+   - durable signed session -> surfaces;
+   - create content-only PRIVATE Record with null event time -> list/search/edit -> set/clear time -> delete/restore -> revision history;
+   - create native GROUP -> invite -> second authenticated user joins -> both can use manual GROUP Records -> revoke invite -> new join rejected while existing member retains access;
+   - verify target Web renders null event time as `記錄時間`, not invalid/fabricated event time.
+8. Once free core/native GROUP are runtime green, wire paid **per-user** AI entitlement with real subscription-period resource + Provider Cost TWD hard caps before enabling any paid provider call or checkout.
+9. Then build AI capture/enrichment/natural-language search, Related Records, range summary/rewrite, Tasks/PWA Push, Chrome extension, readiness LINE isolation and final legacy cleanup.
 
 ## Remaining development estimate
 
-Current estimate: **about 54–98 focused development hours** remaining.
+Current estimate: **about 48–88 focused development hours** remaining.
 
 Approximate buckets:
 
-- executable validation, baseline/forward migration and native GROUP/manual API Dev E2E: 6–12h;
-- target Web/PWA free UI reset + native GROUP UI + capture-first/browser speech-to-text work: 9–16h;
-- paid per-user AI entitlement/caps + capture/enrichment/search: 15–27h;
-- Related Records + summary/rewrite: 7–12h;
-- Tasks/reminders + PWA Push/Cron: 7–13h;
-- Chrome extension: 6–10h;
-- readiness isolation, release hardening and final LINE cleanup: 4–8h.
+- executable validation, baseline/forward migration and free/native-GROUP Dev E2E: 6–12h;
+- capture-first PWA + provider-free browser/device speech-to-text + Web polish: 4–7h;
+- provider-neutral login completion and migration isolation: 3–6h, dependent on the chosen login provider;
+- paid per-user AI entitlement/hard caps + capture/enrichment/search: 14–24h;
+- Related Records + range summary/rewrite: 6–10h;
+- Tasks/reminders + PWA Push/Cron: 6–11h;
+- Chrome extension: 5–9h;
+- readiness/release hardening/final LINE cleanup: 4–9h.
 
-This estimate should be tightened after the first successful executable typecheck/baseline migration and target Dev E2E. Those remain the largest uncertainty around legacy compatibility cost.
+The range should be tightened after the first executable Web/API typecheck, regenerated baseline, forward Dev migration and target Dev E2E. Those remain the largest uncertainty around legacy compatibility cost.
