@@ -1,6 +1,10 @@
 import { sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
-import type { WorklogGroupSystemState, WorklogLineSystemQueryRepository } from './line-system-query';
+import type {
+  WorklogAiAllowanceStatus,
+  WorklogGroupSystemState,
+  WorklogLineSystemQueryRepository,
+} from './line-system-query';
 
 export class DrizzleWorklogLineSystemQueryRepository implements WorklogLineSystemQueryRepository {
   constructor(private readonly db: Database) {}
@@ -32,4 +36,44 @@ export class DrizzleWorklogLineSystemQueryRepository implements WorklogLineSyste
       responsibleLineUserId: row.responsible_line_user_id ?? null,
     };
   }
+
+  async allowance(ownerUserId: number, sourceId: number, at: Date): Promise<WorklogAiAllowanceStatus> {
+    const result = await this.db.execute(sql`
+      SELECT
+        COALESCE(SUM(
+          LEAST(
+            grant.original_points,
+            CASE WHEN scope.cap_points IS NULL THEN grant.original_points ELSE scope.cap_points END
+          )
+        ), 0)::text AS total_points,
+        COALESCE(SUM(
+          LEAST(
+            grant.remaining_points,
+            CASE
+              WHEN scope.cap_points IS NULL THEN grant.remaining_points
+              ELSE GREATEST(0, scope.cap_points - scope.used_points - scope.reserved_points)
+            END
+          )
+        ), 0)::text AS remaining_points
+      FROM worklog_ai_grants grant
+      INNER JOIN worklog_ai_grant_scopes scope
+        ON scope.grant_id = grant.id
+       AND scope.source_id = ${sourceId}
+       AND scope.enabled = TRUE
+      WHERE grant.owner_user_id = ${ownerUserId}
+        AND grant.status IN ('ACTIVE', 'EXHAUSTED')
+        AND grant.effective_at <= ${at}
+        AND (grant.expires_at IS NULL OR grant.expires_at > ${at})
+    `);
+    const row = result.rows[0] as { total_points?: string; remaining_points?: string } | undefined;
+    return {
+      totalPoints: nonNegativeSafeInteger(row?.total_points),
+      remainingPoints: nonNegativeSafeInteger(row?.remaining_points),
+    };
+  }
+}
+
+function nonNegativeSafeInteger(value: unknown): number {
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
 }
