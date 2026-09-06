@@ -65,7 +65,7 @@ export class WorklogOaRuntime {
     if (!touched.isOaFriend) return notFriend();
 
     if (command.kind === 'HELP') return { status: 'HELP', replyText: worklogLineHelpText() };
-    if (command.kind === 'CLAIM_GROUP') {
+    if (command.kind === 'CLAIM_GROUP' || command.kind === 'RELEASE_GROUP') {
       return { status: 'REJECTED', reason: 'GROUP_COMMAND_IN_PRIVATE', replyText: '群組 AI 額度設定請在對應 LINE 群組內操作。' };
     }
 
