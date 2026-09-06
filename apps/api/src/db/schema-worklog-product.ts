@@ -1,0 +1,72 @@
+import { sql } from 'drizzle-orm';
+import {
+  bigint,
+  bigserial,
+  check,
+  index,
+  integer,
+  pgTable,
+  timestamp,
+  uniqueIndex,
+  varchar,
+} from 'drizzle-orm/pg-core';
+import { worklogSources, worklogUsers } from './schema-worklog';
+
+/**
+ * Provider-neutral identity binding for target Web/PWA authentication.
+ *
+ * Existing LINE identities remain on worklog_users during migration, but new auth code
+ * should resolve users through this table rather than requiring line_user_id.
+ */
+export const worklogAuthIdentities = pgTable(
+  'worklog_auth_identities',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    userId: bigint('user_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogUsers.id, { onDelete: 'cascade' }),
+    provider: varchar('provider', { length: 64 }).notNull(),
+    subject: varchar('subject', { length: 255 }).notNull(),
+    emailSnapshot: varchar('email_snapshot', { length: 320 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('worklog_auth_identity_provider_subject_uq').on(table.provider, table.subject),
+    index('worklog_auth_identity_user_idx').on(table.userId),
+  ],
+);
+
+/**
+ * Revocable AFTERTRACE-native invite token metadata. Only a token hash is persisted;
+ * possession of the raw invite token does not grant access until an authenticated join
+ * records membership server-side.
+ */
+export const worklogSourceInvites = pgTable(
+  'worklog_source_invites',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sourceId: bigint('source_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogSources.id, { onDelete: 'cascade' }),
+    tokenHash: varchar('token_hash', { length: 128 }).notNull(),
+    createdByUserId: bigint('created_by_user_id', { mode: 'number' })
+      .notNull()
+      .references(() => worklogUsers.id, { onDelete: 'restrict' }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    maxUses: integer('max_uses'),
+    useCount: integer('use_count').default(0).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('worklog_source_invite_token_hash_uq').on(table.tokenHash),
+    index('worklog_source_invite_source_active_idx').on(table.sourceId, table.revokedAt, table.expiresAt),
+    check('worklog_source_invite_use_count_ck', sql`${table.useCount} >= 0`),
+    check(
+      'worklog_source_invite_max_uses_ck',
+      sql`${table.maxUses} IS NULL OR (${table.maxUses} > 0 AND ${table.useCount} <= ${table.maxUses})`,
+    ),
+  ],
+);
