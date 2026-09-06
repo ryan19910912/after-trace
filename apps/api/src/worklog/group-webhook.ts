@@ -79,6 +79,7 @@ export async function processWorklogGroupWebhook(input: {
   anomalies?: WorklogAnomalyPort;
   queryHistory?: (target: WorklogGroupQueryTarget) => Promise<WorklogHistoryQueryResult>;
   createQueryUrl?: (target: WorklogGroupQueryTarget) => Promise<string | null>;
+  refreshGroupProfile?: (lineGroupId: string, at: Date) => Promise<unknown>;
 }): Promise<WorklogGroupWebhookCounters> {
   const counters = emptyCounters();
 
@@ -95,6 +96,23 @@ export async function processWorklogGroupWebhook(input: {
 
     const message = parsedEvent.message;
     const explicitCommand = parseWorklogCommand(message) !== null;
+    if (explicitCommand && input.refreshGroupProfile) {
+      try {
+        await input.refreshGroupProfile(message.lineGroupId, message.lineTimestamp);
+      } catch (error) {
+        counters.worklogErrors += 1;
+        logFailure({ event: 'worklog_group_profile_refresh_failed', lineGroupId: message.lineGroupId, lineMessageId: message.lineMessageId, webhookEventId: message.webhookEventId, error });
+        await recordAnomalySafely(input.anomalies, {
+          category: 'LINE_GROUP_PROFILE_REFRESH',
+          errorCode: anomalyErrorCode(error, 'GROUP_PROFILE_REFRESH_FAILED'),
+          summary: anomalyErrorSummary(error, 'LINE group profile refresh failed'),
+          lineMessageId: message.lineMessageId,
+          requestRef: message.webhookEventId,
+          metadata: { lineGroupId: message.lineGroupId },
+        });
+      }
+    }
+
     let result: WorklogLineRuntimeResult;
     try { result = await input.runtime.handle(message); }
     catch (error) {
