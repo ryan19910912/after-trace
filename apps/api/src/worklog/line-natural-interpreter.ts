@@ -4,6 +4,8 @@ import type { WorklogReplyEditTarget } from './records';
 import type { WorklogAiRuntimeConfigSnapshot, WorklogTextNormalizationOutput } from './text-normalization';
 import type { WorklogLineRecordEditOutput } from './line-record-edit';
 
+export type WorklogSystemQueryKind = 'AI_STATUS' | 'AI_BALANCE' | 'AI_RESPONSIBLE_USER';
+
 export type WorklogLineNaturalInterpretation =
   | {
       intent: 'RECORD';
@@ -19,6 +21,10 @@ export type WorklogLineNaturalInterpretation =
       instruction: string;
       edit: WorklogLineRecordEditOutput;
     }
+  | { intent: 'DELETE' }
+  | { intent: 'RESTORE' }
+  | { intent: 'MOVE'; title: string }
+  | { intent: 'SYSTEM_QUERY'; query: WorklogSystemQueryKind }
   | {
       intent: 'UNKNOWN';
       reason: string | null;
@@ -53,14 +59,7 @@ export type WorklogLineNaturalInterpreterResult =
   | { status: 'AI_POINTS_EXHAUSTED' }
   | { status: 'FAILED'; reason: string };
 
-/**
- * One bounded provider call per natural-language LINE text message.
- *
- * The model returns intent plus the fields needed by that intent in the same structured
- * response. Backend code remains responsible for authorization, target resolution,
- * persistence and deterministic history reads. This deliberately avoids an agent/tool
- * loop and avoids a second normalization call for RECORD/EDIT.
- */
+/** One bounded provider call per natural-language LINE text message. */
 export class WorklogLineNaturalInterpreterService {
   constructor(
     private readonly config: WorklogLineNaturalInterpreterConfigPort,
