@@ -15,7 +15,10 @@ export interface WorklogGroupLifecyclePort {
   setGroupMemberPresence(input: { lineGroupId: string; lineUserId: string; isActive: boolean; at?: Date }): Promise<void>;
 }
 export type WorklogSentReply = { sentMessageIds: string[] };
-export interface WorklogGroupReplyPort { reply(replyToken: string, text: string): Promise<void | WorklogSentReply>; }
+export interface WorklogGroupReplyPort {
+  reply(replyToken: string, text: string): Promise<void | WorklogSentReply>;
+  replyUserMention?(replyToken: string, text: string, lineUserId: string): Promise<void | WorklogSentReply>;
+}
 export interface WorklogBotReplyTargetPort { rememberBotReplyTarget(recordId: number, botLineMessageId: string): Promise<void>; }
 export type WorklogGroupWebhookCounters = {
   lifecycleEvents: number;
@@ -45,6 +48,72 @@ async function replySafely(input: { reply: WorklogGroupReplyPort; anomalies?: Wo
     logFailure({ event: 'worklog_group_reply_failed', lineGroupId: input.lineGroupId, lineMessageId: input.lineMessageId, webhookEventId: input.webhookEventId, error });
     await recordAnomalySafely(input.anomalies, { category: 'LINE_GROUP_REPLY', errorCode: anomalyErrorCode(error, 'LINE_REPLY_FAILED'), summary: anomalyErrorSummary(error, 'LINE group reply failed'), lineMessageId: input.lineMessageId, requestRef: input.webhookEventId, metadata: { lineGroupId: input.lineGroupId, ...(input.lineUserId ? { lineUserId: input.lineUserId } : {}) } });
     return null;
+  }
+}
+async function replyResponsibilityMentionSafely(input: {
+  reply: WorklogGroupReplyPort;
+  anomalies?: WorklogAnomalyPort;
+  replyToken: string;
+  fallbackText: string;
+  mentionText: string;
+  responsibleLineUserId: string;
+  lineGroupId: string;
+  lineMessageId: string;
+  webhookEventId: string | null;
+  counters: WorklogGroupWebhookCounters;
+}): Promise<WorklogSentReply | null> {
+  if (!input.reply.replyUserMention) {
+    return replySafely({
+      reply: input.reply,
+      anomalies: input.anomalies,
+      replyToken: input.replyToken,
+      text: input.fallbackText,
+      lineGroupId: input.lineGroupId,
+      lineUserId: input.responsibleLineUserId,
+      lineMessageId: input.lineMessageId,
+      webhookEventId: input.webhookEventId,
+      counters: input.counters,
+    });
+  }
+
+  try {
+    const result = await input.reply.replyUserMention(
+      input.replyToken,
+      input.mentionText,
+      input.responsibleLineUserId,
+    );
+    return result && Array.isArray(result.sentMessageIds) ? result : null;
+  } catch (error) {
+    input.counters.worklogErrors += 1;
+    logFailure({
+      event: 'worklog_group_responsibility_mention_failed',
+      lineGroupId: input.lineGroupId,
+      lineMessageId: input.lineMessageId,
+      webhookEventId: input.webhookEventId,
+      error,
+    });
+    await recordAnomalySafely(input.anomalies, {
+      category: 'LINE_GROUP_RESPONSIBILITY_MENTION',
+      errorCode: anomalyErrorCode(error, 'GROUP_RESPONSIBILITY_MENTION_FAILED'),
+      summary: anomalyErrorSummary(error, 'LINE group responsibility mention failed'),
+      lineMessageId: input.lineMessageId,
+      requestRef: input.webhookEventId,
+      metadata: {
+        lineGroupId: input.lineGroupId,
+        responsibleLineUserId: input.responsibleLineUserId,
+      },
+    });
+    return replySafely({
+      reply: input.reply,
+      anomalies: input.anomalies,
+      replyToken: input.replyToken,
+      text: input.fallbackText,
+      lineGroupId: input.lineGroupId,
+      lineUserId: input.responsibleLineUserId,
+      lineMessageId: input.lineMessageId,
+      webhookEventId: input.webhookEventId,
+      counters: input.counters,
+    });
   }
 }
 async function rememberReplyTargetSafely(input: { target?: WorklogBotReplyTargetPort; recordId: number; sent: WorklogSentReply | null; lineGroupId: string; lineUserId?: string | null; lineMessageId: string; webhookEventId: string | null; anomalies?: WorklogAnomalyPort; counters: WorklogGroupWebhookCounters }): Promise<void> {
@@ -158,6 +227,22 @@ export async function processWorklogGroupWebhook(input: {
         }
       }
       await replySafely({ reply: input.reply, anomalies: input.anomalies, replyToken: message.replyToken, text: history ? formatHistoryReply(history, url) : url ? `AFTERTRACE｜查看紀錄\n${url}` : 'AFTERTRACE 紀錄查詢目前暫時無法完成，既有紀錄不受影響。', lineGroupId: message.lineGroupId, lineUserId: message.lineUserId, lineMessageId: message.lineMessageId, webhookEventId: message.webhookEventId, counters });
+      continue;
+    }
+
+    if (result.status === 'AI_RESPONSIBILITY_BOUND' && message.lineUserId) {
+      await replyResponsibilityMentionSafely({
+        reply: input.reply,
+        anomalies: input.anomalies,
+        replyToken: message.replyToken,
+        fallbackText: `${result.replyText}\n\nAI 額度負責人：你`,
+        mentionText: `${result.replyText}\n\nAI 額度負責人：{responsible}`,
+        responsibleLineUserId: message.lineUserId,
+        lineGroupId: message.lineGroupId,
+        lineMessageId: message.lineMessageId,
+        webhookEventId: message.webhookEventId,
+        counters,
+      });
       continue;
     }
 
