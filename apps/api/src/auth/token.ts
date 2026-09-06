@@ -21,7 +21,8 @@ export type PrivateWebEntryClaims = {
 export type WebSessionClaims = {
   type: 'WEB_SESSION';
   userId: number | null;
-  lineUserId: string | null;
+  /** Migration-only compatibility field. Empty string means no legacy LINE identity. */
+  lineUserId: string;
   expiresAt: number;
 };
 
@@ -107,7 +108,9 @@ async function verify(token: string, secret: string, now: Date): Promise<TokenCl
 
     if (parsed.type === 'WEB_SESSION') {
       const sessionUserId = parsed.userId == null ? null : positiveDatabaseId(parsed.userId);
-      const legacyLineUserId = typeof parsed.lineUserId === 'string' ? lineUserId(parsed.lineUserId) : null;
+      const legacyLineUserId = typeof parsed.lineUserId === 'string' && parsed.lineUserId.trim()
+        ? lineUserId(parsed.lineUserId)
+        : '';
       if (!sessionUserId && !legacyLineUserId) return null;
       return {
         type: 'WEB_SESSION',
@@ -212,7 +215,7 @@ export async function issueWebSessionToken(input: {
     throw new Error('invalid web session ttl');
   }
   const sessionUserId = input.userId == null ? null : positiveDatabaseId(input.userId);
-  const legacyLineUserId = input.lineUserId == null ? null : lineUserId(input.lineUserId);
+  const legacyLineUserId = input.lineUserId == null ? '' : lineUserId(input.lineUserId);
   if (!sessionUserId && !legacyLineUserId) throw new Error('web session requires user identity');
   return issue({
     type: 'WEB_SESSION',
