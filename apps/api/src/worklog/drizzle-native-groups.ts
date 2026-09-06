@@ -35,6 +35,26 @@ type JoinRow = GroupRow & {
 export class DrizzleNativeGroupRepository implements NativeGroupRepository {
   constructor(private readonly db: Database) {}
 
+  async listGroups(actorUserId: number): Promise<NativeGroupSummary[]> {
+    const result = await this.db.execute(sql`
+      SELECT source.id::text AS source_id,
+             source.name,
+             member.role
+      FROM worklog_sources AS source
+      INNER JOIN worklog_source_members AS member
+        ON member.source_id = source.id
+       AND member.user_id = ${actorUserId}
+       AND member.is_active = TRUE
+      WHERE source.type = 'GROUP'
+        AND source.status = 'ACTIVE'
+        AND source.line_group_id IS NULL
+        AND source.name IS NOT NULL
+        AND length(btrim(source.name)) > 0
+      ORDER BY lower(source.name) ASC, source.id ASC
+    `);
+    return (result.rows as GroupRow[]).map(groupSummary);
+  }
+
   async createGroup(input: {
     creatorUserId: number;
     name: string;
