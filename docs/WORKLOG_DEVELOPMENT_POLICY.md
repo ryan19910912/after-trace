@@ -5,14 +5,16 @@ Durable development rules for branch `revive/line-worklog`.
 Before substantive product/domain/schema/runtime work, read in this order:
 
 1. `docs/WORKLOG_PRODUCT_SPEC.md`
-2. `docs/WORKLOG_SUPPORT_POLICY.md`
-3. `docs/WORKLOG_ENTITY_MODEL.md`
-4. `docs/WORKLOG_RECORD_EDIT_POLICY.md`
-5. `docs/WORKLOG_AI_POINT_POLICY.md`
-6. this file
-7. `docs/WORKLOG_LINE_CONTENT_POLICY.md`
-8. `docs/WORKLOG_DEPLOYMENT.md`
-9. `docs/WORKLOG_REBUILD_PROGRESS.md`
+2. `docs/WORKLOG_ACCOUNT_IDENTITY_POLICY.md`
+3. `docs/WORKLOG_SUPPORT_POLICY.md`
+4. `docs/WORKLOG_NOTIFICATION_POLICY.md`
+5. `docs/WORKLOG_ENTITY_MODEL.md`
+6. `docs/WORKLOG_RECORD_EDIT_POLICY.md`
+7. `docs/WORKLOG_AI_POINT_POLICY.md`
+8. this file
+9. `docs/WORKLOG_LINE_CONTENT_POLICY.md`
+10. `docs/WORKLOG_DEPLOYMENT.md`
+11. `docs/WORKLOG_REBUILD_PROGRESS.md`
 
 The latest documents above are the only product/development specification.
 
@@ -39,6 +41,19 @@ AFTERTRACE is **Web + PWA-first** with optional Chrome extension fast capture.
 - no GROUP AI responsible-user concept in the target product;
 - no automatic AI backfill when a free user subscribes later.
 
+## Account / authentication boundary
+
+Follow `WORKLOG_ACCOUNT_IDENTITY_POLICY.md`.
+
+- Google Login and LINE Login are first-class login options;
+- Apple Login is a supported login option and may be implemented after Google/LINE if sequencing is needed;
+- core AFTERTRACE users remain provider-neutral;
+- provider identities are bindings, not the account primary identity;
+- never silently merge provider identities merely because email matches;
+- every account has an immutable opaque public account id for support lookup;
+- Admin user search must support exact public account id lookup;
+- authenticated Web/PWA account UI exposes notification bell/unread count, display name, public `帳號 ID`, and copy action.
+
 ## Support / feedback boundary
 
 Customer support is intentionally separated from the work-memory domain.
@@ -51,6 +66,24 @@ Customer support is intentionally separated from the work-memory domain.
 - no RAG support knowledge base and no general-purpose AI support bot for the initial product;
 - a simple LINE OA automatic acknowledgement is acceptable if it does not promise a response-time SLA;
 - future support automation must remain a support-layer feature and must not silently reintroduce LINE as a product surface.
+
+## Notification boundary
+
+Follow `WORKLOG_NOTIFICATION_POLICY.md`.
+
+Current product notification categories are:
+
+- `ANNOUNCEMENT` — Admin-authored announcements;
+- `SYSTEM` — deterministic business/account events;
+- `TASK` — user task/reminder notifications.
+
+Category is independent from channel. Current channels are durable `IN_APP` and optional `PUSH`.
+
+Admin must support announcement creation, audience selection, immediate/scheduled send, channel selection, preview, cancel-before-dispatch and delivery/status inspection. System notifications must use deterministic event idempotency. Task reminders use one global Cloudflare scheduled handler/Cron, approximately every five minutes, with bounded due scans and idempotent delivery. Do not create one Cron per task. Queue is optional only when volume/fan-out requires it.
+
+Web/PWA must expose a durable notification center and unread count. PWA Push is an enhancement over durable IN_APP state.
+
+For supported iOS/iPadOS PWA push, the product flow assumes the Web App is added to the Home Screen and notification permission is requested only after an explicit user action such as `開啟通知`. Denied/unsupported push must degrade to IN_APP notifications rather than breaking the feature.
 
 ## Product behavior boundary
 
@@ -117,18 +150,19 @@ Do not continue adding LINE product features.
 
 Because the product is still prelaunch/test-stage, legacy LINE-era code and schema do not need to be preserved merely for compatibility. Prefer deleting or rewriting obsolete code when a clean replacement is safer and easier to maintain.
 
-Retaining LINE OA for support does **not** justify retaining legacy `小跡`, GROUP bot, Reply cache, AI responsibility, LINE product-command, or LINE membership domain logic.
+Retaining LINE Login as an authentication provider and LINE OA for support does **not** justify retaining legacy `小跡`, GROUP bot, Reply cache, AI responsibility, LINE product-command, or LINE membership domain logic.
 
 Priority is to replace product dependencies in this order:
 
-1. authentication/account assumptions;
+1. provider-neutral authentication/account/public account id;
 2. native AFTERTRACE group membership/invites;
 3. PWA/Web capture and manual Record model;
-4. per-user paid AI entitlement/caps;
-5. natural-language search and AI enrichment;
-6. tasks/reminders/push;
-7. Chrome extension;
-8. delete/isolate retired LINE runtime/schema after dependency review while keeping only the minimal OA support linkage needed by `WORKLOG_SUPPORT_POLICY.md`.
+4. notification center/schema foundation;
+5. per-user paid AI entitlement/caps;
+6. natural-language search and AI enrichment;
+7. tasks/reminders/push;
+8. Chrome extension;
+9. delete/isolate retired LINE runtime/schema after dependency review while keeping only LINE Login and the minimal OA support linkage required by the accepted product policies.
 
 ## SQL / PostgreSQL safety rules
 
