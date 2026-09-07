@@ -29,7 +29,9 @@ type ReservationRow = {
  * Source scope reserved_points. AI Pro provider-cost admission uses the exact selected
  * SUBSCRIPTION_PERIOD Grant as the serialization row: provider_cost_reserved_twd is held
  * before provider execution, then moved to provider_cost_committed_twd on settlement or
- * released on failure/expiry. This avoids a committed-cost-only concurrency race.
+ * released on failure/expiry. Point and cost mutations for one Grant are deliberately
+ * combined into one UPDATE per statement so PostgreSQL never has competing data-modifying
+ * CTEs trying to update the same row.
  */
 export class DrizzleWorklogAiPointLedgerRepository implements WorklogAiPointLedgerRepository {
   constructor(private readonly db: Database) {}
@@ -55,16 +57,6 @@ export class DrizzleWorklogAiPointLedgerRepository implements WorklogAiPointLedg
         WHERE entitlement_grant_id IS NOT NULL
           AND provider_cost_hold_twd IS NOT NULL
         GROUP BY entitlement_grant_id
-      ), cost_release AS (
-        UPDATE worklog_ai_grants AS g
-        SET provider_cost_reserved_twd = GREATEST(
-              0::numeric,
-              g.provider_cost_reserved_twd - cost_release_amount.provider_cost_hold_twd
-            ),
-            updated_at = ${input.at}
-        FROM cost_release_amount
-        WHERE g.id = cost_release_amount.entitlement_grant_id
-        RETURNING g.id
       ), released AS MATERIALIZED (
         SELECT
           funding.grant_id,
@@ -76,6 +68,14 @@ export class DrizzleWorklogAiPointLedgerRepository implements WorklogAiPointLedg
       ), grant_release AS (
         UPDATE worklog_ai_grants AS g
         SET remaining_points = g.remaining_points + released.points_reserved,
+            provider_cost_reserved_twd = GREATEST(
+              0::numeric,
+              g.provider_cost_reserved_twd - COALESCE((
+                SELECT cost_release_amount.provider_cost_hold_twd
+                FROM cost_release_amount
+                WHERE cost_release_amount.entitlement_grant_id = g.id
+              ), 0::numeric)
+            ),
             status = CASE
               WHEN g.status = 'EXHAUSTED' THEN 'ACTIVE'::worklog_ai_grant_status
               ELSE g.status
@@ -310,6 +310,11 @@ export class DrizzleWorklogAiPointLedgerRepository implements WorklogAiPointLedg
       ), grant_hold AS (
         UPDATE worklog_ai_grants AS g
         SET remaining_points = g.remaining_points - nonzero.points_reserved,
+            provider_cost_reserved_twd = g.provider_cost_reserved_twd + CASE
+              WHEN g.id = reservation.entitlement_grant_id AND reservation.provider_cost_hold_twd IS NOT NULL
+                THEN reservation.provider_cost_hold_twd
+              ELSE 0::numeric
+            END,
             status = CASE
               WHEN g.remaining_points - nonzero.points_reserved = 0
                 THEN 'EXHAUSTED'::worklog_ai_grant_status
@@ -329,14 +334,6 @@ export class DrizzleWorklogAiPointLedgerRepository implements WorklogAiPointLedg
         CROSS JOIN reservation
         WHERE scope_row.id = nonzero.grant_scope_id
         RETURNING scope_row.id
-      ), provider_cost_hold AS (
-        UPDATE worklog_ai_grants AS g
-        SET provider_cost_reserved_twd = g.provider_cost_reserved_twd + reservation.provider_cost_hold_twd,
-            updated_at = ${input.at}
-        FROM reservation
-        WHERE reservation.entitlement_grant_id = g.id
-          AND reservation.provider_cost_hold_twd IS NOT NULL
-        RETURNING g.id
       ), outcome AS (
         SELECT
           reservation.id::text AS id,
@@ -431,22 +428,6 @@ export class DrizzleWorklogAiPointLedgerRepository implements WorklogAiPointLedg
         WHERE reservation_row.id = settlement.id
           AND reservation_row.status = settlement.previous_status
         RETURNING reservation_row.*, settlement.previous_status
-      ), provider_cost_settle AS (
-        UPDATE worklog_ai_grants AS g
-        SET provider_cost_reserved_twd = GREATEST(
-              0::numeric,
-              g.provider_cost_reserved_twd - transitioned.provider_cost_hold_twd
-            ),
-            provider_cost_committed_twd = g.provider_cost_committed_twd + COALESCE(
-              ${usage.providerCostTwd}::numeric,
-              transitioned.provider_cost_hold_twd,
-              0::numeric
-            ),
-            updated_at = ${input.at}
-        FROM transitioned
-        WHERE g.id = transitioned.entitlement_grant_id
-          AND transitioned.provider_cost_hold_twd IS NOT NULL
-        RETURNING g.id
       ), funding_ordered AS MATERIALIZED (
         SELECT
           funding.id,
@@ -488,6 +469,20 @@ export class DrizzleWorklogAiPointLedgerRepository implements WorklogAiPointLedg
       ), grant_restore AS (
         UPDATE worklog_ai_grants AS g
         SET remaining_points = g.remaining_points + grant_restore_amount.points_to_restore,
+            provider_cost_reserved_twd = CASE
+              WHEN g.id = transitioned.entitlement_grant_id AND transitioned.provider_cost_hold_twd IS NOT NULL
+                THEN GREATEST(0::numeric, g.provider_cost_reserved_twd - transitioned.provider_cost_hold_twd)
+              ELSE g.provider_cost_reserved_twd
+            END,
+            provider_cost_committed_twd = CASE
+              WHEN g.id = transitioned.entitlement_grant_id AND transitioned.provider_cost_hold_twd IS NOT NULL
+                THEN g.provider_cost_committed_twd + COALESCE(
+                  ${usage.providerCostTwd}::numeric,
+                  transitioned.provider_cost_hold_twd,
+                  0::numeric
+                )
+              ELSE g.provider_cost_committed_twd
+            END,
             status = CASE
               WHEN g.status = 'EXHAUSTED' AND grant_restore_amount.points_to_restore > 0
                 THEN 'ACTIVE'::worklog_ai_grant_status
@@ -495,7 +490,25 @@ export class DrizzleWorklogAiPointLedgerRepository implements WorklogAiPointLedg
             END,
             updated_at = ${input.at}
         FROM grant_restore_amount
+        CROSS JOIN transitioned
         WHERE g.id = grant_restore_amount.grant_id
+        RETURNING g.id
+      ), expired_provider_cost_settle AS (
+        UPDATE worklog_ai_grants AS g
+        SET provider_cost_reserved_twd = GREATEST(
+              0::numeric,
+              g.provider_cost_reserved_twd - transitioned.provider_cost_hold_twd
+            ),
+            provider_cost_committed_twd = g.provider_cost_committed_twd + COALESCE(
+              ${usage.providerCostTwd}::numeric,
+              transitioned.provider_cost_hold_twd,
+              0::numeric
+            ),
+            updated_at = ${input.at}
+        FROM transitioned
+        WHERE transitioned.previous_status = 'EXPIRED'
+          AND transitioned.provider_cost_hold_twd IS NOT NULL
+          AND g.id = transitioned.entitlement_grant_id
         RETURNING g.id
       ), scope_settle_amount AS MATERIALIZED (
         SELECT
@@ -634,17 +647,6 @@ export class DrizzleWorklogAiPointLedgerRepository implements WorklogAiPointLedg
         WHERE token = ${token}
           AND status = 'RESERVED'
         RETURNING *
-      ), provider_cost_release AS (
-        UPDATE worklog_ai_grants AS g
-        SET provider_cost_reserved_twd = GREATEST(
-              0::numeric,
-              g.provider_cost_reserved_twd - transitioned.provider_cost_hold_twd
-            ),
-            updated_at = ${at}
-        FROM transitioned
-        WHERE g.id = transitioned.entitlement_grant_id
-          AND transitioned.provider_cost_hold_twd IS NOT NULL
-        RETURNING g.id
       ), released AS MATERIALIZED (
         SELECT
           funding.grant_id,
@@ -656,12 +658,18 @@ export class DrizzleWorklogAiPointLedgerRepository implements WorklogAiPointLedg
       ), grant_release AS (
         UPDATE worklog_ai_grants AS g
         SET remaining_points = g.remaining_points + released.points_reserved,
+            provider_cost_reserved_twd = CASE
+              WHEN g.id = transitioned.entitlement_grant_id AND transitioned.provider_cost_hold_twd IS NOT NULL
+                THEN GREATEST(0::numeric, g.provider_cost_reserved_twd - transitioned.provider_cost_hold_twd)
+              ELSE g.provider_cost_reserved_twd
+            END,
             status = CASE
               WHEN g.status = 'EXHAUSTED' THEN 'ACTIVE'::worklog_ai_grant_status
               ELSE g.status
             END,
             updated_at = ${at}
         FROM released
+        CROSS JOIN transitioned
         WHERE g.id = released.grant_id
         RETURNING g.id
       ), scope_release AS (
