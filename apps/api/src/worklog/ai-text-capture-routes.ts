@@ -11,16 +11,24 @@ import {
   type AiImageInput,
   type AiMediaCaptureRepository,
 } from './ai-media-capture';
+import {
+  AiNaturalSearchService,
+  type AiNaturalSearchProvider,
+  type AiNaturalSearchRepository,
+  type AiNaturalSearchResult,
+} from './ai-natural-search';
 import { AiTextCaptureService, type AiTextCaptureRepository } from './ai-text-capture';
 import { WorklogAiPointLedgerService, type WorklogAiPointLedgerRepository } from './ai-point-ledger';
 import type { WorklogAttachmentProvider } from './attachment-ingestion';
 import { DrizzleAiEntitlementRepository } from './drizzle-ai-entitlement';
 import { DrizzleAiMediaCaptureRepository } from './drizzle-ai-media-capture';
+import { DrizzleAiNaturalSearchRepository } from './drizzle-ai-natural-search';
 import { DrizzleAiTextCaptureRepository } from './drizzle-ai-text-capture';
 import { DrizzleWorklogAiPointLedgerRepository } from './drizzle-ai-point-ledger';
 import { DrizzleNotificationRepository } from './drizzle-notifications';
 import { EntitledAiPointLedgerService } from './entitled-ai-point-ledger';
 import { GeminiWorklogAttachmentNormalizer } from './gemini-attachment-normalizer';
+import { GeminiNaturalSearchInterpreter } from './gemini-natural-search';
 import { GeminiWorklogTextNormalizer } from './gemini-text-normalizer';
 import { NotificationService } from './notifications';
 import { parseRecordCaptureContext } from './record-capture-context';
@@ -41,9 +49,11 @@ export type AiTextCaptureRouteDependencies = {
   entitlementRepositoryFactory?: (database: Database) => AiEntitlementRepository;
   captureRepositoryFactory?: (database: Database) => AiTextCaptureRepository;
   mediaRepositoryFactory?: (database: Database) => AiMediaCaptureRepository;
+  searchRepositoryFactory?: (database: Database) => AiNaturalSearchRepository;
   ledgerRepositoryFactory?: (database: Database) => WorklogAiPointLedgerRepository;
   providerFactory?: (env: AiTextCaptureBindings) => WorklogTextNormalizationProvider;
   mediaProviderFactory?: (env: AiTextCaptureBindings) => WorklogAttachmentProvider;
+  searchProviderFactory?: (env: AiTextCaptureBindings) => AiNaturalSearchProvider;
 };
 
 type Env = {
@@ -84,12 +94,16 @@ export function createAiTextCaptureRoutes(dependencies: AiTextCaptureRouteDepend
     ?? ((database: Database) => new DrizzleAiTextCaptureRepository(database));
   const mediaRepositoryFactory = dependencies.mediaRepositoryFactory
     ?? ((database: Database) => new DrizzleAiMediaCaptureRepository(database));
+  const searchRepositoryFactory = dependencies.searchRepositoryFactory
+    ?? ((database: Database) => new DrizzleAiNaturalSearchRepository(database));
   const ledgerRepositoryFactory = dependencies.ledgerRepositoryFactory
     ?? ((database: Database) => new DrizzleWorklogAiPointLedgerRepository(database));
   const providerFactory = dependencies.providerFactory
     ?? ((env: AiTextCaptureBindings) => new GeminiWorklogTextNormalizer({ apiKey: env.GEMINI_API_KEY }));
   const mediaProviderFactory = dependencies.mediaProviderFactory
     ?? ((env: AiTextCaptureBindings) => new GeminiWorklogAttachmentNormalizer({ apiKey: env.GEMINI_API_KEY }));
+  const searchProviderFactory = dependencies.searchProviderFactory
+    ?? ((env: AiTextCaptureBindings) => new GeminiNaturalSearchInterpreter({ apiKey: env.GEMINI_API_KEY }));
   const app = new Hono<Env>();
 
   app.use('*', async (c, next) => {
@@ -139,7 +153,7 @@ export function createAiTextCaptureRoutes(dependencies: AiTextCaptureRouteDepend
     const text = typeof body.text === 'string' ? body.text : typeof body.content === 'string' ? body.content : '';
     if (!text.trim() || text.trim().length > 20_000) return c.json({ ok: false, error: 'AI_CAPTURE_TEXT_REQUIRED' }, 400);
 
-    const service = textService(c, dependencies, entitlementRepositoryFactory, captureRepositoryFactory, ledgerRepositoryFactory, providerFactory);
+    const service = textService(c, entitlementRepositoryFactory, captureRepositoryFactory, ledgerRepositoryFactory, providerFactory);
     const result = await service.capture({
       userId: c.get('userId'),
       sourceId,
@@ -167,7 +181,7 @@ export function createAiTextCaptureRoutes(dependencies: AiTextCaptureRouteDepend
     const captureContext = parseRecordCaptureContext(body.captureContext, c.req.header('origin'));
     if (captureContext === 'INVALID') return c.json({ ok: false, error: 'INVALID_CAPTURE_CONTEXT' }, 400);
 
-    const result = await mediaService(c, dependencies, entitlementRepositoryFactory, mediaRepositoryFactory, ledgerRepositoryFactory, mediaProviderFactory)
+    const result = await mediaService(c, entitlementRepositoryFactory, mediaRepositoryFactory, ledgerRepositoryFactory, mediaProviderFactory)
       .captureImage({
         userId: c.get('userId'),
         sourceId,
@@ -194,7 +208,7 @@ export function createAiTextCaptureRoutes(dependencies: AiTextCaptureRouteDepend
     });
     if ('error' in parsedAudio) return c.json({ ok: false, error: parsedAudio.error }, 400);
 
-    const result = await mediaService(c, dependencies, entitlementRepositoryFactory, mediaRepositoryFactory, ledgerRepositoryFactory, mediaProviderFactory)
+    const result = await mediaService(c, entitlementRepositoryFactory, mediaRepositoryFactory, ledgerRepositoryFactory, mediaProviderFactory)
       .captureAudio({
         userId: c.get('userId'),
         sourceId,
@@ -220,7 +234,7 @@ export function createAiTextCaptureRoutes(dependencies: AiTextCaptureRouteDepend
     });
     if ('error' in parsedFile) return c.json({ ok: false, error: parsedFile.error }, 400);
 
-    const result = await mediaService(c, dependencies, entitlementRepositoryFactory, mediaRepositoryFactory, ledgerRepositoryFactory, mediaProviderFactory)
+    const result = await mediaService(c, entitlementRepositoryFactory, mediaRepositoryFactory, ledgerRepositoryFactory, mediaProviderFactory)
       .captureFile({
         userId: c.get('userId'),
         sourceId,
@@ -231,12 +245,42 @@ export function createAiTextCaptureRoutes(dependencies: AiTextCaptureRouteDepend
     return captureResultResponse(c, c.get('database'), c.get('userId'), result);
   });
 
+  app.post('/search', async (c) => {
+    const body = await objectBody(c);
+    if (!body) return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
+    const sourceId = positiveId(body.sourceId);
+    if (!sourceId) return c.json({ ok: false, error: 'INVALID_SOURCE_ID' }, 400);
+    const query = typeof body.query === 'string' ? body.query.trim() : '';
+    if (!query || query.length > 1000) return c.json({ ok: false, error: 'AI_SEARCH_QUERY_REQUIRED' }, 400);
+    const timeZone = typeof body.timeZone === 'string' && body.timeZone.trim()
+      ? body.timeZone.trim()
+      : 'Asia/Taipei';
+    if (!validTimeZone(timeZone)) return c.json({ ok: false, error: 'AI_SEARCH_TIMEZONE_INVALID' }, 400);
+    const limit = body.limit === undefined ? 20 : positiveLimit(body.limit);
+    if (!limit) return c.json({ ok: false, error: 'AI_SEARCH_LIMIT_INVALID' }, 400);
+
+    const result = await searchService(
+      c,
+      entitlementRepositoryFactory,
+      searchRepositoryFactory,
+      ledgerRepositoryFactory,
+      searchProviderFactory,
+    ).search({
+      userId: c.get('userId'),
+      sourceId,
+      query,
+      timeZone,
+      limit,
+      referenceAt: new Date(),
+    });
+    return searchResultResponse(c, c.get('database'), c.get('userId'), result);
+  });
+
   return app;
 }
 
 function textService(
   c: CaptureRouteContext,
-  dependencies: AiTextCaptureRouteDependencies,
   entitlementRepositoryFactory: (database: Database) => AiEntitlementRepository,
   captureRepositoryFactory: (database: Database) => AiTextCaptureRepository,
   ledgerRepositoryFactory: (database: Database) => WorklogAiPointLedgerRepository,
@@ -254,7 +298,6 @@ function textService(
 
 function mediaService(
   c: CaptureRouteContext,
-  dependencies: AiTextCaptureRouteDependencies,
   entitlementRepositoryFactory: (database: Database) => AiEntitlementRepository,
   mediaRepositoryFactory: (database: Database) => AiMediaCaptureRepository,
   ledgerRepositoryFactory: (database: Database) => WorklogAiPointLedgerRepository,
@@ -270,6 +313,23 @@ function mediaService(
   );
 }
 
+function searchService(
+  c: CaptureRouteContext,
+  entitlementRepositoryFactory: (database: Database) => AiEntitlementRepository,
+  searchRepositoryFactory: (database: Database) => AiNaturalSearchRepository,
+  ledgerRepositoryFactory: (database: Database) => WorklogAiPointLedgerRepository,
+  searchProviderFactory: (env: AiTextCaptureBindings) => AiNaturalSearchProvider,
+) {
+  const database = c.get('database');
+  const entitlement = new AiEntitlementService(entitlementRepositoryFactory(database));
+  return new AiNaturalSearchService(
+    searchRepositoryFactory(database),
+    entitlement,
+    new EntitledAiPointLedgerService(entitlement, new WorklogAiPointLedgerService(ledgerRepositoryFactory(database))),
+    searchProviderFactory(c.env),
+  );
+}
+
 async function captureResultResponse(
   c: CaptureRouteContext,
   database: Database,
@@ -282,6 +342,24 @@ async function captureResultResponse(
     return c.json({ ok: false, error: result.reason }, result.reason === 'AI_MEDIA_DISABLED' ? 409 : 502);
   }
 
+  if (isDurableAiProLimit(result.decision.reason)) {
+    await notifyAiLimitSafely(database, userId, result.decision.reason, result.decision.periodEndsAt);
+  }
+  const status = result.decision.reason === 'SOURCE_NOT_AUTHORIZED' ? 403 : 409;
+  return c.json({ ok: false, error: result.decision.reason, entitlement: result.decision }, status);
+}
+
+async function searchResultResponse(
+  c: CaptureRouteContext,
+  database: Database,
+  userId: number,
+  result: AiNaturalSearchResult,
+) {
+  if (result.status === 'RESULTS') return c.json({ ok: true, ...result }, 200);
+  if (result.status === 'DEFERRED') return c.json({ ok: false, error: result.reason }, 503);
+  if (result.status === 'FAILED') {
+    return c.json({ ok: false, error: result.reason }, result.reason === 'AI_NATURAL_SEARCH_DISABLED' ? 409 : 502);
+  }
   if (isDurableAiProLimit(result.decision.reason)) {
     await notifyAiLimitSafely(database, userId, result.decision.reason, result.decision.periodEndsAt);
   }
@@ -362,6 +440,21 @@ function bearerToken(header: string | undefined): string | null {
 function positiveId(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function positiveLimit(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 50 ? parsed : null;
+}
+
+function validTimeZone(value: string): boolean {
+  if (!value || value.length > 64) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value }).format(new Date(0));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function objectBody(c: { req: { json(): Promise<unknown> } }): Promise<Record<string, unknown> | null> {
