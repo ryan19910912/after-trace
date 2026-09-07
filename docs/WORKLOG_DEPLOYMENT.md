@@ -53,7 +53,20 @@ Target core bindings include equivalents of:
 - `WEB_PUSH_SUBJECT`;
 - Admin auth/session/origin secrets.
 
-Do not put API secrets in `VITE_*` variables. The manual deploy script selects the Web Push VAPID values from the environment-specific file and uploads them as API Worker bindings; no deployment is implied merely because source configuration exists.
+Current optional NewebPay paid-subscription bindings are:
+
+- `NEWEBPAY_MERCHANT_ID`;
+- `NEWEBPAY_HASH_KEY`;
+- `NEWEBPAY_HASH_IV`;
+- `NEWEBPAY_MODE` (`TEST` or `PROD`);
+- `NEWEBPAY_PERIOD_VERSION`;
+- `NEWEBPAY_PERIOD_TIMES`;
+- `NEWEBPAY_NOTIFY_URL`;
+- `NEWEBPAY_RETURN_URL`.
+
+The merchant id/hash key/hash IV and callback configuration belong only in API Worker runtime secrets/config. Do not put them in `VITE_*` variables. NewebPay configuration is optional all-or-none for deployment: when unset, FREE/manual and all non-payment product functions remain available while paid checkout reports unavailable.
+
+The manual deploy script selects runtime values from the environment-specific file and uploads them through a temporary Wrangler secrets file; no deployment is implied merely because source configuration exists.
 
 ## Product authorization boundaries
 
@@ -110,7 +123,7 @@ AFTERTRACE is currently prelaunch/test-stage and the user has explicitly confirm
 - after reset, recreate only explicit target seed/runtime configuration required by the current product;
 - do not add migration complexity solely to preserve disposable prelaunch data.
 
-Current target-schema work includes provider-neutral identities/public account ids, native groups/invites, manual Records, notifications/PUSH, native tasks/reminders, FREE one-time AI trial and AI Pro entitlement/cost caps.
+Current target-schema work includes provider-neutral identities/public account ids, native groups/invites, manual Records, notifications/PUSH, native tasks/reminders, feedback management, NewebPay subscription adapter state, FREE one-time AI trial and AI Pro entitlement/cost caps.
 
 Safety boundary: this destructive permission expires once real customers or durable production data exist. At that point, destructive Prod rebuilds require a new explicit user decision and the development/deployment policies must be updated before proceeding.
 
@@ -148,16 +161,31 @@ pnpm install --frozen-lockfile
 pnpm release:preflight
 ```
 
-Passing static/unit validation does not replace real Dev runtime smoke for Web/PWA auth, DB, AI provider, tasks or push.
+Passing static/unit validation does not replace real Dev runtime smoke for Web/PWA auth, DB, AI provider, tasks, payment callbacks or push.
 
-## Payment / paid launch
+## Payment / paid launch — NewebPay
 
-Payment provider remains a separate implementation decision. When paid subscription is enabled, successful payment/renewal must create durable entitlement/period facts idempotently and must not store raw card data.
+V1 paid provider is NewebPay / 藍新信用卡定期定額.
 
-Deterministic payment/subscription state changes should emit idempotent SYSTEM notifications through the shared Notification Service rather than handwritten Admin messages.
+Source-authored flow:
+
+1. authenticated user requests AI Pro checkout;
+2. API creates a bounded checkout intent and NewebPay periodic-payment form;
+3. browser posts directly to the NewebPay-hosted payment page;
+4. AFTERTRACE stores no raw card data;
+5. successful first NewebPay callback maps to normalized subscription `ACTIVATE`;
+6. later successful periodic callbacks map to `RENEW`;
+7. provider callback retries are idempotent through checkout/provider event keys and the provider-neutral lifecycle inbox;
+8. cancellation calls NewebPay periodic `AlterStatus terminate`, then records `CANCEL` at the current billing-period end so already-paid access remains available until expiry;
+9. a failed recurring payment must not erase an already-paid active period;
+10. deterministic subscription changes emit idempotent SYSTEM notifications through the shared Notification Service.
+
+Real MerchantID/HashKey/HashIV and Dev/Prod callback URLs still need operator-supplied environment values before runtime checkout can be enabled in each environment.
 
 ## Admin security
 
 Admin login remains the only unauthenticated Admin API surface. Dev/Prod credentials/secrets should be distinct where practical. CORS origins are exact per environment.
+
+The V1 Admin root exposes target product operations only: provider-neutral account lookup, commercial/AI configuration, announcements, feedback management, pricing/profitability. Legacy LINE/GROUP-funding/ONE_TIME management code may remain temporarily in source for migration cleanup but is not routed from the Admin product surface.
 
 GitHub Actions must not be used as deployment or validation unless the user explicitly requests it.
