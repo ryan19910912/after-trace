@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { AdminApi } from './api';
 import { AdminAnnouncementApi } from './announcement-api';
 import { AdminAnnouncementsPage } from './AdminAnnouncementsPage';
+import { AdminAccountsPage } from './AdminAccountsPage';
 import { AdminCommercialPage } from './AdminCommercialPage';
 import { AdminFeedbackPage } from './AdminFeedbackPage';
 import { AdminHomePage } from './AdminHomePage';
@@ -38,11 +39,13 @@ if (!baseUrl) {
       ? <PricingCalculatorPage api={api} />
       : window.location.pathname === '/announcements'
         ? <AdminAnnouncementsPage api={api} announcementApi={announcementApi} />
-        : window.location.pathname === '/commercial'
-          ? <AdminCommercialPage api={commercialApi} />
-          : window.location.pathname === '/feedback-management'
-            ? <AdminFeedbackPage apiBaseUrl={baseUrl} />
-            : <AdminHomePage api={api} />;
+        : window.location.pathname === '/accounts'
+          ? <AdminAccountsPage api={api} />
+          : window.location.pathname === '/commercial'
+            ? <AdminCommercialPage api={commercialApi} />
+            : window.location.pathname === '/feedback-management'
+              ? <AdminFeedbackPage apiBaseUrl={baseUrl} />
+              : <AdminHomePage api={api} />;
 
   root.render(
     <StrictMode>
