@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { createDatabase } from '../db/client';
-import { WorklogAiGrantService } from '../worklog/ai-grants';
-import { DrizzleWorklogAiGrantRepository } from '../worklog/drizzle-ai-grants';
 import { DrizzleWorklogBootstrapRepository } from '../worklog/drizzle-bootstrap';
+import { AccountIdentityService } from './account-identity';
+import { DrizzleAccountIdentityRepository } from './drizzle-account-identity';
 import { issueLineLoginState, verifyLineLoginState } from './oauth-state';
 import { createPkceChallenge, createPkceVerifier } from './pkce';
 import { DrizzleWebAuthRepository } from './repository';
@@ -147,26 +147,28 @@ export function createWebAuthRoutes() {
     const profile = (await profileResponse.json()) as LineProfile;
     if (typeof profile.userId !== 'string') return c.json({ ok: false, error: 'LINE_PROFILE_FAILED' }, 502);
 
-    // LINE Login is currently a migration-era provider only. The durable AFTERTRACE
-    // session now carries numeric userId so future providers do not need LINE identity.
+    // LINE is one authentication provider. Provisioning binds its subject to a durable
+    // AFTERTRACE user and ensures the provider-neutral public account id in one DB statement.
+    // Exact legacy line_user_id matching is allowed only as a migration bridge; email/name
+    // snapshots never drive account merging.
     const at = new Date();
     const database = createDatabase(c.env.DATABASE_URL);
-    const bootstrap = new DrizzleWorklogBootstrapRepository(database);
-    const user = await bootstrap.upsertLineUser({
-      lineUserId: profile.userId,
-      displayName: typeof profile.displayName === 'string' ? profile.displayName : null,
-      at,
-    });
-    const workspaceId = await bootstrap.ensureWorkspace(user.userId, at);
-    const privateSourceId = await bootstrap.ensurePrivateSource(user.userId, workspaceId, at);
-    await new WorklogAiGrantService(new DrizzleWorklogAiGrantRepository(database)).ensureInitialFreeGrant({
-      userId: user.userId,
-      privateSourceId,
+    const account = await new AccountIdentityService(
+      new DrizzleAccountIdentityRepository(database),
+    ).provision({
+      provider: 'LINE',
+      subject: profile.userId,
+      displayNameSnapshot: typeof profile.displayName === 'string' ? profile.displayName : null,
+      legacyLineUserId: profile.userId,
       at,
     });
 
+    const bootstrap = new DrizzleWorklogBootstrapRepository(database);
+    const workspaceId = await bootstrap.ensureWorkspace(account.userId, at);
+    await bootstrap.ensurePrivateSource(account.userId, workspaceId, at);
+
     const sessionToken = await issueWebSessionToken({
-      userId: user.userId,
+      userId: account.userId,
       lineUserId: profile.userId,
       secret,
     });
