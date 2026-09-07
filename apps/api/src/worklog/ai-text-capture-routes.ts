@@ -22,6 +22,12 @@ import {
   type AiRelatedRecordsRepository,
   type AiRelatedRecordsResult,
 } from './ai-related-records';
+import {
+  AiTimeRangeSummaryService,
+  type AiTimeRangeSummaryProvider,
+  type AiTimeRangeSummaryRepository,
+  type AiTimeRangeSummaryResult,
+} from './ai-time-range-summary';
 import { AiTextCaptureService, type AiTextCaptureRepository } from './ai-text-capture';
 import { WorklogAiPointLedgerService, type WorklogAiPointLedgerRepository } from './ai-point-ledger';
 import type { WorklogAttachmentProvider } from './attachment-ingestion';
@@ -29,12 +35,14 @@ import { DrizzleAiEntitlementRepository } from './drizzle-ai-entitlement';
 import { DrizzleAiMediaCaptureRepository } from './drizzle-ai-media-capture';
 import { DrizzleAiNaturalSearchRepository } from './drizzle-ai-natural-search';
 import { DrizzleAiRelatedRecordsRepository } from './drizzle-ai-related-records';
+import { DrizzleAiTimeRangeSummaryRepository } from './drizzle-ai-time-range-summary';
 import { DrizzleAiTextCaptureRepository } from './drizzle-ai-text-capture';
 import { DrizzleWorklogAiPointLedgerRepository } from './drizzle-ai-point-ledger';
 import { DrizzleNotificationRepository } from './drizzle-notifications';
 import { EntitledAiPointLedgerService } from './entitled-ai-point-ledger';
 import { GeminiWorklogAttachmentNormalizer } from './gemini-attachment-normalizer';
 import { GeminiNaturalSearchInterpreter } from './gemini-natural-search';
+import { GeminiWorklogTimeRangeSummarizer } from './gemini-time-range-summary';
 import { GeminiWorklogTextNormalizer } from './gemini-text-normalizer';
 import { NotificationService } from './notifications';
 import { parseRecordCaptureContext } from './record-capture-context';
@@ -57,10 +65,12 @@ export type AiTextCaptureRouteDependencies = {
   mediaRepositoryFactory?: (database: Database) => AiMediaCaptureRepository;
   searchRepositoryFactory?: (database: Database) => AiNaturalSearchRepository;
   relatedRepositoryFactory?: (database: Database) => AiRelatedRecordsRepository;
+  summaryRepositoryFactory?: (database: Database) => AiTimeRangeSummaryRepository;
   ledgerRepositoryFactory?: (database: Database) => WorklogAiPointLedgerRepository;
   providerFactory?: (env: AiTextCaptureBindings) => WorklogTextNormalizationProvider;
   mediaProviderFactory?: (env: AiTextCaptureBindings) => WorklogAttachmentProvider;
   searchProviderFactory?: (env: AiTextCaptureBindings) => AiNaturalSearchProvider;
+  summaryProviderFactory?: (env: AiTextCaptureBindings) => AiTimeRangeSummaryProvider;
 };
 
 type Env = {
@@ -105,6 +115,8 @@ export function createAiTextCaptureRoutes(dependencies: AiTextCaptureRouteDepend
     ?? ((database: Database) => new DrizzleAiNaturalSearchRepository(database));
   const relatedRepositoryFactory = dependencies.relatedRepositoryFactory
     ?? ((database: Database) => new DrizzleAiRelatedRecordsRepository(database));
+  const summaryRepositoryFactory = dependencies.summaryRepositoryFactory
+    ?? ((database: Database) => new DrizzleAiTimeRangeSummaryRepository(database));
   const ledgerRepositoryFactory = dependencies.ledgerRepositoryFactory
     ?? ((database: Database) => new DrizzleWorklogAiPointLedgerRepository(database));
   const providerFactory = dependencies.providerFactory
@@ -113,6 +125,8 @@ export function createAiTextCaptureRoutes(dependencies: AiTextCaptureRouteDepend
     ?? ((env: AiTextCaptureBindings) => new GeminiWorklogAttachmentNormalizer({ apiKey: env.GEMINI_API_KEY }));
   const searchProviderFactory = dependencies.searchProviderFactory
     ?? ((env: AiTextCaptureBindings) => new GeminiNaturalSearchInterpreter({ apiKey: env.GEMINI_API_KEY }));
+  const summaryProviderFactory = dependencies.summaryProviderFactory
+    ?? ((env: AiTextCaptureBindings) => new GeminiWorklogTimeRangeSummarizer({ apiKey: env.GEMINI_API_KEY }));
   const app = new Hono<Env>();
 
   app.use('*', async (c, next) => {
@@ -244,6 +258,29 @@ export function createAiTextCaptureRoutes(dependencies: AiTextCaptureRouteDepend
     return relatedResultResponse(c, result);
   });
 
+  app.post('/summary', async (c) => {
+    const body = await objectBody(c);
+    if (!body) return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
+    const sourceId = positiveId(body.sourceId);
+    if (!sourceId) return c.json({ ok: false, error: 'INVALID_SOURCE_ID' }, 400);
+    const from = dateInput(body.from);
+    const to = dateInput(body.to);
+    if (!from) return c.json({ ok: false, error: 'AI_SUMMARY_FROM_INVALID' }, 400);
+    if (!to) return c.json({ ok: false, error: 'AI_SUMMARY_TO_INVALID' }, 400);
+    if (from.getTime() >= to.getTime()) return c.json({ ok: false, error: 'AI_SUMMARY_RANGE_INVALID' }, 400);
+    if (to.getTime() - from.getTime() > 366 * 24 * 60 * 60_000) return c.json({ ok: false, error: 'AI_SUMMARY_RANGE_TOO_LARGE' }, 400);
+    const timeZone = typeof body.timeZone === 'string' && body.timeZone.trim() ? body.timeZone.trim() : 'Asia/Taipei';
+    if (!validTimeZone(timeZone)) return c.json({ ok: false, error: 'AI_SUMMARY_TIMEZONE_INVALID' }, 400);
+    const result = await summaryService(
+      c,
+      entitlementRepositoryFactory,
+      summaryRepositoryFactory,
+      ledgerRepositoryFactory,
+      summaryProviderFactory,
+    ).summarize({ userId: c.get('userId'), sourceId, from, to, timeZone, referenceAt: new Date() });
+    return summaryResultResponse(c, c.get('database'), c.get('userId'), result);
+  });
+
   return app;
 }
 
@@ -307,6 +344,22 @@ function relatedService(
   );
 }
 
+function summaryService(
+  c: CaptureRouteContext,
+  entitlementRepositoryFactory: (database: Database) => AiEntitlementRepository,
+  summaryRepositoryFactory: (database: Database) => AiTimeRangeSummaryRepository,
+  ledgerRepositoryFactory: (database: Database) => WorklogAiPointLedgerRepository,
+  summaryProviderFactory: (env: AiTextCaptureBindings) => AiTimeRangeSummaryProvider,
+) {
+  const database = c.get('database');
+  const entitlement = new AiEntitlementService(entitlementRepositoryFactory(database));
+  return new AiTimeRangeSummaryService(
+    summaryRepositoryFactory(database), entitlement,
+    new EntitledAiPointLedgerService(entitlement, new WorklogAiPointLedgerService(ledgerRepositoryFactory(database))),
+    summaryProviderFactory(c.env),
+  );
+}
+
 async function captureResultResponse(c: CaptureRouteContext, database: Database, userId: number, result: CaptureRouteResult) {
   if (result.status === 'CREATED') return c.json({ ok: true, ...result }, 201);
   if (result.status === 'DEFERRED') return c.json({ ok: false, error: result.reason }, 503);
@@ -329,6 +382,22 @@ function relatedResultResponse(c: CaptureRouteContext, result: AiRelatedRecordsR
   if (result.status === 'RESULTS') return c.json({ ok: true, ...result }, 200);
   if (result.status === 'NOT_FOUND') return c.json({ ok: false, error: result.reason }, 404);
   if (result.status === 'FAILED') return c.json({ ok: false, error: result.reason }, result.reason === 'AI_RELATED_RECORDS_DISABLED' ? 409 : 500);
+  const status = result.decision.reason === 'SOURCE_NOT_AUTHORIZED' ? 403 : 409;
+  return c.json({ ok: false, error: result.decision.reason, entitlement: result.decision }, status);
+}
+
+async function summaryResultResponse(
+  c: CaptureRouteContext,
+  database: Database,
+  userId: number,
+  result: AiTimeRangeSummaryResult,
+) {
+  if (result.status === 'SUMMARY' || result.status === 'NO_RECORDS') return c.json({ ok: true, ...result }, 200);
+  if (result.status === 'DEFERRED') return c.json({ ok: false, error: result.reason }, 503);
+  if (result.status === 'FAILED') {
+    return c.json({ ok: false, error: result.reason }, result.reason === 'AI_TIME_RANGE_SUMMARY_DISABLED' ? 409 : 502);
+  }
+  if (isDurableAiProLimit(result.decision.reason)) await notifyAiLimitSafely(database, userId, result.decision.reason, result.decision.periodEndsAt);
   const status = result.decision.reason === 'SOURCE_NOT_AUTHORIZED' ? 403 : 409;
   return c.json({ ok: false, error: result.decision.reason, entitlement: result.decision }, status);
 }
@@ -396,6 +465,12 @@ function positiveLimit(value: unknown): number | null {
 function relatedLimit(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 20 ? parsed : null;
+}
+
+function dateInput(value: unknown): Date | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 function validTimeZone(value: string): boolean {
