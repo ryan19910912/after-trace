@@ -23,11 +23,6 @@ export type AppleIdentityTokenClaims = {
   emailSnapshot: string | null;
 };
 
-export type AppleUserSnapshot = {
-  emailSnapshot: string | null;
-  displayNameSnapshot: string | null;
-};
-
 type AppleJwkSet = { keys?: unknown };
 type AppleJwtHeader = { alg?: unknown; kid?: unknown };
 type AppleJwtClaims = {
@@ -44,6 +39,7 @@ export function createAppleNonce(): string {
   return base64UrlEncode(crypto.getRandomValues(new Uint8Array(32)));
 }
 
+/** Apple client_secret is our JWT and is signed with our Sign in with Apple P-256 key using ES256. */
 export async function createAppleClientSecret(
   credential: AppleClientCredential,
   now = new Date(),
@@ -77,6 +73,11 @@ export async function createAppleClientSecret(
   return `${signingInput}.${base64UrlEncode(signature)}`;
 }
 
+/**
+ * Apple identity tokens are Apple-signed OpenID Connect JWTs. Their signing keys are RSA
+ * keys from /auth/keys and the token alg is RS256. Do not confuse this with the ES256
+ * developer key used above to create our client_secret.
+ */
 export async function verifyAppleIdentityToken(input: {
   idToken: string;
   clientId: string;
@@ -88,7 +89,7 @@ export async function verifyAppleIdentityToken(input: {
   const expectedNonce = requiredText(input.expectedNonce, 256, 'APPLE_LOGIN_NONCE_INVALID');
   const nowSeconds = Math.floor(validDate(input.now ?? new Date()).getTime() / 1000);
   const { headerPart, payloadPart, signaturePart, header, claims } = parseJwt(input.idToken);
-  if (header.alg !== 'ES256' || typeof header.kid !== 'string' || !header.kid.trim()) {
+  if (header.alg !== 'RS256' || typeof header.kid !== 'string' || !header.kid.trim()) {
     throw new AppleLoginError('APPLE_ID_TOKEN_INVALID', 'Apple identity token header is invalid');
   }
 
@@ -117,7 +118,7 @@ export async function verifyAppleIdentityToken(input: {
     publicKey = await crypto.subtle.importKey(
       'jwk',
       jwk,
-      { name: 'ECDSA', namedCurve: 'P-256' },
+      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
       false,
       ['verify'],
     );
@@ -129,7 +130,7 @@ export async function verifyAppleIdentityToken(input: {
   let verified = false;
   try {
     verified = await crypto.subtle.verify(
-      { name: 'ECDSA', hash: 'SHA-256' },
+      'RSASSA-PKCS1-v1_5',
       publicKey,
       asArrayBuffer(signature),
       asArrayBuffer(encoder.encode(`${headerPart}.${payloadPart}`)),
@@ -154,31 +155,6 @@ export async function verifyAppleIdentityToken(input: {
   const subject = requiredText(claims.sub, 512, 'APPLE_ID_TOKEN_INVALID');
   const emailSnapshot = optionalSnapshot(claims.email, 320);
   return { subject, emailSnapshot };
-}
-
-export function parseAppleUserSnapshot(raw: string | null | undefined): AppleUserSnapshot {
-  if (!raw?.trim()) return { emailSnapshot: null, displayNameSnapshot: null };
-  if (raw.length > 8_192) throw new AppleLoginError('APPLE_USER_PAYLOAD_INVALID', 'Apple user payload is too large');
-  let value: unknown;
-  try {
-    value = JSON.parse(raw);
-  } catch {
-    throw new AppleLoginError('APPLE_USER_PAYLOAD_INVALID', 'Apple user payload is not valid JSON');
-  }
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new AppleLoginError('APPLE_USER_PAYLOAD_INVALID', 'Apple user payload is invalid');
-  }
-  const record = value as Record<string, unknown>;
-  const emailSnapshot = optionalSnapshot(record.email, 320);
-  const nameValue = record.name;
-  let displayNameSnapshot: string | null = null;
-  if (nameValue && typeof nameValue === 'object' && !Array.isArray(nameValue)) {
-    const name = nameValue as Record<string, unknown>;
-    const firstName = optionalSnapshot(name.firstName, 120);
-    const lastName = optionalSnapshot(name.lastName, 120);
-    displayNameSnapshot = optionalSnapshot([firstName, lastName].filter(Boolean).join(' '), 255);
-  }
-  return { emailSnapshot, displayNameSnapshot };
 }
 
 function parseJwt(token: string): {
@@ -208,10 +184,9 @@ function matchingAppleJwk(value: unknown, kid: string): JsonWebKey | null {
     const jwk = candidate as Record<string, unknown>;
     if (
       jwk.kid === kid
-      && jwk.kty === 'EC'
-      && jwk.crv === 'P-256'
-      && typeof jwk.x === 'string'
-      && typeof jwk.y === 'string'
+      && jwk.kty === 'RSA'
+      && typeof jwk.n === 'string'
+      && typeof jwk.e === 'string'
     ) {
       return candidate as JsonWebKey;
     }
@@ -224,7 +199,7 @@ function audienceIncludes(value: unknown, clientId: string): boolean {
 }
 
 async function importApplePrivateKey(value: string): Promise<CryptoKey> {
-  let pem = value.trim();
+  let pem = value.trim().replace(/\\n/g, '\n');
   if (!pem.includes('BEGIN PRIVATE KEY')) {
     try {
       pem = decoder.decode(base64StandardDecode(pem));
