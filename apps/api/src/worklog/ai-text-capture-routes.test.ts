@@ -13,7 +13,15 @@ async function authorization(userId = 7) {
   return `Bearer ${await issueWebSessionToken({ userId, secret: env.WEB_AUTH_SECRET, ttlSeconds: 3600 })}`;
 }
 
-describe('provider-backed AI text capture route', () => {
+function requestHeaders(userId = 7) {
+  return authorization(userId).then((authorizationHeader) => ({
+    authorization: authorizationHeader,
+    origin: env.WEB_APP_ORIGIN,
+    'content-type': 'application/json',
+  }));
+}
+
+describe('provider-backed AI capture routes', () => {
   it('fails Source authorization before runtime/provider/ledger execution', async () => {
     let runtimeCalls = 0;
     let providerCalls = 0;
@@ -40,11 +48,7 @@ describe('provider-backed AI text capture route', () => {
 
     const response = await app.request('/text', {
       method: 'POST',
-      headers: {
-        authorization: await authorization(23),
-        origin: env.WEB_APP_ORIGIN,
-        'content-type': 'application/json',
-      },
+      headers: await requestHeaders(23),
       body: JSON.stringify({ sourceId: 99, text: '這筆資料不該進 provider' }),
     }, env);
 
@@ -69,16 +73,58 @@ describe('provider-backed AI text capture route', () => {
 
     const response = await app.request('/text', {
       method: 'POST',
-      headers: {
-        authorization: await authorization(),
-        origin: env.WEB_APP_ORIGIN,
-        'content-type': 'application/json',
-      },
+      headers: await requestHeaders(),
       body: JSON.stringify({ sourceId: 'bad', text: 'test' }),
     }, env);
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({ ok: false, error: 'INVALID_SOURCE_ID' });
     expect(repositoryCalls).toBe(0);
+  });
+
+  it('rejects unsupported audio MIME before entitlement/provider construction', async () => {
+    let dependencyCalls = 0;
+    const app = createAiTextCaptureRoutes({
+      databaseFactory: () => ({} as never),
+      resolveSessionUserId: async (_database, session) => session.userId,
+      entitlementRepositoryFactory: () => { dependencyCalls += 1; throw new Error('should not construct'); },
+      mediaRepositoryFactory: () => { dependencyCalls += 1; throw new Error('should not construct'); },
+    });
+
+    const response = await app.request('/audio', {
+      method: 'POST',
+      headers: await requestHeaders(),
+      body: JSON.stringify({
+        sourceId: 12,
+        audio: { mimeType: 'video/mp4', dataBase64: 'YWJj' },
+      }),
+    }, env);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ ok: false, error: 'AI_AUDIO_TYPE_UNSUPPORTED' });
+    expect(dependencyCalls).toBe(0);
+  });
+
+  it('rejects malformed PDF/file base64 before entitlement/provider construction', async () => {
+    let dependencyCalls = 0;
+    const app = createAiTextCaptureRoutes({
+      databaseFactory: () => ({} as never),
+      resolveSessionUserId: async (_database, session) => session.userId,
+      entitlementRepositoryFactory: () => { dependencyCalls += 1; throw new Error('should not construct'); },
+      mediaRepositoryFactory: () => { dependencyCalls += 1; throw new Error('should not construct'); },
+    });
+
+    const response = await app.request('/file', {
+      method: 'POST',
+      headers: await requestHeaders(),
+      body: JSON.stringify({
+        sourceId: 12,
+        file: { mimeType: 'application/pdf', dataBase64: 'not base64!' },
+      }),
+    }, env);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ ok: false, error: 'AI_FILE_BASE64_INVALID' });
+    expect(dependencyCalls).toBe(0);
   });
 });
