@@ -94,3 +94,11 @@ export function issueGoogleLoginState(secret: string, now = new Date(), ttlSecon
 export function verifyGoogleLoginState(token: string, secret: string, now = new Date()): Promise<boolean> {
   return verifyOAuthLoginState('GOOGLE', token, secret, now);
 }
+
+export function issueAppleLoginState(secret: string, now = new Date(), ttlSeconds = 600): Promise<string> {
+  return issueOAuthLoginState('APPLE', secret, now, ttlSeconds);
+}
+
+export function verifyAppleLoginState(token: string, secret: string, now = new Date()): Promise<boolean> {
+  return verifyOAuthLoginState('APPLE', token, secret, now);
+}
