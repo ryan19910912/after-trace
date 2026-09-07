@@ -1,5 +1,6 @@
 import type { AiEntitlementDecision } from './ai-entitlement';
 import type { WorklogAiUsageCommit } from './ai-provider-usage';
+import { aiPointReservationCostHoldTwd } from './ai-points';
 import type { AiPointLedgerPort } from './entitled-ai-point-ledger';
 import type {
   WorklogAiRuntimeConfigSnapshot,
@@ -43,10 +44,10 @@ export type AiTextCaptureResult =
  * Target Web/PWA/Chrome provider-backed text capture path.
  *
  * Manual capture does not use this service. A read-only entitlement resolution first hides
- * runtime/provider state from unauthorized Sources. Request-specific admission + exact Grant
- * selection is then enforced again inside the shared EntitledAiPointLedgerService before the
- * low-level point reservation runs. Provider success is always settled/audited even when a
- * later Record write fails.
+ * runtime/provider state from unauthorized Sources. The request then derives both the point
+ * reservation and a conservative TWD provider-cost hold from one runtime pricing snapshot.
+ * Exact selected-Grant admission and atomic paid-period cost reservation happen before the
+ * provider call. Provider success is always settled/audited even when Record persistence fails.
  */
 export class AiTextCaptureService {
   constructor(
@@ -77,11 +78,17 @@ export class AiTextCaptureService {
 
     const providerInput = { text, referenceOccurredAt: referenceAt.toISOString() };
     let requestedPoints: number;
+    let providerCostHoldTwd: number | null;
     try {
       requestedPoints = positiveId(
         this.provider.reservationPoints(providerInput, config),
         'AI_RESERVATION_ESTIMATE_INVALID',
       );
+      providerCostHoldTwd = aiPointReservationCostHoldTwd({
+        points: requestedPoints,
+        outputUsdPerMillion: config.outputUsdPerMillion,
+        usdTwdRate: config.usdTwdRate,
+      });
     } catch (error) {
       return { status: 'FAILED', reason: errorCode(error, 'AI_RESERVATION_ESTIMATE_INVALID') };
     }
@@ -91,6 +98,7 @@ export class AiTextCaptureService {
       actorUserId: userId,
       sourceId,
       requestedPoints,
+      providerCostHoldTwd,
       at: referenceAt,
       ttlMs: 10 * 60_000,
     });
@@ -108,6 +116,7 @@ export class AiTextCaptureService {
           reason,
           remainingPoints: reason === 'PER_REQUEST_POINT_CAP_EXCEEDED' ? preliminary.remainingPoints : 0,
           periodEndsAt: preliminary.periodEndsAt,
+          perRequestAiPointCap: preliminary.perRequestAiPointCap,
         },
       };
     }
@@ -199,9 +208,9 @@ function entitlementReason(value: string): AiEntitlementDecision['reason'] {
     'MONTHLY_POINT_CAP_WOULD_BE_EXCEEDED',
     'MONTHLY_PROVIDER_COST_CAP_REACHED',
     'PROVIDER_COST_ACCOUNTING_INCOMPLETE',
+    'AI_PRO_GRANT_NOT_READY',
     'PER_REQUEST_POINT_CAP_EXCEEDED',
     'PLAN_DISABLED',
-    'SUBSCRIPTION_GRANT_MISSING',
   ];
   return allowed.includes(value as AiEntitlementDecision['reason'])
     ? value as AiEntitlementDecision['reason']
