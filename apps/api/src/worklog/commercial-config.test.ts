@@ -28,6 +28,8 @@ class FakeRepository implements CommercialConfigRepository {
     aiMediaIngestion: true,
     aiNaturalSearch: true,
     aiRelatedRecords: true,
+    aiTimeRangeSummary: true,
+    aiRecordRewrite: true,
     monthlyAiPointCap: 1000,
     monthlyProviderCostCapTwd: '30',
     perRequestAiPointCap: 200,
@@ -75,6 +77,8 @@ describe('CommercialConfigService', () => {
       aiMediaIngestion: false,
       aiNaturalSearch: false,
       aiRelatedRecords: false,
+      aiTimeRangeSummary: false,
+      aiRecordRewrite: false,
       monthlyAiPointCap: 2000,
       monthlyProviderCostCapTwd: '30',
       perRequestAiPointCap: 250,
@@ -87,6 +91,8 @@ describe('CommercialConfigService', () => {
         aiMediaIngestion: false,
         aiNaturalSearch: false,
         aiRelatedRecords: false,
+        aiTimeRangeSummary: false,
+        aiRecordRewrite: false,
         monthlyAiPointCap: 2000,
         monthlyProviderCostCapTwd: '30',
         perRequestAiPointCap: 250,
@@ -106,6 +112,8 @@ describe('CommercialConfigService', () => {
       aiMediaIngestion: true,
       aiNaturalSearch: true,
       aiRelatedRecords: true,
+      aiTimeRangeSummary: true,
+      aiRecordRewrite: true,
     });
   });
 
