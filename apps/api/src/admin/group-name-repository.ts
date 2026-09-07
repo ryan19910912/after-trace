@@ -50,7 +50,7 @@ export class DrizzleGroupNameAdminRepository extends DrizzleGrantAdminRepository
         AND (
           ${input.userType}::text IS NULL
           OR (${input.userType}::text = 'GROUP_ENABLED' AND EXISTS (SELECT 1 FROM worklog_source_ai_responsibility responsibility INNER JOIN worklog_sources source ON source.id = responsibility.source_id WHERE responsibility.responsible_user_id = u.id AND source.type = 'GROUP' AND source.status = 'ACTIVE'))
-          OR (${input.userType}::text = 'INDIVIDUAL' AND NOT EXISTS (SELECT 1 FROM worklog_source_ai_responsibility responsibility INNER JOIN worklog_sources source ON source.id = responsibility.responsible_user_id AND source.type = 'GROUP' AND source.status = 'ACTIVE'))
+          OR (${input.userType}::text = 'INDIVIDUAL' AND NOT EXISTS (SELECT 1 FROM worklog_source_ai_responsibility responsibility INNER JOIN worklog_sources source ON source.id = responsibility.source_id WHERE responsibility.responsible_user_id = u.id AND source.type = 'GROUP' AND source.status = 'ACTIVE'))
         )
       ORDER BY CASE WHEN ${input.sortUpdated}::text = 'ASC' THEN u.updated_at END ASC,
                CASE WHEN ${input.sortUpdated}::text = 'DESC' THEN u.updated_at END DESC,
