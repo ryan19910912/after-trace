@@ -8,13 +8,15 @@ Before substantive product/domain/schema/runtime work, read in this order:
 2. `docs/WORKLOG_ACCOUNT_IDENTITY_POLICY.md`
 3. `docs/WORKLOG_SUPPORT_POLICY.md`
 4. `docs/WORKLOG_NOTIFICATION_POLICY.md`
-5. `docs/WORKLOG_ENTITY_MODEL.md`
-6. `docs/WORKLOG_RECORD_EDIT_POLICY.md`
-7. `docs/WORKLOG_AI_POINT_POLICY.md`
-8. this file
-9. `docs/WORKLOG_LINE_CONTENT_POLICY.md`
-10. `docs/WORKLOG_DEPLOYMENT.md`
-11. `docs/WORKLOG_REBUILD_PROGRESS.md`
+5. `docs/WORKLOG_EXTENSION_POLICY.md`
+6. `docs/WORKLOG_ENTITY_MODEL.md`
+7. `docs/WORKLOG_RECORD_EDIT_POLICY.md`
+8. `docs/WORKLOG_AI_POINT_POLICY.md`
+9. `docs/WORKLOG_SUBSCRIPTION_POLICY.md`
+10. this file
+11. `docs/WORKLOG_LINE_CONTENT_POLICY.md`
+12. `docs/WORKLOG_DEPLOYMENT.md`
+13. `docs/WORKLOG_REBUILD_PROGRESS.md`
 
 The latest documents above are the only product/development specification.
 
@@ -28,13 +30,13 @@ Every development commit on this branch must include `[skip ci]`.
 
 ## Current architecture direction
 
-AFTERTRACE is **Web + PWA-first** with optional Chrome extension fast capture.
+AFTERTRACE is **Web + PWA-first** with a committed Chrome extension fast-capture surface.
 
 - LINE is retired from the core product surface;
 - the official LINE OA remains only as an external customer-support contact channel under `WORKLOG_SUPPORT_POLICY.md`;
 - PWA is capture-first with microphone as the primary action;
 - Web is the full timeline/search/edit/group/subscription surface;
-- Chrome extension reuses the same API/domain model;
+- Chrome extension reuses the same account/API/domain model and remains a compact capture surface;
 - groups are created in AFTERTRACE and joined through invite links;
 - free users get manual CRUD/search/date filtering and non-provider browser speech-to-text where available;
 - paid AI entitlement is per user;
@@ -85,6 +87,38 @@ Web/PWA must expose a durable notification center and unread count. PWA Push is 
 
 For supported iOS/iPadOS PWA push, the product flow assumes the Web App is added to the Home Screen and notification permission is requested only after an explicit user action such as `開啟通知`. Denied/unsupported push must degrade to IN_APP notifications rather than breaking the feature.
 
+## Chrome extension boundary
+
+Follow `WORKLOG_EXTENSION_POLICY.md`.
+
+The extension is a committed V1 fast-capture client. It must reuse the same AFTERTRACE account, Source/group authorization, Record APIs, AI entitlement and provider-cost accounting as Web/PWA.
+
+Accepted capture scope:
+
+- quick text;
+- quick voice;
+- selected webpage text from explicit user action;
+- optional active-page title + URL context;
+- explicit visible-page/bounded screenshot/image capture;
+- normal Source/group selection before persistence.
+
+Free/provider-free extension functions remain manual capture. Provider-backed voice/image/enrichment requires AI Pro or eligible Free AI trial points.
+
+Do not add automatic full-page archiving, browsing-history capture, clipboard monitoring, continuous microphone/screen capture, meeting-length recording, automatic tab monitoring, RAG over visited pages, or a large extension-only sidebar/agent.
+
+Current implementation order:
+
+1. popup/auth handoff;
+2. Source/group picker;
+3. quick text persistence;
+4. page title/URL context;
+5. selected-text context-menu flow;
+6. quick voice;
+7. screenshot/image + AI entitlement path;
+8. permission/privacy/browser smoke and Chrome Web Store packaging.
+
+The `apps/extension` scaffold may hold transient UI/draft state, but durable Records must be persisted through AFTERTRACE backend APIs rather than extension-only local storage.
+
 ## Product behavior boundary
 
 Free/manual Record:
@@ -118,6 +152,10 @@ High-priority paid AI capabilities:
 Do not prioritize project/group AI summaries as a standalone feature.
 
 ## Subscription fair-use / hard-cap rule
+
+Launch commercial shape is exactly FREE + AI_PRO NT$99/month for V1. Do not build one-time AI top-up products or additional paid tiers before real usage justifies them.
+
+FREE receives one idempotent one-time AI trial grant using Admin-configured initial AI trial points. The point quantity is not hard-coded, does not refresh monthly and is not presented as a customer TWD balance. After trial exhaustion, provider-backed AI stops while Free manual features continue.
 
 Paid AI must not be marketed as mathematically unlimited compute. Frontend must disclose fair-use/monthly resource limits.
 
@@ -158,7 +196,7 @@ Priority is to replace product dependencies in this order:
 2. native AFTERTRACE group membership/invites;
 3. PWA/Web capture and manual Record model;
 4. notification center/schema foundation;
-5. per-user paid AI entitlement/caps;
+5. Free one-time AI trial + per-user paid AI entitlement/caps;
 6. natural-language search and AI enrichment;
 7. tasks/reminders/push;
 8. Chrome extension;
