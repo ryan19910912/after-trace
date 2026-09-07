@@ -9,6 +9,7 @@ export type WorklogAiPointReservationSnapshot = {
   chargedUserId: number;
   actorUserId: number;
   sourceId: number;
+  entitlementGrantId?: number | null;
   pointsReserved: number;
   pointsCommitted: number;
   platformSubsidizedPoints: number;
@@ -31,6 +32,7 @@ export interface WorklogAiPointLedgerRepository {
     actorUserId: number;
     sourceId: number;
     requestedPoints: number;
+    entitlementGrantId?: number | null;
     providerCostHoldTwd?: number | null;
     at: Date;
     expiresAt: Date;
@@ -78,12 +80,12 @@ export type AiPointReleaseResult =
  * Product/provider admission belongs in AiEntitlementService (or the entitled wrapper)
  * before this ledger is called. This class intentionally retains generic Grant mechanics,
  * including bounded platform-subsidy settlement when actual provider usage exceeds a hold.
- * The entitlement layer is responsible for activating only the selected user-owned Grant
- * scope for the requested Source before delegation reaches this ledger.
+ * The entitlement layer activates and passes the exact selected user-owned Grant for the
+ * requested Source before delegation reaches this ledger.
  *
- * For AI Pro, the caller may additionally supply a conservative providerCostHoldTwd. The
- * PostgreSQL repository evaluates that hold atomically with the point reservation so two
- * concurrent requests cannot both pass a committed-cost-only monthly hard cap check.
+ * For AI Pro, the caller additionally supplies a conservative providerCostHoldTwd. The
+ * PostgreSQL repository evaluates that hold on the exact locked subscription-period Grant,
+ * so concurrent requests serialize on one durable hard-cap counter.
  */
 export class WorklogAiPointLedgerService {
   constructor(
@@ -96,6 +98,7 @@ export class WorklogAiPointLedgerService {
     actorUserId: number;
     sourceId?: number | null;
     requestedPoints: number;
+    entitlementGrantId?: number | null;
     providerCostHoldTwd?: number | null;
     at?: Date;
     ttlMs?: number;
@@ -104,6 +107,7 @@ export class WorklogAiPointLedgerService {
     const actorUserId = positiveInteger(input.actorUserId, 'actorUserId');
     const sourceId = positiveInteger(input.sourceId, 'sourceId');
     const requestedPoints = positiveInteger(input.requestedPoints, 'requestedPoints');
+    const entitlementGrantId = optionalPositiveInteger(input.entitlementGrantId, 'entitlementGrantId');
     const providerCostHoldTwd = optionalNonNegativeFinite(input.providerCostHoldTwd, 'providerCostHoldTwd');
     const at = validDate(input.at ?? new Date(), 'at');
     const ttlMs = positiveInteger(input.ttlMs ?? 10 * 60_000, 'ttlMs');
@@ -117,6 +121,7 @@ export class WorklogAiPointLedgerService {
         actorUserId,
         sourceId,
         requestedPoints,
+        entitlementGrantId,
         providerCostHoldTwd,
         at,
         expiresAt: new Date(at.getTime() + ttlMs),
@@ -131,8 +136,6 @@ export class WorklogAiPointLedgerService {
     return {
       status: 'RESERVED',
       reservation,
-      // The authoritative post-hold balance is intentionally not re-read here; callers
-      // only need to know that a positive scoped hold exists before provider execution.
       remainingAiPoints: 0,
     };
   }
@@ -209,6 +212,11 @@ function positiveInteger(value: number | null | undefined, label: string): numbe
     throw new Error(`${label} must be a positive safe integer`);
   }
   return value as number;
+}
+
+function optionalPositiveInteger(value: number | null | undefined, label: string): number | null {
+  if (value === null || value === undefined) return null;
+  return positiveInteger(value, label);
 }
 
 function nonNegativeFinite(value: number, label: string): number {
