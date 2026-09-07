@@ -3,6 +3,8 @@ import {
   accountProfileFromApi,
   notificationCategoryLabel,
   notificationCenterFromApi,
+  pushPreferencesFromApi,
+  pushStateFromApi,
   safeNotificationHref,
 } from './account-notification-api';
 
@@ -38,6 +40,41 @@ describe('account + notification Web client contract', () => {
       unreadCount: 1,
       items: [{ id: 12, category: 'SYSTEM', readAt: null }],
     });
+  });
+
+  it('maps push configuration independently from durable IN_APP state', () => {
+    expect(pushStateFromApi({
+      serverPushEnabled: true,
+      publicKey: 'BPublicKey',
+      activeSubscriptionCount: 2,
+      preferences: {
+        announcementPushEnabled: true,
+        systemPushEnabled: false,
+        taskPushEnabled: true,
+      },
+    })).toEqual({
+      serverPushEnabled: true,
+      publicKey: 'BPublicKey',
+      activeSubscriptionCount: 2,
+      preferences: {
+        announcementPushEnabled: true,
+        systemPushEnabled: false,
+        taskPushEnabled: true,
+      },
+    });
+  });
+
+  it('requires all three explicit push preference booleans in server state', () => {
+    expect(pushPreferencesFromApi({
+      announcementPushEnabled: false,
+      systemPushEnabled: true,
+      taskPushEnabled: false,
+    })).toEqual({
+      announcementPushEnabled: false,
+      systemPushEnabled: true,
+      taskPushEnabled: false,
+    });
+    expect(() => pushPreferencesFromApi({ announcementPushEnabled: true })).toThrowError('INVALID_PUSH_RESPONSE');
   });
 
   it('uses the three accepted customer category labels', () => {
