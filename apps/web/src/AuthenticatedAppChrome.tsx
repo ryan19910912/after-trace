@@ -151,6 +151,7 @@ export function AuthenticatedAppChrome({ apiBaseUrl, children }: Props) {
     {session ? <header className="account-chrome" aria-label="AFTERTRACE 帳號與通知">
       <div className="account-chrome-inner">
         <div className="account-chrome-actions">
+          <button className="account-task-shortcut" onClick={() => { window.location.href = '/ai-search'; }}>AI 搜尋</button>
           <button className="account-task-shortcut" onClick={() => { window.location.href = '/tasks'; }}>待辦</button>
           <div className="notification-anchor">
             <button
