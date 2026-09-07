@@ -2,11 +2,11 @@
 
 Durable hourly-development handoff for branch `revive/line-worklog`.
 
-Before substantive work, read the documents in the exact order defined by `docs/WORKLOG_DEVELOPMENT_POLICY.md`. Latest docs are the only product/development specification.
+Before substantive work, read the documents in the exact order defined by `docs/WORKLOG_DEVELOPMENT_POLICY.md`, plus the latest subscription/account/support/notification policies when called out by the run prompt. Latest docs are the only product/development specification.
 
 Never use GitHub Actions unless the user explicitly asks. Every development commit contains `[skip ci]`.
 
-## Current checkpoint — 2026-09-07 provider-neutral account provisioning + public 帳號 ID runtime authored; current profile API + Admin exact lookup authored; executable/schema runtime verification still pending
+## Current checkpoint — 2026-09-07 durable notification center + SYSTEM idempotency + Admin ANNOUNCEMENT backend authored; executable/schema runtime verification still pending
 
 AFTERTRACE remains Web + PWA-first work memory with optional Chrome extension. LINE is no longer a Record/group/AI product surface. LINE remains only as:
 
@@ -15,146 +15,228 @@ AFTERTRACE remains Web + PWA-first work memory with optional Chrome extension. L
 
 Current prelaunch Dev and Prod data are disposable. Clean canonical baseline/database/application rebuilds are allowed while there is no real customer data. Once real customer/durable Prod data exists, destructive Prod permission expires and requires a new explicit decision.
 
-## Product foundation retained
+## Current commercial/product contract retained
+
+Launch commercial shape is exactly:
+
+- `FREE` — NT$0;
+- `AI_PRO` — NT$99/month;
+- no one-time AI top-up product and no extra paid tier in V1.
+
+FREE remains a complete manual product. A newly eligible FREE account receives one idempotent, one-time AI trial allowance using internal AI points.
+
+Trial rules that remain authoritative:
+
+- Admin configures `free_initial_ai_trial_points` / `FREE 初始 AI 試用點數`;
+- do not configure or display a TWD trial price;
+- do not hard-code the point amount;
+- trial does not refresh monthly;
+- later Admin template changes affect only users who have not already received the trial;
+- already-issued trial balances are never resized retroactively;
+- trial provider calls use the same reservation/settlement and immutable provider-cost audit path as paid AI;
+- after trial exhaustion, provider-backed AI stops while FREE manual/product features continue and the UI may offer AI Pro upgrade.
+
+AI Pro retains internal monthly point/resource caps plus a configurable provider-cost hard cap in TWD. Current planning may begin around NT$30/month provider cost, but that is operator configuration, not customer cash value or a source-code constant.
+
+## Product foundation retained from earlier batches
 
 The accepted target foundation remains:
 
-- login providers are Google, LINE and Apple through provider-neutral identity bindings;
-- Google + LINE are first implementation priorities, Apple follows if sequencing is needed;
+- provider-neutral Google / LINE / Apple identity bindings;
+- Google + LINE are first implementation priorities; Apple follows if sequencing is needed;
 - provider email/id/display-name data is not the AFTERTRACE account identity;
 - accounts are never silently merged from matching email;
-- each account has immutable opaque `public_account_id`, displayed as `帳號 ID` and used for support lookup;
-- Web/PWA account UI will show notification bell/unread count, display name, 帳號 ID and copy action;
-- Admin exact lookup by public account id is required;
-- native AFTERTRACE GROUP membership/invites, free manual Record CRUD and capture-first PWA/browser speech foundation already exist from earlier batches;
-- notification schema foundation already exists for ANNOUNCEMENT / SYSTEM / TASK and IN_APP / PUSH;
-- paid AI is per user; FREE has no provider-backed AI in the target product;
+- each account has immutable opaque `public_account_id`, displayed as `帳號 ID` and usable for exact Admin support lookup;
+- current LINE Login callback provisions through the provider-neutral account service;
+- native AFTERTRACE GROUP membership/invites exist without LINE group authorization;
+- free manual Record CRUD/search supports nullable event date and no required AI title/entities;
+- capture-first PWA/browser speech foundation exists and does not consume AFTERTRACE provider AI;
+- notification schema already defines exactly `ANNOUNCEMENT | SYSTEM | TASK` and independent `IN_APP | PUSH` delivery concepts;
 - LINE OA remains support-only and must not reintroduce legacy Record/group/AI bot behavior.
 
-## Provider-neutral public account-id runtime — authored this run
+## Notification domain/service contract — authored this run
 
-New `apps/api/src/auth/public-account-id.ts` defines the customer-facing id generator.
+New `apps/api/src/worklog/notifications.ts` defines the shared notification contract.
 
-Current generated shape is:
+Current service boundaries include:
 
-- prefix `AT-`;
-- 12 random characters from a human-friendly uppercase alphabet that excludes ambiguous `0/1/I/L/O` characters;
-- generated with `crypto.getRandomValues`;
-- opaque/non-sequential and independent from internal DB ids/provider subjects.
+- notification center item/page types;
+- `ANNOUNCEMENT | SYSTEM | TASK` categories;
+- `ALL_USERS | FREE_USERS | AI_SUBSCRIBERS | SPECIFIC_USERS` audiences;
+- Admin announcement create/dispatch/cancel/list/detail contracts;
+- deterministic SYSTEM notification input/result contract;
+- title/body/channel/audience validation;
+- strict `SPECIFIC_USERS` validation so an empty or malformed explicit audience can never silently widen to all users;
+- explicit deduplication of selected user ids;
+- bounded SYSTEM event-key suffix length so the persisted user-scoped key remains within the schema limit.
 
-The schema unique index remains the authoritative collision boundary. The exact display length is still prelaunch-adjustable under `WORKLOG_ACCOUNT_IDENTITY_POLICY.md`.
+The shared service does not invent a SYSTEM event merely because an Admin typed a message. Manual Admin messages are always ANNOUNCEMENT through this path.
 
-## Provider-neutral identity service/persistence — authored this run
+## Durable notification persistence — authored this run
 
-New files:
+New `apps/api/src/worklog/drizzle-notifications.ts` implements the schema-backed repository.
 
-- `apps/api/src/auth/account-identity.ts`;
-- `apps/api/src/auth/drizzle-account-identity.ts`.
+### IN_APP notification center
 
-Behavior:
+Auth-scoped persistence now supports:
 
-- supports `GOOGLE | LINE | APPLE` provider identities;
-- provisions the durable AFTERTRACE user, provider binding and public account id atomically in one PostgreSQL statement;
-- `provider + subject` is the concurrency/uniqueness authority;
-- simultaneous first-login callbacks resolve to one winning provider identity user; a losing tentative user is deleted in the same SQL statement before commit;
-- an existing public account id is preserved and never rotated during repeat login;
-- rare `public_account_id` unique collisions roll the SQL statement back and retry with a fresh generated id, bounded to eight attempts;
-- unrelated DB failures are not retried as id collisions;
-- email/display-name values remain snapshots only and are never used as account-merge keys;
-- LINE may attach to an existing exact `worklog_users.line_user_id` only as an explicit migration bridge for the old prelaunch schema; this rule is not generalized to email/name matching.
+- list current user's durable sent IN_APP notifications;
+- unread count;
+- mark one owned notification read;
+- mark all current user's IN_APP notifications read;
+- `read_at` remains durable;
+- push status is independent from IN_APP visibility.
 
-## LINE Login moved onto provider-neutral provisioning — authored this run
+A push-only logical notification is not returned in the IN_APP center merely because a recipient row exists.
 
-`apps/api/src/auth/routes.ts` LINE OAuth callback now uses `AccountIdentityService` + `DrizzleAccountIdentityRepository` instead of directly treating `line_user_id` as the account model.
+### SYSTEM idempotency
 
-After provider-neutral provisioning it:
+`createSystemNotification()` now persists a deterministic key as:
 
-1. ensures the transitional workspace/private Source required by current storage;
-2. issues the durable `WEB_SESSION` with numeric `userId` plus migration-only LINE id compatibility;
-3. returns to Web as before.
+`user:<userId>:<domainEventKey>`
 
-Important target correction: the LINE Login callback no longer creates a legacy `FREE_INITIAL` provider-AI Grant. New target FREE accounts therefore are not silently provisioned provider AI merely because the login provider is LINE.
+This makes idempotency user-scoped and prevents the same caller event suffix from accidentally sharing one logical SYSTEM notification across different accounts.
 
-Legacy `/auth/entry/exchange` remains only for migration-era LINE entry compatibility and was not extended.
+Persistence behavior:
 
-## Current account profile API — authored this run
+- logical SYSTEM row is `SENT` and `SPECIFIC_USERS`;
+- `ON CONFLICT (system_event_key) DO NOTHING` provides retry/webhook idempotency;
+- per-user recipient insertion is also conflict-safe;
+- repeated calls return the existing logical notification with `idempotent: true`;
+- IN_APP is durable; PUSH remains pending/skipped according to requested channel and is delivered later by the push layer.
 
-New `apps/api/src/auth/account-routes.ts` provides authenticated:
+No payment/subscription caller is wired to this service yet; the idempotent primitive is now available for those deterministic domain events.
 
-- `GET /api/v1/account/profile`.
+## Admin ANNOUNCEMENT persistence / audience fan-out — authored this run
 
-`apps/api/src/worker.ts` mounts `/api/v1/account/*` before the legacy Gemini/LINE runtime boundary, so profile lookup does not eagerly construct retired product integrations.
+The repository now supports Admin announcement lifecycle:
 
-The response intentionally exposes only customer account facts needed by Web/PWA:
+- create `DRAFT` announcement;
+- create `SCHEDULED` announcement with `scheduled_at`;
+- claim DRAFT/SCHEDULED rows into `SENDING` before fan-out;
+- deterministic recipient fan-out;
+- finalize as `SENT`;
+- cancel pending DRAFT/SCHEDULED rows;
+- list/detail with recipient/unread/push success/failure summary counts.
 
-- `displayName`;
-- `publicAccountId`.
+Audience fan-out rules authored:
 
-It does not require or expose Google email, LINE user id, Apple id or other provider identifiers.
+- `ALL_USERS` — all AFTERTRACE users;
+- `AI_SUBSCRIBERS` — users with a current ACTIVE subscription whose enabled plan has `ai_enabled = TRUE`;
+- `FREE_USERS` — users without such an active AI-enabled subscription. FREE users with remaining one-time trial points remain FREE for announcement audience purposes;
+- `SPECIFIC_USERS` — only the explicit ids stored in controlled announcement metadata.
 
-Old prelaunch accounts without a `worklog_user_public_accounts` row currently fail closed with `ACCOUNT_PROFILE_NOT_READY`; clean baseline/rebuild or an explicit backfill/lazy-assignment step must resolve them before release.
+Recipient insertion is unique on notification + user, so retry cannot duplicate a recipient row.
 
-## Admin exact public-account lookup — authored this run
+This synchronous fan-out is intentionally acceptable for current prelaunch scale. Cloudflare Queue remains deferred until volume/fan-out demonstrates a need.
 
-`apps/api/src/admin/group-name-repository.ts` now overrides the Admin user-list query so:
+## Customer notification-center HTTP API — authored this run
 
-- `worklog_user_public_accounts.public_account_id` is returned with each user row when present;
-- `GET /api/v1/admin/users?q=<帳號ID>` can match `public_account_id` exactly (case-normalized with `UPPER`);
-- the Admin user list no longer requires `is_oa_friend = TRUE`, allowing Google/Apple/non-OA accounts to be found;
-- legacy internal id / LINE id / display-name search remains temporarily available during migration.
+New `apps/api/src/worklog/notification-routes.ts` provides provider-neutral Web-session routes:
 
-This satisfies the backend support-lookup boundary without making a third-party identity mandatory. Existing Admin detail/presentation still contains legacy Grant/LINE-era fields and will be cleaned separately; they do not drive the new public-account lookup.
+- `GET /api/v1/notifications` — list IN_APP items + unread count;
+- `PATCH /api/v1/notifications/:id/read` — durable single-item read;
+- `POST /api/v1/notifications/read-all` — durable mark-all-read.
+
+Authorization resolves signed Web session -> durable AFTERTRACE `userId`; it does not depend on Google email, LINE id, Apple id or OA friendship.
+
+Origin/CORS/no-store handling follows the existing account/native Web route boundary.
+
+## Admin ANNOUNCEMENT HTTP API — authored this run
+
+New `apps/api/src/admin/notification-routes.ts` provides a separately mounted Admin surface so the large legacy Admin route file did not need to be expanded further.
+
+Current routes:
+
+- `GET /api/v1/admin/notifications/announcements`;
+- `GET /api/v1/admin/notifications/announcements/:id`;
+- `POST /api/v1/admin/notifications/announcements/preview`;
+- `POST /api/v1/admin/notifications/announcements`;
+- `POST /api/v1/admin/notifications/announcements/:id/send`;
+- `DELETE /api/v1/admin/notifications/announcements/:id`.
+
+Create mode is explicit:
+
+- `DRAFT`;
+- `SEND_NOW`;
+- `SCHEDULED`.
+
+Scheduled creation requires a valid future timestamp. Preview is non-persisting and preserves exact audience/channel selection. `SEND_NOW` creates then claims/fans out through the same durable dispatch path. Scheduled dispatch by Cron is not wired yet.
+
+Admin authentication remains the existing signed Admin session. Actor username is persisted on authored announcements; cancellation also records the cancelling actor in metadata.
+
+## Worker boundary — authored this run
+
+`apps/api/src/worker.ts` now mounts:
+
+- `/api/v1/notifications/*`;
+- `/api/v1/admin/notifications/*`.
+
+Both are routed before migration-era Gemini/LINE runtime initialization, so opening the notification center or Admin announcement screen does not construct retired LINE attachment/Gemini product runtime.
+
+Admin notification routing is checked before the generic `/api/v1/admin/*` mount, avoiding route shadowing by the legacy Admin router.
 
 ## Tests authored this run
 
 New:
 
-- `apps/api/src/auth/account-identity.test.ts`;
-- `apps/api/src/auth/account-routes.test.ts`.
+- `apps/api/src/worklog/notifications.test.ts`;
+- `apps/api/src/worklog/notification-routes.test.ts`;
+- `apps/api/src/admin/notification-routes.test.ts`.
 
-Coverage authored:
+Coverage authored includes:
 
-- public account-id format/validation;
-- provider-neutral provisioning does not use email as identity;
-- public-id unique collision retry;
-- unrelated persistence failure is not retried;
-- durable `userId` Web session -> current account profile;
-- profile response excludes provider email/LINE id;
-- missing prelaunch public-account row fails closed.
+- shared SYSTEM input normalization and user-scoped boundary;
+- at least one delivery channel is required;
+- empty SPECIFIC_USERS cannot broaden to ALL_USERS;
+- explicit user ids are deduplicated;
+- durable Web session user id is used for center lookup;
+- other users' recipient rows cannot be marked read through the route contract;
+- mark-all-read remains scoped to the signed user;
+- Admin preview does not persist;
+- Admin preview retains exact SPECIFIC_USERS ids;
+- SEND_NOW uses create + dispatch and returns recipient summary;
+- empty SPECIFIC_USERS is rejected before persistence.
 
-Status: **AUTHORED / NOT RUN**.
+Status for all above: **AUTHORED / NOT RUN**.
+
+Repository SQL fan-out/idempotency still requires real PostgreSQL execution before it may be considered verified.
 
 ## Commits in this run
 
 All commits contain `[skip ci]`:
 
-- `9b646c52` — add opaque public account id generator;
-- `9b056201` — add provider-neutral account identity service;
-- `803fd7f4` — add atomic account identity persistence;
-- `db4184d7` — cover public account identity provisioning;
-- `1ec80ce9` — provision LINE Login through neutral account identity and stop legacy FREE AI Grant creation on login;
-- `cc082dd6` — add provider-neutral current account profile API;
-- `a48cd161` — route account profile before legacy runtime;
-- `851d240c` — cover current account profile route;
-- `bd30d5d2` — add provider-neutral Admin account lookup;
-- `d0b30f05` — fix Admin individual-user filter join found during source review;
-- `91cd3d2c` — make provider identity provisioning race-safe under simultaneous first login;
+- `337f36ad` — add notification service contract;
+- `930ad495` — add durable notification persistence;
+- `f8755711` — add notification center API;
+- `19a7bc08` — add Admin announcement API;
+- `a24b3335` — mount notification APIs before legacy runtime;
+- `369b7d2e` — cover notification domain rules;
+- `f55da092` — cover notification center routes;
+- `3317fed2` — cover Admin announcement routes;
+- `75563f80` — bound notification event keys safely;
 - this checkpoint commit follows the list.
 
 No GitHub Actions workflow was run, dispatched, rerun, enabled, modified, triggered, or used as validation.
 
+The unrelated local `apps/api/verify-admin-schema.mjs` was not staged or committed.
+
 ## Validation status
 
-### Identity/account changes
+### Notification work from this run
 
-- `public-account-id.ts` — **AUTHORED / NOT RUN**;
-- `account-identity.ts` — **AUTHORED / NOT RUN**;
-- `drizzle-account-identity.ts` — **AUTHORED / NOT RUN**;
-- `account-routes.ts` — **AUTHORED / NOT RUN**;
-- LINE provider-neutral callback update — **AUTHORED / NOT RUN**;
-- Admin exact public-account lookup — **AUTHORED / NOT RUN**;
-- `account-identity.test.ts` — **AUTHORED / NOT RUN**;
-- `account-routes.test.ts` — **AUTHORED / NOT RUN**.
+- `notifications.ts` — **AUTHORED / NOT RUN**;
+- `drizzle-notifications.ts` — **AUTHORED / NOT RUN**;
+- `notification-routes.ts` — **AUTHORED / NOT RUN**;
+- `admin/notification-routes.ts` — **AUTHORED / NOT RUN**;
+- worker route mounts — **AUTHORED / NOT RUN**;
+- `notifications.test.ts` — **AUTHORED / NOT RUN**;
+- `notification-routes.test.ts` — **AUTHORED / NOT RUN**;
+- `admin/notification-routes.test.ts` — **AUTHORED / NOT RUN**;
+- PostgreSQL SYSTEM idempotency smoke — **NOT RUN**;
+- PostgreSQL announcement audience/fan-out smoke — **NOT RUN**;
+- Admin announcement HTTP E2E — **NOT RUN**;
+- Web notification-center HTTP E2E — **NOT RUN**.
 
 ### Existing target work still awaiting executable verification
 
@@ -164,59 +246,79 @@ No GitHub Actions workflow was run, dispatched, rerun, enabled, modified, trigge
 - Web TypeScript typecheck / Vitest / production build — **NOT RUN**;
 - Drizzle canonical baseline regeneration — **NOT RUN**;
 - baseline guard — **NOT RUN**;
-- Dev/Prod clean rebuild — **NOT RUN**;
+- clean Dev/Prod rebuild — **NOT RUN**;
 - PostgreSQL concurrent provider-provisioning smoke — **NOT RUN**;
 - native GROUP/manual Record Dev HTTP E2E — **NOT RUN**;
 - PWA browser/install/speech smoke — **NOT RUN**.
 
-Reason: this run can read/write the GitHub repository through the connected GitHub service, but no executable AFTERTRACE checkout/dependencies are available in the runtime. Source review is not treated as compile/test/runtime success.
+No test in this run is labelled PASS or RUNTIME VERIFIED.
+
+Execution environment check this run: there is still no mounted AFTERTRACE checkout, and direct `git ls-remote https://github.com/ryan19910912/after-trace.git refs/heads/revive/line-worklog` failed with `Could not resolve host: github.com`. GitHub repository source read/write remains available through the connected GitHub service, but that is not executable validation.
 
 ## Known blockers / risks
 
-1. **Executable validation is still the immediate release blocker.** The new SQL/TypeScript/tests have not been compiled or executed.
-2. **Canonical `drizzle/0000` is behind the current target TypeScript schema.** The new auth/public-account/notification tables are not safe to deploy until the canonical baseline is regenerated and validated.
-3. **Real Google Login and Apple Login callbacks are not implemented yet.** The repository/service is provider-neutral and ready for them; LINE is the first provider moved onto it.
-4. **Old prelaunch users may lack public account ids.** Because prelaunch data is disposable, a clean rebuild is acceptable; alternatively a bounded backfill/lazy assignment can be added before launch if keeping a test DB is useful.
-5. **Admin detail/UI remains partly legacy.** Exact public-account backend search now works conceptually, but the Admin screen/detail model still exposes old Grant/LINE concepts that need later product cleanup.
-6. **Notification runtime/API/UI is still schema-only.** Notification center, unread count, Admin announcements, SYSTEM event idempotency and Push delivery remain unimplemented.
-7. **Readiness/runtime configuration still contains migration-era LINE/Gemini requirements.** Target routes are increasingly isolated above that boundary, but final readiness must become target-product based.
-8. **Paid AI hard-cap runtime, task/reminder scheduler and Push execution remain incomplete.**
+1. **Executable validation remains the immediate release blocker.** New TypeScript, Hono routes and SQL have not been compiled/executed.
+2. **Canonical `drizzle/0000` remains behind current target schema.** Notification/auth/public-account/product schema must be regenerated into a clean canonical baseline before database rebuild/deploy.
+3. **Announcement audience SQL is source-reviewed only.** Real PostgreSQL must verify ALL/FREE/AI/SPECIFIC audience fan-out, JSONB specific-user selection and retry idempotency.
+4. **Scheduled ANNOUNCEMENT dispatch is not connected to Worker `scheduled()` yet.** The repository can dispatch a scheduled row, but the single shared ~5 minute Cron handler still has to claim due announcements/tasks.
+5. **Push is schema/state only.** Subscription CRUD, preferences API, VAPID/Web Push delivery, invalid-endpoint revocation, service-worker push handlers and iOS installed-PWA smoke remain incomplete.
+6. **Notification UI is not wired.** Web/PWA still needs top-right bell/unread center plus the required display name / 帳號 ID / copy UI.
+7. **Admin announcement backend exists but Admin UI does not.** Audience/channel/schedule preview, explicit confirmation, cancellation and delivery summary still need the admin frontend.
+8. **SYSTEM primitive has no domain callers yet.** Payment/subscription/trial/AI-limit events still need deterministic calls with stable event keys.
+9. **Google Login and Apple Login callbacks remain incomplete.** Provider-neutral persistence is ready; LINE is currently the first migrated provider.
+10. **FREE one-time AI trial issuance/runtime remains not implemented to the latest contract.** Existing legacy Grant infrastructure should be reused cleanly, but new account provisioning must issue the configured trial idempotently rather than the retired hard-coded legacy FREE_INITIAL behavior.
+11. **Paid AI entitlement/hard-cap runtime and task/reminder execution remain incomplete.**
 
 ## Exact next run order
 
 1. If an executable checkout becomes available, stop adding speculative layers long enough to run/fix:
    - API TypeScript typecheck;
-   - focused auth/account/native-GROUP/manual-Record/schema tests;
-   - Web TypeScript typecheck + focused tests + production build.
+   - focused notification/auth/account/native-GROUP/manual-Record/schema tests;
+   - Web TypeScript typecheck + focused tests + production build;
+   - PostgreSQL notification idempotency/fan-out smoke if a test database is available.
    Never mark them PASS without actual execution.
-2. If executable checkout is still unavailable, continue the bounded **notification service foundation** batch:
-   - create repository/service for durable IN_APP notification list/read/unread count;
-   - implement deterministic `SYSTEM` event-key idempotent creation;
-   - implement Admin `ANNOUNCEMENT` create/draft/schedule/cancel/list/detail API;
-   - implement audience fan-out for ALL_USERS / FREE_USERS / AI_SUBSCRIBERS / SPECIFIC_USERS suitable for prelaunch scale;
-   - keep category independent from IN_APP/PUSH channels;
-   - keep Admin manual messages ANNOUNCEMENT, never fake SYSTEM events;
-   - author focused tests as **AUTHORED / NOT RUN** until executable validation exists.
-3. Add Web/PWA account header wired to `/api/v1/account/profile`, then notification bell/unread/center and 帳號 ID copy confirmation.
-4. Add Web Push subscription/preferences APIs and explicit `開啟通知` UX; never auto-prompt permission; update service worker push/notificationclick handlers.
-5. Add native Tasks/reminders and one shared scheduled handler/Cron (~5 minutes) for due TASK + scheduled ANNOUNCEMENT dispatch; keep delivery idempotent and add Queue only if volume needs it.
-6. Add Admin announcement UI with audience/channel/schedule preview, send confirmation, cancellation and delivery summary.
-7. Complete Google Login, then finish LINE provider UI polish, then Apple Login; account linking remains a separate explicit authenticated feature and must not auto-merge by email.
-8. Regenerate clean canonical `drizzle/0000`, run baseline guard/tests, rebuild disposable Dev/Prod as appropriate, then run auth/account/notification/PWA runtime E2E.
-9. Continue paid per-user AI entitlement/caps, AI capture/search/related records/summary/rewrite, Chrome extension and final legacy LINE product cleanup.
+2. If executable checkout is still unavailable, implement the **Web/PWA authenticated account header + notification center UI**:
+   - load `/api/v1/account/profile`;
+   - show display name + `帳號 ID`;
+   - one-tap copy with visible `已複製` confirmation;
+   - notification bell/unread count;
+   - notification center list with category/title/body/time/read state;
+   - mark one/read-all actions;
+   - keep narrow PWA layout usable without provider identity exposure.
+3. Implement Admin ANNOUNCEMENT frontend against the new backend:
+   - title/body;
+   - audience ALL/FREE/AI/SPECIFIC;
+   - IN_APP/PUSH selection;
+   - DRAFT/SEND_NOW/SCHEDULED;
+   - preview + explicit send confirmation;
+   - cancel pending scheduled item;
+   - delivery summary/detail.
+4. Add Web Push subscription/preferences APIs and explicit `開啟通知` UX. Never auto-prompt permission. Update service worker push/notificationclick handlers and degrade to durable IN_APP on unsupported/denied push.
+5. Add native Tasks/reminders and one shared scheduled handler/Cron (~5 minutes) that claims due TASK reminders + scheduled ANNOUNCEMENT dispatch idempotently. Do not create one Cron per task. Queue remains conditional on volume.
+6. Wire deterministic SYSTEM events for subscription/payment/trial/AI-limit state using stable event keys.
+7. Implement the latest FREE one-time AI trial contract:
+   - Admin `free_initial_ai_trial_points` setting;
+   - idempotent grant once per account;
+   - no monthly refresh / no retroactive resize;
+   - shared reservation/settlement/provider-cost audit;
+   - exhausted trial -> FREE manual continues + AI Pro upgrade offer.
+8. Complete Google Login, then LINE provider UI polish, then Apple Login. Account linking remains explicit/authenticated and must never merge by email heuristic.
+9. Regenerate clean canonical `drizzle/0000`, run baseline guard/tests, rebuild disposable Dev/Prod as appropriate, then run auth/account/notification/PWA runtime E2E.
+10. Continue AI Pro per-user entitlement/caps, AI capture/search/related records/summary/rewrite, Chrome extension and final legacy LINE product cleanup.
 
 ## Estimated remaining development time
 
-Current estimate: **about 44–82 focused development hours**.
+Current estimate: **about 41–77 focused development hours**.
 
 Approximate remaining buckets:
 
-- executable validation + clean baseline/rebuild + free/PWA/native-GROUP/account E2E: 7–13h;
-- Google/LINE/Apple login completion + Web account header/Admin UI cleanup: 4–8h;
-- notification service/center/Admin announcements/SYSTEM events: 7–12h;
-- tasks/reminders + PWA Push/Cron + iOS/browser smoke: 7–12h;
-- paid per-user AI entitlement/capture/search: 12–22h;
-- Related Records/range summary/rewrite: 5–9h;
-- Chrome extension/final readiness/legacy cleanup: 4–8h.
+- executable validation + canonical baseline/rebuild + current free/PWA/native-GROUP/account/notification E2E: 7–13h;
+- Web account header + notification center + Admin announcement UI: 4–8h;
+- Push subscriptions/preferences/delivery + Tasks/reminders/shared Cron + iOS/browser smoke: 7–12h;
+- FREE one-time AI trial issuance/accounting/Admin control: 3–6h;
+- Google/LINE/Apple login completion + account UI/Admin cleanup: 4–8h;
+- AI Pro per-user entitlement/capture/search/hard caps: 10–18h;
+- Related Records/range summary/rewrite: 4–7h;
+- Chrome extension/final readiness/legacy cleanup: 2–5h.
 
 Tighten the estimate after the first executable typecheck/test pass, regenerated canonical baseline and real Dev runtime E2E.
