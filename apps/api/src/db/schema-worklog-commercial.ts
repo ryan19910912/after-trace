@@ -19,7 +19,7 @@ export const worklogCommercialConfig = pgTable(
     check('worklog_commercial_config_singleton_ck', sql`${table.id} = 1`),
     check(
       'worklog_commercial_config_free_trial_points_ck',
-      sql`${table.freeInitialAiTrialPoints} >= 0`,
+      sql`${table.freeInitialAiTrialPoints} > 0`,
     ),
   ],
 );
