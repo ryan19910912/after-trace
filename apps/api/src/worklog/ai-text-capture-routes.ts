@@ -18,6 +18,12 @@ import {
   type AiNaturalSearchResult,
 } from './ai-natural-search';
 import {
+  AiRecordRewriteService,
+  type AiRecordRewriteRepository,
+  type AiRecordRewriteResult,
+  type AiRewriteProvider,
+} from './ai-record-rewrite';
+import {
   AiRelatedRecordsService,
   type AiRelatedRecordsRepository,
   type AiRelatedRecordsResult,
@@ -34,6 +40,7 @@ import type { WorklogAttachmentProvider } from './attachment-ingestion';
 import { DrizzleAiEntitlementRepository } from './drizzle-ai-entitlement';
 import { DrizzleAiMediaCaptureRepository } from './drizzle-ai-media-capture';
 import { DrizzleAiNaturalSearchRepository } from './drizzle-ai-natural-search';
+import { DrizzleAiRecordRewriteRepository } from './drizzle-ai-record-rewrite';
 import { DrizzleAiRelatedRecordsRepository } from './drizzle-ai-related-records';
 import { DrizzleAiTimeRangeSummaryRepository } from './drizzle-ai-time-range-summary';
 import { DrizzleAiTextCaptureRepository } from './drizzle-ai-text-capture';
@@ -42,6 +49,7 @@ import { DrizzleNotificationRepository } from './drizzle-notifications';
 import { EntitledAiPointLedgerService } from './entitled-ai-point-ledger';
 import { GeminiWorklogAttachmentNormalizer } from './gemini-attachment-normalizer';
 import { GeminiNaturalSearchInterpreter } from './gemini-natural-search';
+import { GeminiWorklogRecordRewriter } from './gemini-record-rewrite';
 import { GeminiWorklogTimeRangeSummarizer } from './gemini-time-range-summary';
 import { GeminiWorklogTextNormalizer } from './gemini-text-normalizer';
 import { NotificationService } from './notifications';
@@ -66,11 +74,13 @@ export type AiTextCaptureRouteDependencies = {
   searchRepositoryFactory?: (database: Database) => AiNaturalSearchRepository;
   relatedRepositoryFactory?: (database: Database) => AiRelatedRecordsRepository;
   summaryRepositoryFactory?: (database: Database) => AiTimeRangeSummaryRepository;
+  rewriteRepositoryFactory?: (database: Database) => AiRecordRewriteRepository;
   ledgerRepositoryFactory?: (database: Database) => WorklogAiPointLedgerRepository;
   providerFactory?: (env: AiTextCaptureBindings) => WorklogTextNormalizationProvider;
   mediaProviderFactory?: (env: AiTextCaptureBindings) => WorklogAttachmentProvider;
   searchProviderFactory?: (env: AiTextCaptureBindings) => AiNaturalSearchProvider;
   summaryProviderFactory?: (env: AiTextCaptureBindings) => AiTimeRangeSummaryProvider;
+  rewriteProviderFactory?: (env: AiTextCaptureBindings) => AiRewriteProvider;
 };
 
 type Env = {
@@ -117,6 +127,8 @@ export function createAiTextCaptureRoutes(dependencies: AiTextCaptureRouteDepend
     ?? ((database: Database) => new DrizzleAiRelatedRecordsRepository(database));
   const summaryRepositoryFactory = dependencies.summaryRepositoryFactory
     ?? ((database: Database) => new DrizzleAiTimeRangeSummaryRepository(database));
+  const rewriteRepositoryFactory = dependencies.rewriteRepositoryFactory
+    ?? ((database: Database) => new DrizzleAiRecordRewriteRepository(database));
   const ledgerRepositoryFactory = dependencies.ledgerRepositoryFactory
     ?? ((database: Database) => new DrizzleWorklogAiPointLedgerRepository(database));
   const providerFactory = dependencies.providerFactory
@@ -127,6 +139,8 @@ export function createAiTextCaptureRoutes(dependencies: AiTextCaptureRouteDepend
     ?? ((env: AiTextCaptureBindings) => new GeminiNaturalSearchInterpreter({ apiKey: env.GEMINI_API_KEY }));
   const summaryProviderFactory = dependencies.summaryProviderFactory
     ?? ((env: AiTextCaptureBindings) => new GeminiWorklogTimeRangeSummarizer({ apiKey: env.GEMINI_API_KEY }));
+  const rewriteProviderFactory = dependencies.rewriteProviderFactory
+    ?? ((env: AiTextCaptureBindings) => new GeminiWorklogRecordRewriter({ apiKey: env.GEMINI_API_KEY }));
   const app = new Hono<Env>();
 
   app.use('*', async (c, next) => {
@@ -175,9 +189,8 @@ export function createAiTextCaptureRoutes(dependencies: AiTextCaptureRouteDepend
     if (!sourceId) return c.json({ ok: false, error: 'INVALID_SOURCE_ID' }, 400);
     const text = typeof body.text === 'string' ? body.text : typeof body.content === 'string' ? body.content : '';
     if (!text.trim() || text.trim().length > 20_000) return c.json({ ok: false, error: 'AI_CAPTURE_TEXT_REQUIRED' }, 400);
-
-    const service = textService(c, entitlementRepositoryFactory, captureRepositoryFactory, ledgerRepositoryFactory, providerFactory);
-    const result = await service.capture({ userId: c.get('userId'), sourceId, text, referenceAt: new Date() });
+    const result = await textService(c, entitlementRepositoryFactory, captureRepositoryFactory, ledgerRepositoryFactory, providerFactory)
+      .capture({ userId: c.get('userId'), sourceId, text, referenceAt: new Date() });
     return captureResultResponse(c, c.get('database'), c.get('userId'), result);
   });
 
@@ -271,14 +284,23 @@ export function createAiTextCaptureRoutes(dependencies: AiTextCaptureRouteDepend
     if (to.getTime() - from.getTime() > 366 * 24 * 60 * 60_000) return c.json({ ok: false, error: 'AI_SUMMARY_RANGE_TOO_LARGE' }, 400);
     const timeZone = typeof body.timeZone === 'string' && body.timeZone.trim() ? body.timeZone.trim() : 'Asia/Taipei';
     if (!validTimeZone(timeZone)) return c.json({ ok: false, error: 'AI_SUMMARY_TIMEZONE_INVALID' }, 400);
-    const result = await summaryService(
-      c,
-      entitlementRepositoryFactory,
-      summaryRepositoryFactory,
-      ledgerRepositoryFactory,
-      summaryProviderFactory,
-    ).summarize({ userId: c.get('userId'), sourceId, from, to, timeZone, referenceAt: new Date() });
+    const result = await summaryService(c, entitlementRepositoryFactory, summaryRepositoryFactory, ledgerRepositoryFactory, summaryProviderFactory)
+      .summarize({ userId: c.get('userId'), sourceId, from, to, timeZone, referenceAt: new Date() });
     return summaryResultResponse(c, c.get('database'), c.get('userId'), result);
+  });
+
+  app.post('/rewrite', async (c) => {
+    const body = await objectBody(c);
+    if (!body) return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
+    const sourceId = positiveId(body.sourceId);
+    const recordId = positiveId(body.recordId);
+    const instruction = typeof body.instruction === 'string' ? body.instruction.trim() : '';
+    if (!sourceId) return c.json({ ok: false, error: 'INVALID_SOURCE_ID' }, 400);
+    if (!recordId) return c.json({ ok: false, error: 'INVALID_RECORD_ID' }, 400);
+    if (!instruction || instruction.length > 1000) return c.json({ ok: false, error: 'AI_REWRITE_INSTRUCTION_REQUIRED' }, 400);
+    const result = await rewriteService(c, entitlementRepositoryFactory, rewriteRepositoryFactory, ledgerRepositoryFactory, rewriteProviderFactory)
+      .propose({ userId: c.get('userId'), sourceId, recordId, instruction, referenceAt: new Date() });
+    return rewriteResultResponse(c, c.get('database'), c.get('userId'), result);
   });
 
   return app;
@@ -293,11 +315,8 @@ function textService(
 ) {
   const database = c.get('database');
   const entitlement = new AiEntitlementService(entitlementRepositoryFactory(database));
-  return new AiTextCaptureService(
-    captureRepositoryFactory(database), entitlement,
-    new EntitledAiPointLedgerService(entitlement, new WorklogAiPointLedgerService(ledgerRepositoryFactory(database))),
-    providerFactory(c.env),
-  );
+  return new AiTextCaptureService(captureRepositoryFactory(database), entitlement,
+    new EntitledAiPointLedgerService(entitlement, new WorklogAiPointLedgerService(ledgerRepositoryFactory(database))), providerFactory(c.env));
 }
 
 function mediaService(
@@ -309,11 +328,8 @@ function mediaService(
 ) {
   const database = c.get('database');
   const entitlement = new AiEntitlementService(entitlementRepositoryFactory(database));
-  return new AiMediaCaptureService(
-    mediaRepositoryFactory(database), entitlement,
-    new EntitledAiPointLedgerService(entitlement, new WorklogAiPointLedgerService(ledgerRepositoryFactory(database))),
-    mediaProviderFactory(c.env),
-  );
+  return new AiMediaCaptureService(mediaRepositoryFactory(database), entitlement,
+    new EntitledAiPointLedgerService(entitlement, new WorklogAiPointLedgerService(ledgerRepositoryFactory(database))), mediaProviderFactory(c.env));
 }
 
 function searchService(
@@ -325,11 +341,8 @@ function searchService(
 ) {
   const database = c.get('database');
   const entitlement = new AiEntitlementService(entitlementRepositoryFactory(database));
-  return new AiNaturalSearchService(
-    searchRepositoryFactory(database), entitlement,
-    new EntitledAiPointLedgerService(entitlement, new WorklogAiPointLedgerService(ledgerRepositoryFactory(database))),
-    searchProviderFactory(c.env),
-  );
+  return new AiNaturalSearchService(searchRepositoryFactory(database), entitlement,
+    new EntitledAiPointLedgerService(entitlement, new WorklogAiPointLedgerService(ledgerRepositoryFactory(database))), searchProviderFactory(c.env));
 }
 
 function relatedService(
@@ -338,10 +351,7 @@ function relatedService(
   relatedRepositoryFactory: (database: Database) => AiRelatedRecordsRepository,
 ) {
   const database = c.get('database');
-  return new AiRelatedRecordsService(
-    relatedRepositoryFactory(database),
-    new AiEntitlementService(entitlementRepositoryFactory(database)),
-  );
+  return new AiRelatedRecordsService(relatedRepositoryFactory(database), new AiEntitlementService(entitlementRepositoryFactory(database)));
 }
 
 function summaryService(
@@ -353,11 +363,21 @@ function summaryService(
 ) {
   const database = c.get('database');
   const entitlement = new AiEntitlementService(entitlementRepositoryFactory(database));
-  return new AiTimeRangeSummaryService(
-    summaryRepositoryFactory(database), entitlement,
-    new EntitledAiPointLedgerService(entitlement, new WorklogAiPointLedgerService(ledgerRepositoryFactory(database))),
-    summaryProviderFactory(c.env),
-  );
+  return new AiTimeRangeSummaryService(summaryRepositoryFactory(database), entitlement,
+    new EntitledAiPointLedgerService(entitlement, new WorklogAiPointLedgerService(ledgerRepositoryFactory(database))), summaryProviderFactory(c.env));
+}
+
+function rewriteService(
+  c: CaptureRouteContext,
+  entitlementRepositoryFactory: (database: Database) => AiEntitlementRepository,
+  rewriteRepositoryFactory: (database: Database) => AiRecordRewriteRepository,
+  ledgerRepositoryFactory: (database: Database) => WorklogAiPointLedgerRepository,
+  rewriteProviderFactory: (env: AiTextCaptureBindings) => AiRewriteProvider,
+) {
+  const database = c.get('database');
+  const entitlement = new AiEntitlementService(entitlementRepositoryFactory(database));
+  return new AiRecordRewriteService(rewriteRepositoryFactory(database), entitlement,
+    new EntitledAiPointLedgerService(entitlement, new WorklogAiPointLedgerService(ledgerRepositoryFactory(database))), rewriteProviderFactory(c.env));
 }
 
 async function captureResultResponse(c: CaptureRouteContext, database: Database, userId: number, result: CaptureRouteResult) {
@@ -386,17 +406,20 @@ function relatedResultResponse(c: CaptureRouteContext, result: AiRelatedRecordsR
   return c.json({ ok: false, error: result.decision.reason, entitlement: result.decision }, status);
 }
 
-async function summaryResultResponse(
-  c: CaptureRouteContext,
-  database: Database,
-  userId: number,
-  result: AiTimeRangeSummaryResult,
-) {
+async function summaryResultResponse(c: CaptureRouteContext, database: Database, userId: number, result: AiTimeRangeSummaryResult) {
   if (result.status === 'SUMMARY' || result.status === 'NO_RECORDS') return c.json({ ok: true, ...result }, 200);
   if (result.status === 'DEFERRED') return c.json({ ok: false, error: result.reason }, 503);
-  if (result.status === 'FAILED') {
-    return c.json({ ok: false, error: result.reason }, result.reason === 'AI_TIME_RANGE_SUMMARY_DISABLED' ? 409 : 502);
-  }
+  if (result.status === 'FAILED') return c.json({ ok: false, error: result.reason }, result.reason === 'AI_TIME_RANGE_SUMMARY_DISABLED' ? 409 : 502);
+  if (isDurableAiProLimit(result.decision.reason)) await notifyAiLimitSafely(database, userId, result.decision.reason, result.decision.periodEndsAt);
+  const status = result.decision.reason === 'SOURCE_NOT_AUTHORIZED' ? 403 : 409;
+  return c.json({ ok: false, error: result.decision.reason, entitlement: result.decision }, status);
+}
+
+async function rewriteResultResponse(c: CaptureRouteContext, database: Database, userId: number, result: AiRecordRewriteResult) {
+  if (result.status === 'PROPOSAL') return c.json({ ok: true, ...result }, 200);
+  if (result.status === 'NOT_FOUND') return c.json({ ok: false, error: result.reason }, 404);
+  if (result.status === 'DEFERRED') return c.json({ ok: false, error: result.reason }, 503);
+  if (result.status === 'FAILED') return c.json({ ok: false, error: result.reason }, result.reason === 'AI_REWRITE_DISABLED' ? 409 : 502);
   if (isDurableAiProLimit(result.decision.reason)) await notifyAiLimitSafely(database, userId, result.decision.reason, result.decision.periodEndsAt);
   const status = result.decision.reason === 'SOURCE_NOT_AUTHORIZED' ? 403 : 409;
   return c.json({ ok: false, error: result.decision.reason, entitlement: result.decision }, status);
@@ -423,67 +446,50 @@ function decodedBase64Length(value: string): number {
   const bytes = (value.length / 4) * 3 - padding;
   return Number.isSafeInteger(bytes) && bytes > 0 ? bytes : 0;
 }
-
 function boundedInstruction(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim().slice(0, 1000) : null;
 }
-
 async function notifyAiLimitSafely(database: Database, userId: number, reason: string, periodEndsAt: string | null): Promise<void> {
   try {
-    await notifySubscriptionEvent(
-      new NotificationService(new DrizzleNotificationRepository(database)),
-      userId,
-      { type: 'AI_LIMIT_REACHED', periodKey: `${periodEndsAt ?? 'unknown-period'}:${reason}` },
-    );
+    await notifySubscriptionEvent(new NotificationService(new DrizzleNotificationRepository(database)), userId,
+      { type: 'AI_LIMIT_REACHED', periodKey: `${periodEndsAt ?? 'unknown-period'}:${reason}` });
   } catch (error) {
     console.error(JSON.stringify({ event: 'ai_limit_system_notification_failed', userId, reason, message: error instanceof Error ? error.message : 'unknown error' }));
   }
 }
-
 function isDurableAiProLimit(reason: string): boolean {
-  return reason === 'MONTHLY_POINT_CAP_REACHED'
-    || reason === 'MONTHLY_POINT_CAP_WOULD_BE_EXCEEDED'
-    || reason === 'MONTHLY_PROVIDER_COST_CAP_REACHED';
+  return reason === 'MONTHLY_POINT_CAP_REACHED' || reason === 'MONTHLY_POINT_CAP_WOULD_BE_EXCEEDED' || reason === 'MONTHLY_PROVIDER_COST_CAP_REACHED';
 }
-
 function bearerToken(header: string | undefined): string | null {
   if (!header) return null;
   const match = /^Bearer\s+(.+)$/i.exec(header.trim());
   return match?.[1]?.trim() || null;
 }
-
 function positiveId(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
-
 function positiveLimit(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 50 ? parsed : null;
 }
-
 function relatedLimit(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 20 ? parsed : null;
 }
-
 function dateInput(value: unknown): Date | null {
   if (typeof value !== 'string' || !value.trim()) return null;
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
-
 function validTimeZone(value: string): boolean {
   if (!value || value.length > 64) return false;
   try { new Intl.DateTimeFormat('en-US', { timeZone: value }).format(new Date(0)); return true; }
   catch { return false; }
 }
-
 async function objectBody(c: { req: { json(): Promise<unknown> } }): Promise<Record<string, unknown> | null> {
   try {
     const value = await c.req.json();
     return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
