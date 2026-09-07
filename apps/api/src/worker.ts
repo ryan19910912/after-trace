@@ -1,4 +1,5 @@
 import app, { type Bindings } from './index';
+import { createAdminCommercialConfigRoutes } from './admin/commercial-config-routes';
 import { createAdminNotificationRoutes } from './admin/notification-routes';
 import { createAdminProfitabilityRoutes } from './admin/profitability-routes';
 import { createAdminRoutes } from './admin/routes';
@@ -37,6 +38,7 @@ type ExecutionContextLike = { waitUntil(promise: Promise<unknown>): void };
 type ApiBoundary = 'ADMIN_API' | 'SUBSCRIPTION_API' | 'WORKLOG_WEB_API';
 
 const adminRoutes = createAdminRoutes();
+const adminCommercialConfigRoutes = createAdminCommercialConfigRoutes();
 const adminNotificationRoutes = createAdminNotificationRoutes();
 const adminProfitabilityRoutes = createAdminProfitabilityRoutes();
 const accountRoutes = createAccountRoutes();
@@ -182,6 +184,16 @@ export default {
         adminNotificationRoutes.fetch(routedRequest, env as never, executionContext as never));
       if (await shouldKickPushAfterAdminAnnouncement(request, response)) schedulePushDelivery(env, executionContext);
       return response;
+    }
+    if (
+      url.pathname === '/api/v1/admin/commercial-config'
+      || url.pathname.startsWith('/api/v1/admin/commercial-config/')
+    ) {
+      const rewritten = new URL(request.url);
+      rewritten.pathname = url.pathname.slice('/api/v1/admin/commercial-config'.length) || '/';
+      const routedRequest = new Request(rewritten, request);
+      return withApiAnomalyBoundary('ADMIN_API', request, env, () =>
+        adminCommercialConfigRoutes.fetch(routedRequest, env as never, executionContext as never));
     }
     if (
       url.pathname === '/api/v1/admin/profitability'
