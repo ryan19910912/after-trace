@@ -25,6 +25,8 @@ class FakeRepository implements CommercialConfigRepository {
     priceTwd: '99.00',
     enabled: true,
     aiEnabled: true,
+    aiMediaIngestion: true,
+    aiNaturalSearch: true,
     monthlyAiPointCap: 1000,
     monthlyProviderCostCapTwd: '30',
     perRequestAiPointCap: 200,
@@ -64,11 +66,13 @@ describe('CommercialConfigService', () => {
     expect(config).not.toHaveProperty('trialTwd');
   });
 
-  it('keeps AI Pro at the fixed V1 commercial price while accepting operator hard caps', async () => {
+  it('keeps AI Pro at the fixed V1 commercial price while accepting hard caps and capability toggles', async () => {
     const repository = new FakeRepository();
     const service = new CommercialConfigService(repository);
     const result = await service.setAiProConfig({
       enabled: true,
+      aiMediaIngestion: false,
+      aiNaturalSearch: false,
       monthlyAiPointCap: 2000,
       monthlyProviderCostCapTwd: '30',
       perRequestAiPointCap: 250,
@@ -78,10 +82,26 @@ describe('CommercialConfigService', () => {
       actor: 'operator',
       input: {
         enabled: true,
+        aiMediaIngestion: false,
+        aiNaturalSearch: false,
         monthlyAiPointCap: 2000,
         monthlyProviderCostCapTwd: '30',
         perRequestAiPointCap: 250,
       },
+    });
+  });
+
+  it('defaults accepted AI Pro capabilities on when omitted without adding another paid tier', async () => {
+    const repository = new FakeRepository();
+    await new CommercialConfigService(repository).setAiProConfig({
+      enabled: true,
+      monthlyAiPointCap: 1000,
+      monthlyProviderCostCapTwd: '30',
+      perRequestAiPointCap: null,
+    }, 'operator');
+    expect(repository.savedAiPro?.input).toMatchObject({
+      aiMediaIngestion: true,
+      aiNaturalSearch: true,
     });
   });
 
