@@ -23,6 +23,7 @@ type AiProRow = {
   price_twd: string;
   enabled: boolean;
   ai_enabled: boolean;
+  capabilities: unknown;
   monthly_ai_point_cap: string | number;
   monthly_provider_cost_cap_twd: string;
   per_request_ai_point_cap: string | number | null;
@@ -76,7 +77,7 @@ export class DrizzleCommercialConfigRepository implements CommercialConfigReposi
   async getAiProConfig(): Promise<AiProConfigSnapshot | null> {
     const result = await this.db.execute(sql`
       SELECT code, display_name, price_twd::text AS price_twd,
-             enabled, ai_enabled, monthly_ai_point_cap,
+             enabled, ai_enabled, capabilities, monthly_ai_point_cap,
              monthly_provider_cost_cap_twd::text AS monthly_provider_cost_cap_twd,
              per_request_ai_point_cap, updated_at
       FROM worklog_subscription_plans
@@ -102,7 +103,7 @@ export class DrizzleCommercialConfigRepository implements CommercialConfigReposi
           'AI_PRO', 'SUBSCRIPTION', 'AI Pro', 99, 100, ${input.enabled},
           ${input.monthlyAiPointCap}, TRUE, ${input.monthlyAiPointCap},
           ${input.monthlyProviderCostCapTwd}, ${input.perRequestAiPointCap ?? null},
-          '{}'::jsonb, NOW(), NOW()
+          jsonb_build_object('aiMediaIngestion', ${input.aiMediaIngestion !== false}), NOW(), NOW()
         )
         ON CONFLICT (code) DO UPDATE
         SET plan_type = 'SUBSCRIPTION',
@@ -114,6 +115,12 @@ export class DrizzleCommercialConfigRepository implements CommercialConfigReposi
             monthly_ai_point_cap = EXCLUDED.monthly_ai_point_cap,
             monthly_provider_cost_cap_twd = EXCLUDED.monthly_provider_cost_cap_twd,
             per_request_ai_point_cap = EXCLUDED.per_request_ai_point_cap,
+            capabilities = jsonb_set(
+              COALESCE(worklog_subscription_plans.capabilities, '{}'::jsonb),
+              '{aiMediaIngestion}',
+              to_jsonb(${input.aiMediaIngestion !== false}::boolean),
+              TRUE
+            ),
             updated_at = NOW()
         RETURNING *
       ), audit AS (
@@ -170,12 +177,14 @@ function mapConfig(row: ConfigRow): FreeAiTrialConfigSnapshot {
 
 function mapAiPro(row: AiProRow): AiProConfigSnapshot {
   if (row.code !== 'AI_PRO' || Number(row.price_twd) !== 99) throw new Error('INVALID_AI_PRO_COMMERCIAL_SHAPE');
+  const capabilities = plainObject(row.capabilities);
   return {
     code: 'AI_PRO',
     displayName: row.display_name,
     priceTwd: '99.00',
     enabled: Boolean(row.enabled),
     aiEnabled: Boolean(row.ai_enabled),
+    aiMediaIngestion: capabilities.aiMediaIngestion !== false,
     monthlyAiPointCap: positiveInteger(row.monthly_ai_point_cap),
     monthlyProviderCostCapTwd: positiveDecimal(row.monthly_provider_cost_cap_twd),
     perRequestAiPointCap: row.per_request_ai_point_cap === null ? null : positiveInteger(row.per_request_ai_point_cap),
@@ -183,6 +192,9 @@ function mapAiPro(row: AiProRow): AiProConfigSnapshot {
   };
 }
 
+function plainObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
 function integer(value: string | number): number {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error('INVALID_COMMERCIAL_CONFIG_VALUE');
