@@ -29,6 +29,8 @@ export interface WorklogAiPointLedgerRepository {
     actorUserId: number;
     sourceId: number;
     requestedPoints: number;
+    /** When supplied, settlement may draw only from this entitlement-selected grant. */
+    grantId?: number | null;
     at: Date;
     expiresAt: Date;
   }): Promise<WorklogAiPointReservationSnapshot | null>;
@@ -54,7 +56,8 @@ export type AiPointReservationResult =
       reservation: WorklogAiPointReservationSnapshot;
       remainingAiPoints: number;
     }
-  | { status: 'AI_POINTS_EXHAUSTED' };
+  | { status: 'AI_POINTS_EXHAUSTED' }
+  | { status: 'AI_ENTITLEMENT_BLOCKED'; reason: string };
 
 export type AiPointCommitResult =
   | {
@@ -69,12 +72,13 @@ export type AiPointReleaseResult =
   | { status: 'RESERVATION_NOT_FOUND' | 'RESERVATION_NOT_ACTIVE' };
 
 /**
- * Provider preflight + exactly-once customer grant settlement.
+ * Low-level exactly-once Grant reservation/settlement service.
  *
- * A positive eligible balance is sufficient to start AI. requestedPoints is only a
- * conservative hold estimate: if the estimate is larger than the remaining balance,
- * the ledger holds all currently eligible points and still allows the request to start.
- * If actual provider cost later exceeds that hold, the excess is platform subsidy.
+ * Product/provider admission belongs in AiEntitlementService (or the entitled wrapper)
+ * before this ledger is called. This class intentionally retains generic Grant mechanics,
+ * including bounded platform-subsidy settlement when actual provider usage exceeds a hold.
+ * Provider callers should pass the exact entitlement-selected grantId so FREE trial and
+ * AI_PRO balances cannot be mixed merely because both have Source scopes.
  */
 export class WorklogAiPointLedgerService {
   constructor(
@@ -87,6 +91,7 @@ export class WorklogAiPointLedgerService {
     actorUserId: number;
     sourceId?: number | null;
     requestedPoints: number;
+    grantId?: number | null;
     at?: Date;
     ttlMs?: number;
   }): Promise<AiPointReservationResult> {
@@ -94,6 +99,7 @@ export class WorklogAiPointLedgerService {
     const actorUserId = positiveInteger(input.actorUserId, 'actorUserId');
     const sourceId = positiveInteger(input.sourceId, 'sourceId');
     const requestedPoints = positiveInteger(input.requestedPoints, 'requestedPoints');
+    const grantId = input.grantId == null ? null : positiveInteger(input.grantId, 'grantId');
     const at = validDate(input.at ?? new Date(), 'at');
     const ttlMs = positiveInteger(input.ttlMs ?? 10 * 60_000, 'ttlMs');
 
@@ -104,6 +110,7 @@ export class WorklogAiPointLedgerService {
       actorUserId,
       sourceId,
       requestedPoints,
+      grantId,
       at,
       expiresAt: new Date(at.getTime() + ttlMs),
     });
