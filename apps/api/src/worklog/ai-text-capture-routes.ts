@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { allowedProductClientOrigin } from '../auth/product-client-origin';
 import { resolveWebSessionUserId } from '../auth/session-user';
 import { verifyWebSessionToken, type WebSessionClaims } from '../auth/token';
@@ -7,6 +7,7 @@ import { AiEntitlementService, type AiEntitlementRepository } from './ai-entitle
 import { AiMediaCaptureService, type AiMediaCaptureRepository } from './ai-media-capture';
 import { AiTextCaptureService, type AiTextCaptureRepository } from './ai-text-capture';
 import { WorklogAiPointLedgerService, type WorklogAiPointLedgerRepository } from './ai-point-ledger';
+import type { WorklogAttachmentProvider } from './attachment-ingestion';
 import { DrizzleAiEntitlementRepository } from './drizzle-ai-entitlement';
 import { DrizzleAiMediaCaptureRepository } from './drizzle-ai-media-capture';
 import { DrizzleAiTextCaptureRepository } from './drizzle-ai-text-capture';
@@ -18,7 +19,6 @@ import { GeminiWorklogTextNormalizer } from './gemini-text-normalizer';
 import { NotificationService } from './notifications';
 import { parseRecordCaptureContext } from './record-capture-context';
 import { notifySubscriptionEvent } from './system-notification-events';
-import type { WorklogAttachmentProvider } from './attachment-ingestion';
 import type { WorklogTextNormalizationProvider } from './text-normalization';
 
 export type AiTextCaptureBindings = {
@@ -44,6 +44,14 @@ type Env = {
   Bindings: AiTextCaptureBindings;
   Variables: { userId: number; database: Database };
 };
+
+type CaptureRouteContext = Context<Env>;
+
+type CaptureRouteResult =
+  | { status: 'CREATED'; entitlementSource: 'FREE_TRIAL' | 'AI_PRO'; record: unknown }
+  | { status: 'BLOCKED'; decision: { reason: string; periodEndsAt: string | null } }
+  | { status: 'DEFERRED'; reason: string }
+  | { status: 'FAILED'; reason: string };
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
@@ -169,20 +177,22 @@ export function createAiTextCaptureRoutes(dependencies: AiTextCaptureRouteDepend
 }
 
 async function captureResultResponse(
-  c: Parameters<Parameters<ReturnType<typeof createAiTextCaptureRoutes>['post']>[1]>[0] | any,
+  c: CaptureRouteContext,
   database: Database,
   userId: number,
-  result: { status: string; [key: string]: any },
+  result: CaptureRouteResult,
 ) {
   if (result.status === 'CREATED') return c.json({ ok: true, ...result }, 201);
   if (result.status === 'DEFERRED') return c.json({ ok: false, error: result.reason }, 503);
-  if (result.status === 'FAILED') return c.json({ ok: false, error: result.reason }, 502);
+  if (result.status === 'FAILED') {
+    return c.json({ ok: false, error: result.reason }, result.reason === 'AI_MEDIA_DISABLED' ? 409 : 502);
+  }
 
-  if (result.status === 'BLOCKED' && isDurableAiProLimit(result.decision.reason)) {
+  if (isDurableAiProLimit(result.decision.reason)) {
     await notifyAiLimitSafely(database, userId, result.decision.reason, result.decision.periodEndsAt);
   }
-  const status = result.status === 'BLOCKED' && result.decision.reason === 'SOURCE_NOT_AUTHORIZED' ? 403 : 409;
-  return c.json({ ok: false, error: result.decision?.reason ?? 'AI_CAPTURE_BLOCKED', entitlement: result.decision }, status);
+  const status = result.decision.reason === 'SOURCE_NOT_AUTHORIZED' ? 403 : 409;
+  return c.json({ ok: false, error: result.decision.reason, entitlement: result.decision }, status);
 }
 
 function imageInput(value: unknown): { value: { mimeType: 'image/png' | 'image/jpeg' | 'image/webp'; byteLength: number; dataBase64: string } } | { error: string } {
