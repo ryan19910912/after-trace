@@ -127,24 +127,25 @@ Hard rule:
 
 ## Database / code rebuild policy
 
-AFTERTRACE is still in prelaunch testing. **Existing Dev data is disposable unless the user explicitly says otherwise for a future environment.**
+AFTERTRACE is still in prelaunch testing. **Existing Dev and Prod data are currently disposable unless the user explicitly changes this rule later.**
 
-For Dev/local work:
+For local, Dev, and current prelaunch Prod work:
 
-- the Dev database may be dropped, recreated, or rebuilt from a clean canonical baseline;
-- existing test users, Records, LINE state, Grants, AI runtime config, plan data, audit rows and other Dev-only data do not need preservation;
+- databases may be dropped, recreated, or rebuilt from a clean canonical baseline;
+- existing test users, Records, LINE state, Grants, AI runtime config, plan data, audit rows and other prelaunch data do not need preservation;
 - forward-compatibility migrations are optional, not mandatory, when a clean reset produces a simpler and more correct target schema;
 - the canonical `drizzle/0000` baseline may be regenerated after accepted schema changes;
 - old compatibility code may be deleted instead of carried forward indefinitely;
 - application modules may be rewritten or rebuilt when the new Web/PWA architecture is cleaner than adapting LINE-era code;
 - prefer the simplest correct target architecture over compatibility with disposable test data;
 - after a reset, recreate only the explicit seed/runtime configuration actually required by the current product;
-- do not create migration complexity solely to preserve disposable Dev data.
+- do not create migration complexity solely to preserve disposable prelaunch data.
 
-Production remains protected:
+Safety boundary:
 
-- do not destructively reset or rebuild Prod unless the user explicitly requests it;
-- do not infer permission to destroy real production data from the Dev/prelaunch reset rule.
+- this permission applies only while AFTERTRACE has no real customer/production data;
+- once real users or durable production data exist, destructive Prod rebuilds require a new explicit user decision and this document must be updated before continuing;
+- do not infer permanent permission to destroy future production data from the current prelaunch rule.
 
 The unrelated local untracked `apps/api/verify-admin-schema.mjs` must not be staged/committed unless separately reviewed/approved.
 
