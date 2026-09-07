@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { aiTaskDeepLinkUrl } from './ai-task-deep-link';
+import { aiToolsDeepLinkUrl } from './ai-tools-deep-link';
+import { LoginProviderButtons } from './LoginProviderButtons';
 import {
   WorklogApi,
   type CreatedNativeGroupInvite,
@@ -371,7 +374,7 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
         <p className="muted">快速留下工作發生過的事，需要時找得到。</p>
         {pendingInvite ? <p className="muted">邀請已暫存。完成登入後會自動嘗試加入群組。</p> : null}
         {error ? <div className="error">{error}</div> : null}
-        <button onClick={() => { window.location.href = api.lineLoginUrl(); }}>登入 AFTERTRACE</button>
+        <LoginProviderButtons apiBaseUrl={apiBaseUrl} />
       </section>
     </main>;
   }
@@ -494,7 +497,13 @@ function RecordCard({ record, deleted, onEdit, onHistory, onDelete, onRestore }:
     </div>
     <strong>{record.rawText}</strong>
     <div className="filter-actions">
-      {!deleted ? <><button className="ghost" onClick={onEdit}>編輯</button><button className="ghost" onClick={onDelete}>刪除</button></> : <button onClick={onRestore}>還原</button>}
+      {!deleted ? <>
+        <button className="ghost" onClick={onEdit}>編輯</button>
+        <button className="ghost" onClick={() => { window.location.href = aiToolsDeepLinkUrl({ sourceId: record.sourceId, recordId: record.id, tool: 'related' }); }}>找相關</button>
+        <button className="ghost" onClick={() => { window.location.href = aiToolsDeepLinkUrl({ sourceId: record.sourceId, recordId: record.id, tool: 'rewrite' }); }}>AI 改寫</button>
+        <button className="ghost" onClick={() => { window.location.href = aiTaskDeepLinkUrl({ sourceId: record.sourceId, recordId: record.id }); }}>AI 待辦</button>
+        <button className="ghost" onClick={onDelete}>刪除</button>
+      </> : <button onClick={onRestore}>還原</button>}
       <button className="ghost" onClick={onHistory}>編輯紀錄</button>
     </div>
   </article>;
