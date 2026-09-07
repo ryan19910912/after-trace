@@ -1,6 +1,11 @@
 import { sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
-import type { CommercialConfigRepository, FreeAiTrialConfigSnapshot } from './commercial-config';
+import type {
+  AiProConfigInput,
+  AiProConfigSnapshot,
+  CommercialConfigRepository,
+  FreeAiTrialConfigSnapshot,
+} from './commercial-config';
 
 type ConfigRow = {
   free_initial_ai_trial_points: string | number;
@@ -10,6 +15,18 @@ type ConfigRow = {
   exhausted_recipients: string | number;
   issued_points: string | number;
   remaining_points: string | number;
+};
+
+type AiProRow = {
+  code: string;
+  display_name: string;
+  price_twd: string;
+  enabled: boolean;
+  ai_enabled: boolean;
+  monthly_ai_point_cap: string | number;
+  monthly_provider_cost_cap_twd: string;
+  per_request_ai_point_cap: string | number | null;
+  updated_at: Date | string;
 };
 
 export class DrizzleCommercialConfigRepository implements CommercialConfigRepository {
@@ -55,6 +72,66 @@ export class DrizzleCommercialConfigRepository implements CommercialConfigReposi
     if (!snapshot) throw new Error('FREE_AI_TRIAL_CONFIG_UPDATE_FAILED');
     return snapshot;
   }
+
+  async getAiProConfig(): Promise<AiProConfigSnapshot | null> {
+    const result = await this.db.execute(sql`
+      SELECT code, display_name, price_twd::text AS price_twd,
+             enabled, ai_enabled, monthly_ai_point_cap,
+             monthly_provider_cost_cap_twd::text AS monthly_provider_cost_cap_twd,
+             per_request_ai_point_cap, updated_at
+      FROM worklog_subscription_plans
+      WHERE code = 'AI_PRO'
+        AND plan_type = 'SUBSCRIPTION'
+      LIMIT 1
+    `);
+    const row = result.rows[0] as AiProRow | undefined;
+    return row ? mapAiPro(row) : null;
+  }
+
+  async setAiProConfig(input: AiProConfigInput, actor: string): Promise<AiProConfigSnapshot> {
+    const before = await this.getAiProConfig();
+    const result = await this.db.execute(sql`
+      WITH changed AS (
+        INSERT INTO worklog_subscription_plans (
+          code, plan_type, display_name, price_twd, rank, enabled,
+          grant_points, ai_enabled, monthly_ai_point_cap,
+          monthly_provider_cost_cap_twd, per_request_ai_point_cap,
+          capabilities, created_at, updated_at
+        )
+        VALUES (
+          'AI_PRO', 'SUBSCRIPTION', 'AI Pro', 99, 100, ${input.enabled},
+          ${input.monthlyAiPointCap}, TRUE, ${input.monthlyAiPointCap},
+          ${input.monthlyProviderCostCapTwd}, ${input.perRequestAiPointCap ?? null},
+          '{}'::jsonb, NOW(), NOW()
+        )
+        ON CONFLICT (code) DO UPDATE
+        SET plan_type = 'SUBSCRIPTION',
+            display_name = 'AI Pro',
+            price_twd = 99,
+            enabled = EXCLUDED.enabled,
+            grant_points = EXCLUDED.grant_points,
+            ai_enabled = TRUE,
+            monthly_ai_point_cap = EXCLUDED.monthly_ai_point_cap,
+            monthly_provider_cost_cap_twd = EXCLUDED.monthly_provider_cost_cap_twd,
+            per_request_ai_point_cap = EXCLUDED.per_request_ai_point_cap,
+            updated_at = NOW()
+        RETURNING *
+      ), audit AS (
+        INSERT INTO worklog_audit_logs (
+          actor_admin, action, target_type, target_id, before_value, after_value, created_at
+        )
+        SELECT ${actor}, 'AI_PRO_CONFIG_UPDATED', 'PLAN', 'AI_PRO',
+               ${JSON.stringify(before)}::jsonb, to_jsonb(changed), NOW()
+        FROM changed
+        RETURNING id
+      )
+      SELECT changed.code FROM changed WHERE EXISTS (SELECT 1 FROM audit)
+    `);
+    if (!result.rows[0]) throw new Error('AI_PRO_CONFIG_UPDATE_FAILED');
+    const snapshot = await this.getAiProConfig();
+    if (!snapshot) throw new Error('AI_PRO_CONFIG_UPDATE_FAILED');
+    return snapshot;
+  }
 }
 
 function configSelect() {
@@ -91,8 +168,33 @@ function mapConfig(row: ConfigRow): FreeAiTrialConfigSnapshot {
   };
 }
 
+function mapAiPro(row: AiProRow): AiProConfigSnapshot {
+  if (row.code !== 'AI_PRO' || Number(row.price_twd) !== 99) throw new Error('INVALID_AI_PRO_COMMERCIAL_SHAPE');
+  return {
+    code: 'AI_PRO',
+    displayName: row.display_name,
+    priceTwd: '99.00',
+    enabled: Boolean(row.enabled),
+    aiEnabled: Boolean(row.ai_enabled),
+    monthlyAiPointCap: positiveInteger(row.monthly_ai_point_cap),
+    monthlyProviderCostCapTwd: positiveDecimal(row.monthly_provider_cost_cap_twd),
+    perRequestAiPointCap: row.per_request_ai_point_cap === null ? null : positiveInteger(row.per_request_ai_point_cap),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
 function integer(value: string | number): number {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error('INVALID_COMMERCIAL_CONFIG_VALUE');
   return parsed;
+}
+function positiveInteger(value: string | number): number {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error('INVALID_AI_PRO_CONFIG_VALUE');
+  return parsed;
+}
+function positiveDecimal(value: string | number): string {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) throw new Error('INVALID_AI_PRO_CONFIG_VALUE');
+  return String(value);
 }
