@@ -6,16 +6,16 @@ Before substantive work, read the documents in the exact order defined by `docs/
 
 Never use GitHub Actions unless the user explicitly asks. Every development commit contains `[skip ci]`.
 
-## Current checkpoint — 2026-09-07 Admin ANNOUNCEMENT frontend authored; executable/browser/schema verification still pending
+## Current checkpoint — 2026-09-07 Web Push subscription/preferences + explicit PWA opt-in authored; outbound delivery/runtime verification still pending
 
-AFTERTRACE remains Web + PWA-first work memory with a committed Chrome extension fast-capture surface. LINE is no longer a Record/group/AI product surface. LINE remains only as:
+AFTERTRACE remains a Web + PWA-first work-memory product with a committed Chrome extension fast-capture surface. LINE is retired from the core Record/group/AI product surface. LINE remains only as:
 
 - one supported login provider;
-- official LINE OA external customer-support contact channel.
+- the official LINE OA external customer-support contact channel.
 
 Current prelaunch Dev and Prod data are disposable. Clean canonical baseline/database/application rebuilds are allowed while there is no real customer data. Once real customer/durable Prod data exists, destructive Prod permission expires and requires a new explicit decision.
 
-## Current commercial/product contract retained
+## Current commercial/product contract
 
 Launch commercial shape is exactly:
 
@@ -40,135 +40,160 @@ AI Pro retains monthly internal resource/point limits plus a configurable provid
 
 ## Product foundation retained from earlier batches
 
-Current accepted implementation foundation includes:
+Current accepted source-authored foundation includes:
 
 - provider-neutral Google / LINE / Apple identity binding model;
 - Google + LINE first implementation priority; Apple follows if sequencing is needed;
-- provider email/id/display-name facts are not core account identity;
-- no silent account merge from matching email;
 - immutable opaque `public_account_id` / `帳號 ID` and Admin exact lookup foundation;
+- no silent account merge from matching provider email/id/display name;
 - current LINE Login callback provisions through the provider-neutral account service;
 - native AFTERTRACE GROUP membership/invites independent from LINE group authorization;
 - free manual Record CRUD/search with nullable event date and no required AI title/entities;
 - capture-first PWA/browser speech foundation without AFTERTRACE provider AI;
 - durable notification domain with exactly `ANNOUNCEMENT | SYSTEM | TASK` and independent `IN_APP | PUSH` channel concepts;
 - notification recipient rows preserve durable `read_at` independently from push delivery state;
-- Admin ANNOUNCEMENT backend supports ALL/FREE/AI/SPECIFIC audience, draft/send-now/scheduled lifecycle, preview, cancellation and delivery summary;
-- SYSTEM notification creation uses user-scoped deterministic idempotency keys;
-- authenticated Web/PWA shared chrome/account/notification-center foundation is source-authored;
-- Chrome extension capture contract/scaffold exists but auth/API persistence is not wired yet;
-- LINE OA remains support-only and must not reintroduce legacy Record/group/AI bot behavior.
+- Admin ANNOUNCEMENT backend + frontend for ALL/FREE/AI/SPECIFIC audience, draft/send-now/scheduled lifecycle, preview, cancellation and delivery summary;
+- SYSTEM notification creation with user-scoped deterministic idempotency keys;
+- authenticated Web/PWA account header with notification bell/unread count, display name, copyable `帳號 ID`;
+- Chrome extension scaffold/contract for compact fast capture, without extension-only durable Record storage;
+- LINE OA support-only boundary, with no return of legacy 小跡/Reply cache/LINE GROUP/AI-responsibility product behavior.
 
-## Admin ANNOUNCEMENT frontend — authored this run
+## Web Push subscription/preferences batch — authored this run
 
-A dedicated Admin announcement management surface now exists at:
+This run completed the next bounded notification batch from the previous checkpoint. It adds the durable browser/PWA subscription and preference path, but **does not yet claim outbound Web Push delivery is implemented or runtime verified**.
 
-- `apps/admin/src/AdminAnnouncementsPage.tsx`;
-- Admin URL path: `/announcements`.
+### API push domain/service
 
-The page reuses the same Admin session stored under `aftertrace.admin.session`; it does not create a second admin identity/auth system.
+New `apps/api/src/worklog/push-notifications.ts` defines a provider-neutral push delivery-endpoint domain:
 
-Implemented frontend behavior:
+- subscription belongs to the authenticated AFTERTRACE `userId`, never to Google/LINE/Apple identity;
+- endpoint must be bounded HTTPS with no embedded basic-auth credentials;
+- `p256dh` and `auth` keys are required/bounded;
+- user-agent/platform are optional bounded delivery metadata;
+- preferences are independent booleans for `ANNOUNCEMENT`, `SYSTEM`, `TASK` PUSH;
+- empty preference patches fail closed;
+- durable IN_APP state is not modified by push preferences.
 
-- authenticated announcement list;
-- announcement detail/status inspection;
-- create form for title/body;
-- audience selection: `ALL_USERS`, `FREE_USERS`, `AI_SUBSCRIBERS`, `SPECIFIC_USERS`;
-- channel selection independent from category: `IN_APP` and/or `PUSH`;
-- lifecycle selection: `DRAFT`, `SEND_NOW`, `SCHEDULED`;
-- scheduled local datetime converted to ISO for backend validation/persistence;
-- optional bounded deep-link input;
-- preview must be created before the UI enables create/send confirmation;
-- `SEND_NOW` additionally requires an explicit browser confirmation showing title/audience/channels;
-- existing DRAFT/SCHEDULED announcements can be manually sent only after explicit confirmation;
-- existing DRAFT/SCHEDULED announcements can be cancelled with explicit confirmation;
-- recipient/unread/push-success/push-failure counts are visible from backend summary facts;
-- no arbitrary Admin-authored message is labelled SYSTEM; this surface creates ANNOUNCEMENT only.
+### PostgreSQL push persistence
 
-### SPECIFIC_USERS safety
+New `apps/api/src/worklog/drizzle-push-notifications.ts` reuses the notification schema already authored in `schema-worklog-notification.ts`:
 
-The Admin UI intentionally fails closed:
+- counts only non-revoked subscriptions for the authenticated user;
+- defaults PUSH preferences to enabled until the user stores an explicit preference row;
+- upserts a browser endpoint for the same AFTERTRACE user;
+- refuses to silently reassign an existing endpoint owned by a different AFTERTRACE account (`PUSH_SUBSCRIPTION_OWNED_BY_ANOTHER_ACCOUNT`);
+- revocation is soft/durable through `revoked_at`;
+- preference updates use one per-user row.
 
-- `SPECIFIC_USERS` with zero selected users is rejected before preview;
-- broad audiences strip stale specific-user ids rather than accidentally carrying hidden recipients;
-- duplicate selected ids are deduplicated;
-- user lookup reuses the existing Admin user search, so `public_account_id` can be used as the operator-facing lookup key where backend search supports it;
-- selected users are shown with customer-facing 帳號 ID/display name when available;
-- the browser never converts an empty specific list into ALL_USERS.
+The schema keeps push subscriptions as device/browser delivery endpoints only. They are not account identity and do not replace `public_account_id` or provider-neutral user identity.
 
-### Announcement API client
+### Authenticated customer API
 
-New `apps/admin/src/announcement-api.ts` provides a bounded typed client for:
+`apps/api/src/worklog/notification-routes.ts` now exposes, under the existing authenticated `/api/v1/notifications` surface:
 
-- list announcements;
-- fetch detail;
-- preview;
-- create;
-- send;
-- cancel;
-- specific-user lookup adapter through the existing provider-neutral Admin user search.
+- `GET /push` — server capability/public VAPID key + active subscription count + preferences;
+- `POST /push/subscription` — register/re-activate the current browser/PWA subscription;
+- `DELETE /push/subscription` — revoke one endpoint owned by the current user;
+- `PATCH /push/preferences` — update category-specific PUSH preferences.
 
-It uses the same Bearer Admin session and existing timestamp normalization policy as the rest of Admin.
+Rules retained:
 
-### Form/lifecycle helpers
+- durable signed Web session -> provider-neutral AFTERTRACE `userId` authorization;
+- no LINE identity dependency;
+- CORS stays exact-origin;
+- subscription registration fails closed with `PUSH_NOT_CONFIGURED` when the server public push key is absent;
+- an endpoint already owned by another AFTERTRACE account returns conflict rather than being silently transferred.
 
-New `apps/admin/src/announcement-form.ts` centralizes client-side safety and labels:
+### Web/PWA API + browser push helpers
 
-- required title/body bounds;
-- at-least-one-channel requirement;
-- SPECIFIC_USERS exact-id safety;
-- scheduled local timestamp normalization;
-- send/cancel lifecycle eligibility;
-- audience/status/mode labels.
+`apps/web/src/account-notification-api.ts` now maps the authenticated push state, subscription registration/revocation, and preference APIs through the same bearer Web session.
 
-### Admin entry routing
+New `apps/web/src/browser-push.ts` provides the browser boundary:
 
-`apps/admin/src/main.tsx` now mounts `/announcements` to `AdminAnnouncementsPage` while preserving existing `/`, `/profitability`, and `/pricing-calculator` behavior.
+- capability detection for Service Worker + PushManager + Notification;
+- explicit `enableBrowserPush()` flow;
+- VAPID public-key base64url conversion;
+- current subscription lookup;
+- explicit unsubscribe helper;
+- bounded browser platform metadata;
+- iOS/iPadOS wording that distinguishes installed Home Screen PWA push from a normal Safari tab.
 
-The page currently links back to the Admin home. A dedicated tab/link inside the large legacy `App.tsx` root navigation is not yet added; the route is usable directly but root-navigation discoverability is a small remaining Admin UX polish item.
+`Notification.requestPermission()` is called only inside `enableBrowserPush()`. That helper is only invoked from the explicit customer `開啟通知` button; no bootstrap/effect path asks for notification permission automatically.
 
-## Chrome extension state retained
+### PWA notification settings UI
 
-`docs/WORKLOG_EXTENSION_POLICY.md` remains authoritative. Current `apps/extension` scaffold contains Manifest V3 popup/context-capture foundations for:
+New `apps/web/src/PushNotificationSettings.tsx` is embedded inside the authenticated notification center.
 
-- quick text shell;
-- selected webpage text staging from explicit context-menu action;
-- active page title/URL context;
-- browser speech input attempt/fallback;
-- explicit visible-tab screenshot preview.
+Customer behavior:
 
-Important extension limits still apply:
+- `開啟通知` explicitly requests browser permission and then registers the browser/PWA endpoint with AFTERTRACE;
+- `停用此裝置` revokes the backend endpoint and unsubscribes the current browser subscription;
+- user can independently toggle PUSH for 公告通知 / 系統通知 / 待辦通知;
+- unsupported/denied push leaves durable IN_APP notifications working;
+- UI says `IN_APP 通知永遠保留；PUSH 是額外提醒。`;
+- iPhone/iPad guidance tells the user to add AFTERTRACE to the Home Screen and then explicitly choose `開啟通知`;
+- the UI does not claim that a normal Safari tab is identical to the installed PWA push path.
 
-- durable auth/session handoff not wired;
-- Source/group list not wired;
-- save/persistence intentionally not wired until normal AFTERTRACE APIs are reused;
-- screenshot/voice are local UI capture only, not end-to-end Record creation;
-- no automatic full-page/history/clipboard/tab/microphone capture;
-- no browser/runtime verification executed.
+### Service Worker push/click handling
 
-## Notification backend/customer center state retained
+`apps/web/public/sw.js` now handles source-authored push payload display and click navigation:
 
-Backend foundation remains in:
+- bounded title/body parsing;
+- optional notification id/tag;
+- same-origin relative deep-link validation;
+- notification click focuses/navigates an existing AFTERTRACE window or opens one;
+- no automatic capture or authenticated Record/API response caching was added.
 
-- `apps/api/src/worklog/notifications.ts`;
-- `apps/api/src/worklog/drizzle-notifications.ts`;
-- `apps/api/src/worklog/notification-routes.ts`;
-- `apps/api/src/admin/notification-routes.ts`.
+### Important boundary: outbound push transport is still incomplete
 
-Customer Web/PWA notification center/account chrome source remains authored. Push remains independent and incomplete.
+This batch establishes subscription storage/preferences/customer opt-in/service-worker receiving behavior. It does **not** yet implement the server-side Web Push sender/VAPID signing path.
 
-Scheduled announcement persistence exists, but the shared Worker scheduled handler/Cron is not connected yet.
+Still required before PUSH can be called runtime complete:
+
+- private VAPID credential configuration and server-side sender transport;
+- bounded pending recipient/subscription delivery scan;
+- category preference check before PUSH delivery;
+- idempotent recipient delivery state transitions;
+- `last_success_at` updates on successful endpoint delivery;
+- permanent-invalid endpoint revocation (for example provider 404/410 equivalents) without deleting IN_APP history;
+- transient failure/retry policy;
+- scheduled ANNOUNCEMENT + TASK integration through one shared Worker `scheduled()` handler.
+
+Until that path is implemented and runtime tested, `PUSH` configuration in Admin represents requested delivery intent, not a claim that actual device delivery is verified.
+
+## Files changed in this run
+
+- `apps/api/src/worklog/push-notifications.ts` — new push domain/service;
+- `apps/api/src/worklog/drizzle-push-notifications.ts` — new push persistence;
+- `apps/api/src/worklog/notification-routes.ts` — authenticated push state/subscription/preferences endpoints;
+- `apps/api/src/worklog/push-notifications.test.ts` — new domain tests;
+- `apps/api/src/worklog/notification-routes.test.ts` — push route tests added;
+- `apps/web/src/account-notification-api.ts` — Web Push API client/mapping;
+- `apps/web/src/account-notification-api.test.ts` — push API mapping tests added;
+- `apps/web/src/browser-push.ts` — browser capability/subscription helpers;
+- `apps/web/src/browser-push.test.ts` — browser push helper tests;
+- `apps/web/src/PushNotificationSettings.tsx` — explicit customer push settings;
+- `apps/web/src/AuthenticatedAppChrome.tsx` — embeds push settings in notification center;
+- `apps/web/src/account-notification.css` — push settings styles;
+- `apps/web/public/sw.js` — push display/click handling.
 
 ## Commits in this run
 
-All commits contain `[skip ci]`:
+All development commits contain `[skip ci]`:
 
-- `a1e9852a` — add dedicated Admin ANNOUNCEMENT API client;
-- `eb0624d7` — add announcement form/lifecycle safety helpers;
-- `788c095d` — add Admin announcement management page;
-- `d947c545` — route `/announcements` from Admin entrypoint;
-- `c76fae67` — author announcement form/lifecycle safety tests;
-- `52ade9e0` — author Admin announcement API tests;
+- `31f426c8` — add push notification domain service;
+- `327843f4` — add push notification persistence;
+- `7ae98422` — add authenticated push settings routes;
+- `a076c7b4` — author push notification domain tests;
+- `48f90c3d` — add Web Push API client contract;
+- `7cc17ea6` — add explicit browser push helpers;
+- `7472d8f7` — add explicit PWA push settings UI;
+- `3b6b992d` — wire push controls into notification center;
+- `eab44004` — style push notification settings;
+- `3930e0e4` — add service worker push handling;
+- `aac2e866` — author push notification route tests;
+- `693662eb` — author Web Push API mapping tests;
+- `3650f060` — author browser push helper tests;
 - this checkpoint commit follows the list.
 
 No GitHub Actions workflow was run, dispatched, rerun, enabled, modified, or used as validation.
@@ -177,47 +202,34 @@ The unrelated local `apps/api/verify-admin-schema.mjs` was not staged or committ
 
 ## Validation status
 
-### Tests authored this run
+### Tests authored/updated this run
 
-- `apps/admin/src/announcement-form.test.ts` — **AUTHORED / NOT RUN**;
-  - empty SPECIFIC_USERS rejection;
-  - exact/deduplicated user id behavior;
-  - broad-audience stale-id stripping;
-  - channel-required rule;
-  - scheduled datetime normalization;
-  - DRAFT/SCHEDULED send/cancel action eligibility.
-- `apps/admin/src/announcement-api.test.ts` — **AUTHORED / NOT RUN**;
-  - Admin Bearer token on preview;
-  - bounded preview payload;
-  - dedicated send endpoint;
-  - dedicated cancel endpoint.
+- `apps/api/src/worklog/push-notifications.test.ts` — **AUTHORED / NOT RUN**;
+- `apps/api/src/worklog/notification-routes.test.ts` push cases — **AUTHORED (updated) / NOT RUN**;
+- `apps/web/src/account-notification-api.test.ts` push cases — **AUTHORED (updated) / NOT RUN**;
+- `apps/web/src/browser-push.test.ts` — **AUTHORED / NOT RUN**.
 
-### Admin executable verification still required
-
-- Admin TypeScript typecheck — **NOT RUN**;
-- Admin focused Vitest (`announcement-form`, `announcement-api`) — **NOT RUN**;
-- Admin full Vitest — **NOT RUN**;
-- Admin production build — **NOT RUN**;
-- browser login/session smoke for `/announcements` — **NOT RUN**;
-- ALL/FREE/AI/SPECIFIC preview/create browser smoke — **NOT RUN**;
-- SEND_NOW explicit confirmation/browser smoke — **NOT RUN**;
-- scheduled creation/cancellation/browser smoke — **NOT RUN**;
-- recipient/delivery summary browser smoke — **NOT RUN**.
-
-### Existing Web/PWA work awaiting executable verification
-
-- Web TypeScript typecheck — **NOT RUN**;
-- Web focused/full Vitest — **NOT RUN**;
-- Web production build — **NOT RUN**;
-- account profile / notification browser smoke — **NOT RUN**;
-- account-id clipboard/fallback smoke — **NOT RUN**;
-- PWA responsive/install/speech smoke — **NOT RUN**.
-
-### Existing backend/schema/runtime work awaiting executable verification
+### API/Web executable verification still required
 
 - API TypeScript typecheck — **NOT RUN**;
-- focused notification/auth/account/native-GROUP/manual-Record/schema tests — **NOT RUN**;
+- push notification focused Vitest — **NOT RUN**;
+- notification route focused Vitest — **NOT RUN**;
 - full API Vitest — **NOT RUN**;
+- Web TypeScript typecheck — **NOT RUN**;
+- account-notification/browser-push focused Vitest — **NOT RUN**;
+- full Web Vitest — **NOT RUN**;
+- Web production build — **NOT RUN**;
+- browser `開啟通知` explicit-permission smoke — **NOT RUN**;
+- browser register/revoke/preferences smoke — **NOT RUN**;
+- service-worker push display/click smoke — **NOT RUN**;
+- installed iOS/iPadOS Home Screen PWA push smoke — **NOT RUN**;
+- Android/desktop PWA push smoke — **NOT RUN**;
+- PostgreSQL endpoint ownership/revocation/preferences smoke — **NOT RUN**.
+
+### Existing Admin/schema/runtime verification still required
+
+- Admin TypeScript typecheck/focused/full tests/build — **NOT RUN**;
+- `/announcements` browser smoke — **NOT RUN**;
 - PostgreSQL SYSTEM idempotency smoke — **NOT RUN**;
 - PostgreSQL announcement audience/fan-out smoke — **NOT RUN**;
 - provider-provisioning concurrency smoke — **NOT RUN**;
@@ -227,50 +239,57 @@ The unrelated local `apps/api/verify-admin-schema.mjs` was not staged or committ
 
 ### Execution environment result this run
 
-- executable AFTERTRACE checkout discovery — **FAIL**;
+- executable AFTERTRACE checkout discovery — **FAIL** (no mounted checkout found);
 - direct `git ls-remote https://github.com/ryan19910912/after-trace.git HEAD` — **FAIL** with `Could not resolve host: github.com`;
-- therefore no package TypeScript/Vitest/build/browser/runtime command was claimed PASS.
+- therefore no TypeScript/Vitest/build/browser/PostgreSQL/runtime command is claimed **PASS** or **RUNTIME VERIFIED**.
 
-GitHub source read/write through the repository connector remains available, but it is not equivalent to executable validation.
+GitHub source read/write through the repository connector remains available, but source inspection is not executable validation.
 
 ## Known blockers / risks
 
-1. **Executable validation remains the immediate release blocker.** New Admin/Web/API/extension code is source-authored but not compiled/executed in this environment.
-2. **Canonical `drizzle/0000` remains behind the current target schema.** Regenerate before clean database rebuild/deploy.
-3. **Admin announcement root-navigation discoverability is incomplete.** `/announcements` works as the authored route, but the existing large `App.tsx` tab row does not yet link to it.
-4. **PUSH runtime is not complete.** Admin can configure the intended PUSH channel, but subscription CRUD/preferences/VAPID delivery/service-worker push handling still need implementation/runtime verification. Durable IN_APP remains the source of truth.
+1. **Executable validation remains an immediate release blocker.** Push/Admin/Web/API/extension source is not compiled/executed in this environment.
+2. **Canonical `drizzle/0000` remains behind the current target schema.** Regenerate before clean DB rebuild/deploy.
+3. **Outbound Web Push delivery is not implemented yet.** No private VAPID sender/recipient delivery loop means device PUSH is not runtime complete even though subscription opt-in/storage and Service Worker receiving code exist.
+4. **Invalid subscription lifecycle is only user-revocation today.** Automatic permanent-invalid endpoint revocation and last-success/failure delivery bookkeeping require the sender path.
 5. **Scheduled ANNOUNCEMENT/TASK dispatch is not connected to Worker `scheduled()` yet.**
-6. **SYSTEM notification primitive still needs deterministic domain callers such as payment/subscription/trial/AI-limit events.**
-7. **Google Login and Apple Login callbacks remain incomplete.** LINE Login is only one provider and must not regain core product authority.
+6. **Native Task/reminder persistence/runtime is still incomplete.**
+7. **SYSTEM notification primitive still needs deterministic domain callers for payment/subscription/trial/AI-limit events.**
 8. **FREE one-time AI trial issuance/runtime is still not implemented to the latest contract.**
-9. **Paid AI entitlement/hard-cap runtime and native task/reminder execution remain incomplete.**
-10. **Extension auth/session handoff, Source picker and durable Record persistence remain incomplete.**
-11. Existing legacy Admin plan/group screens still contain LINE-era/ONE_TIME terminology in places. Do not extend those obsolete concepts; clean them as the accepted target screens replace them.
+9. **Google Login and Apple Login callbacks remain incomplete.** LINE Login is only one provider and must not regain core product authority.
+10. **Paid AI entitlement/hard-cap runtime remains incomplete.**
+11. **Extension auth/session handoff, Source picker and durable Record persistence remain incomplete.**
+12. Existing legacy Admin plan/group screens still contain LINE-era/ONE_TIME terminology in places. Do not extend those obsolete concepts; clean them as accepted target screens replace them.
 
 ## Exact next run order
 
-1. If an executable checkout becomes available, pause feature expansion and run/fix:
-   - Admin typecheck;
-   - `announcement-form.test.ts` + `announcement-api.test.ts`;
-   - Admin production build;
-   - Web/API focused typecheck/tests;
-   - load-unpacked extension smoke when feasible.
-2. If executable checkout is still unavailable, continue the next bounded notification batch:
-   - Push subscription persistence/API;
-   - per-user PUSH preferences for ANNOUNCEMENT/SYSTEM/TASK where allowed;
-   - explicit customer `開啟通知` UX only after user action;
-   - service-worker push event/click handling without auto permission prompt;
-   - invalid/revoked subscription lifecycle.
-3. Then implement native Tasks/reminders and one shared Worker `scheduled()` handler at approximately 5-minute cadence:
+1. If an executable checkout becomes available, pause feature expansion and run/fix in this order:
+   - API typecheck;
+   - `push-notifications.test.ts` + push cases in `notification-routes.test.ts`;
+   - Web typecheck;
+   - `account-notification-api.test.ts` + `browser-push.test.ts`;
+   - Web build;
+   - Admin typecheck + announcement focused tests/build;
+   - PostgreSQL push subscription ownership/preferences smoke.
+2. If executable checkout is still unavailable, complete the outbound Push delivery foundation as the next bounded shared-service batch:
+   - private VAPID/server delivery configuration;
+   - bounded pending recipient + active subscription lookup;
+   - category preference filtering;
+   - idempotent `PENDING -> SENT/FAILED/SKIPPED` delivery transitions;
+   - `last_success_at` on success;
+   - permanent-invalid endpoint revocation without touching IN_APP history;
+   - safe transient failure/retry behavior;
+   - tests authored, never claimed passed without execution.
+3. Then implement native Tasks/reminders and one global Worker `scheduled()` handler at approximately five-minute cadence:
    - bounded due reminder scan;
    - bounded scheduled ANNOUNCEMENT scan;
-   - idempotent dispatch;
+   - deterministic/idempotent notification creation and dispatch;
    - never one Cron per task;
-   - Queue only if fan-out/volume justifies it.
+   - Cloudflare Queue only if actual fan-out/volume justifies it.
 4. Wire deterministic SYSTEM callers for payment/subscription/trial/AI-limit events.
-5. Implement FREE one-time AI trial Admin configuration/issuance/accounting, then Google/LINE/Apple auth completion.
-6. Return to Chrome extension after shared auth/Record/entitlement APIs are stable enough for real persistence.
-7. Regenerate canonical `drizzle/0000`, rebuild disposable Dev/Prod as appropriate, run runtime E2E, then continue AI Pro search/enrichment/related-record/summary/rewrite and final legacy LINE cleanup.
+5. Implement FREE one-time AI trial Admin configuration/issuance/reservation/settlement/accounting.
+6. Complete Google + LINE auth priority path and Apple callback next, preserving provider-neutral identity and no silent email merge.
+7. Return to Chrome extension auth/API persistence once shared auth/Record/entitlement APIs are stable enough.
+8. Regenerate canonical `drizzle/0000`, rebuild disposable Dev/Prod as appropriate, run runtime E2E, then continue AI Pro search/enrichment/related-record/summary/rewrite and final legacy LINE cleanup.
 
 ## Next run checklist
 
@@ -279,24 +298,25 @@ GitHub source read/write through the repository connector remains available, but
 - [ ] Never touch GitHub Actions.
 - [ ] Never touch `apps/api/verify-admin-schema.mjs` without separate approval.
 - [ ] Prefer executable validation first if available.
-- [ ] Otherwise continue Push subscription/preferences as the next bounded shared-service batch.
+- [ ] Otherwise implement outbound Push delivery before calling PUSH complete.
 - [ ] Keep notification category separate from channel.
 - [ ] Never auto-prompt notification permission on initial PWA load.
-- [ ] Keep IN_APP durable even if PUSH fails/denied.
+- [ ] Keep IN_APP durable if PUSH is unavailable/denied/fails.
+- [ ] Use one shared Worker scheduler for scheduled announcements + due tasks; never one Cron per task.
 
 ## Estimated remaining development time
 
-Current estimate: **about 39–75 focused development hours**.
+Current estimate: **about 36–70 focused development hours**.
 
 Approximate remaining buckets:
 
 - executable validation + canonical baseline/rebuild + current free/PWA/native-GROUP/account/notification/Admin E2E: 7–13h;
-- Admin announcement root-navigation/final UX polish + notification history polish: 1–3h;
-- Push subscriptions/preferences/delivery + Tasks/reminders/shared Cron + iOS/browser smoke: 7–12h;
+- outbound Web Push sender/delivery lifecycle + browser/iOS smoke: 3–6h;
+- Tasks/reminders + shared scheduled handler: 4–7h;
 - FREE one-time AI trial issuance/accounting/Admin control: 3–6h;
 - Google/LINE/Apple login completion + account UI/Admin cleanup: 4–8h;
-- AI Pro per-user entitlement/capture/search/hard caps: 10–18h;
-- Related Records/range summary/rewrite: 4–7h;
+- AI Pro per-user entitlement/capture/search/hard caps: 9–16h;
+- Related Records/range summary/rewrite: 3–6h;
 - Chrome extension auth/API integration, browser smoke, packaging and final readiness/legacy cleanup: 3–8h.
 
-Tighten the estimate after the first executable Admin/Web/API typecheck/test pass, regenerated canonical baseline and real Dev runtime E2E.
+Tighten the estimate after the first executable API/Web/Admin typecheck/test pass, regenerated canonical baseline and real Dev runtime E2E.
