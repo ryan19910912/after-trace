@@ -26,6 +26,29 @@ export function providerCostToAiPoints(input: ProviderPointConversionInput): num
   return Math.ceil(rawPoints);
 }
 
+/**
+ * Convert a conservative AI-point reservation back to a conservative TWD provider-cost hold.
+ * Because point reservation rounds provider cost UP to output-price-equivalent units, converting
+ * the reserved points through the same pricing snapshot is never lower than that estimate.
+ *
+ * A missing/non-positive FX rate intentionally returns null so AI Pro can fail closed before
+ * provider execution instead of pretending a TWD hard-cap hold exists.
+ */
+export function aiPointReservationCostHoldTwd(input: {
+  points: number;
+  outputUsdPerMillion: number;
+  usdTwdRate: number | null;
+}): number | null {
+  const points = positiveSafeInteger(input.points, 'points');
+  const outputUsdPerMillion = positiveFinite(input.outputUsdPerMillion, 'outputUsdPerMillion');
+  if (input.usdTwdRate === null || !Number.isFinite(input.usdTwdRate) || input.usdTwdRate <= 0) return null;
+  const providerCostTwd = (points * outputUsdPerMillion / 1_000_000) * input.usdTwdRate;
+  if (!Number.isFinite(providerCostTwd) || providerCostTwd < 0) {
+    throw new Error('AI provider cost hold exceeds finite range');
+  }
+  return providerCostTwd;
+}
+
 export function customerPointSettlement(input: {
   actualPoints: number;
   eligibleRemainingPoints: number;
@@ -47,6 +70,11 @@ function nonNegativeFinite(value: number, label: string): number {
 
 function positiveFinite(value: number, label: string): number {
   if (!Number.isFinite(value) || value <= 0) throw new Error(`${label} must be positive`);
+  return value;
+}
+
+function positiveSafeInteger(value: number, label: string): number {
+  if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${label} must be a positive safe integer`);
   return value;
 }
 
