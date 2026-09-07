@@ -8,7 +8,9 @@ const env = {
   DATABASE_URL: 'postgresql://unused.invalid/aftertrace',
   WEB_AUTH_SECRET: '0123456789abcdef0123456789abcdef',
   WEB_APP_ORIGIN: 'https://web.example.test',
-  WEB_PUSH_PUBLIC_KEY: 'BElong-lived-public-vapid-key-for-tests',
+  WEB_PUSH_PUBLIC_KEY: 'BAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0-P0A',
+  WEB_PUSH_PRIVATE_KEY: 'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA',
+  WEB_PUSH_SUBJECT: 'mailto:support@example.test',
 };
 
 async function authorization(userId = 7) {
@@ -148,7 +150,7 @@ describe('notification center routes', () => {
     await expect(response.json()).resolves.toEqual({ ok: true, updatedCount: 4 });
   });
 
-  it('returns provider-neutral per-user push state and public VAPID key', async () => {
+  it('returns provider-neutral per-user push state only when complete server VAPID config is present', async () => {
     let requestedUserId = 0;
     const app = createNotificationRoutes({
       databaseFactory: () => ({} as never),
@@ -222,13 +224,21 @@ describe('notification center routes', () => {
     expect(registeredEndpoint).toBe('https://push.example.test/device/1');
   });
 
-  it('fails closed when the server has no Web Push public key configured', async () => {
+  it('fails closed when the Web Push server configuration is incomplete', async () => {
     const app = createNotificationRoutes({
       databaseFactory: () => ({} as never),
       resolveSessionUserId: async (_database, session) => session.userId,
       pushRepositoryFactory: () => pushRepository(),
     });
-    const noPushEnv = { ...env, WEB_PUSH_PUBLIC_KEY: '' };
+    const noPushEnv = { ...env, WEB_PUSH_PRIVATE_KEY: '' };
+
+    const stateResponse = await app.request('/push', { headers: headers(await authorization()) }, noPushEnv);
+    expect(stateResponse.status).toBe(200);
+    await expect(stateResponse.json()).resolves.toMatchObject({
+      ok: true,
+      serverPushEnabled: false,
+      publicKey: null,
+    });
 
     const response = await app.request('/push/subscription', {
       method: 'POST',
