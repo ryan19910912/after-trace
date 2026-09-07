@@ -11,6 +11,8 @@
       .muted { color: #666; font-size: 12px; }
       textarea { width: 100%; min-height: 110px; resize: vertical; box-sizing: border-box; padding: 10px; }
       select, button { min-height: 38px; }
+      button { cursor: pointer; }
+      button:disabled { cursor: not-allowed; opacity: .55; }
       .row { display: flex; gap: 8px; align-items: center; }
       .grow { flex: 1; }
       .page { border: 1px solid #ddd; border-radius: 8px; padding: 10px; display: grid; gap: 4px; }
@@ -18,21 +20,34 @@
       .preview { max-width: 100%; border-radius: 8px; border: 1px solid #ddd; }
       .hidden { display: none; }
       .status { font-size: 12px; min-height: 18px; }
+      .auth { border: 1px solid #ddd; border-radius: 8px; padding: 10px; display: grid; gap: 8px; }
+      .auth strong { font-size: 13px; }
+      .footer-link { font-size: 12px; }
     </style>
   </head>
   <body>
     <main>
       <h1>快速紀錄</h1>
+
+      <section class="auth">
+        <strong id="authState">尚未連接 AFTERTRACE</strong>
+        <div class="row">
+          <button id="connect" type="button">連接 AFTERTRACE</button>
+          <button id="disconnect" class="hidden" type="button">解除連接</button>
+        </div>
+      </section>
+
       <div class="row">
         <label for="source">記錄到</label>
         <select id="source" class="grow" disabled>
-          <option>我的紀錄</option>
+          <option value="">請先連接 AFTERTRACE</option>
         </select>
       </div>
+
       <textarea id="content" placeholder="輸入一段短紀錄，或使用語音輸入…"></textarea>
       <div class="row">
         <button id="voice" type="button">🎙️ 語音</button>
-        <button id="screenshot" type="button">📷 截圖</button>
+        <button id="screenshot" type="button">📷 截圖預覽</button>
       </div>
       <label class="row">
         <input id="includePage" type="checkbox" />
@@ -44,8 +59,9 @@
       </div>
       <img id="screenshotPreview" class="preview hidden" alt="截圖預覽" />
       <div id="status" class="status muted"></div>
-      <button id="save" type="button" disabled>登入後即可記錄</button>
-      <div class="muted">完整紀錄管理請開啟 AFTERTRACE Web / PWA。</div>
+      <button id="save" type="button" disabled>請先連接 AFTERTRACE</button>
+      <a id="openWeb" class="footer-link" href="https://after-trace-web-prod.a0955625660.workers.dev/" target="_blank" rel="noreferrer">開啟完整 AFTERTRACE Web</a>
+      <div class="muted">文字、選取文字與瀏覽器語音轉文字會走同一套 AFTERTRACE Record API。截圖 AI 仍需 AI Pro／試用 entitlement，尚未在這個批次送出。</div>
     </main>
     <script src="popup.js"></script>
   </body>
