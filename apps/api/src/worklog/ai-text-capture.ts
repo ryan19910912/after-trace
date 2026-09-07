@@ -1,6 +1,6 @@
 import type { AiEntitlementDecision } from './ai-entitlement';
-import type { WorklogAiPointLedgerService } from './ai-point-ledger';
 import type { WorklogAiUsageCommit } from './ai-provider-usage';
+import type { AiPointLedgerPort } from './entitled-ai-point-ledger';
 import type {
   WorklogAiRuntimeConfigSnapshot,
   WorklogTextNormalizationOutput,
@@ -31,7 +31,6 @@ export type AiTextCaptureRepository = {
 
 export type AiTextCaptureEntitlementPort = {
   resolve(userId: number, sourceId: number, at?: Date): Promise<AiEntitlementDecision>;
-  admit(userId: number, sourceId: number, requestedPoints: number, at?: Date): Promise<AiEntitlementDecision>;
 };
 
 export type AiTextCaptureResult =
@@ -44,15 +43,16 @@ export type AiTextCaptureResult =
  * Target Web/PWA/Chrome provider-backed text capture path.
  *
  * Manual capture does not use this service. A read-only entitlement resolution first hides
- * runtime/provider state from unauthorized Sources. Provider work starts only after the
- * request-specific `admit()` check and a durable point reservation. Provider success is
- * always settled/audited even when a later Record write fails.
+ * runtime/provider state from unauthorized Sources. Request-specific admission + exact Grant
+ * selection is then enforced again inside the shared EntitledAiPointLedgerService before the
+ * low-level point reservation runs. Provider success is always settled/audited even when a
+ * later Record write fails.
  */
 export class AiTextCaptureService {
   constructor(
     private readonly repository: AiTextCaptureRepository,
     private readonly entitlement: AiTextCaptureEntitlementPort,
-    private readonly ledger: WorklogAiPointLedgerService,
+    private readonly aiPoints: AiPointLedgerPort,
     private readonly provider: WorklogTextNormalizationProvider,
   ) {}
 
@@ -86,12 +86,7 @@ export class AiTextCaptureService {
       return { status: 'FAILED', reason: errorCode(error, 'AI_RESERVATION_ESTIMATE_INVALID') };
     }
 
-    const decision = await this.entitlement.admit(userId, sourceId, requestedPoints, referenceAt);
-    if (!decision.allowed || decision.source === 'BLOCKED') {
-      return { status: 'BLOCKED', decision };
-    }
-
-    const reservation = await this.ledger.reserveAi({
+    const reservation = await this.aiPoints.reserveAi({
       chargedUserId: userId,
       actorUserId: userId,
       sourceId,
@@ -100,14 +95,19 @@ export class AiTextCaptureService {
       ttlMs: 10 * 60_000,
     });
     if (reservation.status !== 'RESERVED') {
+      const reason = reservation.status === 'AI_ENTITLEMENT_BLOCKED'
+        ? entitlementReason(reservation.reason)
+        : preliminary.source === 'FREE_TRIAL'
+          ? 'TRIAL_EXHAUSTED'
+          : 'MONTHLY_POINT_CAP_REACHED';
       return {
         status: 'BLOCKED',
         decision: {
           source: 'BLOCKED',
           allowed: false,
-          reason: decision.source === 'FREE_TRIAL' ? 'TRIAL_EXHAUSTED' : 'MONTHLY_POINT_CAP_REACHED',
-          remainingPoints: 0,
-          periodEndsAt: decision.periodEndsAt,
+          reason,
+          remainingPoints: reason === 'PER_REQUEST_POINT_CAP_EXCEEDED' ? preliminary.remainingPoints : 0,
+          periodEndsAt: preliminary.periodEndsAt,
         },
       };
     }
@@ -117,7 +117,7 @@ export class AiTextCaptureService {
     try {
       providerResponse = await this.provider.normalize(providerInput, config);
     } catch (error) {
-      await safeRelease(this.ledger, token);
+      await safeRelease(this.aiPoints, token);
       return { status: 'FAILED', reason: errorCode(error, 'AI_PROVIDER_FAILED') };
     }
 
@@ -132,11 +132,11 @@ export class AiTextCaptureService {
         enrichedAt: new Date(),
       });
     } catch (error) {
-      await settleProviderSuccess(this.ledger, token, { ...usageBase, operation: 'AI_TEXT_CAPTURE' });
+      await settleProviderSuccess(this.aiPoints, token, { ...usageBase, operation: 'AI_TEXT_CAPTURE' });
       return { status: 'FAILED', reason: errorCode(error, 'AI_RECORD_CREATE_FAILED') };
     }
 
-    const settled = await this.ledger.commitAiUsage(token, {
+    const settled = await this.aiPoints.commitAiUsage(token, {
       ...usageBase,
       workspaceId: created.workspaceId,
       recordId: created.record.id,
@@ -148,7 +148,7 @@ export class AiTextCaptureService {
 
     return {
       status: 'CREATED',
-      entitlementSource: decision.source,
+      entitlementSource: preliminary.source,
       record: created.record,
     };
   }
@@ -179,15 +179,33 @@ function usageFromProvider(
 }
 
 async function settleProviderSuccess(
-  ledger: WorklogAiPointLedgerService,
+  aiPoints: AiPointLedgerPort,
   token: string,
   usage: WorklogAiUsageCommit,
 ): Promise<void> {
-  try { await ledger.commitAiUsage(token, usage); } catch { /* durable reservation/usage diagnostics handle failure */ }
+  try { await aiPoints.commitAiUsage(token, usage); } catch { /* durable reservation/usage diagnostics handle failure */ }
 }
 
-async function safeRelease(ledger: WorklogAiPointLedgerService, token: string): Promise<void> {
-  try { await ledger.releaseAi(token); } catch { /* reservation expiry is fallback */ }
+async function safeRelease(aiPoints: AiPointLedgerPort, token: string): Promise<void> {
+  try { await aiPoints.releaseAi(token); } catch { /* reservation expiry is fallback */ }
+}
+
+function entitlementReason(value: string): AiEntitlementDecision['reason'] {
+  const allowed: AiEntitlementDecision['reason'][] = [
+    'SOURCE_NOT_AUTHORIZED',
+    'AI_NOT_ENTITLED',
+    'TRIAL_EXHAUSTED',
+    'MONTHLY_POINT_CAP_REACHED',
+    'MONTHLY_POINT_CAP_WOULD_BE_EXCEEDED',
+    'MONTHLY_PROVIDER_COST_CAP_REACHED',
+    'PROVIDER_COST_ACCOUNTING_INCOMPLETE',
+    'PER_REQUEST_POINT_CAP_EXCEEDED',
+    'PLAN_DISABLED',
+    'SUBSCRIPTION_GRANT_MISSING',
+  ];
+  return allowed.includes(value as AiEntitlementDecision['reason'])
+    ? value as AiEntitlementDecision['reason']
+    : 'AI_NOT_ENTITLED';
 }
 
 function positiveId(value: number, error: string): number {
