@@ -16,6 +16,12 @@ type ChromeRuntime = {
 type ChromeBridge = { runtime?: ChromeRuntime };
 
 type ConnectResponse = { ok?: unknown; error?: unknown };
+type ExtensionSessionResponse = {
+  ok?: unknown;
+  error?: unknown;
+  sessionToken?: unknown;
+  expiresInSeconds?: unknown;
+};
 
 export function ExtensionConnectRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
   const connectTarget = useMemo(() => extensionConnectTarget(window.location), []);
@@ -44,10 +50,11 @@ export function ExtensionConnectRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
     setBusy(true);
     setError(null);
     try {
+      const extensionSession = await issueExtensionSession(apiBaseUrl, session);
       await sendExtensionSession({
         extensionId: connectTarget.extensionId,
         nonce: connectTarget.nonce,
-        sessionToken: session,
+        sessionToken: extensionSession.sessionToken,
         apiBaseUrl,
         webAppUrl: window.location.origin,
       });
@@ -63,7 +70,7 @@ export function ExtensionConnectRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
     <section className="fatal-card login-card">
       <p className="eyebrow">AFTERTRACE</p>
       <h1>連接 Chrome 擴充功能</h1>
-      <p className="muted">這個動作只會把你目前的 AFTERTRACE 登入工作階段交給你剛剛開啟的 AFTERTRACE 擴充功能，不會傳送 Google、LINE 或 Apple 的登入憑證。</p>
+      <p className="muted">這個動作會建立一個較短效的 AFTERTRACE 擴充功能工作階段，不會把 Google、LINE 或 Apple 的登入憑證交給擴充功能，也不會使用 extension-only 帳號。</p>
 
       {!connectTarget ? <div className="error">這個擴充功能連接請求無效，請回到 AFTERTRACE 擴充功能重新按一次「連接」。</div> : null}
       {error ? <div className="error">{error}</div> : null}
@@ -86,6 +93,35 @@ export function extensionConnectTarget(locationLike: Pick<Location, 'pathname' |
   const extensionId = params.get('extensionId');
   const nonce = params.get('nonce');
   return extensionId && nonce ? { extensionId, nonce } : null;
+}
+
+export async function issueExtensionSession(
+  apiBaseUrl: string,
+  webSessionToken: string,
+): Promise<{ sessionToken: string; expiresInSeconds: number }> {
+  const response = await fetch(`${apiBaseUrl.replace(/\/$/, '')}/api/v1/account/extension-session`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${webSessionToken}`,
+      Accept: 'application/json',
+    },
+  });
+  const text = await response.text();
+  let body: ExtensionSessionResponse;
+  try {
+    body = text ? JSON.parse(text) as ExtensionSessionResponse : {};
+  } catch {
+    throw new Error(`擴充功能工作階段建立失敗 (${response.status})`);
+  }
+  if (!response.ok) {
+    throw new Error(typeof body.error === 'string' ? body.error : `擴充功能工作階段建立失敗 (${response.status})`);
+  }
+  const sessionToken = typeof body.sessionToken === 'string' ? body.sessionToken.trim() : '';
+  const expiresInSeconds = Number(body.expiresInSeconds);
+  if (!sessionToken || !Number.isSafeInteger(expiresInSeconds) || expiresInSeconds <= 0 || expiresInSeconds > 60 * 60 * 24 * 7) {
+    throw new Error('擴充功能工作階段回應無效');
+  }
+  return { sessionToken, expiresInSeconds };
 }
 
 export async function sendExtensionSession(input: {
