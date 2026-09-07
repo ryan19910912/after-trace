@@ -5,6 +5,7 @@ import { AdminAnnouncementApi } from './announcement-api';
 import { AdminAnnouncementsPage } from './AdminAnnouncementsPage';
 import { AdminCommercialPage } from './AdminCommercialPage';
 import { AdminFeedbackPage } from './AdminFeedbackPage';
+import { AdminHomePage } from './AdminHomePage';
 import { AdminCommercialApi } from './commercial-api';
 import { App } from './App';
 import { PricingCalculatorPage } from './PricingCalculatorPage';
@@ -42,7 +43,9 @@ if (!baseUrl) {
           ? <AdminCommercialPage api={commercialApi} />
           : window.location.pathname === '/feedback-management'
             ? <AdminFeedbackPage apiBaseUrl={baseUrl} />
-            : <App api={api} />;
+            : window.location.pathname === '/legacy-diagnostics'
+              ? <App api={api} />
+              : <AdminHomePage api={api} />;
 
   root.render(
     <StrictMode>
