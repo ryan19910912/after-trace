@@ -1,0 +1,5 @@
+.login-card { display:grid; gap:14px; }
+.login-provider-actions { display:grid; gap:9px; }
+.login-provider-actions button { width:100%; min-height:44px; }
+.login-provider-note { margin:0; font-size:.8rem; line-height:1.5; opacity:.72; }
+.login-back { justify-self:start; }
