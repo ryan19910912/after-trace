@@ -13,4 +13,5 @@ export * from './schema-worklog-line-reply';
 export * from './schema-worklog-line-edit';
 export * from './schema-worklog-attachment';
 export * from './schema-worklog-checkout';
+export * from './schema-worklog-subscription-lifecycle';
 export * from './schema-worklog-group-profile';
