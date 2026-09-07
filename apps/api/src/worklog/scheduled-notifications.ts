@@ -1,7 +1,9 @@
 import { sql } from 'drizzle-orm';
 import { createDatabase, type Database } from '../db/client';
 import { DrizzleNotificationRepository } from './drizzle-notifications';
+import { DrizzleTaskRepository } from './drizzle-tasks';
 import { deliverPendingPushBatch, type WebPushRuntimeBindings } from './push-runtime';
+import { TaskService } from './tasks';
 
 export type ScheduledNotificationBindings = WebPushRuntimeBindings;
 
@@ -9,6 +11,9 @@ export type ScheduledNotificationRunResult = {
   dueAnnouncementsExamined: number;
   announcementsSent: number;
   announcementsSkipped: number;
+  dueTasksExamined: number;
+  taskNotificationsCreated: number;
+  tasksSkipped: number;
   pushBatchClaimed: number;
 };
 
@@ -16,19 +21,24 @@ type DueAnnouncementRow = { id: string };
 
 export async function runScheduledNotificationBatch(
   env: ScheduledNotificationBindings,
-  options: { announcementLimit?: number; pushLimit?: number } = {},
+  options: { announcementLimit?: number; taskLimit?: number; pushLimit?: number } = {},
 ): Promise<ScheduledNotificationRunResult> {
   const database = createDatabase(env.DATABASE_URL);
   const announcementResult = await dispatchDueAnnouncements(
     database,
     boundedLimit(options.announcementLimit, 25, 100),
   );
+  const taskResult = await new TaskService(new DrizzleTaskRepository(database))
+    .dispatchDueReminderNotifications(boundedLimit(options.taskLimit, 50, 100));
   const pushResult = await deliverPendingPushBatch(
     env,
     boundedLimit(options.pushLimit, 50, 100),
   );
   return {
     ...announcementResult,
+    dueTasksExamined: taskResult.examined,
+    taskNotificationsCreated: taskResult.notified,
+    tasksSkipped: taskResult.skipped,
     pushBatchClaimed: pushResult?.claimed ?? 0,
   };
 }
