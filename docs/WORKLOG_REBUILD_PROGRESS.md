@@ -2,13 +2,13 @@
 
 Durable development handoff for branch `revive/line-worklog`.
 
-Before substantive work, read the documents in the exact order defined by `docs/WORKLOG_DEVELOPMENT_POLICY.md`, plus the latest subscription/account/support/notification policies when called out by the run prompt. Latest docs are the only product/development specification.
+Before substantive work, read the documents in the exact order defined by `docs/WORKLOG_DEVELOPMENT_POLICY.md`. Latest docs are the only product/development specification.
 
 Never use GitHub Actions unless the user explicitly asks. Every development commit contains `[skip ci]`.
 
-## Current checkpoint — 2026-09-07 authenticated Web/PWA account chrome + durable notification-center UI authored; executable/browser/schema verification still pending
+## Current checkpoint — 2026-09-07 Chrome extension capture scope committed and first popup/context-capture scaffold authored; executable/browser/schema verification still pending
 
-AFTERTRACE remains Web + PWA-first work memory with optional Chrome extension. LINE is no longer a Record/group/AI product surface. LINE remains only as:
+AFTERTRACE remains Web + PWA-first work memory with a committed Chrome extension fast-capture surface. LINE is no longer a Record/group/AI product surface. LINE remains only as:
 
 - one supported login provider;
 - official LINE OA external customer-support contact channel.
@@ -58,11 +58,58 @@ The accepted target foundation remains:
 - SYSTEM notification creation has a user-scoped deterministic idempotency key;
 - LINE OA remains support-only and must not reintroduce legacy Record/group/AI bot behavior.
 
-## Authenticated Web/PWA app chrome — authored this run
+## Chrome extension capture contract — accepted this run
 
-New `apps/web/src/AuthenticatedAppChrome.tsx` is mounted once around the current Web route content from `apps/web/src/main.tsx`.
+`docs/WORKLOG_EXTENSION_POLICY.md` is now the durable extension contract.
 
-For an authenticated session it now provides the required shared top-right account surface across the Web/PWA routes without modifying each large route root independently:
+Committed V1 capture scope:
+
+- quick text;
+- quick voice;
+- Source/group selection;
+- explicit selected webpage text capture;
+- optional current-page title + URL context;
+- explicit visible-page/bounded screenshot/image capture for AI Pro or eligible FREE trial;
+- persistence into the same AFTERTRACE Record timeline/domain model.
+
+Privacy/product boundaries:
+
+- no automatic full-page archive;
+- no browsing-history or clipboard monitoring;
+- no continuous microphone/screen capture;
+- no meeting-length background recording;
+- no automatic tab monitoring;
+- no RAG over every visited page;
+- no separate extension-only account/subscription/domain;
+- no large persistent sidebar/agent for V1.
+
+## Chrome extension scaffold — authored this run
+
+New `apps/extension` package has been started as a Manifest V3 extension foundation.
+
+Current files:
+
+- `apps/extension/package.json` — workspace package placeholder;
+- `apps/extension/manifest.json` — Manifest V3, compact action popup, minimum current permissions (`activeTab`, `contextMenus`, `storage`);
+- `apps/extension/background.js` — explicit `儲存到 AFTERTRACE` selected-text context-menu flow; selected text + page title/URL are staged only as transient extension draft data;
+- `apps/extension/popup.html` — compact quick-capture shell with text, Source placeholder, voice action, page-context toggle and screenshot preview;
+- `apps/extension/popup.js` — active-page title/URL lookup, selected-text draft restore, browser speech input attempt/fallback, explicit visible-tab screenshot capture and preview.
+
+Important current limitation:
+
+- durable auth/session handoff is **not wired yet**;
+- Source/group list is **not wired yet**;
+- save/persistence is intentionally disabled until it can use the normal AFTERTRACE authenticated Record APIs;
+- screenshot/voice are currently local capture UI only and must not be claimed as end-to-end Record creation;
+- no browser/runtime validation has been executed.
+
+This is deliberate: the extension must not invent an extension-only durable storage/login path merely to appear complete.
+
+## Authenticated Web/PWA app chrome retained
+
+`apps/web/src/AuthenticatedAppChrome.tsx` remains mounted once around the current Web route content from `apps/web/src/main.tsx`.
+
+For an authenticated session it provides:
 
 - notification bell;
 - visible unread badge when unread count is non-zero;
@@ -73,92 +120,54 @@ For an authenticated session it now provides the required shared top-right accou
 - copy fallback for browsers where Clipboard API is unavailable;
 - narrow mobile/PWA layout keeps `帳號 ID` and copy affordance visible rather than hiding them.
 
-The account chrome reads the same signed Web session token already used by the current Web roots. It can obtain the token from the login callback hash before the child route persists it, then follows local session state through storage/hash/pageshow/focus/click synchronization.
+The account chrome consumes only provider-neutral account/profile facts.
 
-Invalid/expired signed sessions from account or notification calls clear the shared local session instead of leaving a permanently stale authenticated chrome visible.
+## Web/PWA notification center retained
 
-Provider identity fields are not exposed by this UI. It consumes only `/api/v1/account/profile`, whose customer-facing payload is `displayName + publicAccountId`.
+The shared app chrome consumes the durable notification backend through `apps/web/src/account-notification-api.ts`.
 
-Provider display-name snapshots are allowed to be absent. The Web parser therefore treats `displayName` as nullable and falls back to `AFTERTRACE 使用者`; `publicAccountId` remains mandatory.
-
-## Web/PWA notification center — authored this run
-
-The shared app chrome now consumes the durable notification backend through new `apps/web/src/account-notification-api.ts`.
-
-Current customer behavior:
+Current customer behavior includes:
 
 - initial authenticated load fetches `/api/v1/notifications`;
-- unread count is shown on the bell;
-- opening the bell shows the durable notification-center list;
-- each item displays category, title, body, Taipei display time and read/unread state;
-- category labels remain exactly the three product categories: `公告通知`, `系統通知`, `待辦通知`;
-- one notification can be marked read through `PATCH /api/v1/notifications/:id/read`;
-- all current notifications can be marked read through `POST /api/v1/notifications/read-all`;
-- UI state updates only after the durable backend mutation succeeds;
-- notification deep links are accepted only when they are same-product relative paths; absolute/protocol-relative/javascript links are not rendered as open actions;
-- opening a valid deep link first persists read state, then navigates.
+- unread count on bell;
+- durable notification-center list;
+- exactly `公告通知`, `系統通知`, `待辦通知` category labels;
+- mark-one-read and mark-all-read actions;
+- safe same-product relative deep links only;
+- invalid/expired signed sessions clear shared local session state.
 
-This UI does not confuse notification category with delivery channel. It is currently the IN_APP center; PUSH remains an independent delivery channel to be implemented later.
+PUSH remains independent and still incomplete.
 
-No browser push permission is requested anywhere in this run.
+## Notification backend retained
 
-## Responsive notification/account styling — authored this run
+Current backend boundary remains:
 
-New `apps/web/src/account-notification.css` adds:
+- `apps/api/src/worklog/notifications.ts`;
+- `apps/api/src/worklog/drizzle-notifications.ts`;
+- `apps/api/src/worklog/notification-routes.ts`;
+- `apps/api/src/admin/notification-routes.ts`.
 
-- sticky shared account chrome;
-- compact bell/unread badge;
-- account display name and support account id presentation;
-- one-tap copy feedback;
-- desktop notification popover;
-- fixed-width-safe mobile notification panel;
-- unread visual state;
-- mobile layout that preserves the required account-id label and copy control.
+Audience rules remain:
 
-The existing Capture/Worklog/Subscription/Feedback/Help route implementations were not broadly rewritten; the chrome is shared from `main.tsx` to keep this batch bounded.
+- `ALL_USERS`;
+- `FREE_USERS`;
+- `AI_SUBSCRIBERS`;
+- `SPECIFIC_USERS`.
 
-## Web contract tests authored this run
-
-New `apps/web/src/account-notification-api.test.ts` covers source-level contracts for:
-
-- provider-neutral `publicAccountId` parsing;
-- nullable provider display-name snapshot handling;
-- durable notification-center mapping;
-- exactly three customer notification category labels;
-- safe relative notification deep-link acceptance;
-- rejection of external, protocol-relative and `javascript:` notification links.
-
-Status: **AUTHORED / NOT RUN**.
-
-The existing backend notification/account tests from prior runs also remain **AUTHORED / NOT RUN** because no executable checkout is available.
-
-## Notification backend retained from previous checkpoint
-
-The prior notification backend remains the current service boundary:
-
-- `apps/api/src/worklog/notifications.ts` — shared domain contract;
-- `apps/api/src/worklog/drizzle-notifications.ts` — durable repository, SYSTEM idempotency, ANNOUNCEMENT fan-out;
-- `apps/api/src/worklog/notification-routes.ts` — customer IN_APP center/read routes;
-- `apps/api/src/admin/notification-routes.ts` — Admin announcement API;
-- `/api/v1/notifications/*` and `/api/v1/admin/notifications/*` are mounted before migration-era Gemini/LINE runtime initialization.
-
-Audience rules retained:
-
-- `ALL_USERS` — all AFTERTRACE accounts;
-- `FREE_USERS` — accounts without a current active AI-enabled subscription, including FREE users who still have one-time trial points;
-- `AI_SUBSCRIBERS` — current active AI-enabled subscription users;
-- `SPECIFIC_USERS` — only explicit selected account ids; empty selection fails closed.
-
-Scheduled announcement persistence exists, but the single shared Worker scheduled handler/Cron is not connected yet.
+Scheduled announcement persistence exists, but the shared Worker scheduled handler/Cron is not connected yet.
 
 ## Commits in this run
 
 All commits contain `[skip ci]`:
 
-- `ead58258` — add authenticated account + notification Web/PWA chrome, client, styling and contract tests;
-- `01cd02f6` — align Web account profile parsing with nullable provider display-name snapshots;
-- `a5b344d4` — keep `帳號 ID` and copy controls visible in narrow PWA/mobile layout;
-- `af4e394f` — clear invalid/expired signed sessions from the shared account chrome;
+- `21a3eac1` — define Chrome extension capture scope;
+- `8d50fde6` — scaffold extension workspace package;
+- `5498b8b8` — add Manifest V3 extension manifest;
+- `bc4b5884` — add explicit selected-text context-menu capture;
+- `2a6c828f` — add compact quick-capture popup shell;
+- `df86a3d8` — wire page context, speech-input attempt and explicit visible screenshot preview;
+- `8569803c` — promote extension scope into product spec;
+- `bb29aac5` — add extension rules to development policy;
 - this checkpoint commit follows the list.
 
 No GitHub Actions workflow was run, dispatched, rerun, enabled, modified, or used as validation.
@@ -167,92 +176,87 @@ The unrelated local `apps/api/verify-admin-schema.mjs` was not staged or committ
 
 ## Validation status
 
-### Web/PWA work from this run
+### Chrome extension work from this run
 
-- `apps/web/src/account-notification-api.ts` — **AUTHORED / NOT RUN**;
-- `apps/web/src/AuthenticatedAppChrome.tsx` — **AUTHORED / NOT RUN**;
-- `apps/web/src/account-notification.css` — **AUTHORED / NOT RUN**;
-- `apps/web/src/main.tsx` shared chrome mount — **AUTHORED / NOT RUN**;
-- `apps/web/src/account-notification-api.test.ts` — **AUTHORED / NOT RUN**;
-- account profile HTTP/browser smoke — **NOT RUN**;
-- notification list/unread/read-one/read-all browser smoke — **NOT RUN**;
-- account-id Clipboard API + fallback browser smoke — **NOT RUN**;
-- narrow PWA responsive smoke — **NOT RUN**;
+- `apps/extension/package.json` — **AUTHORED / NOT RUN**;
+- `apps/extension/manifest.json` — **AUTHORED / NOT RUN**;
+- `apps/extension/background.js` — **AUTHORED / NOT RUN**;
+- `apps/extension/popup.html` — **AUTHORED / NOT RUN**;
+- `apps/extension/popup.js` — **AUTHORED / NOT RUN**;
+- load-unpacked Chrome smoke — **NOT RUN**;
+- context-menu selected-text smoke — **NOT RUN**;
+- active page title/URL smoke — **NOT RUN**;
+- browser speech permission/input smoke — **NOT RUN**;
+- screenshot permission/capture smoke — **NOT RUN**;
+- extension auth/API persistence smoke — **NOT IMPLEMENTED / NOT RUN**.
+
+### Web/PWA current work awaiting executable verification
+
 - Web TypeScript typecheck — **NOT RUN**;
-- Web focused Vitest — **NOT RUN**;
-- Web full Vitest — **NOT RUN**;
-- Web production build — **NOT RUN**.
+- Web focused/full Vitest — **NOT RUN**;
+- Web production build — **NOT RUN**;
+- account profile / notification browser smoke — **NOT RUN**;
+- account-id clipboard/fallback smoke — **NOT RUN**;
+- PWA responsive/install/speech smoke — **NOT RUN**.
 
-### Backend/schema/runtime work still awaiting executable verification
+### Backend/schema/runtime work awaiting executable verification
 
 - API TypeScript typecheck — **NOT RUN**;
-- API focused notification/auth/account/native-GROUP/manual-Record/schema tests — **NOT RUN**;
+- focused notification/auth/account/native-GROUP/manual-Record/schema tests — **NOT RUN**;
 - full API Vitest — **NOT RUN**;
 - PostgreSQL SYSTEM idempotency smoke — **NOT RUN**;
 - PostgreSQL announcement audience/fan-out smoke — **NOT RUN**;
-- PostgreSQL concurrent provider-provisioning smoke — **NOT RUN**;
-- Drizzle canonical baseline regeneration — **NOT RUN**;
-- baseline guard — **NOT RUN**;
+- provider-provisioning concurrency smoke — **NOT RUN**;
+- Drizzle canonical baseline regeneration/guard — **NOT RUN**;
 - clean Dev/Prod rebuild — **NOT RUN**;
-- native GROUP/manual Record Dev HTTP E2E — **NOT RUN**;
-- PWA browser/install/speech smoke — **NOT RUN**.
+- native GROUP/manual Record Dev HTTP E2E — **NOT RUN**.
 
 No test in this run is labelled PASS or RUNTIME VERIFIED.
 
-Execution environment check remains unchanged: there is no mounted AFTERTRACE checkout, and direct repository checkout/`git ls-remote` from the execution container cannot resolve `github.com`. GitHub repository source read/write is available through the connected GitHub service, but that is not executable validation.
+Execution environment limitation remains: GitHub source read/write is available, but no executable AFTERTRACE checkout is mounted for local/browser/runtime validation.
 
 ## Known blockers / risks
 
-1. **Executable validation remains the immediate release blocker.** This run's React/TypeScript/browser behavior has been source-reviewed but not compiled or executed.
-2. **Canonical `drizzle/0000` remains behind the current target schema.** Auth/public-account/product/notification schema must be regenerated into a clean canonical baseline before database rebuild/deploy.
-3. **The Web account/notification chrome has not had real browser/PWA layout smoke.** In particular Clipboard fallback, sticky header behavior, mobile panel sizing and same-tab logout/session synchronization need browser verification.
-4. **Announcement audience SQL is source-reviewed only.** Real PostgreSQL must verify ALL/FREE/AI/SPECIFIC fan-out, JSONB specific-user selection and retry idempotency.
-5. **Scheduled ANNOUNCEMENT dispatch is not connected to Worker `scheduled()` yet.** The repository can dispatch a scheduled row, but the single shared ~5 minute handler still has to claim due announcements/tasks.
-6. **Push is schema/state only.** Subscription CRUD, preferences API, VAPID/Web Push delivery, invalid-endpoint revocation, service-worker push handlers and iOS installed-PWA smoke remain incomplete.
-7. **Admin announcement backend exists but Admin UI does not.** Audience/channel/schedule preview, explicit send confirmation, cancellation and delivery summary still need the admin frontend.
-8. **SYSTEM primitive has no domain callers yet.** Payment/subscription/trial/AI-limit events still need deterministic calls with stable event keys.
-9. **Customer notification history currently exposes only the bounded latest list.** Persistence is durable, but pagination/load-more is not yet implemented if older history must be browsed beyond the current limit.
-10. **Google Login and Apple Login callbacks remain incomplete.** Provider-neutral persistence is ready; LINE is currently the first migrated provider.
-11. **FREE one-time AI trial issuance/runtime remains not implemented to the latest contract.** Existing Grant/reservation/settlement infrastructure should be reused cleanly, but new account provisioning must issue configured trial points idempotently rather than the retired hard-coded legacy FREE_INITIAL behavior.
+1. **Executable validation remains the immediate release blocker.** New Web/API/extension code is source-authored but not compiled/executed.
+2. **Canonical `drizzle/0000` remains behind the current target schema.** Regenerate before database rebuild/deploy.
+3. **Extension auth/session handoff is the main extension blocker.** Do not store third-party credentials or invent a separate identity model in extension storage.
+4. **Extension Source/group selection and Record persistence are not wired.** The popup save button remains disabled intentionally.
+5. **Extension microphone and screenshot behavior are browser-permission dependent and have not been runtime-smoked.**
+6. **Admin announcement frontend is still incomplete.**
+7. **Scheduled ANNOUNCEMENT/TASK dispatch is not connected to Worker `scheduled()` yet.**
+8. **Push subscription CRUD/preferences/VAPID delivery/service-worker push handling/iOS installed-PWA smoke remain incomplete.**
+9. **SYSTEM notification primitive still needs domain callers such as payment/subscription/trial/AI-limit events.**
+10. **Google Login and Apple Login callbacks remain incomplete.**
+11. **FREE one-time AI trial issuance/runtime is still not implemented to the latest contract.**
 12. **Paid AI entitlement/hard-cap runtime and native task/reminder execution remain incomplete.**
 
 ## Exact next run order
 
-1. If an executable checkout becomes available, stop adding speculative layers long enough to run/fix:
-   - Web TypeScript typecheck;
-   - `account-notification-api.test.ts`, `worklog-api.test.ts`, `speech-input.test.ts`;
-   - Web production build;
-   - API TypeScript typecheck;
-   - focused notification/auth/account/native-GROUP/manual-Record/schema tests;
-   - PostgreSQL notification idempotency/fan-out smoke if a test database is available.
-   Never mark them PASS without actual execution.
-2. If executable checkout is still unavailable, implement the **Admin ANNOUNCEMENT frontend** against the existing backend:
-   - list/detail and delivery summary;
-   - title/body;
-   - audience `ALL_USERS / FREE_USERS / AI_SUBSCRIBERS / SPECIFIC_USERS`;
-   - `IN_APP / PUSH` selection;
-   - `DRAFT / SEND_NOW / SCHEDULED`;
-   - preview before persistence/send;
-   - explicit send confirmation;
-   - cancellation while still pending;
-   - scheduled time validation and status inspection.
-3. Add customer notification pagination/load-more if needed while wiring Admin announcement end-to-end, so durable history is not artificially capped at the newest page.
-4. Add Web Push subscription/preferences APIs and explicit `開啟通知` UX. Never auto-prompt permission. Update service worker `push`/`notificationclick` handlers and degrade to durable IN_APP when unsupported/denied.
-5. Add native Tasks/reminders and one shared scheduled Worker handler/Cron (~5 minutes) that claims due TASK reminders + scheduled ANNOUNCEMENT dispatch idempotently. Do not create one Cron per task. Queue remains conditional on volume.
-6. Wire deterministic SYSTEM events for subscription/payment/trial/AI-limit state using stable event keys.
-7. Implement the latest FREE one-time AI trial contract:
-   - Admin `free_initial_ai_trial_points` setting;
-   - idempotent grant once per account;
-   - no monthly refresh / no retroactive resize;
-   - shared reservation/settlement/provider-cost audit;
-   - exhausted trial -> FREE manual continues + AI Pro upgrade offer.
-8. Complete Google Login, then LINE provider UI polish, then Apple Login. Account linking remains explicit/authenticated and must never merge by email heuristic.
-9. Regenerate clean canonical `drizzle/0000`, run baseline guard/tests, rebuild disposable Dev/Prod as appropriate, then run auth/account/notification/PWA runtime E2E.
-10. Continue AI Pro per-user entitlement/caps, AI capture/search/related records/summary/rewrite, Chrome extension and final legacy LINE product cleanup.
+1. If an executable checkout becomes available, stop adding speculative layers long enough to run/fix Web/API and load-unpacked extension smoke. Never mark anything PASS without execution.
+2. If executable checkout is still unavailable, continue the current highest-priority app flow before deep extension work:
+   - Admin ANNOUNCEMENT frontend;
+   - customer notification history/pagination polish if needed;
+   - Push subscription/preferences APIs + explicit `開啟通知` UX;
+   - Tasks/reminders + shared scheduled Worker handler;
+   - deterministic SYSTEM event callers;
+   - FREE one-time AI trial Admin/issuance/accounting;
+   - Google/LINE/Apple login completion.
+3. After shared auth/account/Record APIs are stable, return to `apps/extension` and wire:
+   - safe authenticated session/token handoff;
+   - Source/group list;
+   - quick text persistence;
+   - page title/URL metadata persistence;
+   - selected-text persistence;
+   - quick voice into provider-free or paid-AI path;
+   - screenshot/image upload through AI Pro/FREE-trial entitlement;
+   - explicit error/retry states;
+   - Chrome permission/privacy smoke and packaging.
+4. Regenerate clean canonical `drizzle/0000`, run guard/tests, rebuild disposable Dev/Prod as appropriate, then run auth/account/notification/PWA/extension runtime E2E.
+5. Continue AI Pro capture/search/related records/summary/rewrite and final legacy LINE product cleanup.
 
 ## Estimated remaining development time
 
-Current estimate: **about 39–73 focused development hours**.
+Current estimate: **about 42–79 focused development hours**.
 
 Approximate remaining buckets:
 
@@ -263,6 +267,6 @@ Approximate remaining buckets:
 - Google/LINE/Apple login completion + account UI/Admin cleanup: 4–8h;
 - AI Pro per-user entitlement/capture/search/hard caps: 10–18h;
 - Related Records/range summary/rewrite: 4–7h;
-- Chrome extension/final readiness/legacy cleanup: 2–4h.
+- Chrome extension auth/API integration, browser smoke, packaging and final readiness/legacy cleanup: 5–10h.
 
 Tighten the estimate after the first executable typecheck/test pass, regenerated canonical baseline and real Dev runtime E2E.
