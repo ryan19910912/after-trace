@@ -5,13 +5,14 @@ Durable development rules for branch `revive/line-worklog`.
 Before substantive product/domain/schema/runtime work, read in this order:
 
 1. `docs/WORKLOG_PRODUCT_SPEC.md`
-2. `docs/WORKLOG_ENTITY_MODEL.md`
-3. `docs/WORKLOG_RECORD_EDIT_POLICY.md`
-4. `docs/WORKLOG_AI_POINT_POLICY.md`
-5. this file
-6. `docs/WORKLOG_LINE_CONTENT_POLICY.md`
-7. `docs/WORKLOG_DEPLOYMENT.md`
-8. `docs/WORKLOG_REBUILD_PROGRESS.md`
+2. `docs/WORKLOG_SUPPORT_POLICY.md`
+3. `docs/WORKLOG_ENTITY_MODEL.md`
+4. `docs/WORKLOG_RECORD_EDIT_POLICY.md`
+5. `docs/WORKLOG_AI_POINT_POLICY.md`
+6. this file
+7. `docs/WORKLOG_LINE_CONTENT_POLICY.md`
+8. `docs/WORKLOG_DEPLOYMENT.md`
+9. `docs/WORKLOG_REBUILD_PROGRESS.md`
 
 The latest documents above are the only product/development specification.
 
@@ -27,7 +28,8 @@ Every development commit on this branch must include `[skip ci]`.
 
 AFTERTRACE is **Web + PWA-first** with optional Chrome extension fast capture.
 
-- LINE is retired from the target customer product;
+- LINE is retired from the core product surface;
+- the official LINE OA remains only as an external customer-support contact channel under `WORKLOG_SUPPORT_POLICY.md`;
 - PWA is capture-first with microphone as the primary action;
 - Web is the full timeline/search/edit/group/subscription surface;
 - Chrome extension reuses the same API/domain model;
@@ -36,6 +38,19 @@ AFTERTRACE is **Web + PWA-first** with optional Chrome extension fast capture.
 - paid AI entitlement is per user;
 - no GROUP AI responsible-user concept in the target product;
 - no automatic AI backfill when a free user subscribes later.
+
+## Support / feedback boundary
+
+Customer support is intentionally separated from the work-memory domain.
+
+- Web/PWA `意見回饋` uses an in-product form and durable Admin-manageable feedback records;
+- Web/PWA `聯絡客服` opens the official LINE OA;
+- customer-facing UI should say `聯絡客服`, not `客訴管道`;
+- do not add `人工回覆非即時` wording to the customer-facing support entry;
+- LINE OA does not create/search/edit Records, manage groups, mutate AI entitlement, or synchronize support chats into Admin for MVP;
+- no RAG support knowledge base and no general-purpose AI support bot for the initial product;
+- a simple LINE OA automatic acknowledgement is acceptable if it does not promise a response-time SLA;
+- future support automation must remain a support-layer feature and must not silently reintroduce LINE as a product surface.
 
 ## Product behavior boundary
 
@@ -102,6 +117,8 @@ Do not continue adding LINE product features.
 
 Because the product is still prelaunch/test-stage, legacy LINE-era code and schema do not need to be preserved merely for compatibility. Prefer deleting or rewriting obsolete code when a clean replacement is safer and easier to maintain.
 
+Retaining LINE OA for support does **not** justify retaining legacy `小跡`, GROUP bot, Reply cache, AI responsibility, LINE product-command, or LINE membership domain logic.
+
 Priority is to replace product dependencies in this order:
 
 1. authentication/account assumptions;
@@ -111,7 +128,7 @@ Priority is to replace product dependencies in this order:
 5. natural-language search and AI enrichment;
 6. tasks/reminders/push;
 7. Chrome extension;
-8. delete/isolate retired LINE runtime/schema after dependency review.
+8. delete/isolate retired LINE runtime/schema after dependency review while keeping only the minimal OA support linkage needed by `WORKLOG_SUPPORT_POLICY.md`.
 
 ## SQL / PostgreSQL safety rules
 
