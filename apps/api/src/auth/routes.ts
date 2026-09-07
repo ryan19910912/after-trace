@@ -19,6 +19,7 @@ import {
   verifyLineLoginState,
 } from './oauth-state';
 import { createPkceChallenge, createPkceVerifier } from './pkce';
+import { loginProviderAvailability } from './provider-availability';
 import { DrizzleWebAuthRepository } from './repository';
 import { WebAuthService } from './service';
 import { issueWebSessionToken } from './token';
@@ -161,6 +162,11 @@ export function createWebAuthRoutes() {
     c.header('Vary', 'Origin');
     return c.body(null, 204);
   });
+
+  app.get('/providers', (c) => c.json({
+    ok: true,
+    providers: loginProviderAvailability(c.env),
+  }));
 
   app.get('/google/start', async (c) => {
     const secret = authSecret(c.env);
