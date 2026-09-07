@@ -4,7 +4,13 @@ import { resolveWebSessionUserId } from '../auth/session-user';
 import { verifyWebSessionToken, type WebSessionClaims } from '../auth/token';
 import { createDatabase, type Database } from '../db/client';
 import { AiEntitlementService, type AiEntitlementRepository } from './ai-entitlement';
-import { AiMediaCaptureService, type AiMediaCaptureRepository } from './ai-media-capture';
+import {
+  AiMediaCaptureService,
+  type AiAudioInput,
+  type AiFileInput,
+  type AiImageInput,
+  type AiMediaCaptureRepository,
+} from './ai-media-capture';
 import { AiTextCaptureService, type AiTextCaptureRepository } from './ai-text-capture';
 import { WorklogAiPointLedgerService, type WorklogAiPointLedgerRepository } from './ai-point-ledger';
 import type { WorklogAttachmentProvider } from './attachment-ingestion';
@@ -54,7 +60,19 @@ type CaptureRouteResult =
   | { status: 'FAILED'; reason: string };
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const AUDIO_MIME_TYPES = new Set(['audio/webm', 'audio/ogg', 'audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/x-wav']);
+const FILE_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/json',
+  'application/xml',
+  'text/plain',
+  'text/markdown',
+  'text/csv',
+  'text/xml',
+]);
 
 export function createAiTextCaptureRoutes(dependencies: AiTextCaptureRouteDependencies = {}) {
   const databaseFactory = dependencies.databaseFactory ?? createDatabase;
@@ -121,23 +139,14 @@ export function createAiTextCaptureRoutes(dependencies: AiTextCaptureRouteDepend
     const text = typeof body.text === 'string' ? body.text : typeof body.content === 'string' ? body.content : '';
     if (!text.trim() || text.trim().length > 20_000) return c.json({ ok: false, error: 'AI_CAPTURE_TEXT_REQUIRED' }, 400);
 
-    const database = c.get('database');
-    const entitlement = new AiEntitlementService(entitlementRepositoryFactory(database));
-    const rawLedger = new WorklogAiPointLedgerService(ledgerRepositoryFactory(database));
-    const service = new AiTextCaptureService(
-      captureRepositoryFactory(database),
-      entitlement,
-      new EntitledAiPointLedgerService(entitlement, rawLedger),
-      providerFactory(c.env),
-    );
-
+    const service = textService(c, dependencies, entitlementRepositoryFactory, captureRepositoryFactory, ledgerRepositoryFactory, providerFactory);
     const result = await service.capture({
       userId: c.get('userId'),
       sourceId,
       text,
       referenceAt: new Date(),
     });
-    return captureResultResponse(c, database, c.get('userId'), result);
+    return captureResultResponse(c, c.get('database'), c.get('userId'), result);
   });
 
   app.post('/image', async (c) => {
@@ -146,34 +155,119 @@ export function createAiTextCaptureRoutes(dependencies: AiTextCaptureRouteDepend
     const sourceId = positiveId(body.sourceId);
     if (!sourceId) return c.json({ ok: false, error: 'INVALID_SOURCE_ID' }, 400);
 
-    const parsedImage = imageInput(body.image);
+    const parsedImage = boundedMediaInput<AiImageInput>(body.image, {
+      requiredError: 'AI_IMAGE_REQUIRED',
+      typeError: 'AI_IMAGE_TYPE_UNSUPPORTED',
+      base64Error: 'AI_IMAGE_BASE64_INVALID',
+      sizeError: 'AI_IMAGE_TOO_LARGE',
+      allowedMimeTypes: IMAGE_MIME_TYPES,
+      maxBytes: MAX_IMAGE_BYTES,
+    });
     if ('error' in parsedImage) return c.json({ ok: false, error: parsedImage.error }, 400);
     const captureContext = parseRecordCaptureContext(body.captureContext, c.req.header('origin'));
     if (captureContext === 'INVALID') return c.json({ ok: false, error: 'INVALID_CAPTURE_CONTEXT' }, 400);
-    const instruction = typeof body.instruction === 'string' ? body.instruction.trim().slice(0, 1000) : null;
 
-    const database = c.get('database');
-    const entitlement = new AiEntitlementService(entitlementRepositoryFactory(database));
-    const rawLedger = new WorklogAiPointLedgerService(ledgerRepositoryFactory(database));
-    const service = new AiMediaCaptureService(
-      mediaRepositoryFactory(database),
-      entitlement,
-      new EntitledAiPointLedgerService(entitlement, rawLedger),
-      mediaProviderFactory(c.env),
-    );
+    const result = await mediaService(c, dependencies, entitlementRepositoryFactory, mediaRepositoryFactory, ledgerRepositoryFactory, mediaProviderFactory)
+      .captureImage({
+        userId: c.get('userId'),
+        sourceId,
+        image: parsedImage.value,
+        captureContext,
+        instruction: boundedInstruction(body.instruction),
+        referenceAt: new Date(),
+      });
+    return captureResultResponse(c, c.get('database'), c.get('userId'), result);
+  });
 
-    const result = await service.captureImage({
-      userId: c.get('userId'),
-      sourceId,
-      image: parsedImage.value,
-      captureContext,
-      instruction,
-      referenceAt: new Date(),
+  app.post('/audio', async (c) => {
+    const body = await objectBody(c);
+    if (!body) return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
+    const sourceId = positiveId(body.sourceId);
+    if (!sourceId) return c.json({ ok: false, error: 'INVALID_SOURCE_ID' }, 400);
+    const parsedAudio = boundedMediaInput<AiAudioInput>(body.audio, {
+      requiredError: 'AI_AUDIO_REQUIRED',
+      typeError: 'AI_AUDIO_TYPE_UNSUPPORTED',
+      base64Error: 'AI_AUDIO_BASE64_INVALID',
+      sizeError: 'AI_AUDIO_TOO_LARGE',
+      allowedMimeTypes: AUDIO_MIME_TYPES,
+      maxBytes: MAX_AUDIO_BYTES,
     });
-    return captureResultResponse(c, database, c.get('userId'), result);
+    if ('error' in parsedAudio) return c.json({ ok: false, error: parsedAudio.error }, 400);
+
+    const result = await mediaService(c, dependencies, entitlementRepositoryFactory, mediaRepositoryFactory, ledgerRepositoryFactory, mediaProviderFactory)
+      .captureAudio({
+        userId: c.get('userId'),
+        sourceId,
+        audio: parsedAudio.value,
+        instruction: boundedInstruction(body.instruction),
+        referenceAt: new Date(),
+      });
+    return captureResultResponse(c, c.get('database'), c.get('userId'), result);
+  });
+
+  app.post('/file', async (c) => {
+    const body = await objectBody(c);
+    if (!body) return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
+    const sourceId = positiveId(body.sourceId);
+    if (!sourceId) return c.json({ ok: false, error: 'INVALID_SOURCE_ID' }, 400);
+    const parsedFile = boundedMediaInput<AiFileInput>(body.file, {
+      requiredError: 'AI_FILE_REQUIRED',
+      typeError: 'AI_FILE_TYPE_UNSUPPORTED',
+      base64Error: 'AI_FILE_BASE64_INVALID',
+      sizeError: 'AI_FILE_TOO_LARGE',
+      allowedMimeTypes: FILE_MIME_TYPES,
+      maxBytes: MAX_FILE_BYTES,
+    });
+    if ('error' in parsedFile) return c.json({ ok: false, error: parsedFile.error }, 400);
+
+    const result = await mediaService(c, dependencies, entitlementRepositoryFactory, mediaRepositoryFactory, ledgerRepositoryFactory, mediaProviderFactory)
+      .captureFile({
+        userId: c.get('userId'),
+        sourceId,
+        file: parsedFile.value,
+        instruction: boundedInstruction(body.instruction),
+        referenceAt: new Date(),
+      });
+    return captureResultResponse(c, c.get('database'), c.get('userId'), result);
   });
 
   return app;
+}
+
+function textService(
+  c: CaptureRouteContext,
+  dependencies: AiTextCaptureRouteDependencies,
+  entitlementRepositoryFactory: (database: Database) => AiEntitlementRepository,
+  captureRepositoryFactory: (database: Database) => AiTextCaptureRepository,
+  ledgerRepositoryFactory: (database: Database) => WorklogAiPointLedgerRepository,
+  providerFactory: (env: AiTextCaptureBindings) => WorklogTextNormalizationProvider,
+) {
+  const database = c.get('database');
+  const entitlement = new AiEntitlementService(entitlementRepositoryFactory(database));
+  return new AiTextCaptureService(
+    captureRepositoryFactory(database),
+    entitlement,
+    new EntitledAiPointLedgerService(entitlement, new WorklogAiPointLedgerService(ledgerRepositoryFactory(database))),
+    providerFactory(c.env),
+  );
+}
+
+function mediaService(
+  c: CaptureRouteContext,
+  dependencies: AiTextCaptureRouteDependencies,
+  entitlementRepositoryFactory: (database: Database) => AiEntitlementRepository,
+  mediaRepositoryFactory: (database: Database) => AiMediaCaptureRepository,
+  ledgerRepositoryFactory: (database: Database) => WorklogAiPointLedgerRepository,
+  mediaProviderFactory: (env: AiTextCaptureBindings) => WorklogAttachmentProvider,
+) {
+  const database = c.get('database');
+  const entitlement = new AiEntitlementService(entitlementRepositoryFactory(database));
+  return new AiMediaCaptureService(
+    mediaRepositoryFactory(database),
+    entitlement,
+    new EntitledAiPointLedgerService(entitlement, new WorklogAiPointLedgerService(ledgerRepositoryFactory(database))),
+    mediaProviderFactory(c.env),
+  );
 }
 
 async function captureResultResponse(
@@ -195,16 +289,26 @@ async function captureResultResponse(
   return c.json({ ok: false, error: result.decision.reason, entitlement: result.decision }, status);
 }
 
-function imageInput(value: unknown): { value: { mimeType: 'image/png' | 'image/jpeg' | 'image/webp'; byteLength: number; dataBase64: string } } | { error: string } {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return { error: 'AI_IMAGE_REQUIRED' };
-  const image = value as Record<string, unknown>;
-  const mimeType = typeof image.mimeType === 'string' ? image.mimeType.trim().toLowerCase() : '';
-  if (!IMAGE_MIME_TYPES.has(mimeType)) return { error: 'AI_IMAGE_TYPE_UNSUPPORTED' };
-  const dataBase64 = typeof image.dataBase64 === 'string' ? image.dataBase64.trim() : '';
-  if (!dataBase64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(dataBase64)) return { error: 'AI_IMAGE_BASE64_INVALID' };
+function boundedMediaInput<T extends { mimeType: string; byteLength: number; dataBase64: string }>(
+  value: unknown,
+  rule: {
+    requiredError: string;
+    typeError: string;
+    base64Error: string;
+    sizeError: string;
+    allowedMimeTypes: Set<string>;
+    maxBytes: number;
+  },
+): { value: T } | { error: string } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { error: rule.requiredError };
+  const media = value as Record<string, unknown>;
+  const mimeType = typeof media.mimeType === 'string' ? media.mimeType.trim().toLowerCase() : '';
+  if (!rule.allowedMimeTypes.has(mimeType)) return { error: rule.typeError };
+  const dataBase64 = typeof media.dataBase64 === 'string' ? media.dataBase64.trim() : '';
+  if (!dataBase64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(dataBase64)) return { error: rule.base64Error };
   const byteLength = decodedBase64Length(dataBase64);
-  if (!byteLength || byteLength > MAX_IMAGE_BYTES) return { error: 'AI_IMAGE_TOO_LARGE' };
-  return { value: { mimeType: mimeType as 'image/png' | 'image/jpeg' | 'image/webp', byteLength, dataBase64 } };
+  if (!byteLength || byteLength > rule.maxBytes) return { error: rule.sizeError };
+  return { value: { mimeType, byteLength, dataBase64 } as T };
 }
 
 function decodedBase64Length(value: string): number {
@@ -212,6 +316,10 @@ function decodedBase64Length(value: string): number {
   const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
   const bytes = (value.length / 4) * 3 - padding;
   return Number.isSafeInteger(bytes) && bytes > 0 ? bytes : 0;
+}
+
+function boundedInstruction(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim().slice(0, 1000) : null;
 }
 
 async function notifyAiLimitSafely(
