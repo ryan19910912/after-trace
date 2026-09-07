@@ -65,6 +65,12 @@ export type AiTimeRangeSummaryResult =
   | { status: 'FAILED'; reason: string };
 
 const MAX_RECORDS = 200;
+/**
+ * V1 provider request safety boundary. Record count alone is not a sufficient bound because
+ * manual Records may each contain large text. Keep provider input comfortably below a huge
+ * multi-megabyte prompt while still supporting useful weekly/monthly summaries.
+ */
+const MAX_PROVIDER_RECORD_CHARS = 120_000;
 
 /**
  * Provider-backed time-range summary.
@@ -113,8 +119,9 @@ export class AiTimeRangeSummaryService {
     }
     if (fetched.length === 0) return { status: 'NO_RECORDS', from: from.toISOString(), to: to.toISOString() };
 
-    const truncated = fetched.length > MAX_RECORDS;
-    const records = fetched.slice(0, MAX_RECORDS);
+    const bounded = boundedProviderRecords(fetched);
+    const records = bounded.records;
+    const truncated = fetched.length > MAX_RECORDS || bounded.truncated;
     const config = await this.repository.runtimeConfig();
     if (!config) return { status: 'DEFERRED', reason: 'AI_RUNTIME_CONFIG_MISSING' };
 
@@ -186,6 +193,23 @@ export class AiTimeRangeSummaryService {
       to: to.toISOString(),
     };
   }
+}
+
+function boundedProviderRecords(fetched: AiTimeRangeSummaryRecord[]): {
+  records: AiTimeRangeSummaryRecord[];
+  truncated: boolean;
+} {
+  const candidates = fetched.slice(0, MAX_RECORDS);
+  const records: AiTimeRangeSummaryRecord[] = [];
+  let chars = 0;
+  for (const record of candidates) {
+    // Reserve a small fixed envelope for id/type/timestamps/JSON formatting in the provider prompt.
+    const nextChars = record.rawText.length + (record.title?.length ?? 0) + 128;
+    if (records.length > 0 && chars + nextChars > MAX_PROVIDER_RECORD_CHARS) break;
+    records.push(record);
+    chars += nextChars;
+  }
+  return { records, truncated: records.length < candidates.length };
 }
 
 function usageFromProvider(
