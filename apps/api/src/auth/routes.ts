@@ -3,7 +3,12 @@ import { createDatabase } from '../db/client';
 import { ensureAccountOnboarding } from './account-onboarding';
 import { AccountIdentityService } from './account-identity';
 import { DrizzleAccountIdentityRepository } from './drizzle-account-identity';
-import { issueLineLoginState, verifyLineLoginState } from './oauth-state';
+import {
+  issueGoogleLoginState,
+  issueLineLoginState,
+  verifyGoogleLoginState,
+  verifyLineLoginState,
+} from './oauth-state';
 import { createPkceChallenge, createPkceVerifier } from './pkce';
 import { DrizzleWebAuthRepository } from './repository';
 import { WebAuthService } from './service';
@@ -18,14 +23,19 @@ export type WebAuthBindings = {
   WEB_APP_ORIGIN?: string;
   LINE_LOGIN_CHANNEL_ID?: string;
   LINE_LOGIN_CHANNEL_SECRET?: string;
+  GOOGLE_LOGIN_CLIENT_ID?: string;
+  GOOGLE_LOGIN_CLIENT_SECRET?: string;
 };
 
 type AuthEnv = { Bindings: WebAuthBindings };
 
 type LineTokenResponse = { access_token?: unknown };
 type LineProfile = { userId?: unknown; displayName?: unknown };
+type GoogleTokenResponse = { access_token?: unknown };
+type GoogleUserInfo = { sub?: unknown; email?: unknown; name?: unknown };
 
-const OAUTH_COOKIE = 'aftertrace_line_oauth';
+const LINE_OAUTH_COOKIE = 'aftertrace_line_oauth';
+const GOOGLE_OAUTH_COOKIE = 'aftertrace_google_oauth';
 
 function authSecret(env: WebAuthBindings): string | null {
   const value = env.WEB_AUTH_SECRET?.trim();
@@ -37,6 +47,13 @@ function lineLoginConfig(env: WebAuthBindings): { channelId: string; channelSecr
   const channelSecret = env.LINE_LOGIN_CHANNEL_SECRET?.trim();
   const webAppUrl = env.WEB_APP_URL?.trim();
   return channelId && channelSecret && webAppUrl ? { channelId, channelSecret, webAppUrl } : null;
+}
+
+function googleLoginConfig(env: WebAuthBindings): { clientId: string; clientSecret: string; webAppUrl: string } | null {
+  const clientId = env.GOOGLE_LOGIN_CLIENT_ID?.trim();
+  const clientSecret = env.GOOGLE_LOGIN_CLIENT_SECRET?.trim();
+  const webAppUrl = env.WEB_APP_URL?.trim();
+  return clientId && clientSecret && webAppUrl ? { clientId, clientSecret, webAppUrl } : null;
 }
 
 function cookieValue(header: string | undefined, name: string): string | null {
@@ -54,9 +71,23 @@ function cookieValue(header: string | undefined, name: string): string | null {
   return null;
 }
 
-function oauthCookie(value: string, requestUrl: string, maxAge: number): string {
+function oauthCookie(name: string, path: string, value: string, requestUrl: string, maxAge: number): string {
   const secure = new URL(requestUrl).protocol === 'https:' ? '; Secure' : '';
-  return `${OAUTH_COOKIE}=${encodeURIComponent(value)}; Path=/api/v1/auth/line; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure}`;
+  return `${name}=${encodeURIComponent(value)}; Path=${path}; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure}`;
+}
+
+function storedOauthState(value: string | null): { state: string; verifier: string } | null {
+  const separator = value?.lastIndexOf('|') ?? -1;
+  if (!value || separator <= 0) return null;
+  const state = value.slice(0, separator);
+  const verifier = value.slice(separator + 1);
+  return state && verifier ? { state, verifier } : null;
+}
+
+function webSessionRedirect(webAppUrl: string, sessionToken: string): string {
+  const webUrl = new URL(webAppUrl);
+  webUrl.hash = new URLSearchParams({ session: sessionToken }).toString();
+  return webUrl.toString();
 }
 
 export function createWebAuthRoutes() {
@@ -87,6 +118,83 @@ export function createWebAuthRoutes() {
     return c.body(null, 204);
   });
 
+  app.get('/google/start', async (c) => {
+    const secret = authSecret(c.env);
+    const config = googleLoginConfig(c.env);
+    if (!secret || !config) return c.json({ ok: false, error: 'GOOGLE_LOGIN_NOT_CONFIGURED' }, 503);
+    const redirectUri = new URL('/api/v1/auth/google/callback', c.req.url).toString();
+    const state = await issueGoogleLoginState(secret);
+    const verifier = createPkceVerifier();
+    const authorizeUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+    authorizeUrl.searchParams.set('response_type', 'code');
+    authorizeUrl.searchParams.set('client_id', config.clientId);
+    authorizeUrl.searchParams.set('redirect_uri', redirectUri);
+    authorizeUrl.searchParams.set('state', state);
+    authorizeUrl.searchParams.set('scope', 'openid profile email');
+    authorizeUrl.searchParams.set('code_challenge', await createPkceChallenge(verifier));
+    authorizeUrl.searchParams.set('code_challenge_method', 'S256');
+    authorizeUrl.searchParams.set('prompt', 'select_account');
+    c.header('Set-Cookie', oauthCookie(GOOGLE_OAUTH_COOKIE, '/api/v1/auth/google', `${state}|${verifier}`, c.req.url, 600));
+    return c.redirect(authorizeUrl.toString(), 302);
+  });
+
+  app.get('/google/callback', async (c) => {
+    const secret = authSecret(c.env);
+    const config = googleLoginConfig(c.env);
+    if (!secret || !config) return c.json({ ok: false, error: 'GOOGLE_LOGIN_NOT_CONFIGURED' }, 503);
+    const code = c.req.query('code')?.trim();
+    const state = c.req.query('state')?.trim();
+    const stored = storedOauthState(cookieValue(c.req.header('cookie'), GOOGLE_OAUTH_COOKIE));
+    c.header('Set-Cookie', oauthCookie(GOOGLE_OAUTH_COOKIE, '/api/v1/auth/google', '', c.req.url, 0));
+    if (!code || !state || !stored || state !== stored.state || !(await verifyGoogleLoginState(state, secret))) {
+      return c.json({ ok: false, error: 'INVALID_GOOGLE_LOGIN_CALLBACK' }, 400);
+    }
+
+    const redirectUri = new URL('/api/v1/auth/google/callback', c.req.url).toString();
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: redirectUri,
+        client_id: config.clientId,
+        client_secret: config.clientSecret,
+        code_verifier: stored.verifier,
+      }),
+    });
+    if (!tokenResponse.ok) return c.json({ ok: false, error: 'GOOGLE_LOGIN_EXCHANGE_FAILED' }, 502);
+    const tokenBody = (await tokenResponse.json()) as GoogleTokenResponse;
+    if (typeof tokenBody.access_token !== 'string' || !tokenBody.access_token) {
+      return c.json({ ok: false, error: 'GOOGLE_LOGIN_EXCHANGE_FAILED' }, 502);
+    }
+
+    const userInfoResponse = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+      headers: { Authorization: `Bearer ${tokenBody.access_token}` },
+    });
+    if (!userInfoResponse.ok) return c.json({ ok: false, error: 'GOOGLE_PROFILE_FAILED' }, 502);
+    const profile = (await userInfoResponse.json()) as GoogleUserInfo;
+    if (typeof profile.sub !== 'string' || !profile.sub.trim()) {
+      return c.json({ ok: false, error: 'GOOGLE_PROFILE_FAILED' }, 502);
+    }
+
+    const at = new Date();
+    const database = createDatabase(c.env.DATABASE_URL);
+    const account = await new AccountIdentityService(
+      new DrizzleAccountIdentityRepository(database),
+    ).provision({
+      provider: 'GOOGLE',
+      subject: profile.sub,
+      emailSnapshot: typeof profile.email === 'string' ? profile.email : null,
+      displayNameSnapshot: typeof profile.name === 'string' ? profile.name : null,
+      at,
+    });
+    await ensureAccountOnboarding(database, account.userId, at);
+
+    const sessionToken = await issueWebSessionToken({ userId: account.userId, secret });
+    return c.redirect(webSessionRedirect(config.webAppUrl, sessionToken), 302);
+  });
+
   app.get('/line/start', async (c) => {
     const secret = authSecret(c.env);
     const config = lineLoginConfig(c.env);
@@ -102,7 +210,7 @@ export function createWebAuthRoutes() {
     authorizeUrl.searchParams.set('scope', 'profile openid');
     authorizeUrl.searchParams.set('code_challenge', await createPkceChallenge(verifier));
     authorizeUrl.searchParams.set('code_challenge_method', 'S256');
-    c.header('Set-Cookie', oauthCookie(`${state}|${verifier}`, c.req.url, 600));
+    c.header('Set-Cookie', oauthCookie(LINE_OAUTH_COOKIE, '/api/v1/auth/line', `${state}|${verifier}`, c.req.url, 600));
     return c.redirect(authorizeUrl.toString(), 302);
   });
 
@@ -112,12 +220,9 @@ export function createWebAuthRoutes() {
     if (!secret || !config) return c.json({ ok: false, error: 'LINE_LOGIN_NOT_CONFIGURED' }, 503);
     const code = c.req.query('code')?.trim();
     const state = c.req.query('state')?.trim();
-    const stored = cookieValue(c.req.header('cookie'), OAUTH_COOKIE);
-    c.header('Set-Cookie', oauthCookie('', c.req.url, 0));
-    const separator = stored?.lastIndexOf('|') ?? -1;
-    const storedState = separator > 0 ? stored!.slice(0, separator) : null;
-    const verifier = separator > 0 ? stored!.slice(separator + 1) : null;
-    if (!code || !state || !storedState || state !== storedState || !verifier || !(await verifyLineLoginState(state, secret))) {
+    const stored = storedOauthState(cookieValue(c.req.header('cookie'), LINE_OAUTH_COOKIE));
+    c.header('Set-Cookie', oauthCookie(LINE_OAUTH_COOKIE, '/api/v1/auth/line', '', c.req.url, 0));
+    if (!code || !state || !stored || state !== stored.state || !(await verifyLineLoginState(state, secret))) {
       return c.json({ ok: false, error: 'INVALID_LINE_LOGIN_CALLBACK' }, 400);
     }
 
@@ -131,7 +236,7 @@ export function createWebAuthRoutes() {
         redirect_uri: redirectUri,
         client_id: config.channelId,
         client_secret: config.channelSecret,
-        code_verifier: verifier,
+        code_verifier: stored.verifier,
       }),
     });
     if (!tokenResponse.ok) return c.json({ ok: false, error: 'LINE_LOGIN_EXCHANGE_FAILED' }, 502);
@@ -158,10 +263,6 @@ export function createWebAuthRoutes() {
       legacyLineUserId: profile.userId,
       at,
     });
-
-    // All providers converge here after resolving the provider-neutral AFTERTRACE user.
-    // FREE trial issuance is idempotent by account+origin key. Missing operator config does
-    // not block the complete manual FREE product; a later successful login retries issuance.
     await ensureAccountOnboarding(database, account.userId, at);
 
     const sessionToken = await issueWebSessionToken({
@@ -169,9 +270,7 @@ export function createWebAuthRoutes() {
       lineUserId: profile.userId,
       secret,
     });
-    const webUrl = new URL(config.webAppUrl);
-    webUrl.hash = new URLSearchParams({ session: sessionToken }).toString();
-    return c.redirect(webUrl.toString(), 302);
+    return c.redirect(webSessionRedirect(config.webAppUrl, sessionToken), 302);
   });
 
   app.post('/entry/exchange', async (c) => {
