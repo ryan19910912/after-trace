@@ -191,4 +191,62 @@ describe('provider-backed AI capture routes', () => {
     expect(providerCalls).toBe(0);
     expect(ledgerCalls).toBe(0);
   });
+
+  it('returns 403 for related Records before checking target existence when Source is unauthorized', async () => {
+    let relatedCalls = 0;
+    const app = createAiTextCaptureRoutes({
+      databaseFactory: () => ({} as never),
+      resolveSessionUserId: async (_database, session) => session.userId,
+      entitlementRepositoryFactory: () => ({
+        async snapshot() { return { sourceAuthorized: false, freeTrial: null, aiPro: null }; },
+        async ensureGrantScope() { throw new Error('scope should not be created'); },
+      }),
+      relatedRepositoryFactory: () => ({
+        async relatedEnabled() { relatedCalls += 1; return true; },
+        async findRelated() { relatedCalls += 1; throw new Error('target should not be probed'); },
+      }),
+    });
+
+    const response = await app.request('/related', {
+      method: 'POST',
+      headers: await requestHeaders(),
+      body: JSON.stringify({ sourceId: 99, recordId: 123 }),
+    }, env);
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({ ok: false, error: 'SOURCE_NOT_AUTHORIZED' });
+    expect(relatedCalls).toBe(0);
+  });
+
+  it('returns 409 for operator-disabled related Records without querying a target Record', async () => {
+    let findCalls = 0;
+    const app = createAiTextCaptureRoutes({
+      databaseFactory: () => ({} as never),
+      resolveSessionUserId: async (_database, session) => session.userId,
+      entitlementRepositoryFactory: () => ({
+        async snapshot() {
+          return {
+            sourceAuthorized: true,
+            freeTrial: { grantId: 5, remainingPoints: 100, perRequestAiPointCap: 100 },
+            aiPro: null,
+          };
+        },
+        async ensureGrantScope() { throw new Error('scope should not be needed for deterministic retrieval'); },
+      }),
+      relatedRepositoryFactory: () => ({
+        async relatedEnabled() { return false; },
+        async findRelated() { findCalls += 1; throw new Error('target should not be queried'); },
+      }),
+    });
+
+    const response = await app.request('/related', {
+      method: 'POST',
+      headers: await requestHeaders(),
+      body: JSON.stringify({ sourceId: 12, recordId: 55 }),
+    }, env);
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ ok: false, error: 'AI_RELATED_RECORDS_DISABLED' });
+    expect(findCalls).toBe(0);
+  });
 });
