@@ -1,5 +1,9 @@
 import type { AiEntitlementDecision } from './ai-entitlement';
-import type { WorklogAttachmentProvider, WorklogAttachmentProviderResponse } from './attachment-ingestion';
+import type {
+  WorklogAttachmentInputType,
+  WorklogAttachmentProvider,
+  WorklogAttachmentProviderResponse,
+} from './attachment-ingestion';
 import type { WorklogAiUsageCommit } from './ai-provider-usage';
 import { aiPointReservationCostHoldTwd } from './ai-points';
 import type { AiPointLedgerPort } from './entitled-ai-point-ledger';
@@ -11,7 +15,7 @@ export type AiMediaCaptureRecord = {
   id: number;
   sourceId: number;
   authorUserId: number;
-  inputType: 'IMAGE';
+  inputType: WorklogAttachmentInputType;
   rawText: string;
   captureContext: RecordCaptureContext | null;
   createdAt: string;
@@ -20,9 +24,10 @@ export type AiMediaCaptureRecord = {
 export type AiMediaCaptureRepository = {
   mediaEnabled(): Promise<boolean>;
   runtimeConfig(): Promise<WorklogAiRuntimeConfigSnapshot | null>;
-  createImageRecord(input: {
+  createMediaRecord(input: {
     userId: number;
     sourceId: number;
+    inputType: WorklogAttachmentInputType;
     rawText: string;
     attachmentMetadata: Record<string, unknown>;
     captureContext: RecordCaptureContext | null;
@@ -40,17 +45,51 @@ export type AiImageInput = {
   dataBase64: string;
 };
 
+export type AiAudioInput = {
+  mimeType: 'audio/webm' | 'audio/ogg' | 'audio/mpeg' | 'audio/mp4' | 'audio/wav' | 'audio/x-wav';
+  byteLength: number;
+  dataBase64: string;
+};
+
+export type AiFileInput = {
+  mimeType:
+    | 'application/pdf'
+    | 'application/json'
+    | 'application/xml'
+    | 'text/plain'
+    | 'text/markdown'
+    | 'text/csv'
+    | 'text/xml';
+  byteLength: number;
+  dataBase64: string;
+};
+
 export type AiMediaCaptureResult =
   | { status: 'CREATED'; entitlementSource: 'FREE_TRIAL' | 'AI_PRO'; record: AiMediaCaptureRecord }
   | { status: 'BLOCKED'; decision: AiEntitlementDecision }
   | { status: 'DEFERRED'; reason: 'AI_RUNTIME_CONFIG_MISSING' }
   | { status: 'FAILED'; reason: string };
 
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const AUDIO_MIME_TYPES = new Set(['audio/webm', 'audio/ogg', 'audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/x-wav']);
+const FILE_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/json',
+  'application/xml',
+  'text/plain',
+  'text/markdown',
+  'text/csv',
+  'text/xml',
+]);
+
 /**
- * Provider-neutral screenshot/image capture for Web/PWA/Chrome.
+ * Provider-neutral bounded media capture for Web/PWA/Chrome.
  *
- * The caller provides an already bounded inline image. Source authorization and entitlement
- * are resolved before capability/config/reservation/provider work. The original image is
+ * The caller provides already bounded inline media. Source authorization and entitlement
+ * are resolved before capability/config/reservation/provider work. Original media bytes are
  * intentionally not persisted by this V1 service; only provider-derived durable Record text
  * plus bounded provenance metadata is stored.
  */
@@ -62,7 +101,7 @@ export class AiMediaCaptureService {
     private readonly provider: WorklogAttachmentProvider,
   ) {}
 
-  async captureImage(input: {
+  captureImage(input: {
     userId: number;
     sourceId: number;
     image: AiImageInput;
@@ -70,10 +109,66 @@ export class AiMediaCaptureService {
     instruction?: string | null;
     referenceAt?: Date;
   }): Promise<AiMediaCaptureResult> {
+    return this.capture({
+      userId: input.userId,
+      sourceId: input.sourceId,
+      inputType: 'IMAGE',
+      media: input.image,
+      captureContext: input.captureContext,
+      instruction: input.instruction,
+      referenceAt: input.referenceAt,
+    });
+  }
+
+  captureAudio(input: {
+    userId: number;
+    sourceId: number;
+    audio: AiAudioInput;
+    instruction?: string | null;
+    referenceAt?: Date;
+  }): Promise<AiMediaCaptureResult> {
+    return this.capture({
+      userId: input.userId,
+      sourceId: input.sourceId,
+      inputType: 'AUDIO',
+      media: input.audio,
+      captureContext: null,
+      instruction: input.instruction,
+      referenceAt: input.referenceAt,
+    });
+  }
+
+  captureFile(input: {
+    userId: number;
+    sourceId: number;
+    file: AiFileInput;
+    instruction?: string | null;
+    referenceAt?: Date;
+  }): Promise<AiMediaCaptureResult> {
+    return this.capture({
+      userId: input.userId,
+      sourceId: input.sourceId,
+      inputType: 'FILE',
+      media: input.file,
+      captureContext: null,
+      instruction: input.instruction,
+      referenceAt: input.referenceAt,
+    });
+  }
+
+  private async capture(input: {
+    userId: number;
+    sourceId: number;
+    inputType: WorklogAttachmentInputType;
+    media: { mimeType: string; byteLength: number; dataBase64: string };
+    captureContext: RecordCaptureContext | null;
+    instruction?: string | null;
+    referenceAt?: Date;
+  }): Promise<AiMediaCaptureResult> {
     const userId = positiveId(input.userId, 'INVALID_USER_ID');
     const sourceId = positiveId(input.sourceId, 'INVALID_SOURCE_ID');
     const referenceAt = validDate(input.referenceAt ?? new Date());
-    const image = validateImage(input.image);
+    const media = validateMedia(input.inputType, input.media);
 
     const preliminary = await this.entitlement.resolve(userId, sourceId, referenceAt);
     if (!preliminary.allowed || preliminary.source === 'BLOCKED') {
@@ -87,10 +182,10 @@ export class AiMediaCaptureService {
     if (!config) return { status: 'DEFERRED', reason: 'AI_RUNTIME_CONFIG_MISSING' };
 
     const providerContent = {
-      lineMessageId: 'provider-neutral-inline-image',
-      mimeType: image.mimeType,
-      byteLength: image.byteLength,
-      dataBase64: image.dataBase64,
+      lineMessageId: `provider-neutral-inline-${input.inputType.toLowerCase()}`,
+      mimeType: media.mimeType,
+      byteLength: media.byteLength,
+      dataBase64: media.dataBase64,
     };
 
     let requestedPoints: number;
@@ -121,7 +216,11 @@ export class AiMediaCaptureService {
     if (reservation.status !== 'RESERVED') {
       return {
         status: 'BLOCKED',
-        decision: blockedDecision(preliminary, reservation.status, reservation.status === 'AI_ENTITLEMENT_BLOCKED' ? reservation.reason : null),
+        decision: blockedDecision(
+          preliminary,
+          reservation.status,
+          reservation.status === 'AI_ENTITLEMENT_BLOCKED' ? reservation.reason : null,
+        ),
       };
     }
 
@@ -134,21 +233,23 @@ export class AiMediaCaptureService {
       return { status: 'FAILED', reason: errorCode(error, 'AI_PROVIDER_FAILED') };
     }
 
-    if (providerResponse.output.inputType !== 'IMAGE') {
-      await settleProviderSuccess(this.aiPoints, token, usageFromProvider(config, providerResponse, 'IMAGE_RECORD_CREATE'));
-      return { status: 'FAILED', reason: 'AI_IMAGE_PROVIDER_TYPE_MISMATCH' };
+    const operation = `${input.inputType}_RECORD_CREATE`;
+    const usage = usageFromProvider(config, providerResponse, operation);
+    if (providerResponse.output.inputType !== input.inputType) {
+      await settleProviderSuccess(this.aiPoints, token, usage);
+      return { status: 'FAILED', reason: `AI_${input.inputType}_PROVIDER_TYPE_MISMATCH` };
     }
 
-    const usage = usageFromProvider(config, providerResponse, 'IMAGE_RECORD_CREATE');
     let created: { record: AiMediaCaptureRecord; workspaceId: number | null };
     try {
-      created = await this.repository.createImageRecord({
+      created = await this.repository.createMediaRecord({
         userId,
         sourceId,
+        inputType: input.inputType,
         rawText: providerResponse.output.rawText,
         attachmentMetadata: {
           ...providerResponse.output.attachmentMetadata,
-          source: 'PRODUCT_INLINE_IMAGE',
+          source: `PRODUCT_INLINE_${input.inputType}`,
           originalStored: false,
         },
         captureContext: input.captureContext,
@@ -216,13 +317,24 @@ function blockedDecision(
   };
 }
 
-function validateImage(image: AiImageInput): AiImageInput {
-  if (!['image/png', 'image/jpeg', 'image/webp'].includes(image.mimeType)) throw new Error('AI_IMAGE_TYPE_UNSUPPORTED');
-  if (!Number.isSafeInteger(image.byteLength) || image.byteLength <= 0 || image.byteLength > 5 * 1024 * 1024) {
-    throw new Error('AI_IMAGE_TOO_LARGE');
+function validateMedia(
+  inputType: WorklogAttachmentInputType,
+  media: { mimeType: string; byteLength: number; dataBase64: string },
+) {
+  const mimeType = media.mimeType.trim().toLowerCase();
+  const rule = inputType === 'IMAGE'
+    ? { allowed: IMAGE_MIME_TYPES, maxBytes: MAX_IMAGE_BYTES, typeError: 'AI_IMAGE_TYPE_UNSUPPORTED', sizeError: 'AI_IMAGE_TOO_LARGE' }
+    : inputType === 'AUDIO'
+      ? { allowed: AUDIO_MIME_TYPES, maxBytes: MAX_AUDIO_BYTES, typeError: 'AI_AUDIO_TYPE_UNSUPPORTED', sizeError: 'AI_AUDIO_TOO_LARGE' }
+      : { allowed: FILE_MIME_TYPES, maxBytes: MAX_FILE_BYTES, typeError: 'AI_FILE_TYPE_UNSUPPORTED', sizeError: 'AI_FILE_TOO_LARGE' };
+  if (!rule.allowed.has(mimeType)) throw new Error(rule.typeError);
+  if (!Number.isSafeInteger(media.byteLength) || media.byteLength <= 0 || media.byteLength > rule.maxBytes) {
+    throw new Error(rule.sizeError);
   }
-  if (!image.dataBase64 || image.dataBase64.length > Math.ceil(image.byteLength * 4 / 3) + 8) throw new Error('AI_IMAGE_BASE64_INVALID');
-  return image;
+  if (!media.dataBase64 || media.dataBase64.length > Math.ceil(media.byteLength * 4 / 3) + 8) {
+    throw new Error(`AI_${inputType}_BASE64_INVALID`);
+  }
+  return { mimeType, byteLength: media.byteLength, dataBase64: media.dataBase64 };
 }
 
 function boundedInstruction(value: string | null | undefined): string | null {
