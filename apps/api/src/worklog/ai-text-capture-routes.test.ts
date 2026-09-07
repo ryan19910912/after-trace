@@ -127,4 +127,68 @@ describe('provider-backed AI capture routes', () => {
     await expect(response.json()).resolves.toEqual({ ok: false, error: 'AI_FILE_BASE64_INVALID' });
     expect(dependencyCalls).toBe(0);
   });
+
+  it('rejects invalid natural-search timezone before constructing AI dependencies', async () => {
+    let dependencyCalls = 0;
+    const app = createAiTextCaptureRoutes({
+      databaseFactory: () => ({} as never),
+      resolveSessionUserId: async (_database, session) => session.userId,
+      entitlementRepositoryFactory: () => { dependencyCalls += 1; throw new Error('should not construct'); },
+      searchRepositoryFactory: () => { dependencyCalls += 1; throw new Error('should not construct'); },
+    });
+
+    const response = await app.request('/search', {
+      method: 'POST',
+      headers: await requestHeaders(),
+      body: JSON.stringify({ sourceId: 12, query: '昨天晴空案的收款', timeZone: 'Not/A-Timezone' }),
+    }, env);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ ok: false, error: 'AI_SEARCH_TIMEZONE_INVALID' });
+    expect(dependencyCalls).toBe(0);
+  });
+
+  it('returns 409 for operator-disabled natural search without runtime/provider execution', async () => {
+    let runtimeCalls = 0;
+    let providerCalls = 0;
+    let ledgerCalls = 0;
+    const app = createAiTextCaptureRoutes({
+      databaseFactory: () => ({} as never),
+      resolveSessionUserId: async (_database, session) => session.userId,
+      entitlementRepositoryFactory: () => ({
+        async snapshot() {
+          return {
+            sourceAuthorized: true,
+            freeTrial: { grantId: 5, remainingPoints: 100, perRequestAiPointCap: 100 },
+            aiPro: null,
+          };
+        },
+        async ensureGrantScope() { throw new Error('scope should not be created before reservation'); },
+      }),
+      searchRepositoryFactory: () => ({
+        async searchEnabled() { return false; },
+        async runtimeConfig() { runtimeCalls += 1; throw new Error('runtime should not be read'); },
+        async searchRecords() { throw new Error('records should not be queried'); },
+      }),
+      ledgerRepositoryFactory: () => ({
+        async expireStaleReservations() { ledgerCalls += 1; return 0; },
+      } as never),
+      searchProviderFactory: () => ({
+        reservationPoints() { providerCalls += 1; return 1; },
+        async interpret() { providerCalls += 1; throw new Error('provider should not run'); },
+      }),
+    });
+
+    const response = await app.request('/search', {
+      method: 'POST',
+      headers: await requestHeaders(),
+      body: JSON.stringify({ sourceId: 12, query: '昨天晴空案的收款', timeZone: 'Asia/Taipei' }),
+    }, env);
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ ok: false, error: 'AI_NATURAL_SEARCH_DISABLED' });
+    expect(runtimeCalls).toBe(0);
+    expect(providerCalls).toBe(0);
+    expect(ledgerCalls).toBe(0);
+  });
 });
