@@ -163,7 +163,7 @@ export function AuthenticatedAppChrome({ apiBaseUrl, children }: Props) {
           </div>
 
           <div className="account-summary" aria-live="polite">
-            <span className="account-display-name">{profile?.displayName ?? '帳號載入中…'}</span>
+            <span className="account-display-name">{profile ? (profile.displayName ?? 'AFTERTRACE 使用者') : '帳號載入中…'}</span>
             {profile ? <button className="account-id-copy" onClick={() => void copyAccountId()} title="複製帳號 ID">
               <span>帳號 ID</span>
               <strong>{profile.publicAccountId}</strong>

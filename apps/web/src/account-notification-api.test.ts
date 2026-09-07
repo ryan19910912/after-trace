@@ -14,6 +14,13 @@ describe('account + notification Web client contract', () => {
     });
   });
 
+  it('allows accounts without a provider display-name snapshot', () => {
+    expect(accountProfileFromApi({ displayName: null, publicAccountId: 'AT-9RM8Q4K2W7P' })).toEqual({
+      displayName: null,
+      publicAccountId: 'AT-9RM8Q4K2W7P',
+    });
+  });
+
   it('maps the durable notification center without collapsing category into delivery channel', () => {
     expect(notificationCenterFromApi({
       unreadCount: 1,

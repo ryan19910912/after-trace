@@ -1,5 +1,5 @@
 export type AccountProfile = {
-  displayName: string;
+  displayName: string | null;
   publicAccountId: string;
 };
 
@@ -72,10 +72,9 @@ export class AccountNotificationApi {
 export function accountProfileFromApi(raw: unknown): AccountProfile {
   if (!raw || typeof raw !== 'object') throw new Error('INVALID_ACCOUNT_PROFILE');
   const value = raw as Record<string, unknown>;
-  const displayName = requiredString(value.displayName);
   const publicAccountId = requiredString(value.publicAccountId);
-  if (!displayName || !publicAccountId) throw new Error('INVALID_ACCOUNT_PROFILE');
-  return { displayName, publicAccountId };
+  if (!publicAccountId) throw new Error('INVALID_ACCOUNT_PROFILE');
+  return { displayName: nullableString(value.displayName), publicAccountId };
 }
 
 export function notificationCenterFromApi(raw: unknown): NotificationCenter {
