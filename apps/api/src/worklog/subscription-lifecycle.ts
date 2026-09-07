@@ -124,8 +124,13 @@ function normalizeEvent(input: SubscriptionLifecycleEvent): SubscriptionLifecycl
     if (!periodStart || !periodEnd || periodStart.getTime() >= periodEnd.getTime()) {
       throw new Error('SUBSCRIPTION_PERIOD_INVALID');
     }
-  } else if (periodEnd && periodEnd.getTime() < occurredAt.getTime()) {
-    throw new Error('SUBSCRIPTION_CANCEL_PERIOD_INVALID');
+  } else if (periodEnd) {
+    // A scheduled cancel belongs to one exact paid billing period. Requiring both period
+    // boundaries prevents a delayed prior-period cancel webhook from shortening a newer
+    // renewal. Immediate cancellation remains represented by periodEnd = null.
+    if (!periodStart || periodStart.getTime() >= periodEnd.getTime() || periodEnd.getTime() < occurredAt.getTime()) {
+      throw new Error('SUBSCRIPTION_CANCEL_PERIOD_INVALID');
+    }
   }
 
   return {
