@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { aiToolsDeepLinkFromSearch } from './ai-tools-deep-link';
 import { LoginProviderButtons } from './LoginProviderButtons';
 import { WorklogApi, type WorklogInputType, type WorklogSurfaces } from './worklog-api';
 import './worklog.css';
@@ -25,16 +26,17 @@ type RewriteProposal = {
 
 export function AiToolsRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
   const worklogApi = useMemo(() => new WorklogApi(apiBaseUrl), [apiBaseUrl]);
+  const deepLink = useMemo(() => aiToolsDeepLinkFromSearch(window.location.search), []);
   const [session, setSession] = useState<string | null>(() => localStorage.getItem(SESSION_KEY));
   const [surfaces, setSurfaces] = useState<WorklogSurfaces | null>(null);
   const [sourceId, setSourceId] = useState<number | null>(null);
-  const [relatedRecordId, setRelatedRecordId] = useState('');
+  const [relatedRecordId, setRelatedRecordId] = useState(() => deepLink?.tool === 'related' ? String(deepLink.recordId) : '');
   const [related, setRelated] = useState<RelatedRecord[]>([]);
   const [summaryFrom, setSummaryFrom] = useState('');
   const [summaryTo, setSummaryTo] = useState('');
   const [summary, setSummary] = useState<string | null>(null);
   const [summaryMeta, setSummaryMeta] = useState<string | null>(null);
-  const [rewriteRecordId, setRewriteRecordId] = useState('');
+  const [rewriteRecordId, setRewriteRecordId] = useState(() => deepLink?.tool === 'rewrite' ? String(deepLink.recordId) : '');
   const [rewriteInstruction, setRewriteInstruction] = useState('改得更清楚、精簡，但保留原本事實。');
   const [proposal, setProposal] = useState<RewriteProposal | null>(null);
   const [busy, setBusy] = useState(false);
@@ -57,7 +59,15 @@ export function AiToolsRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
       if (!token) return;
       const next = await worklogApi.surfaces(token);
       setSurfaces(next);
-      setSourceId(next.personal?.sourceId ?? next.groups[0]?.sourceId ?? null);
+      const defaultSourceId = next.personal?.sourceId ?? next.groups[0]?.sourceId ?? null;
+      const linkedSourceId = deepLink && sourceExists(next, deepLink.sourceId) ? deepLink.sourceId : null;
+      setSourceId(linkedSourceId ?? defaultSourceId);
+      if (deepLink && !linkedSourceId) {
+        setNotice('這個 AI 工具連結指定的紀錄範圍目前不可用，已改用你可使用的預設範圍。');
+      }
+      if (deepLink && linkedSourceId) {
+        window.setTimeout(() => document.getElementById(deepLink.tool)?.scrollIntoView({ block: 'start' }), 0);
+      }
     } catch (cause) {
       handleError(cause, 'AI 工具載入失敗');
     } finally { setBusy(false); }
@@ -183,9 +193,9 @@ export function AiToolsRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
       </select></label>
     </section>
 
-    <section className="panel stack">
+    <section id="related" className="panel stack">
       <div><p className="eyebrow">RELATED</p><h2>相關紀錄</h2></div>
-      <p className="muted">輸入目前紀錄 ID 後，使用授權後的 deterministic ranking 找同 Source 相關紀錄；目前不額外呼叫 provider。</p>
+      <p className="muted">從紀錄頁進入時會自動帶入 Record ID；也可以在這裡手動輸入。相關排序只使用你已授權的同 Source 資料，目前不額外呼叫 provider。</p>
       <label>紀錄 ID<input inputMode="numeric" value={relatedRecordId} onChange={(event) => setRelatedRecordId(event.target.value)} /></label>
       <button disabled={busy || !sourceId || !positiveId(relatedRecordId)} onClick={() => void loadRelated()}>{busy ? '處理中…' : '找相關紀錄'}</button>
       {related.length ? <div className="worklog-record-list">{related.map((record) => <article key={record.id} className="worklog-record-card">
@@ -205,9 +215,9 @@ export function AiToolsRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
       {summary ? <article className="worklog-record-card"><div className="worklog-record-meta"><span>{summaryMeta}</span></div><strong>{summary}</strong></article> : null}
     </section>
 
-    <section className="panel stack">
+    <section id="rewrite" className="panel stack">
       <div><p className="eyebrow">REWRITE</p><h2>AI 改寫建議</h2></div>
-      <p className="muted">AI 只產生 proposal，不直接改 Record。你看到原文與建議後按確認，才會用原本 optimistic version/revision API 更新。</p>
+      <p className="muted">從紀錄頁進入時會自動帶入 Record ID。AI 只產生 proposal，不直接改 Record；你確認後才會透過 optimistic version/revision API 更新。</p>
       <label>紀錄 ID<input inputMode="numeric" value={rewriteRecordId} onChange={(event) => setRewriteRecordId(event.target.value)} /></label>
       <label>改寫要求<textarea rows={3} maxLength={1000} value={rewriteInstruction} onChange={(event) => setRewriteInstruction(event.target.value)} /></label>
       <button disabled={busy || !sourceId || !positiveId(rewriteRecordId) || !rewriteInstruction.trim()} onClick={() => void proposeRewrite()}>{busy ? '產生中…' : '產生改寫建議'}</button>
@@ -235,6 +245,9 @@ function relatedRecord(value: unknown): RelatedRecord | null {
     createdAt: String(raw.createdAt ?? raw.created_at ?? ''),
     relevanceScore: score,
   };
+}
+function sourceExists(surfaces: WorklogSurfaces, sourceId: number): boolean {
+  return surfaces.personal?.sourceId === sourceId || surfaces.groups.some((group) => group.sourceId === sourceId);
 }
 function inputType(value: unknown): WorklogInputType { return value === 'AUDIO' || value === 'IMAGE' || value === 'FILE' ? value : 'TEXT'; }
 function positiveId(value: string): number | null { const parsed = Number(value); return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null; }
