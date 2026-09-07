@@ -7,7 +7,6 @@ import { AdminCommercialPage } from './AdminCommercialPage';
 import { AdminFeedbackPage } from './AdminFeedbackPage';
 import { AdminHomePage } from './AdminHomePage';
 import { AdminCommercialApi } from './commercial-api';
-import { App } from './App';
 import { PricingCalculatorPage } from './PricingCalculatorPage';
 import { ProfitabilityPage } from './ProfitabilityPage';
 import { installTaipeiDateDisplayPolicy } from './time-display';
@@ -43,9 +42,7 @@ if (!baseUrl) {
           ? <AdminCommercialPage api={commercialApi} />
           : window.location.pathname === '/feedback-management'
             ? <AdminFeedbackPage apiBaseUrl={baseUrl} />
-            : window.location.pathname === '/legacy-diagnostics'
-              ? <App api={api} />
-              : <AdminHomePage api={api} />;
+            : <AdminHomePage api={api} />;
 
   root.render(
     <StrictMode>
