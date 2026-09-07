@@ -40,10 +40,14 @@ export const worklogAiPointReservationStatusEnum = pgEnum('worklog_ai_point_rese
 /**
  * User-owned AI allowance grant.
  *
- * FREE, each successful subscription period, and each top-up are separate rows. A
- * later plan/pricing change never resizes historical grants. remaining_points is the
- * currently available customer balance after active reservation holds; provider
- * overage subsidy is accounted on usage events and never drives this value negative.
+ * FREE and each successful subscription period are separate rows. A later plan/pricing
+ * change never resizes historical grants. remaining_points is the currently available
+ * customer balance after active reservation holds; provider overage subsidy is accounted
+ * on usage events and never drives this value negative.
+ *
+ * provider_cost_*_twd are operational paid-period hard-cap counters. The subscription-
+ * period Grant row is the lock/serialization boundary for concurrent provider admission;
+ * detailed immutable provider-call accounting remains in worklog_ai_usage_events.
  */
 export const worklogAiGrants = pgTable(
   'worklog_ai_grants',
@@ -56,6 +60,8 @@ export const worklogAiGrants = pgTable(
     status: worklogAiGrantStatusEnum('status').default('ACTIVE').notNull(),
     originalPoints: integer('original_points').notNull(),
     remainingPoints: integer('remaining_points').notNull(),
+    providerCostCommittedTwd: numeric('provider_cost_committed_twd', { precision: 18, scale: 8 }).default('0').notNull(),
+    providerCostReservedTwd: numeric('provider_cost_reserved_twd', { precision: 18, scale: 8 }).default('0').notNull(),
     effectiveAt: timestamp('effective_at', { withTimezone: true }).defaultNow().notNull(),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
     originKey: varchar('origin_key', { length: 255 }).notNull(),
@@ -103,14 +109,12 @@ export const worklogAiGrantScopes = pgTable(
   },
   (table) => [
     uniqueIndex('worklog_ai_grant_scope_uq').on(table.grantId, table.sourceId),
-    // Composite funding FKs below use this key so a funding row cannot pair grant A
-    // with a scope owned by grant B.
     unique('worklog_ai_grant_scope_grant_id_uq').on(table.grantId, table.id),
     index('worklog_ai_grant_scope_source_enabled_idx').on(table.sourceId, table.enabled),
   ],
 );
 
-/** Current GROUP AI 額度負責人; GROUP data existence does not depend on this row. */
+/** Legacy migration-only GROUP AI responsibility. Target product does not depend on it. */
 export const worklogSourceAiResponsibility = pgTable(
   'worklog_source_ai_responsibility',
   {
@@ -130,7 +134,7 @@ export const worklogSourceAiResponsibility = pgTable(
   (table) => [index('worklog_source_ai_responsibility_user_idx').on(table.responsibleUserId)],
 );
 
-/** Immutable transfer/recovery audit for the GROUP AI 額度負責人 role. */
+/** Legacy migration-only responsibility history. */
 export const worklogSourceAiResponsibilityHistory = pgTable(
   'worklog_source_ai_responsibility_history',
   {
@@ -157,10 +161,10 @@ export const worklogSourceAiResponsibilityHistory = pgTable(
 );
 
 /**
- * One provider preflight reservation. Funding may span multiple eligible grants, so
- * reservation funding is normalized into child rows rather than attaching one grant.
- * provider_cost_hold_twd is the conservative in-flight AI Pro provider-cost hold; it is
- * counted only while status=RESERVED and is replaced by actual usage cost on commit.
+ * One provider preflight reservation. entitlement_grant_id records the exact provider-
+ * admission Grant selected by the provider-neutral entitlement layer. It lets the low-
+ * level PostgreSQL ledger update the same subscription-period Grant row for both point
+ * and provider-cost holds without guessing from email/group/provider identity.
  */
 export const worklogAiPointReservations = pgTable(
   'worklog_ai_point_reservations',
@@ -176,6 +180,10 @@ export const worklogAiPointReservations = pgTable(
     sourceId: bigint('source_id', { mode: 'number' })
       .notNull()
       .references(() => worklogSources.id, { onDelete: 'restrict' }),
+    entitlementGrantId: bigint('entitlement_grant_id', { mode: 'number' }).references(
+      () => worklogAiGrants.id,
+      { onDelete: 'restrict' },
+    ),
     pointsReserved: integer('points_reserved').notNull(),
     pointsCommitted: integer('points_committed').default(0).notNull(),
     platformSubsidizedPoints: integer('platform_subsidized_points').default(0).notNull(),
@@ -189,6 +197,7 @@ export const worklogAiPointReservations = pgTable(
     unique('worklog_ai_point_reservation_source_token_uq').on(table.sourceId, table.token),
     index('worklog_ai_point_reservation_user_status_idx').on(table.chargedUserId, table.status, table.expiresAt),
     index('worklog_ai_point_reservation_source_idx').on(table.sourceId, table.createdAt),
+    index('worklog_ai_point_reservation_entitlement_grant_idx').on(table.entitlementGrantId, table.status),
   ],
 );
 
