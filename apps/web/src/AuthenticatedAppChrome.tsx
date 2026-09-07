@@ -70,6 +70,7 @@ export function AuthenticatedAppChrome({ apiBaseUrl, children }: Props) {
       setProfile(nextProfile);
     } catch (cause) {
       if (generation !== loadGeneration.current) return;
+      if (clearExpiredSession(cause)) return;
       setProfile(null);
       setNotificationError(message(cause, '帳號資料載入失敗'));
     }
@@ -80,9 +81,17 @@ export function AuthenticatedAppChrome({ apiBaseUrl, children }: Props) {
       setCenter(nextCenter);
     } catch (cause) {
       if (generation !== loadGeneration.current) return;
+      if (clearExpiredSession(cause)) return;
       setCenter(null);
       setNotificationError((current) => current ?? message(cause, '通知載入失敗'));
     }
+  }
+
+  function clearExpiredSession(cause: unknown): boolean {
+    if (!isSessionError(cause)) return false;
+    window.localStorage.removeItem(SESSION_KEY);
+    setSession(null);
+    return true;
   }
 
   async function copyAccountId() {
@@ -112,7 +121,7 @@ export function AuthenticatedAppChrome({ apiBaseUrl, children }: Props) {
       } : current);
       if (navigateAfter && href) window.location.href = href;
     } catch (cause) {
-      setNotificationError(message(cause, '通知已讀狀態更新失敗'));
+      if (!clearExpiredSession(cause)) setNotificationError(message(cause, '通知已讀狀態更新失敗'));
     } finally {
       setBusyNotificationId(null);
     }
@@ -131,7 +140,7 @@ export function AuthenticatedAppChrome({ apiBaseUrl, children }: Props) {
         items: current.items.map((item) => item.readAt ? item : { ...item, readAt }),
       } : current);
     } catch (cause) {
-      setNotificationError(message(cause, '通知已讀狀態更新失敗'));
+      if (!clearExpiredSession(cause)) setNotificationError(message(cause, '通知已讀狀態更新失敗'));
     } finally {
       setBusyNotificationId(null);
     }
@@ -259,6 +268,11 @@ function formatNotificationTime(value: string): string {
     minute: '2-digit',
     hour12: false,
   });
+}
+
+function isSessionError(cause: unknown): boolean {
+  const text = cause instanceof Error ? cause.message : String(cause ?? '');
+  return text === 'INVALID_WEB_SESSION' || text === 'WEB_SESSION_REQUIRED';
 }
 
 function message(cause: unknown, fallback: string): string {
