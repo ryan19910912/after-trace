@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { WorklogAiPointLedgerService } from './ai-point-ledger';
 import { AiTextCaptureService, type AiTextCaptureRepository } from './ai-text-capture';
 import type { AiTextCaptureEntitlementPort } from './ai-text-capture';
+import type { AiPointLedgerPort } from './entitled-ai-point-ledger';
 import type { WorklogTextNormalizationProvider } from './text-normalization';
 
 const config = {
@@ -57,11 +57,11 @@ function provider(calls: string[]): WorklogTextNormalizationProvider {
   };
 }
 
-function ledger(calls: string[]): WorklogAiPointLedgerService {
+function aiPoints(calls: string[], reserveResult?: Awaited<ReturnType<AiPointLedgerPort['reserveAi']>>): AiPointLedgerPort {
   return {
     async reserveAi() {
       calls.push('reserve');
-      return {
+      return reserveResult ?? {
         status: 'RESERVED',
         reservation: {
           id: 1,
@@ -76,9 +76,9 @@ function ledger(calls: string[]): WorklogAiPointLedgerService {
           expiresAt: new Date('2026-09-07T10:00:00.000Z'),
         },
         remainingAiPoints: 0,
-      } as const;
+      };
     },
-    async commitAiUsage(_token: string, usage: { recordId?: number | null; operation?: string }) {
+    async commitAiUsage(_token, usage) {
       calls.push(`commit:${usage.recordId ?? 'none'}:${usage.operation ?? ''}`);
       return {
         status: 'COMMITTED',
@@ -95,10 +95,10 @@ function ledger(calls: string[]): WorklogAiPointLedgerService {
           expiresAt: new Date('2026-09-07T10:00:00.000Z'),
         },
         actualPoints: 15,
-      } as const;
+      };
     },
-    async releaseAi() { calls.push('release'); return { status: 'RESERVATION_NOT_FOUND' } as const; },
-  } as unknown as WorklogAiPointLedgerService;
+    async releaseAi() { calls.push('release'); return { status: 'RESERVATION_NOT_FOUND' }; },
+  };
 }
 
 describe('AiTextCaptureService', () => {
@@ -112,9 +112,8 @@ describe('AiTextCaptureService', () => {
           remainingPoints: 0, periodEndsAt: null,
         };
       },
-      async admit() { calls.push('admit'); throw new Error('should not admit'); },
     };
-    const service = new AiTextCaptureService(repository(calls), entitlement, ledger(calls), provider(calls));
+    const service = new AiTextCaptureService(repository(calls), entitlement, aiPoints(calls), provider(calls));
 
     const result = await service.capture({ userId: 7, sourceId: 12, text: '今天晴空案收到款項' });
 
@@ -122,7 +121,7 @@ describe('AiTextCaptureService', () => {
     expect(calls).toEqual(['resolve']);
   });
 
-  it('uses resolve -> runtime -> estimate -> admit -> reservation -> provider -> Record -> settlement', async () => {
+  it('uses resolve -> runtime -> estimate -> entitled reservation -> provider -> Record -> settlement', async () => {
     const calls: string[] = [];
     const entitlement: AiTextCaptureEntitlementPort = {
       async resolve() {
@@ -132,15 +131,8 @@ describe('AiTextCaptureService', () => {
           remainingPoints: 100, periodEndsAt: null,
         };
       },
-      async admit(_userId, _sourceId, requestedPoints) {
-        calls.push(`admit:${requestedPoints}`);
-        return {
-          source: 'FREE_TRIAL', allowed: true, reason: 'FREE_TRIAL_AVAILABLE',
-          remainingPoints: 80, periodEndsAt: null,
-        };
-      },
     };
-    const service = new AiTextCaptureService(repository(calls), entitlement, ledger(calls), provider(calls));
+    const service = new AiTextCaptureService(repository(calls), entitlement, aiPoints(calls), provider(calls));
 
     const result = await service.capture({ userId: 7, sourceId: 12, text: '今天晴空案收到款項' });
 
@@ -150,9 +142,31 @@ describe('AiTextCaptureService', () => {
       record: { id: 91, title: '晴空案收款', searchTerms: ['晴空案', '收款'] },
     });
     expect(calls).toEqual([
-      'resolve', 'runtime', 'estimate', 'admit:20', 'reserve', 'provider',
+      'resolve', 'runtime', 'estimate', 'reserve', 'provider',
       'create-record', 'commit:91:AI_TEXT_CAPTURE',
     ]);
+  });
+
+  it('surfaces exact entitled-ledger hard-cap reasons before provider execution', async () => {
+    const calls: string[] = [];
+    const entitlement: AiTextCaptureEntitlementPort = {
+      async resolve() {
+        return {
+          source: 'AI_PRO', allowed: true, reason: 'AI_PRO_AVAILABLE',
+          remainingPoints: 30, periodEndsAt: '2026-10-07T00:00:00.000Z',
+        };
+      },
+    };
+    const blocked = { status: 'AI_ENTITLEMENT_BLOCKED', reason: 'MONTHLY_POINT_CAP_WOULD_BE_EXCEEDED' } as const;
+    const service = new AiTextCaptureService(repository(calls), entitlement, aiPoints(calls, blocked), provider(calls));
+
+    const result = await service.capture({ userId: 7, sourceId: 12, text: 'test' });
+
+    expect(result).toMatchObject({
+      status: 'BLOCKED',
+      decision: { source: 'BLOCKED', reason: 'MONTHLY_POINT_CAP_WOULD_BE_EXCEEDED' },
+    });
+    expect(calls).toEqual(['runtime', 'estimate', 'reserve']);
   });
 
   it('releases the reservation when provider fails before a response is completed', async () => {
@@ -164,18 +178,12 @@ describe('AiTextCaptureService', () => {
           remainingPoints: 210, periodEndsAt: '2026-10-07T00:00:00.000Z',
         };
       },
-      async admit() {
-        return {
-          source: 'AI_PRO', allowed: true, reason: 'AI_PRO_AVAILABLE',
-          remainingPoints: 200, periodEndsAt: '2026-10-07T00:00:00.000Z',
-        };
-      },
     };
     const failingProvider: WorklogTextNormalizationProvider = {
       reservationPoints() { return 10; },
       async normalize() { calls.push('provider'); throw new Error('GEMINI_UPSTREAM_FAILURE'); },
     };
-    const service = new AiTextCaptureService(repository(), entitlement, ledger(calls), failingProvider);
+    const service = new AiTextCaptureService(repository(), entitlement, aiPoints(calls), failingProvider);
 
     const result = await service.capture({ userId: 7, sourceId: 12, text: 'test' });
 
