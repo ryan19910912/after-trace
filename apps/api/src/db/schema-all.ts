@@ -2,6 +2,7 @@ export * from './schema-worklog';
 export * from './schema-worklog-record-core';
 export * from './schema-worklog-product';
 export * from './schema-worklog-notification';
+export * from './schema-worklog-task';
 export * from './schema-worklog-ai-usage';
 export * from './schema-worklog-grants';
 export * from './schema-worklog-web-auth';
