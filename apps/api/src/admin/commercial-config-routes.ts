@@ -106,6 +106,7 @@ export function createAdminCommercialConfigRoutes(dependencies: AdminCommercialC
       const config = await serviceFor(c, repositoryFactory).setAiProConfig({
         enabled: body.enabled !== false,
         aiMediaIngestion: body.aiMediaIngestion !== false,
+        aiNaturalSearch: body.aiNaturalSearch !== false,
         monthlyAiPointCap,
         monthlyProviderCostCapTwd: typeof body.monthlyProviderCostCapTwd === 'string'
           ? body.monthlyProviderCostCapTwd
