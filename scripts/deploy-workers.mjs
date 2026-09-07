@@ -117,6 +117,21 @@ function requireApiRuntimeBindings() {
     if (!value) fail(`${name} is required in .env.${environment} before API deployment.`);
     values[name] = value;
   }
+
+  const appleNames = [
+    'APPLE_LOGIN_CLIENT_ID',
+    'APPLE_LOGIN_TEAM_ID',
+    'APPLE_LOGIN_KEY_ID',
+    'APPLE_LOGIN_PRIVATE_KEY_P8_BASE64',
+  ];
+  const configuredApple = appleNames.filter((name) => Boolean(process.env[name]?.trim()));
+  if (configuredApple.length > 0 && configuredApple.length !== appleNames.length) {
+    fail(`Apple Login is optional, but if enabled all of ${appleNames.join(', ')} must be set in .env.${environment}.`);
+  }
+  if (configuredApple.length === appleNames.length) {
+    for (const name of appleNames) values[name] = process.env[name].trim();
+  }
+
   if (values.WEB_AUTH_SECRET.length < 32) {
     fail(`WEB_AUTH_SECRET must be at least 32 characters in .env.${environment}.`);
   }
@@ -219,6 +234,5 @@ function run(label, command, args) {
 }
 
 function fail(message) {
-  console.error(`AFTERTRACE deploy failed: ${message}`);
-  process.exit(1);
+  throw new Error(`AFTERTRACE deploy failed: ${message}`);
 }
