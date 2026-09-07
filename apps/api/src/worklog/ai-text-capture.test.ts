@@ -14,10 +14,11 @@ const config = {
   usdTwdRate: 32,
 };
 
-function repository(): AiTextCaptureRepository {
+function repository(calls?: string[]): AiTextCaptureRepository {
   return {
-    async runtimeConfig() { return config; },
+    async runtimeConfig() { calls?.push('runtime'); return config; },
     async createAiRecord(input) {
+      calls?.push('create-record');
       return {
         workspaceId: 3,
         record: {
@@ -101,28 +102,36 @@ function ledger(calls: string[]): WorklogAiPointLedgerService {
 }
 
 describe('AiTextCaptureService', () => {
-  it('does not reserve or call provider when unified entitlement blocks the request', async () => {
+  it('blocks unauthorized/exhausted entitlement before exposing runtime config or provider work', async () => {
     const calls: string[] = [];
     const entitlement: AiTextCaptureEntitlementPort = {
-      async admit() {
-        calls.push('admit');
+      async resolve() {
+        calls.push('resolve');
         return {
           source: 'BLOCKED', allowed: false, reason: 'TRIAL_EXHAUSTED',
           remainingPoints: 0, periodEndsAt: null,
         };
       },
+      async admit() { calls.push('admit'); throw new Error('should not admit'); },
     };
-    const service = new AiTextCaptureService(repository(), entitlement, ledger(calls), provider(calls));
+    const service = new AiTextCaptureService(repository(calls), entitlement, ledger(calls), provider(calls));
 
     const result = await service.capture({ userId: 7, sourceId: 12, text: '今天晴空案收到款項' });
 
     expect(result).toMatchObject({ status: 'BLOCKED', decision: { reason: 'TRIAL_EXHAUSTED' } });
-    expect(calls).toEqual(['estimate', 'admit']);
+    expect(calls).toEqual(['resolve']);
   });
 
-  it('uses admit -> reservation -> provider -> enriched Record -> settlement for FREE trial', async () => {
+  it('uses resolve -> runtime -> estimate -> admit -> reservation -> provider -> Record -> settlement', async () => {
     const calls: string[] = [];
     const entitlement: AiTextCaptureEntitlementPort = {
+      async resolve() {
+        calls.push('resolve');
+        return {
+          source: 'FREE_TRIAL', allowed: true, reason: 'FREE_TRIAL_AVAILABLE',
+          remainingPoints: 100, periodEndsAt: null,
+        };
+      },
       async admit(_userId, _sourceId, requestedPoints) {
         calls.push(`admit:${requestedPoints}`);
         return {
@@ -131,7 +140,7 @@ describe('AiTextCaptureService', () => {
         };
       },
     };
-    const service = new AiTextCaptureService(repository(), entitlement, ledger(calls), provider(calls));
+    const service = new AiTextCaptureService(repository(calls), entitlement, ledger(calls), provider(calls));
 
     const result = await service.capture({ userId: 7, sourceId: 12, text: '今天晴空案收到款項' });
 
@@ -140,12 +149,21 @@ describe('AiTextCaptureService', () => {
       entitlementSource: 'FREE_TRIAL',
       record: { id: 91, title: '晴空案收款', searchTerms: ['晴空案', '收款'] },
     });
-    expect(calls).toEqual(['estimate', 'admit:20', 'reserve', 'provider', 'commit:91:AI_TEXT_CAPTURE']);
+    expect(calls).toEqual([
+      'resolve', 'runtime', 'estimate', 'admit:20', 'reserve', 'provider',
+      'create-record', 'commit:91:AI_TEXT_CAPTURE',
+    ]);
   });
 
   it('releases the reservation when provider fails before a response is completed', async () => {
     const calls: string[] = [];
     const entitlement: AiTextCaptureEntitlementPort = {
+      async resolve() {
+        return {
+          source: 'AI_PRO', allowed: true, reason: 'AI_PRO_AVAILABLE',
+          remainingPoints: 210, periodEndsAt: '2026-10-07T00:00:00.000Z',
+        };
+      },
       async admit() {
         return {
           source: 'AI_PRO', allowed: true, reason: 'AI_PRO_AVAILABLE',
