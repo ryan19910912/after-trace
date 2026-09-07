@@ -14,11 +14,12 @@ describe('subscription lifecycle ordering SQL', () => {
     expect(source).not.toMatch(/FROM event_insert\s+CROSS JOIN plan_row/);
   });
 
-  it('guards cancellation ordering and persists stale processing state', async () => {
+  it('guards cancellation ordering, binds scheduled cancellation to the current period and persists stale state', async () => {
     const source = await readFile(SOURCE, 'utf8');
 
     expect(source).toContain('subscription_row.updated_at <= ${event.occurredAt}');
+    expect(source).toContain('subscription_row.current_period_start = ${periodStart}');
     expect(source).toContain("'IGNORED_STALE'");
-    expect(source).toContain("processing_result = CASE");
+    expect(source).toContain('processing_result = CASE');
   });
 });
