@@ -1,13 +1,13 @@
 import { useEffect } from 'react';
 import { LoginProviderButtons } from './LoginProviderButtons';
+import { safeLoginReturn } from './login-return';
 import './login.css';
 
 const SESSION_KEY = 'aftertrace.worklog.session';
 const RETURN_KEY = 'aftertrace.worklog.returnTo';
-const ALLOWED_RETURN_PATHS = new Set(['/capture', '/subscription', '/feedback', '/tasks']);
 
 export function LoginRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
-  const returnTo = safeReturnTo(localStorage.getItem(RETURN_KEY));
+  const returnTo = safeLoginReturn(localStorage.getItem(RETURN_KEY));
 
   useEffect(() => {
     if (localStorage.getItem(SESSION_KEY)) {
@@ -27,10 +27,4 @@ export function LoginRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
       {returnTo ? <button type="button" className="link-button login-back" onClick={() => { window.location.href = returnTo; }}>返回上一頁</button> : null}
     </section>
   </main>;
-}
-
-function safeReturnTo(value: string | null): '/capture' | '/subscription' | '/feedback' | '/tasks' | null {
-  return value && ALLOWED_RETURN_PATHS.has(value)
-    ? value as '/capture' | '/subscription' | '/feedback' | '/tasks'
-    : null;
 }
