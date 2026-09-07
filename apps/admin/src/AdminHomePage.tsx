@@ -60,6 +60,12 @@ export function AdminHomePage({ api }: { api: AdminApi }) {
 
     <section className="stack">
       <article className="card">
+        <h2>帳號與客服查詢</h2>
+        <p className="muted">以 AFTERTRACE 帳號 ID 精確查詢使用者，不依賴 Google / LINE / Apple provider identity。</p>
+        <div className="header-actions"><a href="/accounts">帳號查詢</a></div>
+      </article>
+
+      <article className="card">
         <h2>商業與 AI</h2>
         <p className="muted">管理 FREE 一次性 AI 試用、AI Pro 月度資源／Provider Cost hard cap 與功能開關。</p>
         <div className="header-actions"><a href="/commercial">商業方案設定</a><a href="/pricing-calculator">成本試算</a><a href="/profitability">獲利與 AI 成本</a></div>
