@@ -6,6 +6,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
   timestamp,
@@ -158,6 +159,8 @@ export const worklogSourceAiResponsibilityHistory = pgTable(
 /**
  * One provider preflight reservation. Funding may span multiple eligible grants, so
  * reservation funding is normalized into child rows rather than attaching one grant.
+ * provider_cost_hold_twd is the conservative in-flight AI Pro provider-cost hold; it is
+ * counted only while status=RESERVED and is replaced by actual usage cost on commit.
  */
 export const worklogAiPointReservations = pgTable(
   'worklog_ai_point_reservations',
@@ -176,6 +179,7 @@ export const worklogAiPointReservations = pgTable(
     pointsReserved: integer('points_reserved').notNull(),
     pointsCommitted: integer('points_committed').default(0).notNull(),
     platformSubsidizedPoints: integer('platform_subsidized_points').default(0).notNull(),
+    providerCostHoldTwd: numeric('provider_cost_hold_twd', { precision: 18, scale: 8 }),
     status: worklogAiPointReservationStatusEnum('status').default('RESERVED').notNull(),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
