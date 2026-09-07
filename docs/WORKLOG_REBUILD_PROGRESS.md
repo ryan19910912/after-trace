@@ -6,7 +6,7 @@ Before substantive work, read the latest documents in the exact order defined by
 
 Never run/dispatch/rerun/enable/modify GitHub Actions. Every development commit must contain `[skip ci]`. Do not stage/commit the unrelated local `apps/api/verify-admin-schema.mjs` unless separately reviewed/approved.
 
-## Current checkpoint — 2026-09-07 Chrome Extension page title/URL durable capture complete; screenshot/image AI path next; executable/runtime verification still blocked
+## Current checkpoint — 2026-09-07 provider-neutral screenshot/image AI capture authored end-to-end; executable/runtime verification still blocked
 
 AFTERTRACE remains Web + PWA-first with a committed compact Chrome extension fast-capture surface. LINE is retired from the core Record/GROUP/AI product surface. LINE remains only as a provider-neutral login provider and official OA customer-support contact channel.
 
@@ -18,10 +18,10 @@ Current prelaunch Dev and current Prod data are disposable. Clean target-schema/
 - No one-time AI top-up products and no extra paid tiers.
 - FREE remains a complete manual product.
 - Newly eligible FREE accounts receive one idempotent one-time AI trial using Admin-configured `free_initial_ai_trial_points`.
-- Trial points are not TWD, do not refresh monthly and do not retroactively resize issued grants.
-- AI entitlement belongs to the requesting AFTERTRACE user. GROUP membership authorizes data only.
-- AI Pro retains monthly resource/point cap, provider-cost hard cap and optional per-request/modality caps.
-- Every provider-backed request must pass unified entitlement before reservation/provider execution/settlement.
+- Trial points are internal AI points, not TWD; they do not refresh monthly and issued grants are never resized retroactively.
+- AI entitlement belongs to the requesting AFTERTRACE account; GROUP membership only authorizes Source data.
+- AI Pro retains monthly resource/point cap, provider-cost hard cap, optional per-request cap and operator capability toggles.
+- Every provider-backed request must pass server-side Source authorization + unified entitlement + reservation/provider-cost hold before provider execution, then settle actual provider usage/cost.
 
 ## Accepted target foundation — do not redo
 
@@ -35,108 +35,137 @@ Current prelaunch Dev and current Prod data are disposable. Clean target-schema/
 - native Task backend + Web/PWA task surface;
 - FREE one-time AI trial config + provider-neutral onboarding issuance;
 - V1-only FREE + AI_PRO subscription surface;
-- unified `AiEntitlementService`, selected Grant admission, reservation/settlement and provider-cost accounting;
+- unified `AiEntitlementService`, exact selected Grant admission, `EntitledAiPointLedgerService`, reservation/settlement and provider-cost accounting;
 - atomic AI Pro concurrent provider-cost reservation hold;
 - provider-backed AI text capture backend + PWA manual/AI capture UI;
 - deterministic AI-limit SYSTEM notification caller;
-- Chrome Extension explicit Web session handoff, Source/group picker, durable quick text, selected-text draft, browser STT and visible-tab screenshot preview.
+- Chrome Extension explicit Web session handoff, Source/group picker, durable quick text, selected text, browser STT, bounded page title/URL metadata and explicit visible-tab screenshot capture.
 
 ## Completed in this run
 
-### Bounded Record capture metadata
+### Provider-neutral image capture service
 
-Added a creation-time `capture_context` JSONB field to the target Record schema for explicit bounded capture metadata. It is optional, is not Record body text and normal manual edits cannot rewrite it.
+Added `AiMediaCaptureService` instead of extending retired LINE ingestion behavior.
 
-New `record-capture-context.ts` strictly accepts only Chrome-extension-origin page metadata shaped as:
+Image request flow is now structurally:
 
-```text
-{
-  page: {
-    title: string | null,
-    url: http(s) URL | null
-  }
-}
-```
+`authenticated AFTERTRACE client -> Source authorization / AiEntitlementService -> AI media capability -> runtime pricing -> conservative point + provider-cost reservation hold -> Gemini -> durable IMAGE Record -> actual usage/cost settlement`
 
-Rules:
+Rules implemented:
 
-- client identity is derived server-side as `CHROME_EXTENSION`, not trusted from request JSON;
-- title is normalized and capped at 255 characters;
-- URL is capped at 2048 characters and only `http:` / `https:` is accepted;
-- credential-bearing URLs and unsafe schemes are rejected;
-- arbitrary keys/full-page text are rejected;
-- Web-origin clients cannot use this extension-only V1 capture-context input path;
-- capture context is immutable after Record creation.
+- accepted MIME: PNG / JPEG / WebP;
+- max inline image size: 5 MB;
+- provider work is impossible before Source/entitlement admission;
+- FREE users require remaining one-time FREE trial points;
+- AI Pro uses the same monthly points, per-request cap and actual provider-cost hard cap;
+- provider-cost reservation hold is included before provider execution;
+- provider failure before a response releases the reservation;
+- successful provider calls are settled even if later Record persistence fails, so provider usage cannot disappear from accounting;
+- actual image modality usage is costed via the existing immutable pricing snapshot path;
+- original screenshot/image bytes are not durably stored in V1;
+- only provider-derived durable text plus bounded metadata is stored as an `IMAGE` Record;
+- no provider API key exists in the extension.
 
-Focused parser tests were authored — **AUTHORED / NOT RUN**.
+### Authenticated image API
 
-### Manual Record API persistence
+`POST /api/v1/ai/capture/image` is now part of the existing AI capture boundary.
 
-Manual Record create now parses optional `captureContext` and passes the validated value into the existing repository create path.
+The API:
 
-`DrizzleManualRecordRouteRepository` now:
+- accepts exact Web origin or canonical `chrome-extension://<id>` product origin using the existing bounded product-client-origin helper;
+- still requires a valid AFTERTRACE first-party bearer session;
+- resolves the provider-neutral user before AI work;
+- validates MIME/base64/decoded byte length before calling the service;
+- accepts optional bounded Chrome page `captureContext` through the existing strict parser;
+- maps exhausted/not-entitled/provider-cost/point-cap decisions without interrupting FREE manual product capability;
+- keeps deterministic AI-limit SYSTEM notification behavior for durable AI Pro hard-limit states;
+- returns operator-disabled media as a product-level blocked response rather than treating it as an upstream provider outage.
 
-- persists `capture_context` with the same durable Record insert;
-- selects it in list/detail reads;
-- maps only the accepted `CHROME_EXTENSION` + bounded `page` shape back into the product view.
+The route helper no longer carries temporary `any` typing.
 
-Manual CRUD still performs zero provider AI work.
+### Chrome Extension explicit screenshot AI action
 
-### Chrome Extension page title / URL persistence
+The extension now separates local capture from provider submission:
 
-`apps/extension/popup.js` now completes the accepted extension delivery-order page-context step:
+1. user explicitly presses `擷取可見畫面`;
+2. Chrome captures only the visible tab/viewport and shows local preview;
+3. only after the user explicitly presses `用 AI 整理截圖並儲存` is the image sent to AFTERTRACE;
+4. selected Source/group is included and re-authorized by backend;
+5. optional page title/URL context follows the existing explicit toggle;
+6. success creates the shared AFTERTRACE IMAGE Record;
+7. exhausted FREE trial/AI Pro limits leave manual FREE features usable and direct the user toward the full Web subscription surface.
 
-- active page title/URL are normalized into a bounded draft context;
-- selected-text context-menu drafts retain the originating page title/URL independently from whatever tab is active when the popup later opens;
-- selected-text drafts with safe source metadata explicitly preselect `附上目前頁面` and remain user-cancellable before save;
-- normal quick text can explicitly opt into `附上目前頁面`;
-- save sends `captureContext.page.title/url` through the same PRIVATE/GROUP manual Record API;
-- title/URL are never appended to `rawText`;
-- no full-page contents, history or clipboard are captured;
-- page metadata remains provider-free and available to FREE users;
-- unsafe/non-http(s) URL metadata is omitted client-side and rejected server-side if attempted.
+There is no automatic screenshot, continuous screen monitoring, full-page scraping, browsing-history capture or direct provider call.
 
-Extension copy was updated so it no longer claims page metadata is preview-only.
+### AI media operator capability
 
-### Screenshot boundary remains safe
+AI Pro commercial configuration now has a real `aiMediaIngestion` capability switch.
 
-Visible-tab screenshot is still local preview only. It is **not** sent to Gemini/provider and is **not** persisted as an attachment in this batch.
+- stored in existing `worklog_subscription_plans.capabilities`;
+- Admin API reads/writes it while keeping V1 price fixed at NT$99;
+- Admin Web `/commercial` exposes `啟用圖片／截圖 AI`;
+- the switch applies to AI Pro and eligible FREE trial users because trial access follows currently enabled AI Pro capabilities;
+- service checks the capability after user/Source entitlement and before runtime/reservation/provider work;
+- disabled media fails closed while manual Record functionality is unaffected.
 
-The next batch must send an explicitly captured bounded image through AFTERTRACE backend AI entitlement, FREE-trial/AI-Pro reservation and provider-cost accounting. The extension must never call a provider directly.
+Existing plans with no explicit media flag default to enabled until Admin writes the explicit setting, avoiding an accidental prelaunch disable caused solely by older config shape.
 
-## Files changed since the previous checkpoint
+### Attachment provider neutralization
 
-### API / schema
+The shared Gemini attachment normalizer no longer tells the model it is processing a LINE attachment. Its system prompt now describes an explicitly provided AFTERTRACE attachment, so the shared analyzer can be safely reused from Web/PWA/Chrome without preserving LINE product semantics.
 
-- `apps/api/src/db/schema-worklog-record-core.ts`;
-- `apps/api/src/worklog/record-capture-context.ts`;
-- `apps/api/src/worklog/record-capture-context.test.ts`;
-- `apps/api/src/worklog/manual-record-routes.ts`;
-- `apps/api/src/worklog/drizzle-manual-record-routes.ts`;
-- `apps/api/src/worklog/manual-record-capture-context.test.ts`.
+## Files changed in this run
+
+### API / AI runtime
+
+- `apps/api/src/worklog/ai-media-capture.ts`;
+- `apps/api/src/worklog/drizzle-ai-media-capture.ts`;
+- `apps/api/src/worklog/ai-media-capture.test.ts`;
+- `apps/api/src/worklog/ai-text-capture-routes.ts`;
+- `apps/api/src/worklog/gemini-attachment-normalizer.ts`.
+
+### Commercial/Admin backend
+
+- `apps/api/src/worklog/commercial-config.ts`;
+- `apps/api/src/worklog/drizzle-commercial-config.ts`;
+- `apps/api/src/admin/commercial-config-routes.ts`.
+
+### Admin Web
+
+- `apps/admin/src/commercial-api.ts`;
+- `apps/admin/src/AdminCommercialPage.tsx`.
 
 ### Chrome Extension
 
-- `apps/extension/popup.js`;
-- `apps/extension/popup.html`.
+- `apps/extension/popup.html`;
+- `apps/extension/screenshot-ai.js`.
 
 ### Docs
 
 - `docs/WORKLOG_REBUILD_PROGRESS.md`.
 
-## Commits since the previous checkpoint
+## Commits in this run
 
-All development commits contain `[skip ci]`:
+All successful development commits contain `[skip ci]`:
 
-- `22af4e03` — bounded Record capture-context parser;
-- `89d6af6b` — bounded capture-context tests;
-- `4383107a` — target schema capture-context field;
-- `cde57b2f` — parse/persist bounded manual capture context at API boundary;
-- `2c8856bc` — store/read manual Record capture context in Drizzle repository;
-- `32e9641c` — author manual Record capture-context route tests;
-- `172e671d` — persist extension page capture context;
-- `a29cb389` — align extension capture status copy;
-- `83c36de2` — checkpoint durable extension page context.
+- `0c775530` — provider-neutral AI image capture service;
+- `80cfb788` — shared IMAGE Record persistence;
+- `d4c860bb` — authenticated bounded image API;
+- `bc9032ca` — explicit screenshot AI submit action;
+- `68b7f81f` — screenshot AI client loading;
+- `8d9e3b4a` — Extension screenshot -> shared AI backend;
+- `7680413a` — screenshot entitlement/accounting tests;
+- `a0f3d37e` — AI Pro media capability config shape;
+- `7a88301f` — durable media capability persistence;
+- `5c1c399e` — Admin media capability request boundary;
+- `1959bfdd` — enforce capability before provider work;
+- `39464ead` — read media capability from AI Pro template;
+- `b3623130` — media capability gate tests;
+- `14e5639c` — Admin client media toggle support;
+- `3a8f5ce4` — Admin media capability UI;
+- `35686ce5` — shared AI capture route typing/status hardening;
+- `5af9e78f` — provider-neutral attachment prompt;
+- this checkpoint commit follows.
 
 No GitHub Actions workflow was run, dispatched, rerun, enabled, modified or used as validation. `apps/api/verify-admin-schema.mjs` was not staged or committed.
 
@@ -144,11 +173,12 @@ No GitHub Actions workflow was run, dispatched, rerun, enabled, modified or used
 
 ### AUTHORED / NOT RUN
 
-- bounded capture-context parser tests;
-- API route capture-context persistence behavior;
-- capture-context immutability on manual edit;
-- Extension selected-text -> page metadata -> durable Record flow;
-- Extension normal quick text + explicit page metadata -> durable Record flow;
+- AI media entitlement blocks before provider;
+- operator-disabled AI media blocks before runtime/reservation/provider;
+- FREE trial image flow reserves provider-cost hold and settles actual image modality usage;
+- AI Pro provider-cost hard cap blocks concurrent/new image work before provider;
+- Extension visible screenshot -> authenticated `/api/v1/ai/capture/image` -> IMAGE Record;
+- existing bounded capture-context tests;
 - prior auth/provider/Apple/AI entitlement/provider-cost tests;
 - Task/Push/Notification focused tests.
 
@@ -166,7 +196,7 @@ No GitHub Actions workflow was run, dispatched, rerun, enabled, modified or used
 - PostgreSQL clean target-schema rebuild — **NOT RUN**;
 - PostgreSQL exact-Grant/provider-cost concurrency smoke — **NOT RUN**;
 - Google/LINE/Apple real OAuth smoke — **NOT RUN**;
-- Gemini real provider smoke — **NOT RUN**;
+- Gemini real text/image provider smoke — **NOT RUN**;
 - Drizzle canonical baseline regeneration/guard — **NOT RUN**;
 - Dev/Prod clean rebuild — **NOT RUN**;
 - runtime E2E — **NOT RUN**.
@@ -175,44 +205,45 @@ No test/build/runtime item is claimed PASS or RUNTIME VERIFIED.
 
 ## Known blockers / risks
 
-1. Executable checkout remains unavailable, so accumulated TypeScript/React/SQL/extension code has not compiled or executed.
-2. Canonical `drizzle/0000` remains behind target schema, now including `capture_context`; regenerate before clean DB/runtime validation.
-3. Atomic provider-cost hold still needs a real PostgreSQL concurrent-reservation smoke test.
-4. Real Google/LINE/Apple OAuth configuration has not been runtime tested.
-5. Extension external messaging, `chrome.storage.session`, Source persistence and page-context persistence need real Chrome unpacked-extension smoke.
-6. Screenshot/image remains preview-only and must enter shared AI entitlement/reservation/provider-cost path before provider execution.
-7. Payment provider transport/lifecycle remains disabled (`CHECKOUT_ENABLED=false`); provider-neutral activation/renewal/cancellation/idempotent SYSTEM lifecycle remains pending.
-8. Target AI voice/image/file, natural-language search, related Records, time-range summary and explicit rewrite remain pending.
-9. Push/Cron/Task still need real browser/provider/runtime smoke.
-10. Retired LINE/ONE_TIME/GROUP-funding runtime/schema cleanup remains after target dependencies are fully replaced.
+1. Executable checkout remains unavailable, so accumulated TypeScript/React/SQL/extension code has still not compiled or executed. This is the dominant risk.
+2. Canonical `drizzle/0000` remains behind the target schema (including provider-neutral identity/notifications/tasks/commercial/cost-hold/capture_context) and must be regenerated before clean DB validation.
+3. Atomic provider-cost hold still requires a real PostgreSQL concurrent-reservation smoke test.
+4. Real Google/LINE/Apple OAuth and Gemini text/image configuration have not been runtime tested.
+5. Extension handoff/Source/manual/page/screenshot flows require Chrome unpacked-extension smoke.
+6. The screenshot AI helper clears the screenshot preview after successful submit, but the older popup module still has its private preview-state variable; this can cause stale status wording after a later manual text save in the same popup session. It does not cause a second provider submission because the AI helper reads the cleared image preview. Polish this during Chrome smoke/refactor.
+7. Payment provider transport remains disabled (`CHECKOUT_ENABLED=false`). Provider-neutral activation/renewal/cancellation + idempotent SYSTEM lifecycle still needs final transport semantics/provider choice; do not invent a provider-specific checkout.
+8. Provider-backed generic audio/file/PDF product endpoints and natural-language search/related/time-range summary/explicit rewrite remain pending.
+9. Push/Cron/Task behavior is authored but still requires real browser/provider/runtime smoke.
+10. Retired LINE/ONE_TIME/GROUP-funding runtime/schema cleanup remains after target dependencies are fully replaced and executable validation succeeds.
 
 ## Exact next run plan
 
-1. If executable checkout becomes available, stop feature expansion and run/fix typecheck, focused tests, production builds, canonical baseline regeneration, disposable PostgreSQL rebuild, provider-cost concurrency smoke and Chrome unpacked-extension smoke.
-2. If executable checkout remains unavailable, continue directly with **screenshot/image AI integration**:
-   - define one bounded backend image-capture request contract;
-   - enforce image size/content-type limits before provider work;
-   - authorize selected PRIVATE/GROUP Source server-side;
-   - call the existing unified AI entitlement boundary so eligible FREE trial or active AI_PRO is required;
-   - reserve points/provider-cost before Gemini/provider execution;
-   - fully audit and settle actual usage/cost;
-   - return a proposed/AI-created Record result through the shared Record domain;
-   - never expose provider keys to the extension and never call Gemini directly from the extension.
-3. Reuse the same image path later for Web/PWA image input rather than creating an extension-only AI pipeline.
-4. Then complete provider-neutral AI Pro subscription lifecycle and remaining AI voice/search/related/summary/rewrite features.
-5. Regenerate canonical baseline, rebuild disposable Dev/Prod as appropriate, run runtime E2E, then remove/isolate remaining retired LINE-era code.
+1. If an executable checkout becomes available, **stop feature expansion immediately** and run/fix:
+   - API/Web/Admin typecheck;
+   - focused auth/Apple/entitlement/provider-cost/media/notification/task tests;
+   - full package tests;
+   - API Worker dry-run + Web/Admin builds;
+   - regenerate canonical Drizzle `0000` baseline and rebuild a disposable PostgreSQL database;
+   - concurrent exact-Grant/provider-cost-hold smoke;
+   - Dev Google/LINE/Apple + Gemini text/image smoke;
+   - Chrome unpacked handoff -> Source -> manual/page -> screenshot AI smoke.
+2. If executable checkout remains unavailable, continue only bounded missing V1 product work rather than more broad auditing:
+   - generalize provider-neutral media capture from IMAGE to explicit AUDIO + supported FILE/PDF endpoints using the same entitlement/accounting service;
+   - implement bounded natural-language search interpretation with deterministic PostgreSQL retrieval;
+   - then related Records, time-range summary and explicit rewrite proposal/accept flow;
+   - complete provider-neutral subscription lifecycle boundary without choosing an unapproved payment provider.
+3. Once executable validation is possible and target dependencies are proven, regenerate baseline/rebuild disposable Dev/Prod and remove/isolate remaining retired LINE/ONE_TIME/GROUP-funding code.
 
 ## Current estimated remaining development time
 
-Approximately **5–14 focused development hours** remain for the currently accepted V1 scope, excluding external waiting for Apple/payment-provider account setup.
+Approximately **4–11 focused development hours** remain for the currently accepted V1 scope, excluding external waiting for Apple/payment-provider account setup.
 
 Rough allocation:
 
-- executable validation + canonical baseline/clean DB rebuild fixes: **3.5–7h**;
-- real Google/LINE/Apple + Chrome browser smoke/polish: **0.5–1.5h**;
-- screenshot/image shared AI entitlement wiring: **0.75–2h**;
-- payment lifecycle + deterministic SYSTEM callers: **1–2.5h**;
-- remaining AI voice/search/related/summary/rewrite: **1.5–3.5h**;
-- final Push/Cron/PWA/runtime smoke + legacy cleanup: **1–2.5h**.
+- first executable compile/test + canonical baseline/clean DB fixes: **3–6h**;
+- real OAuth/Gemini/Chrome/Push runtime smoke and polish: **0.75–1.75h**;
+- provider-neutral AUDIO/FILE/PDF + search/related/summary/rewrite: **1.5–3.5h**;
+- provider-neutral subscription lifecycle + deterministic SYSTEM callers: **0.75–2h**;
+- final legacy cleanup: **0.5–1.5h**.
 
-Ranges overlap. The largest uncertainty remains the first real compile/test + clean PostgreSQL baseline pass.
+Ranges overlap. The largest uncertainty is still the first real compile/test + clean PostgreSQL baseline pass; the new screenshot/image path is **AUTHORED**, not runtime-verified.
