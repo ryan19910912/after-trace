@@ -72,9 +72,8 @@ export function AdminHomePage({ api }: { api: AdminApi }) {
       </article>
 
       <article className="card">
-        <h2>Migration / 診斷</h2>
-        <p className="muted">舊 LINE / GROUP funding / ONE_TIME 相關欄位不再是 V1 產品操作入口。需要查看歷史診斷資料時才進入舊管理畫面。</p>
-        <div className="header-actions"><a href="/legacy-diagnostics">開啟舊診斷畫面</a></div>
+        <h2>已退役產品面</h2>
+        <p className="muted">LINE GROUP funding owner、AI 額度負責人、ONE_TIME / TOP_UP 與舊 LINE 管理操作不再提供 Admin 導航入口。舊程式碼只暫留作 migration cleanup，不代表 V1 可用功能。</p>
       </article>
     </section>
   </main>;
