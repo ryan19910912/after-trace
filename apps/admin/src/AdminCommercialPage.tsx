@@ -11,6 +11,8 @@ export function AdminCommercialPage({ api }: { api: AdminCommercialApi }) {
   const [aiMediaIngestion, setAiMediaIngestion] = useState(true);
   const [aiNaturalSearch, setAiNaturalSearch] = useState(true);
   const [aiRelatedRecords, setAiRelatedRecords] = useState(true);
+  const [aiTimeRangeSummary, setAiTimeRangeSummary] = useState(true);
+  const [aiRecordRewrite, setAiRecordRewrite] = useState(true);
   const [monthlyPoints, setMonthlyPoints] = useState('');
   const [providerCostCap, setProviderCostCap] = useState('');
   const [perRequestCap, setPerRequestCap] = useState('');
@@ -44,6 +46,8 @@ export function AdminCommercialPage({ api }: { api: AdminCommercialApi }) {
     setAiMediaIngestion(value?.aiMediaIngestion ?? true);
     setAiNaturalSearch(value?.aiNaturalSearch ?? true);
     setAiRelatedRecords(value?.aiRelatedRecords ?? true);
+    setAiTimeRangeSummary(value?.aiTimeRangeSummary ?? true);
+    setAiRecordRewrite(value?.aiRecordRewrite ?? true);
     setMonthlyPoints(value ? String(value.monthlyAiPointCap) : '');
     setProviderCostCap(value?.monthlyProviderCostCapTwd ?? '');
     setPerRequestCap(value?.perRequestAiPointCap ? String(value.perRequestAiPointCap) : '');
@@ -81,6 +85,8 @@ export function AdminCommercialPage({ api }: { api: AdminCommercialApi }) {
         aiMediaIngestion,
         aiNaturalSearch,
         aiRelatedRecords,
+        aiTimeRangeSummary,
+        aiRecordRewrite,
         monthlyAiPointCap: monthly,
         monthlyProviderCostCapTwd: providerCap,
         perRequestAiPointCap: requestCap,
@@ -132,7 +138,9 @@ export function AdminCommercialPage({ api }: { api: AdminCommercialApi }) {
         <label><input type="checkbox" checked={aiMediaIngestion} disabled={loading || saving || !aiProEnabled} onChange={(event) => setAiMediaIngestion(event.target.checked)} /> 啟用圖片／音訊／檔案 AI</label>
         <label><input type="checkbox" checked={aiNaturalSearch} disabled={loading || saving || !aiProEnabled} onChange={(event) => setAiNaturalSearch(event.target.checked)} /> 啟用 AI 自然語言搜尋</label>
         <label><input type="checkbox" checked={aiRelatedRecords} disabled={loading || saving || !aiProEnabled} onChange={(event) => setAiRelatedRecords(event.target.checked)} /> 啟用相關紀錄推薦</label>
-        <p className="muted">功能開關同時控制 AI Pro 與符合資格的 FREE 一次性 AI 試用。Provider-backed 功能關閉後會 fail closed；相關紀錄目前使用授權後的 PostgreSQL deterministic ranking，不額外呼叫 provider。一般手動紀錄與一般搜尋不受影響。</p>
+        <label><input type="checkbox" checked={aiTimeRangeSummary} disabled={loading || saving || !aiProEnabled} onChange={(event) => setAiTimeRangeSummary(event.target.checked)} /> 啟用時間區間 AI 摘要</label>
+        <label><input type="checkbox" checked={aiRecordRewrite} disabled={loading || saving || !aiProEnabled} onChange={(event) => setAiRecordRewrite(event.target.checked)} /> 啟用 AI 改寫建議</label>
+        <p className="muted">功能開關同時控制 AI Pro 與符合資格的 FREE 一次性 AI 試用。Provider-backed 功能關閉後會 fail closed；相關紀錄目前使用授權後的 PostgreSQL deterministic ranking，不額外呼叫 provider。AI 改寫只產生預覽建議，不會直接修改 Record。一般手動紀錄與一般搜尋不受影響。</p>
         <label>每月 AI 點數／資源上限
           <input type="number" min="1" step="1" value={monthlyPoints} onChange={(event) => setMonthlyPoints(event.target.value)} placeholder="例如 100000" />
         </label>
@@ -143,7 +151,7 @@ export function AdminCommercialPage({ api }: { api: AdminCommercialApi }) {
           <input type="number" min="1" step="1" value={perRequestCap} onChange={(event) => setPerRequestCap(event.target.value)} placeholder="留空表示沒有額外單次 cap" />
         </label>
         <div className="header-actions"><button disabled={loading || saving} onClick={() => void saveAiPro()}>{saving ? '儲存中…' : '儲存 AI Pro 設定'}</button></div>
-        {aiPro && <p className="muted">目前：{aiPro.enabled ? '啟用' : '停用'} · 媒體 AI {aiPro.aiMediaIngestion ? '啟用' : '停用'} · AI 搜尋 {aiPro.aiNaturalSearch ? '啟用' : '停用'} · 相關紀錄 {aiPro.aiRelatedRecords ? '啟用' : '停用'} · 月點數 {aiPro.monthlyAiPointCap.toLocaleString()} · Provider Cost NT$ {aiPro.monthlyProviderCostCapTwd} · 最後更新 {new Date(aiPro.updatedAt).toLocaleString('zh-TW')}</p>}
+        {aiPro && <p className="muted">目前：{aiPro.enabled ? '啟用' : '停用'} · 媒體 AI {aiPro.aiMediaIngestion ? '啟用' : '停用'} · AI 搜尋 {aiPro.aiNaturalSearch ? '啟用' : '停用'} · 相關紀錄 {aiPro.aiRelatedRecords ? '啟用' : '停用'} · 區間摘要 {aiPro.aiTimeRangeSummary ? '啟用' : '停用'} · AI 改寫 {aiPro.aiRecordRewrite ? '啟用' : '停用'} · 月點數 {aiPro.monthlyAiPointCap.toLocaleString()} · Provider Cost NT$ {aiPro.monthlyProviderCostCapTwd} · 最後更新 {new Date(aiPro.updatedAt).toLocaleString('zh-TW')}</p>}
       </article>
 
       <article className="card">
