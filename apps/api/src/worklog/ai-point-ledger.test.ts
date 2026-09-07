@@ -17,9 +17,11 @@ function snapshot(
     chargedUserId: 9,
     actorUserId: 7,
     sourceId: 20,
+    entitlementGrantId: 44,
     pointsReserved: 25,
     pointsCommitted: status === 'COMMITTED' ? 25 : 0,
     platformSubsidizedPoints: 0,
+    providerCostHoldTwd: 0.25,
     status,
     expiresAt: new Date(now.getTime() + 600_000),
     ...overrides,
@@ -54,7 +56,7 @@ const usage = {
 };
 
 describe('WorklogAiPointLedgerService', () => {
-  it('allows provider start when the repository can hold any positive scoped balance', async () => {
+  it('forwards exact entitlement Grant and conservative TWD hold into atomic reservation', async () => {
     const repo = repository();
     vi.mocked(repo.reservePointsAtomic).mockResolvedValue(snapshot('RESERVED', { pointsReserved: 3 }));
     const service = new WorklogAiPointLedgerService(repo, () => 'reservation-1');
@@ -64,6 +66,8 @@ describe('WorklogAiPointLedgerService', () => {
       actorUserId: 7,
       sourceId: 20,
       requestedPoints: 500,
+      entitlementGrantId: 44,
+      providerCostHoldTwd: 0.75,
       at: now,
     })).resolves.toMatchObject({
       status: 'RESERVED',
@@ -74,6 +78,8 @@ describe('WorklogAiPointLedgerService', () => {
       actorUserId: 7,
       sourceId: 20,
       requestedPoints: 500,
+      entitlementGrantId: 44,
+      providerCostHoldTwd: 0.75,
     }));
   });
 
@@ -91,13 +97,31 @@ describe('WorklogAiPointLedgerService', () => {
     })).resolves.toEqual({ status: 'AI_POINTS_EXHAUSTED' });
   });
 
+  it('surfaces an atomic monthly provider-cost rejection before provider execution', async () => {
+    const repo = repository();
+    vi.mocked(repo.reservePointsAtomic).mockRejectedValue(new Error('MONTHLY_PROVIDER_COST_CAP_REACHED'));
+    const service = new WorklogAiPointLedgerService(repo, () => 'reservation-1');
+
+    await expect(service.reserveAi({
+      chargedUserId: 9,
+      actorUserId: 7,
+      sourceId: 20,
+      requestedPoints: 50,
+      entitlementGrantId: 44,
+      providerCostHoldTwd: 1.2,
+      at: now,
+    })).resolves.toEqual({
+      status: 'AI_ENTITLEMENT_BLOCKED',
+      reason: 'MONTHLY_PROVIDER_COST_CAP_REACHED',
+    });
+  });
+
   it('converts immutable provider cost to output-price-equivalent points at commit', async () => {
     const repo = repository();
     const service = new WorklogAiPointLedgerService(repo, () => 'reservation-1');
 
     await expect(service.commitAiUsage('reservation-1', usage, now)).resolves.toMatchObject({
       status: 'COMMITTED',
-      // 0.00001 / (0.4 / 1,000,000) = 25
       actualPoints: 25,
     });
     expect(repo.commitReservationAtomic).toHaveBeenCalledWith(expect.objectContaining({
@@ -119,7 +143,7 @@ describe('WorklogAiPointLedgerService', () => {
     expect(repo.commitReservationAtomic).not.toHaveBeenCalled();
   });
 
-  it('releases an active hold without provider settlement', async () => {
+  it('releases an active point/provider-cost hold without provider settlement', async () => {
     const repo = repository();
     const service = new WorklogAiPointLedgerService(repo, () => 'reservation-1');
 
