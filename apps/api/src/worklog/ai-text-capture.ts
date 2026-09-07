@@ -30,6 +30,7 @@ export type AiTextCaptureRepository = {
 };
 
 export type AiTextCaptureEntitlementPort = {
+  resolve(userId: number, sourceId: number, at?: Date): Promise<AiEntitlementDecision>;
   admit(userId: number, sourceId: number, requestedPoints: number, at?: Date): Promise<AiEntitlementDecision>;
 };
 
@@ -42,9 +43,10 @@ export type AiTextCaptureResult =
 /**
  * Target Web/PWA/Chrome provider-backed text capture path.
  *
- * Manual capture does not use this service. Provider work starts only after provider-neutral
- * Source authorization + entitlement admission and a durable point reservation. Provider
- * success is always settled/audited even when a later Record write fails.
+ * Manual capture does not use this service. A read-only entitlement resolution first hides
+ * runtime/provider state from unauthorized Sources. Provider work starts only after the
+ * request-specific `admit()` check and a durable point reservation. Provider success is
+ * always settled/audited even when a later Record write fails.
  */
 export class AiTextCaptureService {
   constructor(
@@ -64,6 +66,12 @@ export class AiTextCaptureService {
     const sourceId = positiveId(input.sourceId, 'INVALID_SOURCE_ID');
     const text = requiredText(input.text, 20_000, 'AI_CAPTURE_TEXT_REQUIRED');
     const referenceAt = validDate(input.referenceAt ?? new Date());
+
+    const preliminary = await this.entitlement.resolve(userId, sourceId, referenceAt);
+    if (!preliminary.allowed || preliminary.source === 'BLOCKED') {
+      return { status: 'BLOCKED', decision: preliminary };
+    }
+
     const config = await this.repository.runtimeConfig();
     if (!config) return { status: 'DEFERRED', reason: 'AI_RUNTIME_CONFIG_MISSING' };
 
