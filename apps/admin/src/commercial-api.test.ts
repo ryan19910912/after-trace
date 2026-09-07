@@ -65,6 +65,8 @@ describe('AdminCommercialApi', () => {
         aiMediaIngestion: true,
         aiNaturalSearch: false,
         aiRelatedRecords: true,
+        aiTimeRangeSummary: true,
+        aiRecordRewrite: false,
         monthlyAiPointCap: 100000,
         monthlyProviderCostCapTwd: '30',
         perRequestAiPointCap: 5000,
@@ -79,6 +81,8 @@ describe('AdminCommercialApi', () => {
       aiMediaIngestion: true,
       aiNaturalSearch: false,
       aiRelatedRecords: true,
+      aiTimeRangeSummary: true,
+      aiRecordRewrite: false,
       monthlyAiPointCap: 100000,
       monthlyProviderCostCapTwd: '30',
       perRequestAiPointCap: 5000,
@@ -87,12 +91,16 @@ describe('AdminCommercialApi', () => {
     expect(config.priceTwd).toBe('99.00');
     expect(config.aiNaturalSearch).toBe(false);
     expect(config.aiRelatedRecords).toBe(true);
+    expect(config.aiTimeRangeSummary).toBe(true);
+    expect(config.aiRecordRewrite).toBe(false);
     const [, init] = fetchMock.mock.calls[0];
     expect(JSON.parse(String(init?.body))).toEqual({
       enabled: true,
       aiMediaIngestion: true,
       aiNaturalSearch: false,
       aiRelatedRecords: true,
+      aiTimeRangeSummary: true,
+      aiRecordRewrite: false,
       monthlyAiPointCap: 100000,
       monthlyProviderCostCapTwd: '30',
       perRequestAiPointCap: 5000,
