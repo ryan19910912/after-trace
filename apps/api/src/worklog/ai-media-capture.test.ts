@@ -8,8 +8,9 @@ const config = {
   audioUsdPerMillion: 1.5, imageUsdPerMillion: 3, usdTwdRate: 32,
 };
 
-function repository(calls: string[]): AiMediaCaptureRepository {
+function repository(calls: string[], mediaEnabled = true): AiMediaCaptureRepository {
   return {
+    async mediaEnabled() { calls.push('media-capability'); return mediaEnabled; },
     async runtimeConfig() { calls.push('runtime'); return config; },
     async createImageRecord(input) {
       calls.push('create-record');
@@ -70,7 +71,7 @@ function ledger(calls: string[], blocked = false): AiPointLedgerPort {
 
 const image = { mimeType: 'image/png' as const, byteLength: 3, dataBase64: 'YWJj' };
 
-it('blocks before runtime/provider when source or entitlement is unavailable', async () => {
+it('blocks before capability/runtime/provider when source or entitlement is unavailable', async () => {
   const calls: string[] = [];
   const service = new AiMediaCaptureService(repository(calls), {
     async resolve() {
@@ -83,6 +84,21 @@ it('blocks before runtime/provider when source or entitlement is unavailable', a
     status: 'BLOCKED', decision: { reason: 'TRIAL_EXHAUSTED' },
   });
   expect(calls).toEqual(['resolve']);
+});
+
+it('fails before runtime/reservation/provider when operator disables AI media', async () => {
+  const calls: string[] = [];
+  const service = new AiMediaCaptureService(repository(calls, false), {
+    async resolve() {
+      calls.push('resolve');
+      return { source: 'AI_PRO', allowed: true, reason: 'AI_PRO_AVAILABLE', remainingPoints: 100, periodEndsAt: '2026-10-07T00:00:00.000Z', perRequestAiPointCap: 100 };
+    },
+  }, ledger(calls), provider(calls));
+
+  expect(await service.captureImage({ userId: 7, sourceId: 12, image, captureContext: null })).toEqual({
+    status: 'FAILED', reason: 'AI_MEDIA_DISABLED',
+  });
+  expect(calls).toEqual(['resolve', 'media-capability']);
 });
 
 it('reserves provider-cost hold, analyzes image, persists Record and settles actual image usage', async () => {
@@ -101,7 +117,7 @@ it('reserves provider-cost hold, analyzes image, persists Record and settles act
 
   expect(result).toMatchObject({ status: 'CREATED', entitlementSource: 'FREE_TRIAL', record: { id: 99, inputType: 'IMAGE' } });
   expect(calls).toEqual([
-    'resolve', 'runtime', 'estimate', 'reserve:hold', 'provider', 'create-record', 'commit:IMAGE_RECORD_CREATE:99:12',
+    'resolve', 'media-capability', 'runtime', 'estimate', 'reserve:hold', 'provider', 'create-record', 'commit:IMAGE_RECORD_CREATE:99:12',
   ]);
 });
 
@@ -116,5 +132,5 @@ it('fails closed on the AI Pro provider-cost cap before provider execution', asy
   expect(await service.captureImage({ userId: 7, sourceId: 12, image, captureContext: null })).toMatchObject({
     status: 'BLOCKED', decision: { reason: 'MONTHLY_PROVIDER_COST_CAP_REACHED' },
   });
-  expect(calls).toEqual(['runtime', 'estimate', 'reserve:hold']);
+  expect(calls).toEqual(['media-capability', 'runtime', 'estimate', 'reserve:hold']);
 });
