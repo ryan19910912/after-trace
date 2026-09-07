@@ -5,8 +5,9 @@ const extensionId = 'abcdefghijklmnopabcdefghijklmnop';
 const nonce = 'abcdefghijklmnop1234567890_-';
 
 describe('bounded login return', () => {
-  it('keeps existing fixed product return paths', () => {
+  it('keeps existing fixed product return paths including AI search', () => {
     expect(safeLoginReturn('/capture')).toBe('/capture');
+    expect(safeLoginReturn('/ai-search')).toBe('/ai-search');
     expect(safeLoginReturn('/tasks')).toBe('/tasks');
   });
 
