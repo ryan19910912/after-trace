@@ -15,11 +15,11 @@ Read first every substantive development run, in this exact order:
 
 Latest docs are the only product/development specification. Never use GitHub Actions unless explicitly requested. Every development commit contains `[skip ci]`.
 
-## Current checkpoint — 2026-09-07 target Web free Record UI + native GROUP invite UI authored; subscription Web boundary moved to durable user session; executable/schema/Dev verification still pending
+## Current checkpoint — 2026-09-07 capture-first PWA surface + provider-free browser speech input authored; PWA manifest/service worker/install icons added; executable/schema/Dev verification still pending
 
 AFTERTRACE remains **Web + PWA-first work memory**, with optional Chrome extension. LINE is retired/migration-only and must not drive new customer behavior.
 
-This run continued directly from the durable-session free manual Record API checkpoint. It did not broad-audit the repository, did not run/modify/trigger GitHub Actions, did not reset Dev data, and did not touch the unrelated local `apps/api/verify-admin-schema.mjs`.
+This run continued directly from the free Record/native GROUP Web checkpoint. It did not broad-audit the repository, did not run/modify/trigger GitHub Actions, did not reset Dev data, and did not touch the unrelated local `apps/api/verify-admin-schema.mjs`.
 
 ## Foundation retained
 
@@ -36,118 +36,96 @@ The accepted target foundation from prior runs remains:
 - `/api/v1/groups` supports list/create/invite/revoke/join through durable Web sessions;
 - target manual Record routes support content-only create, nullable event time, deterministic search/date filters, soft delete/restore, immutable revisions and optimistic versioning;
 - free/manual Web APIs are routed before legacy LINE/Gemini runtime construction;
-- subscription-plan AI hard-cap fields exist in target TypeScript schema.
+- subscription-plan AI hard-cap fields exist in target TypeScript schema;
+- primary Web UI uses content-only free Records and native GROUP names/roles rather than Entity/funding/LINE-group concepts;
+- subscription Web boundary resolves durable `userId` first and checkout remains fail-closed.
 
 Canonical generated `drizzle/0000` is still behind the target TypeScript schema. **Do not deploy or migrate this branch until executable validation and baseline regeneration are green.**
 
-## Target Web API contract — reset this run
+## Capture-first PWA — authored this run
 
-`apps/web/src/worklog-api.ts` was reduced from the retired Entity/funding/confirmation-centered client to the current Web/PWA contract.
+A dedicated `apps/web/src/CaptureRoot.tsx` now provides the intended installed-PWA landing experience at `/capture`.
 
-Current behavior:
+Behavior:
 
-- `WorklogRecord.occurredAt` is `string | null`;
-- revision previous/new event times are nullable;
-- API `null` stays `null` and is no longer converted to the literal string `"null"`;
-- GROUP surfaces use `sourceId`, native `name`, `OWNER | MEMBER` role and optional migration-only `legacyLineGroupId`;
-- manual create requires `rawText`; `occurredAt` is optional/null; title/Entity are only bounded legacy compatibility fields;
-- target client no longer exposes Entity listing/title-move, GROUP funding/responsible-user or pending LINE AI confirmation methods to the primary Worklog UI;
-- native GROUP methods now cover list/create/create-invite/revoke-invite/join;
-- raw invite token is returned only from invite creation response; normal group summaries contain no raw token.
+- microphone is the visually primary capture action;
+- microphone never auto-starts; explicit user click is required;
+- the current destination Source is always visible before capture/save;
+- eligible destinations are the user's PRIVATE Source plus authorized native AFTERTRACE GROUP Sources returned by the existing surfaces API;
+- last selected valid Source reuses the same `aftertrace.worklog.scope` preference as the full Web surface;
+- switching Source aborts any active speech capture so recognition cannot silently continue into a different destination;
+- browser/device speech-to-text writes final recognized text into the same manual text draft;
+- interim recognition text is shown separately and is never persisted as a Record by itself;
+- recognized text is editable before save;
+- optional event time uses the same nullable manual Record semantics as Web;
+- `確認記錄` calls the existing content-only manual Record API;
+- this free speech path never calls Gemini/provider AI and does not consume AFTERTRACE AI entitlement/accounting;
+- unsupported browser, denied microphone, missing audio device, no-speech and network failures all fall back explicitly to manual text entry;
+- no original microphone audio is persisted by AFTERTRACE;
+- full Record management remains available through `/`.
 
-The migration-era `lineLoginUrl()` and old entry-link exchange remain temporarily because provider-neutral login itself is not implemented yet. They are not target domain dependencies.
+The migration-era login adapter still uses LINE Login underneath, but `/capture` preserves its requested return path through the existing local return-key bridge so successful login comes back to the PWA capture surface. This is a temporary auth adapter only; the capture/domain API is not LINE-shaped.
 
-## Primary Worklog Web UI — reset this run
+## Browser speech adapter — authored this run
 
-`apps/web/src/WorklogRoot.tsx` now consumes the target free/manual Record model.
+New `apps/web/src/speech-input.ts` isolates the non-provider Web Speech API boundary.
 
-### Free Record UX
+It:
 
-- create/edit requires only Record content;
-- event time is explicitly optional and may be cleared;
-- a new manual Record no longer defaults event time to now;
-- empty event time sends `occurredAt: null`;
-- Record card displays `發生時間` only when an event time exists;
-- otherwise it displays `createdAt` as `記錄時間`, avoiding a fabricated business event time;
-- title is not a save gate and is shown only when metadata already exists;
-- deterministic filters are content query + from/to time;
-- delete/restore/history stay available;
-- title move, batch move, Entity selector/datalist, pending AI confirmations, personal Grant panel and GROUP AI responsible-user/funding UI were removed from the primary target surface.
+- detects both standard `SpeechRecognition` and `webkitSpeechRecognition` constructors;
+- configures `zh-TW`, interim results and short-form continuous capture;
+- separates final and interim transcript parts;
+- maps browser recognition failures to customer-readable manual-text fallback guidance;
+- exposes no AFTERTRACE provider call or AI accounting path.
 
-### Native GROUP UX
-
-A new `群組` tab now supports:
-
-- create AFTERTRACE group;
-- list current groups with native name and role;
-- open GROUP Record scope by `sourceId` only;
-- OWNER creates a one-use invite through the existing native GROUP API;
-- display/copy the raw share link only after creation;
-- revoke the currently displayed created invite;
-- paste an invite link/token and explicitly join;
-- `?invite=<token>` links are temporarily persisted client-side across the current login redirect, then consumed after authentication;
-- successful join switches to the joined GROUP Record scope.
-
-The raw invite token is deliberately not recoverable from database state. Current Web UX creates `maxUses = 1`; the backend service remains capable of bounded expiry/use-count configuration.
-
-Legacy LINE `?t=` group entry links remain migration-only and resolve only through `legacyLineGroupId`. Normal native GROUP UI does not depend on LINE ids.
-
-## Retired LINE customer UI removed/isolate further this run
-
-- `apps/web/src/main.tsx` no longer renders `LineOaFriendHint` on the main Web shell;
-- `HelpRoot.tsx` now documents Web/PWA manual Records, native GROUP invites and paid per-user AI direction instead of LINE bot commands/Reply/funding;
-- `FeedbackRoot.tsx` user-facing login/error copy now says AFTERTRACE rather than instructing users to use LINE;
-- `SubscriptionRoot.tsx` no longer advertises the retired FREE AI grant / GROUP funding model. It now states that FREE has no provider-backed AI, paid AI is per user, manual features stay free, and paid AI will be fair-use/hard-cap protected.
-
-The actual migration-era authentication adapter still uses LINE underneath until a provider-neutral login is implemented. The UI copy change does not claim that replacement auth already exists.
-
-## Subscription route identity boundary — improved this run
-
-`apps/api/src/worklog/subscription-routes.ts` no longer stores `session.lineUserId` as its request identity.
-
-Current flow:
-
-1. verify signed Web session;
-2. retain the full `WebSessionClaims` in request context;
-3. for DB-backed plan/checkout work, resolve AFTERTRACE user through `resolveWebSessionUserId()`;
-4. prefer durable signed `userId` and retain legacy LINE fallback only through the shared migration resolver;
-5. query subscription state by `worklog_users.id` rather than `line_user_id`.
-
-Checkout remains deliberately fail-closed (`CHECKOUT_ENABLED = false`). The plan query still returns legacy point/Grant compatibility fields because the paid runtime/accounting migration is not complete; the target Web page no longer presents those fields as the new product promise.
-
-## Tests authored/updated this run
-
-### Web contract
-
-New `apps/web/src/worklog-api.test.ts` covers:
-
-- nullable manual Record event time remains null;
-- nullable revision event times remain null;
-- native GROUP surface maps `name` / role without requiring a LINE group id;
-- content-only create sends explicit `occurredAt: null`;
-- invite creation returns the one-time raw invite token while invite metadata remains structured.
+New `apps/web/src/speech-input.test.ts` covers capability detection, standard/prefixed constructors, recognition configuration, result-index handling, final/interim separation and error-message mapping.
 
 Status: **AUTHORED / NOT RUN**.
 
-### Subscription boundary
+## PWA install shell — authored this run
 
-`apps/api/src/worklog/subscription-routes.test.ts` now issues a durable **userId-only** Web session for the disabled-checkout boundary. It verifies the route can accept the target session identity without requiring a LINE id before returning the intentional `CHECKOUT_NOT_ENABLED` fail-closed response.
+The Web package now includes a minimal installable PWA shell without introducing an offline Record cache.
 
-Status: **UPDATED / NOT RUN**.
+Files/behavior:
+
+- `apps/web/public/manifest.webmanifest` — `start_url = /capture`, standalone display, AFTERTRACE metadata;
+- `apps/web/public/aftertrace-icon-192.png` and `aftertrace-icon-512.png` — raster install icons;
+- `apps/web/public/aftertrace-icon.svg` — scalable fallback/favicon;
+- `apps/web/public/sw.js` — minimal install/activate service worker only;
+- `apps/web/index.html` — manifest/theme/mobile-app metadata and AFTERTRACE title;
+- `apps/web/src/main.tsx` — routes `/capture`, preserves login return to `/capture`, registers `/sw.js` only in production.
+
+The service worker intentionally does **not** cache authenticated Record/API responses. Offline durable Record behavior requires a later explicit product/security policy and is not silently introduced here.
+
+GitHub repository listing was used to confirm the PNG/SVG/manifest/service-worker files exist on the branch. This is repository-state confirmation only, **not runtime/installability verification**.
+
+## User guidance — updated this run
+
+`apps/web/src/HelpRoot.tsx` now explains:
+
+- installed PWA opens quick capture;
+- microphone requires an explicit tap;
+- browser speech-to-text is the free voice-input path;
+- free speech recognition does not invoke AFTERTRACE AI or consume AI allowance;
+- unsupported/denied speech cleanly falls back to text;
+- paid AI voice remains a separate future provider-backed capability.
 
 ## Commits in this run
 
 All commits contain `[skip ci]`:
 
-- `93f284d5` — align Web API with free Records and native groups;
-- `701759eb` — reset Worklog UI to free Records and native groups;
-- `57c140ea` — remove retired LINE hint from target Web shell;
-- `f1d666ab` — add nullable Record/native GROUP Web API tests;
-- `6ff0f68e` — replace LINE help with Web/PWA guidance;
-- `165222ff` — remove retired LINE copy from feedback login;
-- `635f614e` — align subscription page with paid per-user AI model;
-- `acded79f` — resolve subscription user from durable Web session;
-- `00bfea7b` — cover durable user session on subscription boundary;
+- `d1c57695` — add provider-free browser speech input adapter;
+- `f7349e01` — cover browser speech capability and transcript handling;
+- `f94684a7` — add capture-first PWA surface with free speech input;
+- `33f77fa7` — style capture-first PWA microphone experience;
+- `fb65f3f1` — route installed PWA to capture surface;
+- `2e735ee2` — add capture-first AFTERTRACE web app manifest;
+- `5b04ca2a` — add AFTERTRACE PWA app icon;
+- `b6bcf4f1` — add minimal non-caching PWA service worker;
+- `314ed73b` — wire PWA manifest metadata into Web shell;
+- `da8a0f5a` — document free PWA speech capture behavior;
+- `ddc412f7` — add raster PWA install icons;
+- `f4322c6d` — use install-safe raster PWA icons;
 - checkpoint doc commit follows this list.
 
 No GitHub Actions workflow was run, dispatched, rerun, enabled, modified, triggered, or used as validation.
@@ -156,31 +134,37 @@ No GitHub Actions workflow was run, dispatched, rerun, enabled, modified, trigge
 
 ### Authored / updated in this run
 
-- `apps/web/src/worklog-api.ts` — **UPDATED / NOT RUN**
-- `apps/web/src/WorklogRoot.tsx` — **UPDATED / NOT RUN**
-- `apps/web/src/worklog-api.test.ts` — **AUTHORED / NOT RUN**
+- `apps/web/src/speech-input.ts` — **AUTHORED / NOT RUN**
+- `apps/web/src/speech-input.test.ts` — **AUTHORED / NOT RUN**
+- `apps/web/src/CaptureRoot.tsx` — **AUTHORED / NOT RUN**
+- `apps/web/src/capture.css` — **AUTHORED / NOT RUN**
 - `apps/web/src/main.tsx` — **UPDATED / NOT RUN**
 - `apps/web/src/HelpRoot.tsx` — **UPDATED / NOT RUN**
-- `apps/web/src/FeedbackRoot.tsx` — **UPDATED / NOT RUN**
-- `apps/web/src/SubscriptionRoot.tsx` — **UPDATED / NOT RUN**
-- `apps/api/src/worklog/subscription-routes.ts` — **UPDATED / NOT RUN**
-- `apps/api/src/worklog/subscription-routes.test.ts` — **UPDATED / NOT RUN**
+- `apps/web/index.html` — **UPDATED / NOT RUN**
+- `apps/web/public/manifest.webmanifest` — **AUTHORED / NOT RUN**
+- `apps/web/public/sw.js` — **AUTHORED / NOT RUN**
+- PWA PNG/SVG icons — **AUTHORED / NOT RUN**
 
 ### Earlier target tests still awaiting execution
 
+- `apps/web/src/worklog-api.test.ts` — **AUTHORED / NOT RUN**
 - `apps/api/src/auth/token.test.ts` — **AUTHORED/UPDATED / NOT RUN**
 - `apps/api/src/worklog/native-groups.test.ts` — **AUTHORED/UPDATED / NOT RUN**
 - `apps/api/src/worklog/native-group-routes.test.ts` — **AUTHORED / NOT RUN**
 - `apps/api/src/worklog/manual-record-routes.test.ts` — **AUTHORED / NOT RUN**
 - `apps/api/src/worklog/records.test.ts` — **AUTHORED/UPDATED / NOT RUN**
+- `apps/api/src/worklog/subscription-routes.test.ts` — **UPDATED / NOT RUN**
 - `product-record-schema.test.ts` — **AUTHORED / NOT RUN**
 - `product-foundation-schema.test.ts` — **AUTHORED / NOT RUN**
 
 ### Executable validation
 
 - Web TypeScript typecheck — **NOT RUN**
-- Web Vitest including `worklog-api.test.ts` — **NOT RUN**
+- Web Vitest including `speech-input.test.ts` / `worklog-api.test.ts` — **NOT RUN**
 - Web production build — **NOT RUN**
+- browser Web Speech permission/capture smoke — **NOT RUN**
+- PWA manifest/install/standalone `/capture` smoke — **NOT RUN**
+- service-worker registration smoke — **NOT RUN**
 - API TypeScript typecheck — **NOT RUN**
 - focused auth/native-group/manual-record/subscription/schema tests — **NOT RUN**
 - full API Vitest — **NOT RUN**
@@ -191,61 +175,64 @@ No GitHub Actions workflow was run, dispatched, rerun, enabled, modified, trigge
 - Native GROUP + manual Record Dev HTTP E2E — **NOT RUN**
 - Web/PWA browser smoke — **NOT RUN**
 
-Reason: GitHub connector can read/write the repository, but no executable `after-trace` checkout is mounted in the runtime. A direct container `git ls-remote` attempt also failed DNS resolution for `github.com`. Therefore no compile/test/runtime success is inferred from source review.
+Reason: GitHub connector can read/write the repository, but no executable `after-trace` checkout is mounted in the runtime. A fresh `git ls-remote https://github.com/ryan19910912/after-trace.git` attempt in this run again failed DNS resolution for `github.com`. Therefore no compile/test/runtime success is inferred from source review.
 
 ## Known blockers / risks
 
-1. **Executable validation is the immediate blocker to deployment.** The newly rewritten Web client/React code and target API code have not been compiled or executed.
+1. **Executable validation is still the immediate deployment blocker.** New Web/PWA TypeScript, tests and browser behavior have not been compiled/executed.
 2. **Canonical Drizzle baseline is still behind target TypeScript schema.** No Dev migration/deploy until typecheck/tests and baseline regeneration are green.
-3. **Native GROUP invite SQL locking and manual Record SQL still need real PostgreSQL verification.**
-4. **Provider-neutral login itself remains unimplemented.** Session/domain APIs are userId-first, but the real login adapter is still migration-era LINE Login.
-5. **The invite UI has no durable invite-list endpoint.** OWNER can revoke the just-created invite while it is displayed; durable management/listing of older active invites is not implemented yet. Current MVP may remain single-use if validated, but do not claim complete invite administration yet.
-6. **Subscription route identity is userId-first, but paid entitlement/accounting is not.** Plan responses retain legacy Grant compatibility fields; provider-backed runtime still uses old Grant-era logic and target monthly resource/provider-cost hard caps are schema-only.
-7. **Some secondary legacy code/files remain present but unreferenced or migration-only**, including LINE OA hint implementation and old Worklog routes below the legacy runtime boundary. Remove only after dependency review.
-8. **PWA capture-first microphone/browser speech-to-text is not implemented yet.** Current target UI supports free manual text capture only.
-9. **Readiness/env requirements still contain migration-era LINE dependencies.** Free routes are isolated, but full application readiness has not been made LINE-independent yet.
-10. **Tasks/reminders/PWA Push, Related Records/summary/rewrite, paid AI capture/search and Chrome extension remain unimplemented.**
+3. **PWA installability still needs real browser verification.** Manifest, 192/512 PNG icons and service worker are present, but Chrome/Android/iOS install behavior has not been runtime-smoked.
+4. **Web Speech support is browser-dependent.** The free voice path intentionally falls back to text; do not promise universal speech recognition.
+5. **Browser Web Speech may use browser-vendor speech infrastructure.** Product wording must stay precise: it does not call AFTERTRACE provider AI or consume AFTERTRACE AI allowance; do not claim all recognition is necessarily on-device.
+6. **Native GROUP invite SQL locking/manual Record SQL still need real PostgreSQL verification.**
+7. **Provider-neutral login itself remains unimplemented.** Session/domain APIs are userId-first, but the real login adapter is still migration-era LINE Login.
+8. **The invite UI has no durable invite-list endpoint.** OWNER can revoke only the just-created invite while its id is retained in the current UI state.
+9. **Paid entitlement/accounting migration is incomplete.** Target hard-cap fields are schema-only; provider runtime still contains legacy Grant-era logic and checkout remains disabled.
+10. **Readiness/env requirements still contain migration-era LINE dependencies.** Free/manual routes are isolated, but full application readiness is not yet LINE-independent.
+11. **Tasks/reminders/PWA Push, Related Records/summary/rewrite, paid AI capture/search and Chrome extension remain unimplemented.**
 
 ## Exact next development order
 
 1. Re-read required docs and this checkpoint; do not broad-audit.
 2. If an executable checkout becomes available, stop adding speculative layers long enough to run and fix:
    - `pnpm --filter @aftertrace/web typecheck`;
-   - focused Web `worklog-api.test.ts` and Web build;
+   - Web Vitest focused on `speech-input.test.ts` and `worklog-api.test.ts`;
+   - Web production build;
    - API typecheck;
    - focused auth/native GROUP/manual Record/subscription/product-schema tests.
    Never mark them PASS without actual execution.
-3. If executable checkout is still unavailable, continue the next bounded source batch: **capture-first PWA/free voice input**:
-   - inspect only the existing Web entry/PWA manifest/service-worker surfaces needed for this feature;
-   - make microphone the primary PWA capture action without auto-starting it;
-   - implement best-effort browser/device speech-to-text as provider-free input where supported;
-   - fall back cleanly to manual text when unsupported/denied;
-   - never send this free speech-to-text path through Gemini/provider AI;
-   - reuse the same content-only manual Record API and optional event-time editor.
-4. Add focused Web tests around speech-input capability detection/state transitions where practical without browser-specific integration assumptions.
-5. Then finish Native GROUP Web polish needed for MVP, especially deciding whether an OWNER invite-list/revoke-old-invite endpoint is required before launch; do not expand roles beyond `OWNER | MEMBER` without a concrete need.
-6. After API/Web local green, regenerate canonical `drizzle/0000`, run baseline guard, then apply the idempotent forward migration to Dev while preserving existing durable data.
-7. Run Dev E2E:
+3. If executable checkout is still unavailable, continue the next bounded source batch: **durable native GROUP invite management polish**:
+   - add OWNER-only list endpoint for active/recent invite metadata without raw tokens;
+   - keep raw invite token one-time-only on creation;
+   - allow OWNER to revoke an older active invite from durable metadata;
+   - do not expose token hash or invent additional roles;
+   - add route/service tests as **AUTHORED / NOT RUN** unless executable validation becomes available;
+   - update Web GROUP UI to list/revoke durable invites without pretending raw tokens can be recovered.
+4. After API/Web local green, regenerate canonical `drizzle/0000`, run baseline guard, then apply the idempotent forward migration to Dev while preserving existing durable data.
+5. Run Dev E2E:
    - durable signed session -> surfaces;
    - create content-only PRIVATE Record with null event time -> list/search/edit -> set/clear time -> delete/restore -> revision history;
    - create native GROUP -> invite -> second authenticated user joins -> both can use manual GROUP Records -> revoke invite -> new join rejected while existing member retains access;
-   - verify target Web renders null event time as `記錄時間`, not invalid/fabricated event time.
-8. Once free core/native GROUP are runtime green, wire paid **per-user** AI entitlement with real subscription-period resource + Provider Cost TWD hard caps before enabling any paid provider call or checkout.
-9. Then build AI capture/enrichment/natural-language search, Related Records, range summary/rewrite, Tasks/PWA Push, Chrome extension, readiness LINE isolation and final legacy cleanup.
+   - verify `/capture` selects only authorized Sources and saves through manual Record API;
+   - verify target Web renders null event time as `記錄時間`, not invalid/fabricated event time;
+   - verify PWA install opens `/capture` and microphone never auto-starts;
+   - verify supported browser speech inserts editable text and unsupported/denied cases remain usable via manual text.
+6. Once free core/native GROUP/PWA are runtime green, wire paid **per-user** AI entitlement with real subscription-period resource + Provider Cost TWD hard caps before enabling any paid provider call or checkout.
+7. Then build AI capture/enrichment/natural-language search, Related Records, range summary/rewrite, Tasks/PWA Push, Chrome extension, readiness LINE isolation and final legacy cleanup.
 
 ## Remaining development estimate
 
-Current estimate: **about 48–88 focused development hours** remaining.
+Current estimate: **about 44–83 focused development hours** remaining.
 
 Approximate buckets:
 
-- executable validation, baseline/forward migration and free/native-GROUP Dev E2E: 6–12h;
-- capture-first PWA + provider-free browser/device speech-to-text + Web polish: 4–7h;
+- executable validation, PWA/browser smoke, baseline/forward migration and free/native-GROUP Dev E2E: 7–13h;
+- native GROUP invite management/Web polish: 2–4h;
 - provider-neutral login completion and migration isolation: 3–6h, dependent on the chosen login provider;
 - paid per-user AI entitlement/hard caps + capture/enrichment/search: 14–24h;
 - Related Records + range summary/rewrite: 6–10h;
 - Tasks/reminders + PWA Push/Cron: 6–11h;
-- Chrome extension: 5–9h;
-- readiness/release hardening/final LINE cleanup: 4–9h.
+- Chrome extension: 4–8h;
+- readiness/release hardening/final LINE cleanup: 2–7h.
 
-The range should be tightened after the first executable Web/API typecheck, regenerated baseline, forward Dev migration and target Dev E2E. Those remain the largest uncertainty around legacy compatibility cost.
+The range should be tightened after the first executable Web/API typecheck, PWA browser smoke, regenerated baseline, forward Dev migration and target Dev E2E. Those remain the largest uncertainty around legacy compatibility cost.
