@@ -29,8 +29,6 @@ export interface WorklogAiPointLedgerRepository {
     actorUserId: number;
     sourceId: number;
     requestedPoints: number;
-    /** When supplied, settlement may draw only from this entitlement-selected grant. */
-    grantId?: number | null;
     at: Date;
     expiresAt: Date;
   }): Promise<WorklogAiPointReservationSnapshot | null>;
@@ -77,8 +75,8 @@ export type AiPointReleaseResult =
  * Product/provider admission belongs in AiEntitlementService (or the entitled wrapper)
  * before this ledger is called. This class intentionally retains generic Grant mechanics,
  * including bounded platform-subsidy settlement when actual provider usage exceeds a hold.
- * Provider callers should pass the exact entitlement-selected grantId so FREE trial and
- * AI_PRO balances cannot be mixed merely because both have Source scopes.
+ * The entitlement layer is responsible for activating only the selected user-owned Grant
+ * scope for the requested Source before delegation reaches this ledger.
  */
 export class WorklogAiPointLedgerService {
   constructor(
@@ -91,7 +89,6 @@ export class WorklogAiPointLedgerService {
     actorUserId: number;
     sourceId?: number | null;
     requestedPoints: number;
-    grantId?: number | null;
     at?: Date;
     ttlMs?: number;
   }): Promise<AiPointReservationResult> {
@@ -99,7 +96,6 @@ export class WorklogAiPointLedgerService {
     const actorUserId = positiveInteger(input.actorUserId, 'actorUserId');
     const sourceId = positiveInteger(input.sourceId, 'sourceId');
     const requestedPoints = positiveInteger(input.requestedPoints, 'requestedPoints');
-    const grantId = input.grantId == null ? null : positiveInteger(input.grantId, 'grantId');
     const at = validDate(input.at ?? new Date(), 'at');
     const ttlMs = positiveInteger(input.ttlMs ?? 10 * 60_000, 'ttlMs');
 
@@ -110,7 +106,6 @@ export class WorklogAiPointLedgerService {
       actorUserId,
       sourceId,
       requestedPoints,
-      grantId,
       at,
       expiresAt: new Date(at.getTime() + ttlMs),
     });
