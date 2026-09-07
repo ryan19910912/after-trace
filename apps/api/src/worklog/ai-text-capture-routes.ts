@@ -9,6 +9,7 @@ import { DrizzleAiEntitlementRepository } from './drizzle-ai-entitlement';
 import { DrizzleAiTextCaptureRepository } from './drizzle-ai-text-capture';
 import { DrizzleWorklogAiPointLedgerRepository } from './drizzle-ai-point-ledger';
 import { DrizzleNotificationRepository } from './drizzle-notifications';
+import { EntitledAiPointLedgerService } from './entitled-ai-point-ledger';
 import { GeminiWorklogTextNormalizer } from './gemini-text-normalizer';
 import { NotificationService } from './notifications';
 import { notifySubscriptionEvent } from './system-notification-events';
@@ -98,10 +99,11 @@ export function createAiTextCaptureRoutes(dependencies: AiTextCaptureRouteDepend
 
     const database = c.get('database');
     const entitlement = new AiEntitlementService(entitlementRepositoryFactory(database));
+    const rawLedger = new WorklogAiPointLedgerService(ledgerRepositoryFactory(database));
     const service = new AiTextCaptureService(
       captureRepositoryFactory(database),
       entitlement,
-      new WorklogAiPointLedgerService(ledgerRepositoryFactory(database)),
+      new EntitledAiPointLedgerService(entitlement, rawLedger),
       providerFactory(c.env),
     );
 
@@ -153,8 +155,8 @@ async function notifyAiLimitSafely(
 
 function isDurableAiProLimit(reason: string): boolean {
   return reason === 'MONTHLY_POINT_CAP_REACHED'
-    || reason === 'MONTHLY_PROVIDER_COST_CAP_REACHED'
-    || reason === 'PROVIDER_COST_ACCOUNTING_INCOMPLETE';
+    || reason === 'MONTHLY_POINT_CAP_WOULD_BE_EXCEEDED'
+    || reason === 'MONTHLY_PROVIDER_COST_CAP_REACHED';
 }
 
 function bearerToken(header: string | undefined): string | null {
