@@ -20,6 +20,7 @@ export type AiProConfigSnapshot = {
   aiRelatedRecords: boolean;
   aiTimeRangeSummary: boolean;
   aiRecordRewrite: boolean;
+  aiTaskProposal: boolean;
   monthlyAiPointCap: number;
   monthlyProviderCostCapTwd: string;
   perRequestAiPointCap: number | null;
@@ -33,6 +34,7 @@ export type AiProConfigInput = {
   aiRelatedRecords?: boolean;
   aiTimeRangeSummary?: boolean;
   aiRecordRewrite?: boolean;
+  aiTaskProposal?: boolean;
   monthlyAiPointCap: number;
   monthlyProviderCostCapTwd: string;
   perRequestAiPointCap?: number | null;
@@ -68,9 +70,7 @@ export class CommercialConfigService {
       throw new Error('INVALID_AI_PRO_MONTHLY_POINT_CAP');
     }
     const providerCostCap = positiveDecimal(input.monthlyProviderCostCapTwd, 'INVALID_AI_PRO_PROVIDER_COST_CAP');
-    const perRequest = input.perRequestAiPointCap === undefined || input.perRequestAiPointCap === null
-      ? null
-      : input.perRequestAiPointCap;
+    const perRequest = input.perRequestAiPointCap === undefined || input.perRequestAiPointCap === null ? null : input.perRequestAiPointCap;
     if (perRequest !== null && (!Number.isSafeInteger(perRequest) || perRequest <= 0 || perRequest > input.monthlyAiPointCap)) {
       throw new Error('INVALID_AI_PRO_PER_REQUEST_CAP');
     }
@@ -81,6 +81,7 @@ export class CommercialConfigService {
       aiRelatedRecords: input.aiRelatedRecords !== false,
       aiTimeRangeSummary: input.aiTimeRangeSummary !== false,
       aiRecordRewrite: input.aiRecordRewrite !== false,
+      aiTaskProposal: input.aiTaskProposal !== false,
       monthlyAiPointCap: input.monthlyAiPointCap,
       monthlyProviderCostCapTwd: providerCostCap,
       perRequestAiPointCap: perRequest,
