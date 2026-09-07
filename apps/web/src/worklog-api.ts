@@ -195,9 +195,16 @@ export class WorklogApi {
     return `${this.baseUrl.replace(/\/$/, '')}${path}`;
   }
 
-  /** Migration-era authentication entry. Target auth will replace this without changing Web domain APIs. */
+  /**
+   * Compatibility helper used by existing unauthenticated Web/PWA cards.
+   * Customer login now enters a provider-neutral chooser rather than silently preferring LINE.
+   */
   lineLoginUrl() {
-    return this.base('/api/v1/auth/line/start');
+    return '/login';
+  }
+
+  providerLoginUrl(provider: 'google' | 'line') {
+    return this.base(`/api/v1/auth/${provider}/start`);
   }
 
   async exchangeEntry(token: string) {
