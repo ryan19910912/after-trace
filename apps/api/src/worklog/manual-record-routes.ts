@@ -3,8 +3,9 @@ import { allowedProductClientOrigin } from '../auth/product-client-origin';
 import { resolveWebSessionUserId } from '../auth/session-user';
 import { verifyWebSessionToken, type WebSessionClaims } from '../auth/token';
 import { createDatabase, type Database } from '../db/client';
-import type { WorklogPwaSurfaces } from './records';
 import { DrizzleManualRecordRouteRepository } from './drizzle-manual-record-routes';
+import { parseRecordCaptureContext, type RecordCaptureContext } from './record-capture-context';
+import type { WorklogPwaSurfaces } from './records';
 
 export type ManualRecordRoutesBindings = {
   DATABASE_URL: string;
@@ -21,6 +22,7 @@ export type ManualRecordView = {
   authorDisplayName: string | null;
   inputType: 'TEXT' | 'AUDIO' | 'IMAGE' | 'FILE';
   rawText: string;
+  captureContext: RecordCaptureContext | null;
   occurredAt: string | null;
   status: 'ACTIVE' | 'DELETED';
   version: number;
@@ -82,6 +84,7 @@ export interface ManualRecordRouteRepository {
     sourceId: number;
     actorUserId: number;
     rawText: string;
+    captureContext: RecordCaptureContext | null;
     occurredAt: Date | null;
     title: string | null;
     entityId: number | null;
@@ -193,6 +196,9 @@ export function createManualRecordRoutes(dependencies: ManualRecordRouteDependen
 
     const body = await objectBody(c);
     if (!body) return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
+    if (Object.hasOwn(body, 'captureContext')) {
+      return c.json({ ok: false, error: 'CAPTURE_CONTEXT_IMMUTABLE' }, 400);
+    }
     const expectedVersion = positiveInteger(body.expectedVersion);
     if (!expectedVersion) return c.json({ ok: false, error: 'EXPECTED_VERSION_REQUIRED' }, 400);
     if (expectedVersion !== current.version) return c.json({ ok: false, error: 'RECORD_VERSION_CONFLICT' }, 409);
@@ -266,6 +272,8 @@ async function createScopedRecord(c: ManualRecordContext, scope: 'PERSONAL' | 'G
   if (!rawText) return c.json({ ok: false, error: 'RECORD_TEXT_REQUIRED' }, 400);
   const occurredAt = optionalDate(body.occurredAt);
   if (occurredAt === 'INVALID') return c.json({ ok: false, error: 'INVALID_OCCURRED_AT' }, 400);
+  const captureContext = parseRecordCaptureContext(body.captureContext, c.req.header('origin'));
+  if (captureContext === 'INVALID') return c.json({ ok: false, error: 'INVALID_CAPTURE_CONTEXT' }, 400);
   const explicitTitle = optionalText(body.title, 255);
   if (explicitTitle === 'INVALID') return c.json({ ok: false, error: 'INVALID_TITLE' }, 400);
   const entityId = optionalPositiveInteger(body.entityId);
@@ -280,6 +288,7 @@ async function createScopedRecord(c: ManualRecordContext, scope: 'PERSONAL' | 'G
     sourceId: sourceId.value,
     actorUserId: userId,
     rawText,
+    captureContext,
     occurredAt,
     title,
     entityId,
