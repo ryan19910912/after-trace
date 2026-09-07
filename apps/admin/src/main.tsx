@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { AdminApi } from './api';
 import { AdminAnnouncementApi } from './announcement-api';
 import { AdminAnnouncementsPage } from './AdminAnnouncementsPage';
+import { AdminCommercialPage } from './AdminCommercialPage';
+import { AdminCommercialApi } from './commercial-api';
 import { App } from './App';
 import { PricingCalculatorPage } from './PricingCalculatorPage';
 import { ProfitabilityPage } from './ProfitabilityPage';
@@ -28,13 +30,16 @@ if (!baseUrl) {
 } else {
   const api = new AdminApi(baseUrl);
   const announcementApi = new AdminAnnouncementApi(baseUrl);
+  const commercialApi = new AdminCommercialApi(baseUrl);
   const page = window.location.pathname === '/profitability'
     ? <ProfitabilityPage api={api} />
     : window.location.pathname === '/pricing-calculator'
       ? <PricingCalculatorPage api={api} />
       : window.location.pathname === '/announcements'
         ? <AdminAnnouncementsPage api={api} announcementApi={announcementApi} />
-        : <App api={api} />;
+        : window.location.pathname === '/commercial'
+          ? <AdminCommercialPage api={commercialApi} />
+          : <App api={api} />;
 
   root.render(
     <StrictMode>
