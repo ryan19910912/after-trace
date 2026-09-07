@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "AFTERTRACE",
+  "version": "0.1.0",
+  "description": "快速留下工作發生過的事，需要時找得到。",
+  "permissions": ["activeTab", "contextMenus", "storage"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "AFTERTRACE 快速紀錄",
+    "default_popup": "popup.html"
+  }
+}
