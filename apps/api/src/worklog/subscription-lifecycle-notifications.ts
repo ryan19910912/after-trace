@@ -11,11 +11,18 @@ export class SubscriptionLifecycleNotificationAdapter implements SubscriptionLif
     this.service = new NotificationService(new DrizzleNotificationRepository(database));
   }
 
-  activated(input: { userId: number; subscriptionId: number; planCode: 'AI_PRO'; periodEnd: Date | null }) {
+  activated(input: {
+    userId: number;
+    subscriptionId: number;
+    planCode: 'AI_PRO';
+    periodStart: Date;
+    periodEnd: Date | null;
+  }) {
     return notifySubscriptionEvent(this.service, input.userId, {
       type: 'ACTIVATED',
       subscriptionId: input.subscriptionId,
       planCode: input.planCode,
+      periodStart: input.periodStart,
       periodEnd: input.periodEnd,
     });
   }
