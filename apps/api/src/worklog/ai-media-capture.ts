@@ -18,6 +18,7 @@ export type AiMediaCaptureRecord = {
 };
 
 export type AiMediaCaptureRepository = {
+  mediaEnabled(): Promise<boolean>;
   runtimeConfig(): Promise<WorklogAiRuntimeConfigSnapshot | null>;
   createImageRecord(input: {
     userId: number;
@@ -49,9 +50,9 @@ export type AiMediaCaptureResult =
  * Provider-neutral screenshot/image capture for Web/PWA/Chrome.
  *
  * The caller provides an already bounded inline image. Source authorization and entitlement
- * are resolved before reservation/provider work. The original image is intentionally not
- * persisted by this V1 service; only provider-derived durable Record text plus bounded
- * provenance metadata is stored.
+ * are resolved before capability/config/reservation/provider work. The original image is
+ * intentionally not persisted by this V1 service; only provider-derived durable Record text
+ * plus bounded provenance metadata is stored.
  */
 export class AiMediaCaptureService {
   constructor(
@@ -77,6 +78,9 @@ export class AiMediaCaptureService {
     const preliminary = await this.entitlement.resolve(userId, sourceId, referenceAt);
     if (!preliminary.allowed || preliminary.source === 'BLOCKED') {
       return { status: 'BLOCKED', decision: preliminary };
+    }
+    if (!(await this.repository.mediaEnabled())) {
+      return { status: 'FAILED', reason: 'AI_MEDIA_DISABLED' };
     }
 
     const config = await this.repository.runtimeConfig();
@@ -193,7 +197,7 @@ function usageFromProvider(
 }
 
 function blockedDecision(
-  preliminary: Exclude<AiEntitlementDecision, { source: 'BLOCKED'; allowed: false }> | AiEntitlementDecision,
+  preliminary: AiEntitlementDecision,
   reservationStatus: string,
   entitlementReservationReason: string | null,
 ): AiEntitlementDecision {
