@@ -30,7 +30,7 @@ export type WorklogAiEligibleBalance = {
 };
 
 export interface WorklogAiGrantRepository {
-  getFreePlanGrantPoints(): Promise<number | null>;
+  getFreeInitialTrialPoints(): Promise<number | null>;
 
   ensureGrant(input: {
     ownerUserId: number;
@@ -61,10 +61,9 @@ export class WorklogAiGrantService {
   constructor(private readonly repository: WorklogAiGrantRepository) {}
 
   /**
-   * Idempotently provisions the current Admin-configured FREE one-time grant and PRIVATE scope.
-   * The amount is read from the durable FREE plan template when the user first receives the
-   * grant. Later Admin changes affect only users who have not received FREE_INITIAL yet;
-   * existing grants remain immutable historical facts.
+   * Idempotently provisions the current Admin-configured FREE one-time trial and PRIVATE scope.
+   * The quantity is snapshotted into the durable FREE_INITIAL grant when first issued. Later
+   * Admin config changes affect only accounts that have not yet received this origin key.
    */
   async ensureInitialFreeGrant(input: {
     userId: number;
@@ -74,9 +73,9 @@ export class WorklogAiGrantService {
     const userId = positiveInteger(input.userId, 'userId');
     const privateSourceId = positiveInteger(input.privateSourceId, 'privateSourceId');
     const at = validDate(input.at ?? new Date(), 'at');
-    const freePoints = await this.repository.getFreePlanGrantPoints();
-    if (freePoints === null) throw new Error('FREE_PLAN_NOT_INITIALIZED');
-    if (!Number.isSafeInteger(freePoints) || freePoints < 0) throw new Error('FREE_PLAN_GRANT_POINTS_INVALID');
+    const freePoints = await this.repository.getFreeInitialTrialPoints();
+    if (freePoints === null) throw new Error('FREE_AI_TRIAL_CONFIG_NOT_INITIALIZED');
+    if (!Number.isSafeInteger(freePoints) || freePoints < 0) throw new Error('FREE_AI_TRIAL_POINTS_INVALID');
 
     const grant = await this.repository.ensureGrant({
       ownerUserId: userId,
@@ -85,7 +84,10 @@ export class WorklogAiGrantService {
       effectiveAt: at,
       expiresAt: null,
       originKey: FREE_INITIAL_GRANT_ORIGIN_KEY,
-      metadata: { planCode: 'FREE', configuredGrantPoints: freePoints },
+      metadata: {
+        commercialConfigKey: 'free_initial_ai_trial_points',
+        configuredTrialPoints: freePoints,
+      },
     });
     await this.repository.ensureScope({
       grantId: grant.id,
