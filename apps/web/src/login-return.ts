@@ -1,4 +1,4 @@
-const FIXED_RETURN_PATHS = new Set(['/capture', '/ai-search', '/subscription', '/feedback', '/tasks']);
+const FIXED_RETURN_PATHS = new Set(['/capture', '/ai-search', '/ai-tools', '/subscription', '/feedback', '/tasks']);
 const EXTENSION_ID = /^[a-p]{32}$/;
 const CONNECT_NONCE = /^[A-Za-z0-9_-]{16,128}$/;
 
