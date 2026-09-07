@@ -1,4 +1,9 @@
-import { AppleLoginError, type AppleUserSnapshot } from './apple-login';
+import { AppleLoginError } from './apple-login';
+
+export type AppleUserSnapshot = {
+  emailSnapshot: string | null;
+  displayNameSnapshot: string | null;
+};
 
 /**
  * Apple only sends the optional `user` form field on the first authorization grant.
