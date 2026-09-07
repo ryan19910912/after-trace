@@ -12,6 +12,12 @@ preview_urls = false
 # Manual deployment scripts always pass the exact --name target so Dev and Prod
 # map to after-trace-api-dev / after-trace-api-prod respectively.
 
+# One shared notification/reminder scheduler for the whole API Worker. It scans bounded
+# scheduled ANNOUNCEMENTs, due TASK reminders, then pending PUSH recipients. Never create
+# one Cron Trigger per task/reminder.
+[triggers]
+crons = ["*/5 * * * *"]
+
 [observability]
 enabled = true
 
