@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { AuthenticatedAppChrome } from './AuthenticatedAppChrome';
 import { CaptureRoot } from './CaptureRoot';
 import { FeedbackRoot } from './FeedbackRoot';
 import { HelpRoot } from './HelpRoot';
@@ -37,7 +38,11 @@ function bootstrap() {
   else if (window.location.pathname === '/feedback') content = <FeedbackRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/help') content = <HelpRoot />;
   else content = <WorklogRoot apiBaseUrl={apiBaseUrl} />;
-  ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode>{content}</React.StrictMode>);
+  ReactDOM.createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+      <AuthenticatedAppChrome apiBaseUrl={apiBaseUrl}>{content}</AuthenticatedAppChrome>
+    </React.StrictMode>,
+  );
 }
 
 function registerServiceWorker() {
