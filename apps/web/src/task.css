@@ -7,6 +7,10 @@
 .task-edit-panel {
   display: grid;
   gap: 16px;
+  padding: 16px;
+  border: 1px solid #292d34;
+  border-radius: 16px;
+  background: #17191d;
 }
 
 .task-section-head,
@@ -31,13 +35,13 @@
   display: grid;
   gap: 12px;
   padding: 16px;
-  border: 1px solid var(--line, #d7dce5);
+  border: 1px solid #292d34;
   border-radius: 14px;
-  background: var(--surface, #fff);
+  background: #17191d;
 }
 
 .task-card.focused {
-  outline: 2px solid currentColor;
+  outline: 2px solid #f2f4f7;
   outline-offset: 2px;
 }
 
@@ -59,9 +63,13 @@
   padding: 2px 8px;
   border-radius: 999px;
   border: 1px solid currentColor;
+  color: #cbd1da;
   font-size: 12px;
   font-weight: 700;
 }
+
+.task-status.completed { color: #b8dfc3; }
+.task-status.cancelled { color: #aeb4bf; }
 
 .task-times {
   display: grid;
@@ -76,7 +84,7 @@
 }
 
 .task-times dt {
-  color: var(--muted, #687386);
+  color: #8f96a1;
   font-size: 12px;
 }
 
