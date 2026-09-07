@@ -30,6 +30,7 @@ import { RecordNormalizationAiPointPort } from './worklog/record-normalization-a
 import { createWorklogRoutes } from './worklog/routes';
 import { runScheduledNotificationBatch } from './worklog/scheduled-notifications';
 import { createWorklogSubscriptionRoutes } from './worklog/subscription-routes';
+import { createTaskRoutes } from './worklog/task-routes';
 import { WorklogTextNormalizationService } from './worklog/text-normalization';
 
 type ExecutionContextLike = { waitUntil(promise: Promise<unknown>): void };
@@ -41,6 +42,7 @@ const adminProfitabilityRoutes = createAdminProfitabilityRoutes();
 const accountRoutes = createAccountRoutes();
 const nativeGroupRoutes = createNativeGroupRoutes();
 const notificationRoutes = createNotificationRoutes();
+const taskRoutes = createTaskRoutes();
 const manualRecordRoutes = createManualRecordRoutes();
 const worklogRoutes = createWorklogRoutes();
 const worklogConfirmationRoutes = createWorklogConfirmationRoutes();
@@ -156,9 +158,6 @@ export default {
   async fetch(request: Request, env: Bindings, executionContext: ExecutionContextLike) {
     const url = new URL(request.url);
 
-    // Liveness/readiness must remain reachable even when a runtime binding is missing.
-    // Readiness itself reports the exact configuration/schema/bootstrap blocker instead
-    // of letting eager DB/Gemini initialization turn a diagnosable 503 into Error 1101.
     if (url.pathname === '/health' || url.pathname === '/health/ready') {
       return app.fetch(request, env, executionContext as never);
     }
@@ -175,9 +174,7 @@ export default {
       const routedRequest = new Request(rewritten, request);
       const response = await withApiAnomalyBoundary('ADMIN_API', request, env, () =>
         adminNotificationRoutes.fetch(routedRequest, env as never, executionContext as never));
-      if (shouldKickPushAfterAdminAnnouncement(request, response)) {
-        schedulePushDelivery(env, executionContext);
-      }
+      if (shouldKickPushAfterAdminAnnouncement(request, response)) schedulePushDelivery(env, executionContext);
       return response;
     }
     if (
@@ -211,6 +208,13 @@ export default {
       return withApiAnomalyBoundary('WORKLOG_WEB_API', request, env, () =>
         notificationRoutes.fetch(routedRequest, env as never, executionContext as never));
     }
+    if (url.pathname === '/api/v1/tasks' || url.pathname.startsWith('/api/v1/tasks/')) {
+      const rewritten = new URL(request.url);
+      rewritten.pathname = url.pathname.slice('/api/v1/tasks'.length) || '/';
+      const routedRequest = new Request(rewritten, request);
+      return withApiAnomalyBoundary('WORKLOG_WEB_API', request, env, () =>
+        taskRoutes.fetch(routedRequest, env as never, executionContext as never));
+    }
     if (url.pathname === '/api/v1/subscription' || url.pathname.startsWith('/api/v1/subscription/')) {
       const rewritten = new URL(request.url);
       rewritten.pathname = url.pathname.slice('/api/v1/subscription'.length) || '/';
@@ -233,9 +237,6 @@ export default {
         manualRecordRoutes.fetch(routedRequest, env as never, executionContext as never));
     }
 
-    // Everything below this boundary is still migration-era Worklog/LINE runtime and may
-    // require provider/LINE bindings. Free manual Web/PWA routes above must not eagerly
-    // construct Gemini or LINE attachment clients.
     configureWorklogRuntime(env);
 
     if (url.pathname === '/api/v1/worklog/confirmations' || url.pathname.startsWith('/api/v1/worklog/confirmations/')) {
@@ -264,7 +265,7 @@ export default {
 
   async scheduled(_controller: unknown, env: Bindings, executionContext: ExecutionContextLike) {
     executionContext.waitUntil(
-      runScheduledNotificationBatch(env, { announcementLimit: 25, pushLimit: 50 }).then((result) => {
+      runScheduledNotificationBatch(env, { announcementLimit: 25, taskLimit: 50, pushLimit: 50 }).then((result) => {
         console.log(JSON.stringify({ event: 'worklog_notification_schedule_completed', ...result }));
       }).catch((error) => {
         console.error(JSON.stringify({
