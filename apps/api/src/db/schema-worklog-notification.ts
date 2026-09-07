@@ -5,6 +5,7 @@ import {
   boolean,
   check,
   index,
+  integer,
   jsonb,
   pgEnum,
   pgTable,
@@ -89,6 +90,10 @@ export const worklogNotifications = pgTable(
 /**
  * Durable per-user notification state. This is also the authoritative IN_APP notification
  * center row and carries idempotent push-delivery state for that recipient.
+ *
+ * push_attempt_count is a compare-and-set generation as well as an operator metric. A worker
+ * increments it only when claiming a PENDING recipient. Completion/reschedule operations must
+ * match that generation so a stale worker cannot overwrite a newer retry result.
  */
 export const worklogNotificationRecipients = pgTable(
   'worklog_notification_recipients',
@@ -102,7 +107,9 @@ export const worklogNotificationRecipients = pgTable(
       .references(() => worklogUsers.id, { onDelete: 'cascade' }),
     readAt: timestamp('read_at', { withTimezone: true }),
     pushStatus: worklogNotificationDeliveryStatusEnum('push_status').default('PENDING').notNull(),
+    pushAttemptCount: integer('push_attempt_count').default(0).notNull(),
     pushAttemptedAt: timestamp('push_attempted_at', { withTimezone: true }),
+    pushNextAttemptAt: timestamp('push_next_attempt_at', { withTimezone: true }),
     pushSentAt: timestamp('push_sent_at', { withTimezone: true }),
     pushFailureCode: varchar('push_failure_code', { length: 128 }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -111,7 +118,8 @@ export const worklogNotificationRecipients = pgTable(
   (table) => [
     uniqueIndex('worklog_notification_recipient_uq').on(table.notificationId, table.userId),
     index('worklog_notification_recipient_user_read_idx').on(table.userId, table.readAt, table.createdAt),
-    index('worklog_notification_recipient_push_idx').on(table.pushStatus, table.pushAttemptedAt),
+    index('worklog_notification_recipient_push_idx').on(table.pushStatus, table.pushNextAttemptAt, table.pushAttemptedAt),
+    check('worklog_notification_recipient_push_attempt_count_ck', sql`${table.pushAttemptCount} >= 0`),
   ],
 );
 
