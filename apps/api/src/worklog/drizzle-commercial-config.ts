@@ -56,15 +56,9 @@ export class DrizzleCommercialConfigRepository implements CommercialConfigReposi
         INSERT INTO worklog_audit_logs (
           actor_admin, action, target_type, target_id, before_value, after_value, created_at
         )
-        SELECT ${actor},
-               'FREE_AI_TRIAL_CONFIG_UPDATED',
-               'COMMERCIAL_CONFIG',
-               'free_initial_ai_trial_points',
-               ${JSON.stringify(before)}::jsonb,
-               to_jsonb(changed),
-               NOW()
-        FROM changed
-        RETURNING id
+        SELECT ${actor}, 'FREE_AI_TRIAL_CONFIG_UPDATED', 'COMMERCIAL_CONFIG', 'free_initial_ai_trial_points',
+               ${JSON.stringify(before)}::jsonb, to_jsonb(changed), NOW()
+        FROM changed RETURNING id
       )
       SELECT changed.id FROM changed WHERE EXISTS (SELECT 1 FROM audit)
     `);
@@ -81,8 +75,7 @@ export class DrizzleCommercialConfigRepository implements CommercialConfigReposi
              monthly_provider_cost_cap_twd::text AS monthly_provider_cost_cap_twd,
              per_request_ai_point_cap, updated_at
       FROM worklog_subscription_plans
-      WHERE code = 'AI_PRO'
-        AND plan_type = 'SUBSCRIPTION'
+      WHERE code = 'AI_PRO' AND plan_type = 'SUBSCRIPTION'
       LIMIT 1
     `);
     const row = result.rows[0] as AiProRow | undefined;
@@ -108,14 +101,13 @@ export class DrizzleCommercialConfigRepository implements CommercialConfigReposi
             'aiNaturalSearch', ${input.aiNaturalSearch !== false},
             'aiRelatedRecords', ${input.aiRelatedRecords !== false},
             'aiTimeRangeSummary', ${input.aiTimeRangeSummary !== false},
-            'aiRecordRewrite', ${input.aiRecordRewrite !== false}
+            'aiRecordRewrite', ${input.aiRecordRewrite !== false},
+            'aiTaskProposal', ${input.aiTaskProposal !== false}
           ),
           NOW(), NOW()
         )
         ON CONFLICT (code) DO UPDATE
-        SET plan_type = 'SUBSCRIPTION',
-            display_name = 'AI Pro',
-            price_twd = 99,
+        SET plan_type = 'SUBSCRIPTION', display_name = 'AI Pro', price_twd = 99,
             enabled = EXCLUDED.enabled,
             grant_points = EXCLUDED.grant_points,
             ai_enabled = TRUE,
@@ -127,26 +119,19 @@ export class DrizzleCommercialConfigRepository implements CommercialConfigReposi
                 jsonb_set(
                   jsonb_set(
                     jsonb_set(
-                      COALESCE(worklog_subscription_plans.capabilities, '{}'::jsonb),
-                      '{aiMediaIngestion}',
-                      to_jsonb(${input.aiMediaIngestion !== false}::boolean),
-                      TRUE
+                      jsonb_set(
+                        COALESCE(worklog_subscription_plans.capabilities, '{}'::jsonb),
+                        '{aiMediaIngestion}', to_jsonb(${input.aiMediaIngestion !== false}::boolean), TRUE
+                      ),
+                      '{aiNaturalSearch}', to_jsonb(${input.aiNaturalSearch !== false}::boolean), TRUE
                     ),
-                    '{aiNaturalSearch}',
-                    to_jsonb(${input.aiNaturalSearch !== false}::boolean),
-                    TRUE
+                    '{aiRelatedRecords}', to_jsonb(${input.aiRelatedRecords !== false}::boolean), TRUE
                   ),
-                  '{aiRelatedRecords}',
-                  to_jsonb(${input.aiRelatedRecords !== false}::boolean),
-                  TRUE
+                  '{aiTimeRangeSummary}', to_jsonb(${input.aiTimeRangeSummary !== false}::boolean), TRUE
                 ),
-                '{aiTimeRangeSummary}',
-                to_jsonb(${input.aiTimeRangeSummary !== false}::boolean),
-                TRUE
+                '{aiRecordRewrite}', to_jsonb(${input.aiRecordRewrite !== false}::boolean), TRUE
               ),
-              '{aiRecordRewrite}',
-              to_jsonb(${input.aiRecordRewrite !== false}::boolean),
-              TRUE
+              '{aiTaskProposal}', to_jsonb(${input.aiTaskProposal !== false}::boolean), TRUE
             ),
             updated_at = NOW()
         RETURNING *
@@ -156,8 +141,7 @@ export class DrizzleCommercialConfigRepository implements CommercialConfigReposi
         )
         SELECT ${actor}, 'AI_PRO_CONFIG_UPDATED', 'PLAN', 'AI_PRO',
                ${JSON.stringify(before)}::jsonb, to_jsonb(changed), NOW()
-        FROM changed
-        RETURNING id
+        FROM changed RETURNING id
       )
       SELECT changed.code FROM changed WHERE EXISTS (SELECT 1 FROM audit)
     `);
@@ -170,34 +154,23 @@ export class DrizzleCommercialConfigRepository implements CommercialConfigReposi
 
 function configSelect() {
   return sql`
-    SELECT
-      config.free_initial_ai_trial_points,
-      config.updated_by,
-      config.updated_at,
+    SELECT config.free_initial_ai_trial_points, config.updated_by, config.updated_at,
       COUNT(ai_grant.id)::bigint AS recipients,
-      COUNT(ai_grant.id) FILTER (
-        WHERE ai_grant.status = 'EXHAUSTED' OR ai_grant.remaining_points = 0
-      )::bigint AS exhausted_recipients,
+      COUNT(ai_grant.id) FILTER (WHERE ai_grant.status = 'EXHAUSTED' OR ai_grant.remaining_points = 0)::bigint AS exhausted_recipients,
       COALESCE(SUM(ai_grant.original_points), 0)::bigint AS issued_points,
       COALESCE(SUM(ai_grant.remaining_points), 0)::bigint AS remaining_points
     FROM worklog_commercial_config AS config
-    LEFT JOIN worklog_ai_grants AS ai_grant
-      ON ai_grant.type = 'FREE_INITIAL'
+    LEFT JOIN worklog_ai_grants AS ai_grant ON ai_grant.type = 'FREE_INITIAL'
     GROUP BY config.id
   `;
 }
 
 function mapConfig(row: ConfigRow): FreeAiTrialConfigSnapshot {
-  const issuedPoints = integer(row.issued_points);
-  const remainingPoints = integer(row.remaining_points);
+  const issuedPoints = integer(row.issued_points); const remainingPoints = integer(row.remaining_points);
   return {
-    freeInitialAiTrialPoints: integer(row.free_initial_ai_trial_points),
-    updatedBy: row.updated_by,
-    updatedAt: new Date(row.updated_at).toISOString(),
-    recipients: integer(row.recipients),
-    exhaustedRecipients: integer(row.exhausted_recipients),
-    issuedPoints,
-    remainingPoints,
+    freeInitialAiTrialPoints: integer(row.free_initial_ai_trial_points), updatedBy: row.updated_by,
+    updatedAt: new Date(row.updated_at).toISOString(), recipients: integer(row.recipients),
+    exhaustedRecipients: integer(row.exhausted_recipients), issuedPoints, remainingPoints,
     consumedPoints: Math.max(0, issuedPoints - remainingPoints),
   };
 }
@@ -206,16 +179,13 @@ function mapAiPro(row: AiProRow): AiProConfigSnapshot {
   if (row.code !== 'AI_PRO' || Number(row.price_twd) !== 99) throw new Error('INVALID_AI_PRO_COMMERCIAL_SHAPE');
   const capabilities = plainObject(row.capabilities);
   return {
-    code: 'AI_PRO',
-    displayName: row.display_name,
-    priceTwd: '99.00',
-    enabled: Boolean(row.enabled),
-    aiEnabled: Boolean(row.ai_enabled),
+    code: 'AI_PRO', displayName: row.display_name, priceTwd: '99.00', enabled: Boolean(row.enabled), aiEnabled: Boolean(row.ai_enabled),
     aiMediaIngestion: capabilities.aiMediaIngestion !== false,
     aiNaturalSearch: capabilities.aiNaturalSearch !== false,
     aiRelatedRecords: capabilities.aiRelatedRecords !== false,
     aiTimeRangeSummary: capabilities.aiTimeRangeSummary !== false,
     aiRecordRewrite: capabilities.aiRecordRewrite !== false,
+    aiTaskProposal: capabilities.aiTaskProposal !== false,
     monthlyAiPointCap: positiveInteger(row.monthly_ai_point_cap),
     monthlyProviderCostCapTwd: positiveDecimal(row.monthly_provider_cost_cap_twd),
     perRequestAiPointCap: row.per_request_ai_point_cap === null ? null : positiveInteger(row.per_request_ai_point_cap),
@@ -223,21 +193,7 @@ function mapAiPro(row: AiProRow): AiProConfigSnapshot {
   };
 }
 
-function plainObject(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-function integer(value: string | number): number {
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error('INVALID_COMMERCIAL_CONFIG_VALUE');
-  return parsed;
-}
-function positiveInteger(value: string | number): number {
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error('INVALID_AI_PRO_CONFIG_VALUE');
-  return parsed;
-}
-function positiveDecimal(value: string | number): string {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) throw new Error('INVALID_AI_PRO_CONFIG_VALUE');
-  return String(value);
-}
+function plainObject(value: unknown): Record<string, unknown> { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
+function integer(value: string | number) { const parsed=Number(value); if(!Number.isSafeInteger(parsed)||parsed<0) throw new Error('INVALID_COMMERCIAL_CONFIG_VALUE'); return parsed; }
+function positiveInteger(value: string | number) { const parsed=Number(value); if(!Number.isSafeInteger(parsed)||parsed<=0) throw new Error('INVALID_AI_PRO_CONFIG_VALUE'); return parsed; }
+function positiveDecimal(value: string | number) { const parsed=Number(value); if(!Number.isFinite(parsed)||parsed<=0) throw new Error('INVALID_AI_PRO_CONFIG_VALUE'); return String(value); }
