@@ -27,6 +27,7 @@ class FakeRepository implements CommercialConfigRepository {
     aiEnabled: true,
     aiMediaIngestion: true,
     aiNaturalSearch: true,
+    aiRelatedRecords: true,
     monthlyAiPointCap: 1000,
     monthlyProviderCostCapTwd: '30',
     perRequestAiPointCap: 200,
@@ -73,6 +74,7 @@ describe('CommercialConfigService', () => {
       enabled: true,
       aiMediaIngestion: false,
       aiNaturalSearch: false,
+      aiRelatedRecords: false,
       monthlyAiPointCap: 2000,
       monthlyProviderCostCapTwd: '30',
       perRequestAiPointCap: 250,
@@ -84,6 +86,7 @@ describe('CommercialConfigService', () => {
         enabled: true,
         aiMediaIngestion: false,
         aiNaturalSearch: false,
+        aiRelatedRecords: false,
         monthlyAiPointCap: 2000,
         monthlyProviderCostCapTwd: '30',
         perRequestAiPointCap: 250,
@@ -102,6 +105,7 @@ describe('CommercialConfigService', () => {
     expect(repository.savedAiPro?.input).toMatchObject({
       aiMediaIngestion: true,
       aiNaturalSearch: true,
+      aiRelatedRecords: true,
     });
   });
 
