@@ -79,16 +79,25 @@ export class DrizzleAiTextCaptureRepository implements AiTextCaptureRepository {
                 title,
                 search_terms,
                 occurred_at,
-                created_at,
-                (SELECT workspace_id::text FROM worklog_sources WHERE id = worklog_records.source_id) AS workspace_id
+                created_at
     `);
     const row = result.rows[0] as Record<string, unknown> | undefined;
     if (!row) throw new Error('AI_RECORD_CREATE_FAILED');
-    const recordId = positiveInteger(row.id, 'record id');
+
+    const workspaceResult = await this.db.execute(sql`
+      SELECT workspace_id::text AS workspace_id
+      FROM worklog_sources
+      WHERE id = ${input.sourceId}
+      LIMIT 1
+    `);
+    const workspaceId = optionalPositiveInteger(
+      (workspaceResult.rows[0] as { workspace_id?: unknown } | undefined)?.workspace_id,
+    );
+
     return {
-      workspaceId: optionalPositiveInteger(row.workspace_id),
+      workspaceId,
       record: {
-        id: recordId,
+        id: positiveInteger(row.id, 'record id'),
         sourceId: positiveInteger(row.source_id, 'source id'),
         authorUserId: positiveInteger(row.author_user_id, 'author user id'),
         rawText: requiredText(row.raw_text, 'raw text'),
