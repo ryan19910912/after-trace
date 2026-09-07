@@ -21,6 +21,26 @@ export type NotificationCenter = {
   unreadCount: number;
 };
 
+export type PushPreferences = {
+  announcementPushEnabled: boolean;
+  systemPushEnabled: boolean;
+  taskPushEnabled: boolean;
+};
+
+export type PushState = {
+  serverPushEnabled: boolean;
+  publicKey: string | null;
+  activeSubscriptionCount: number;
+  preferences: PushPreferences;
+};
+
+export type PushSubscriptionRegistration = {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+  userAgent?: string | null;
+  platform?: string | null;
+};
+
 type ApiErrorBody = { error?: string };
 
 export class AccountNotificationApi {
@@ -62,6 +82,50 @@ export class AccountNotificationApi {
     return Number.isSafeInteger(count) && count >= 0 ? count : 0;
   }
 
+  async pushState(sessionToken: string): Promise<PushState> {
+    const body = await requestJson<unknown>(
+      this.request(sessionToken, '/api/v1/notifications/push'),
+      '通知設定載入失敗',
+    );
+    return pushStateFromApi(body);
+  }
+
+  async registerPushSubscription(sessionToken: string, input: PushSubscriptionRegistration): Promise<PushState> {
+    const body = await requestJson<unknown>(
+      this.request(sessionToken, '/api/v1/notifications/push/subscription', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      }),
+      '推播啟用失敗',
+    );
+    return pushStateFromApi(body);
+  }
+
+  async revokePushSubscription(sessionToken: string, endpoint: string): Promise<PushState> {
+    const body = await requestJson<unknown>(
+      this.request(sessionToken, '/api/v1/notifications/push/subscription', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ endpoint }),
+      }),
+      '推播停用失敗',
+    );
+    return pushStateFromApi(body);
+  }
+
+  async updatePushPreferences(sessionToken: string, patch: Partial<PushPreferences>): Promise<PushPreferences> {
+    const body = await requestJson<{ preferences?: unknown }>(
+      this.request(sessionToken, '/api/v1/notifications/push/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      }),
+      '推播偏好更新失敗',
+    );
+    return pushPreferencesFromApi(body.preferences);
+  }
+
   private request(sessionToken: string, path: string, init?: RequestInit): Promise<Response> {
     const headers = new Headers(init?.headers);
     headers.set('Authorization', `Bearer ${sessionToken}`);
@@ -87,6 +151,37 @@ export function notificationCenterFromApi(raw: unknown): NotificationCenter {
     unreadCount: Number.isSafeInteger(unreadCount) && unreadCount >= 0
       ? unreadCount
       : items.filter((item) => !item.readAt).length,
+  };
+}
+
+export function pushStateFromApi(raw: unknown): PushState {
+  if (!raw || typeof raw !== 'object') throw new Error('INVALID_PUSH_RESPONSE');
+  const value = raw as Record<string, unknown>;
+  const activeSubscriptionCount = Number(value.activeSubscriptionCount);
+  return {
+    serverPushEnabled: value.serverPushEnabled === true,
+    publicKey: nullableString(value.publicKey),
+    activeSubscriptionCount: Number.isSafeInteger(activeSubscriptionCount) && activeSubscriptionCount >= 0
+      ? activeSubscriptionCount
+      : 0,
+    preferences: pushPreferencesFromApi(value.preferences),
+  };
+}
+
+export function pushPreferencesFromApi(raw: unknown): PushPreferences {
+  if (!raw || typeof raw !== 'object') throw new Error('INVALID_PUSH_RESPONSE');
+  const value = raw as Record<string, unknown>;
+  if (
+    typeof value.announcementPushEnabled !== 'boolean'
+    || typeof value.systemPushEnabled !== 'boolean'
+    || typeof value.taskPushEnabled !== 'boolean'
+  ) {
+    throw new Error('INVALID_PUSH_RESPONSE');
+  }
+  return {
+    announcementPushEnabled: value.announcementPushEnabled,
+    systemPushEnabled: value.systemPushEnabled,
+    taskPushEnabled: value.taskPushEnabled,
   };
 }
 
