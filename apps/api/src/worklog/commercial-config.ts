@@ -22,7 +22,7 @@ export class CommercialConfigService {
   }
 
   setFreeAiTrialPoints(points: number, actor: string): Promise<FreeAiTrialConfigSnapshot> {
-    if (!Number.isSafeInteger(points) || points < 0 || points > 2_000_000_000) {
+    if (!Number.isSafeInteger(points) || points <= 0 || points > 2_000_000_000) {
       throw new Error('INVALID_FREE_INITIAL_AI_TRIAL_POINTS');
     }
     const normalizedActor = actor.trim();
