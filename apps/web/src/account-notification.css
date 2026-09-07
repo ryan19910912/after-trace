@@ -77,9 +77,9 @@
   background: #17191d;
   text-align: left;
 }
-.account-id-copy span:first-child { color: #8f96a1; font-size: 10px; }
-.account-id-copy strong { color: #f7f7f7; font-size: 12px; letter-spacing: 0.04em; }
-.copy-feedback { color: #aeb4bf; font-size: 10px; }
+.account-id-copy span:first-child { flex: 0 0 auto; color: #8f96a1; font-size: 10px; }
+.account-id-copy strong { min-width: 0; color: #f7f7f7; font-size: 12px; letter-spacing: 0.04em; }
+.copy-feedback { flex: 0 0 auto; color: #aeb4bf; font-size: 10px; }
 
 .notification-center {
   position: absolute;
@@ -126,14 +126,16 @@ button.compact { padding: 6px 9px; border-radius: 8px; font-size: 11px; }
   .account-chrome-inner { padding: 8px 14px; }
   .account-chrome-actions { width: 100%; }
   .account-summary { flex: 1; justify-content: flex-end; min-width: 0; }
-  .account-display-name { max-width: 100px; }
-  .account-id-copy { gap: 5px; padding-inline: 8px; }
-  .account-id-copy span:first-child { display: none; }
-  .copy-feedback { display: none; }
+  .account-display-name { max-width: 92px; }
+  .account-id-copy { flex: 1; justify-content: flex-end; gap: 5px; max-width: 196px; padding-inline: 8px; }
+  .account-id-copy strong { max-width: 86px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .notification-center { position: fixed; top: 60px; right: 14px; left: 14px; width: auto; max-height: calc(100vh - 74px); }
 }
 
 @media (max-width: 420px) {
-  .account-display-name { max-width: 76px; }
-  .account-id-copy strong { max-width: 118px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .account-chrome-actions { gap: 7px; }
+  .account-display-name { max-width: 70px; }
+  .account-id-copy { max-width: 176px; padding-inline: 6px; }
+  .account-id-copy strong { max-width: 68px; }
+  .account-id-copy span:first-child, .copy-feedback { font-size: 9px; }
 }
