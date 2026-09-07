@@ -6,6 +6,21 @@ import type { WorklogAiRuntimeConfigSnapshot } from './text-normalization';
 export class DrizzleAiMediaCaptureRepository implements AiMediaCaptureRepository {
   constructor(private readonly db: Database) {}
 
+  async mediaEnabled(): Promise<boolean> {
+    const result = await this.db.execute(sql`
+      SELECT enabled,
+             ai_enabled,
+             COALESCE((capabilities ->> 'aiMediaIngestion')::boolean, TRUE) AS media_enabled
+      FROM worklog_subscription_plans
+      WHERE code = 'AI_PRO'
+        AND plan_type = 'SUBSCRIPTION'
+        AND price_twd = 99
+      LIMIT 1
+    `);
+    const row = result.rows[0] as { enabled?: boolean; ai_enabled?: boolean; media_enabled?: boolean } | undefined;
+    return Boolean(row?.enabled && row.ai_enabled && row.media_enabled);
+  }
+
   async runtimeConfig(): Promise<WorklogAiRuntimeConfigSnapshot | null> {
     const result = await this.db.execute(sql`
       SELECT provider,
