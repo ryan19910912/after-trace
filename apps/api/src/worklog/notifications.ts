@@ -109,7 +109,9 @@ export class NotificationService {
   }
 
   createSystemNotification(input: SystemNotificationInput): Promise<SystemNotificationResult> {
-    const eventKey = requiredText(input.eventKey, 255, 'INVALID_SYSTEM_EVENT_KEY');
+    // Persistence scopes the key as `user:<id>:<eventKey>` before writing into varchar(255).
+    // Keep the caller-controlled suffix bounded so a large numeric user id cannot overflow it.
+    const eventKey = requiredText(input.eventKey, 200, 'INVALID_SYSTEM_EVENT_KEY');
     const title = requiredText(input.title, 255, 'INVALID_NOTIFICATION_TITLE');
     const body = requiredText(input.body, 10_000, 'INVALID_NOTIFICATION_BODY');
     if (!Number.isSafeInteger(input.userId) || input.userId <= 0) throw new Error('INVALID_USER_ID');
