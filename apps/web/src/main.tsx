@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { AiSearchRoot } from './AiSearchRoot';
+import { AiTaskRoot } from './AiTaskRoot';
 import { AiToolsRoot } from './AiToolsRoot';
 import { AuthenticatedAppChrome } from './AuthenticatedAppChrome';
 import { CaptureRoot } from './CaptureRoot';
@@ -44,6 +45,7 @@ function bootstrap() {
   else if (window.location.pathname === '/capture') content = <CaptureRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/ai-search') content = <AiSearchRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/ai-tools') content = <AiToolsRoot apiBaseUrl={apiBaseUrl} />;
+  else if (window.location.pathname === '/ai-task') content = <AiTaskRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/subscription') content = <SubscriptionRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/feedback') content = <FeedbackRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/help') content = <HelpRoot />;
