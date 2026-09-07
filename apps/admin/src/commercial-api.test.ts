@@ -53,7 +53,7 @@ describe('AdminCommercialApi', () => {
     expect(JSON.parse(String(init?.body))).toEqual({ freeInitialAiTrialPoints: 800 });
   });
 
-  it('sends AI media/search feature gates with the fixed AI Pro hard-cap configuration', async () => {
+  it('sends AI capability gates with the fixed AI Pro hard-cap configuration', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       ok: true,
       config: {
@@ -64,6 +64,7 @@ describe('AdminCommercialApi', () => {
         aiEnabled: true,
         aiMediaIngestion: true,
         aiNaturalSearch: false,
+        aiRelatedRecords: true,
         monthlyAiPointCap: 100000,
         monthlyProviderCostCapTwd: '30',
         perRequestAiPointCap: 5000,
@@ -77,6 +78,7 @@ describe('AdminCommercialApi', () => {
       enabled: true,
       aiMediaIngestion: true,
       aiNaturalSearch: false,
+      aiRelatedRecords: true,
       monthlyAiPointCap: 100000,
       monthlyProviderCostCapTwd: '30',
       perRequestAiPointCap: 5000,
@@ -84,11 +86,13 @@ describe('AdminCommercialApi', () => {
 
     expect(config.priceTwd).toBe('99.00');
     expect(config.aiNaturalSearch).toBe(false);
+    expect(config.aiRelatedRecords).toBe(true);
     const [, init] = fetchMock.mock.calls[0];
     expect(JSON.parse(String(init?.body))).toEqual({
       enabled: true,
       aiMediaIngestion: true,
       aiNaturalSearch: false,
+      aiRelatedRecords: true,
       monthlyAiPointCap: 100000,
       monthlyProviderCostCapTwd: '30',
       perRequestAiPointCap: 5000,
