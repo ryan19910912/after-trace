@@ -104,6 +104,10 @@ export const worklogEntityAliases = pgTable(
  * time. AI title/search/extraction metadata is optional and must never be required for
  * manual CRUD.
  *
+ * capture_context is optional creation-time context supplied by an explicit capture
+ * surface such as the Chrome extension. It is not Record body text and must stay bounded
+ * by the API contract; normal manual edits do not silently rewrite it.
+ *
  * entity_id and LINE trace ids are migration compatibility fields. New Web/PWA product
  * code must not require the legacy Entity/Alias model or LINE identity in order to create
  * and retrieve a Record.
@@ -126,6 +130,7 @@ export const worklogRecords = pgTable(
     title: varchar('title', { length: 255 }),
     searchTerms: jsonb('search_terms').$type<string[]>().default([]).notNull(),
     extractedMetadata: jsonb('extracted_metadata').$type<Record<string, unknown>>(),
+    captureContext: jsonb('capture_context').$type<Record<string, unknown>>(),
     aiEnrichmentStatus: worklogRecordAiEnrichmentStatusEnum('ai_enrichment_status')
       .default('NONE')
       .notNull(),
