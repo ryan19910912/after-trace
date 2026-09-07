@@ -9,6 +9,7 @@ export function AdminCommercialPage({ api }: { api: AdminCommercialApi }) {
   const [aiPro, setAiPro] = useState<AiProConfig | null>(null);
   const [aiProEnabled, setAiProEnabled] = useState(true);
   const [aiMediaIngestion, setAiMediaIngestion] = useState(true);
+  const [aiNaturalSearch, setAiNaturalSearch] = useState(true);
   const [monthlyPoints, setMonthlyPoints] = useState('');
   const [providerCostCap, setProviderCostCap] = useState('');
   const [perRequestCap, setPerRequestCap] = useState('');
@@ -40,6 +41,7 @@ export function AdminCommercialPage({ api }: { api: AdminCommercialApi }) {
     setAiPro(value);
     setAiProEnabled(value?.enabled ?? true);
     setAiMediaIngestion(value?.aiMediaIngestion ?? true);
+    setAiNaturalSearch(value?.aiNaturalSearch ?? true);
     setMonthlyPoints(value ? String(value.monthlyAiPointCap) : '');
     setProviderCostCap(value?.monthlyProviderCostCapTwd ?? '');
     setPerRequestCap(value?.perRequestAiPointCap ? String(value.perRequestAiPointCap) : '');
@@ -75,6 +77,7 @@ export function AdminCommercialPage({ api }: { api: AdminCommercialApi }) {
       const next = await api.setAiPro({
         enabled: aiProEnabled,
         aiMediaIngestion,
+        aiNaturalSearch,
         monthlyAiPointCap: monthly,
         monthlyProviderCostCapTwd: providerCap,
         perRequestAiPointCap: requestCap,
@@ -123,8 +126,9 @@ export function AdminCommercialPage({ api }: { api: AdminCommercialApi }) {
         <h2>AI Pro · NT$99 / 月</h2>
         <p className="muted">售價鎖定為 V1 商業契約。以下都是內部公平使用／成本安全參數，不是客戶現金餘額。</p>
         <label><input type="checkbox" checked={aiProEnabled} disabled={loading || saving} onChange={(event) => setAiProEnabled(event.target.checked)} /> 啟用 AI Pro</label>
-        <label><input type="checkbox" checked={aiMediaIngestion} disabled={loading || saving || !aiProEnabled} onChange={(event) => setAiMediaIngestion(event.target.checked)} /> 啟用圖片／截圖 AI</label>
-        <p className="muted">此開關同時控制 AI Pro 與符合資格的 FREE 一次性 AI 試用是否可執行 provider 圖片理解；關閉後圖片 provider work 會 fail closed，手動紀錄不受影響。</p>
+        <label><input type="checkbox" checked={aiMediaIngestion} disabled={loading || saving || !aiProEnabled} onChange={(event) => setAiMediaIngestion(event.target.checked)} /> 啟用圖片／音訊／檔案 AI</label>
+        <label><input type="checkbox" checked={aiNaturalSearch} disabled={loading || saving || !aiProEnabled} onChange={(event) => setAiNaturalSearch(event.target.checked)} /> 啟用 AI 自然語言搜尋</label>
+        <p className="muted">功能開關同時控制 AI Pro 與符合資格的 FREE 一次性 AI 試用。關閉後該 provider work 會 fail closed；一般手動紀錄與一般搜尋不受影響。</p>
         <label>每月 AI 點數／資源上限
           <input type="number" min="1" step="1" value={monthlyPoints} onChange={(event) => setMonthlyPoints(event.target.value)} placeholder="例如 100000" />
         </label>
@@ -135,7 +139,7 @@ export function AdminCommercialPage({ api }: { api: AdminCommercialApi }) {
           <input type="number" min="1" step="1" value={perRequestCap} onChange={(event) => setPerRequestCap(event.target.value)} placeholder="留空表示沒有額外單次 cap" />
         </label>
         <div className="header-actions"><button disabled={loading || saving} onClick={() => void saveAiPro()}>{saving ? '儲存中…' : '儲存 AI Pro 設定'}</button></div>
-        {aiPro && <p className="muted">目前：{aiPro.enabled ? '啟用' : '停用'} · 圖片 AI {aiPro.aiMediaIngestion ? '啟用' : '停用'} · 月點數 {aiPro.monthlyAiPointCap.toLocaleString()} · Provider Cost NT$ {aiPro.monthlyProviderCostCapTwd} · 最後更新 {new Date(aiPro.updatedAt).toLocaleString('zh-TW')}</p>}
+        {aiPro && <p className="muted">目前：{aiPro.enabled ? '啟用' : '停用'} · 媒體 AI {aiPro.aiMediaIngestion ? '啟用' : '停用'} · AI 搜尋 {aiPro.aiNaturalSearch ? '啟用' : '停用'} · 月點數 {aiPro.monthlyAiPointCap.toLocaleString()} · Provider Cost NT$ {aiPro.monthlyProviderCostCapTwd} · 最後更新 {new Date(aiPro.updatedAt).toLocaleString('zh-TW')}</p>}
       </article>
 
       <article className="card">
