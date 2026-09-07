@@ -16,6 +16,7 @@ export type AiProConfig = {
   enabled: boolean;
   aiEnabled: boolean;
   aiMediaIngestion: boolean;
+  aiNaturalSearch: boolean;
   monthlyAiPointCap: number;
   monthlyProviderCostCapTwd: string;
   perRequestAiPointCap: number | null;
@@ -45,6 +46,7 @@ export class AdminCommercialApi {
   async setAiPro(input: {
     enabled: boolean;
     aiMediaIngestion: boolean;
+    aiNaturalSearch: boolean;
     monthlyAiPointCap: number;
     monthlyProviderCostCapTwd: string;
     perRequestAiPointCap: number | null;
