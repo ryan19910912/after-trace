@@ -7,6 +7,7 @@ type SnapshotRow = {
   source_authorized: boolean;
   trial_grant_id: string | null;
   trial_remaining_points: string | number | null;
+  trial_per_request_ai_point_cap: string | number | null;
   plan_enabled: boolean | null;
   ai_enabled: boolean | null;
   subscription_grant_id: string | null;
@@ -14,8 +15,10 @@ type SnapshotRow = {
   period_end: Date | string | null;
   monthly_ai_point_cap: string | number | null;
   monthly_provider_cost_cap_twd: string | number | null;
+  per_request_ai_point_cap: string | number | null;
   points_used: string | number | null;
   provider_cost_twd: string | number | null;
+  missing_provider_cost_twd_requests: string | number | null;
 };
 
 export class DrizzleAiEntitlementRepository implements AiEntitlementRepository {
@@ -44,6 +47,14 @@ export class DrizzleAiEntitlementRepository implements AiEntitlementRepository {
             )
         ) AS authorized
       ),
+      ai_pro_template AS (
+        SELECT enabled, ai_enabled, per_request_ai_point_cap
+        FROM worklog_subscription_plans
+        WHERE code = 'AI_PRO'
+          AND plan_type = 'SUBSCRIPTION'
+          AND price_twd = 99
+        LIMIT 1
+      ),
       active_subscription AS (
         SELECT subscription.plan_code,
                subscription.current_period_start,
@@ -51,7 +62,8 @@ export class DrizzleAiEntitlementRepository implements AiEntitlementRepository {
                plan.enabled AS plan_enabled,
                plan.ai_enabled,
                plan.monthly_ai_point_cap,
-               plan.monthly_provider_cost_cap_twd
+               plan.monthly_provider_cost_cap_twd,
+               plan.per_request_ai_point_cap
         FROM worklog_user_subscriptions AS subscription
         INNER JOIN worklog_subscription_plans AS plan
           ON plan.code = subscription.plan_code
@@ -71,14 +83,15 @@ export class DrizzleAiEntitlementRepository implements AiEntitlementRepository {
         WHERE g.owner_user_id = ${userId}
           AND g.type = 'SUBSCRIPTION_PERIOD'
           AND g.status = 'ACTIVE'
-          AND g.effective_at <= ${at}
-          AND (g.expires_at IS NULL OR g.expires_at > ${at})
-        ORDER BY g.effective_at DESC, g.id DESC
+          AND g.effective_at = subscription.current_period_start
+          AND g.expires_at IS NOT DISTINCT FROM subscription.current_period_end
+        ORDER BY g.id DESC
         LIMIT 1
       ),
       period_usage AS (
-        SELECT COALESCE(SUM(event.customer_points_charged), 0)::bigint AS points_used,
-               COALESCE(SUM(event.provider_cost_twd), 0)::numeric AS provider_cost_twd
+        SELECT COALESCE(SUM(event.customer_points_charged + event.platform_subsidized_points), 0)::bigint AS points_used,
+               COALESCE(SUM(event.provider_cost_twd), 0)::numeric AS provider_cost_twd,
+               COUNT(*) FILTER (WHERE event.provider_cost_twd IS NULL)::bigint AS missing_provider_cost_twd_requests
         FROM worklog_ai_usage_events AS event
         INNER JOIN active_subscription AS subscription ON TRUE
         WHERE event.charged_user_id = ${userId}
@@ -101,6 +114,7 @@ export class DrizzleAiEntitlementRepository implements AiEntitlementRepository {
         (SELECT authorized FROM source_access) AS source_authorized,
         free_trial.id::text AS trial_grant_id,
         free_trial.remaining_points AS trial_remaining_points,
+        ai_pro_template.per_request_ai_point_cap AS trial_per_request_ai_point_cap,
         active_subscription.plan_enabled,
         active_subscription.ai_enabled,
         paid_grant.id::text AS subscription_grant_id,
@@ -108,9 +122,12 @@ export class DrizzleAiEntitlementRepository implements AiEntitlementRepository {
         active_subscription.current_period_end AS period_end,
         active_subscription.monthly_ai_point_cap,
         active_subscription.monthly_provider_cost_cap_twd,
+        active_subscription.per_request_ai_point_cap,
         period_usage.points_used,
-        period_usage.provider_cost_twd
+        period_usage.provider_cost_twd,
+        period_usage.missing_provider_cost_twd_requests
       FROM source_access
+      LEFT JOIN ai_pro_template ON TRUE
       LEFT JOIN free_trial ON TRUE
       LEFT JOIN active_subscription ON TRUE
       LEFT JOIN paid_grant ON TRUE
@@ -128,14 +145,20 @@ export class DrizzleAiEntitlementRepository implements AiEntitlementRepository {
           periodEnd: dateValue(row.period_end),
           monthlyPointCap: positiveInteger(row.monthly_ai_point_cap, 'monthly AI point cap'),
           monthlyProviderCostCapTwd: positiveFinite(row.monthly_provider_cost_cap_twd, 'monthly provider cost cap'),
+          perRequestAiPointCap: optionalPositiveInteger(row.per_request_ai_point_cap),
           pointsUsed: nonNegativeInteger(row.points_used ?? 0, 'period points used'),
           providerCostTwd: nonNegativeFinite(row.provider_cost_twd ?? 0, 'period provider cost'),
+          missingProviderCostTwdRequests: nonNegativeInteger(
+            row.missing_provider_cost_twd_requests ?? 0,
+            'missing provider cost requests',
+          ),
         }
       : null;
     const freeTrial = row.trial_grant_id
       ? {
           grantId: positiveInteger(row.trial_grant_id, 'FREE trial grant id'),
           remainingPoints: nonNegativeInteger(row.trial_remaining_points ?? 0, 'FREE trial remaining points'),
+          perRequestAiPointCap: optionalPositiveInteger(row.trial_per_request_ai_point_cap),
         }
       : null;
     return { sourceAuthorized: Boolean(row.source_authorized), freeTrial, aiPro };
@@ -164,7 +187,7 @@ function positiveInteger(value: unknown, label: string): number {
 }
 function optionalPositiveInteger(value: unknown): number | null {
   if (value === null || value === undefined) return null;
-  return positiveInteger(value, 'grant id');
+  return positiveInteger(value, 'optional positive integer');
 }
 function nonNegativeInteger(value: unknown, label: string): number {
   const parsed = numeric(value);
