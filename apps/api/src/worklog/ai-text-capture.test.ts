@@ -69,9 +69,11 @@ function aiPoints(calls: string[], reserveResult?: Awaited<ReturnType<AiPointLed
           chargedUserId: 7,
           actorUserId: 7,
           sourceId: 12,
+          entitlementGrantId: 11,
           pointsReserved: 20,
           pointsCommitted: 0,
           platformSubsidizedPoints: 0,
+          providerCostHoldTwd: null,
           status: 'RESERVED',
           expiresAt: new Date('2026-09-07T10:00:00.000Z'),
         },
@@ -88,9 +90,11 @@ function aiPoints(calls: string[], reserveResult?: Awaited<ReturnType<AiPointLed
           chargedUserId: 7,
           actorUserId: 7,
           sourceId: 12,
+          entitlementGrantId: 11,
           pointsReserved: 20,
           pointsCommitted: 15,
           platformSubsidizedPoints: 0,
+          providerCostHoldTwd: null,
           status: 'COMMITTED',
           expiresAt: new Date('2026-09-07T10:00:00.000Z'),
         },
@@ -109,7 +113,7 @@ describe('AiTextCaptureService', () => {
         calls.push('resolve');
         return {
           source: 'BLOCKED', allowed: false, reason: 'TRIAL_EXHAUSTED',
-          remainingPoints: 0, periodEndsAt: null,
+          remainingPoints: 0, periodEndsAt: null, perRequestAiPointCap: null,
         };
       },
     };
@@ -128,7 +132,7 @@ describe('AiTextCaptureService', () => {
         calls.push('resolve');
         return {
           source: 'FREE_TRIAL', allowed: true, reason: 'FREE_TRIAL_AVAILABLE',
-          remainingPoints: 100, periodEndsAt: null,
+          remainingPoints: 100, periodEndsAt: null, perRequestAiPointCap: 100,
         };
       },
     };
@@ -153,18 +157,18 @@ describe('AiTextCaptureService', () => {
       async resolve() {
         return {
           source: 'AI_PRO', allowed: true, reason: 'AI_PRO_AVAILABLE',
-          remainingPoints: 30, periodEndsAt: '2026-10-07T00:00:00.000Z',
+          remainingPoints: 30, periodEndsAt: '2026-10-07T00:00:00.000Z', perRequestAiPointCap: 100,
         };
       },
     };
-    const blocked = { status: 'AI_ENTITLEMENT_BLOCKED', reason: 'MONTHLY_POINT_CAP_WOULD_BE_EXCEEDED' } as const;
+    const blocked = { status: 'AI_ENTITLEMENT_BLOCKED', reason: 'MONTHLY_PROVIDER_COST_CAP_REACHED' } as const;
     const service = new AiTextCaptureService(repository(calls), entitlement, aiPoints(calls, blocked), provider(calls));
 
     const result = await service.capture({ userId: 7, sourceId: 12, text: 'test' });
 
     expect(result).toMatchObject({
       status: 'BLOCKED',
-      decision: { source: 'BLOCKED', reason: 'MONTHLY_POINT_CAP_WOULD_BE_EXCEEDED' },
+      decision: { source: 'BLOCKED', reason: 'MONTHLY_PROVIDER_COST_CAP_REACHED' },
     });
     expect(calls).toEqual(['runtime', 'estimate', 'reserve']);
   });
@@ -175,7 +179,7 @@ describe('AiTextCaptureService', () => {
       async resolve() {
         return {
           source: 'AI_PRO', allowed: true, reason: 'AI_PRO_AVAILABLE',
-          remainingPoints: 210, periodEndsAt: '2026-10-07T00:00:00.000Z',
+          remainingPoints: 210, periodEndsAt: '2026-10-07T00:00:00.000Z', perRequestAiPointCap: 100,
         };
       },
     };
