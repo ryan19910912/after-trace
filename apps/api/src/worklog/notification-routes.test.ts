@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { issueWebSessionToken } from '../auth/token';
 import { createNotificationRoutes } from './notification-routes';
 import type { NotificationRepository } from './notifications';
+import type { PushNotificationRepository } from './push-notifications';
 
 const env = {
   DATABASE_URL: 'postgresql://unused.invalid/aftertrace',
   WEB_AUTH_SECRET: '0123456789abcdef0123456789abcdef',
   WEB_APP_ORIGIN: 'https://web.example.test',
+  WEB_PUSH_PUBLIC_KEY: 'BElong-lived-public-vapid-key-for-tests',
 };
 
 async function authorization(userId = 7) {
@@ -14,8 +16,12 @@ async function authorization(userId = 7) {
   return `Bearer ${token}`;
 }
 
-function headers(authorization: string) {
-  return { authorization, origin: env.WEB_APP_ORIGIN };
+function headers(authorization: string, json = false) {
+  return {
+    authorization,
+    origin: env.WEB_APP_ORIGIN,
+    ...(json ? { 'content-type': 'application/json' } : {}),
+  };
 }
 
 function repository(overrides: Partial<NotificationRepository> = {}): NotificationRepository {
@@ -29,6 +35,31 @@ function repository(overrides: Partial<NotificationRepository> = {}): Notificati
     async cancelAnnouncement() { return { status: 'NOT_FOUND' }; },
     async listAnnouncements() { return []; },
     async announcementDetail() { return null; },
+    ...overrides,
+  };
+}
+
+function pushRepository(overrides: Partial<PushNotificationRepository> = {}): PushNotificationRepository {
+  return {
+    async state() {
+      return {
+        activeSubscriptionCount: 0,
+        preferences: {
+          announcementPushEnabled: true,
+          systemPushEnabled: true,
+          taskPushEnabled: true,
+        },
+      };
+    },
+    async upsertSubscription() {},
+    async revokeSubscription() { return false; },
+    async updatePreferences() {
+      return {
+        announcementPushEnabled: true,
+        systemPushEnabled: true,
+        taskPushEnabled: true,
+      };
+    },
     ...overrides,
   };
 }
@@ -115,5 +146,100 @@ describe('notification center routes', () => {
     expect(response.status).toBe(200);
     expect(requestedUserId).toBe(31);
     await expect(response.json()).resolves.toEqual({ ok: true, updatedCount: 4 });
+  });
+
+  it('returns provider-neutral per-user push state and public VAPID key', async () => {
+    let requestedUserId = 0;
+    const app = createNotificationRoutes({
+      databaseFactory: () => ({} as never),
+      resolveSessionUserId: async (_database, session) => session.userId,
+      pushRepositoryFactory: () => pushRepository({
+        async state(userId) {
+          requestedUserId = userId;
+          return {
+            activeSubscriptionCount: 2,
+            preferences: {
+              announcementPushEnabled: true,
+              systemPushEnabled: false,
+              taskPushEnabled: true,
+            },
+          };
+        },
+      }),
+    });
+
+    const response = await app.request('/push', { headers: headers(await authorization(44)) }, env);
+    expect(response.status).toBe(200);
+    expect(requestedUserId).toBe(44);
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      serverPushEnabled: true,
+      publicKey: env.WEB_PUSH_PUBLIC_KEY,
+      activeSubscriptionCount: 2,
+      preferences: {
+        announcementPushEnabled: true,
+        systemPushEnabled: false,
+        taskPushEnabled: true,
+      },
+    });
+  });
+
+  it('registers a push endpoint only for the authenticated account', async () => {
+    let registeredUserId = 0;
+    let registeredEndpoint = '';
+    const app = createNotificationRoutes({
+      databaseFactory: () => ({} as never),
+      resolveSessionUserId: async (_database, session) => session.userId,
+      pushRepositoryFactory: () => pushRepository({
+        async upsertSubscription(userId, input) {
+          registeredUserId = userId;
+          registeredEndpoint = input.endpoint;
+        },
+        async state() {
+          return {
+            activeSubscriptionCount: 1,
+            preferences: {
+              announcementPushEnabled: true,
+              systemPushEnabled: true,
+              taskPushEnabled: true,
+            },
+          };
+        },
+      }),
+    });
+
+    const response = await app.request('/push/subscription', {
+      method: 'POST',
+      headers: headers(await authorization(55), true),
+      body: JSON.stringify({
+        endpoint: 'https://push.example.test/device/1',
+        keys: { p256dh: 'public-device-key', auth: 'device-auth' },
+      }),
+    }, env);
+
+    expect(response.status).toBe(200);
+    expect(registeredUserId).toBe(55);
+    expect(registeredEndpoint).toBe('https://push.example.test/device/1');
+  });
+
+  it('fails closed when the server has no Web Push public key configured', async () => {
+    const app = createNotificationRoutes({
+      databaseFactory: () => ({} as never),
+      resolveSessionUserId: async (_database, session) => session.userId,
+      pushRepositoryFactory: () => pushRepository(),
+    });
+    const noPushEnv = { ...env, WEB_PUSH_PUBLIC_KEY: '' };
+
+    const response = await app.request('/push/subscription', {
+      method: 'POST',
+      headers: headers(await authorization(), true),
+      body: JSON.stringify({
+        endpoint: 'https://push.example.test/device/1',
+        keys: { p256dh: 'public-device-key', auth: 'device-auth' },
+      }),
+    }, noPushEnv);
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ ok: false, error: 'PUSH_NOT_CONFIGURED' });
   });
 });
