@@ -165,15 +165,38 @@ export class DrizzleAiEntitlementRepository implements AiEntitlementRepository {
   }
 
   async ensureGrantScope(grantId: number, sourceId: number, at: Date): Promise<void> {
-    await this.db.execute(sql`
-      INSERT INTO worklog_ai_grant_scopes (
-        grant_id, source_id, cap_points, used_points, reserved_points, enabled, created_at, updated_at
+    const result = await this.db.execute(sql`
+      WITH selected_grant AS MATERIALIZED (
+        SELECT g.id, g.owner_user_id
+        FROM worklog_ai_grants AS g
+        WHERE g.id = ${grantId}
+        LIMIT 1
+      ), disabled_other_scopes AS (
+        UPDATE worklog_ai_grant_scopes AS scope_row
+        SET enabled = FALSE,
+            updated_at = ${at}
+        FROM worklog_ai_grants AS other_grant,
+             selected_grant
+        WHERE scope_row.grant_id = other_grant.id
+          AND scope_row.source_id = ${sourceId}
+          AND other_grant.owner_user_id = selected_grant.owner_user_id
+          AND scope_row.grant_id <> selected_grant.id
+          AND scope_row.enabled = TRUE
+        RETURNING scope_row.id
+      ), selected_scope AS (
+        INSERT INTO worklog_ai_grant_scopes (
+          grant_id, source_id, cap_points, used_points, reserved_points, enabled, created_at, updated_at
+        )
+        SELECT selected_grant.id, ${sourceId}, NULL, 0, 0, TRUE, ${at}, ${at}
+        FROM selected_grant
+        ON CONFLICT (grant_id, source_id) DO UPDATE
+        SET enabled = TRUE,
+            updated_at = GREATEST(worklog_ai_grant_scopes.updated_at, EXCLUDED.updated_at)
+        RETURNING id
       )
-      VALUES (${grantId}, ${sourceId}, NULL, 0, 0, TRUE, ${at}, ${at})
-      ON CONFLICT (grant_id, source_id) DO UPDATE
-      SET enabled = TRUE,
-          updated_at = GREATEST(worklog_ai_grant_scopes.updated_at, EXCLUDED.updated_at)
+      SELECT id::text AS id FROM selected_scope
     `);
+    if (!result.rows[0]) throw new Error('AI_ENTITLEMENT_GRANT_SCOPE_FAILED');
   }
 }
 
