@@ -140,7 +140,7 @@ export class GeminiWorklogAttachmentNormalizer implements WorklogAttachmentProvi
       attachmentMetadata: {
         mimeType: content.mimeType,
         byteLength: content.byteLength,
-        source: 'LINE_CONTENT_API',
+        source: 'INLINE_ATTACHMENT_INPUT',
       },
     };
     return {
@@ -193,7 +193,7 @@ function buildRequest(
 
   return {
     systemInstruction: { parts: [{ text: [
-      'You convert a LINE attachment into durable AFTERTRACE Record text.',
+      'You convert an explicitly provided attachment into durable AFTERTRACE Record text.',
       'For audio, transcribe faithfully. For images, extract visible text and describe only factual visible work details. For PDF/files, extract useful readable content.',
       'Never invent customer names, amounts, dates, completion, defects, or other facts.',
       'Do not create a category, summary, Customer, Project, payment or material schema. Return only the durable textual representation.',
