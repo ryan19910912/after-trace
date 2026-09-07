@@ -22,7 +22,7 @@ function repository(result: Awaited<ReturnType<SubscriptionLifecycleRepository['
 }
 
 describe('SubscriptionLifecycleService', () => {
-  it('normalizes provider event and emits ACTIVATED SYSTEM notification once', async () => {
+  it('normalizes provider event and emits ACTIVATED SYSTEM notification once per applied period', async () => {
     const repo = repository({
       status: 'APPLIED', subscriptionId: 12, userId: 7, type: 'ACTIVATE', periodStart, periodEnd,
     });
@@ -35,19 +35,54 @@ describe('SubscriptionLifecycleService', () => {
     })).resolves.toMatchObject({ status: 'APPLIED', subscriptionId: 12 });
 
     expect(repo.apply).toHaveBeenCalledWith(expect.objectContaining({ provider: 'TEST-PAY', planCode: 'AI_PRO' }));
-    expect(notify.activated).toHaveBeenCalledWith({ userId: 7, subscriptionId: 12, planCode: 'AI_PRO', periodEnd });
+    expect(notify.activated).toHaveBeenCalledWith({
+      userId: 7, subscriptionId: 12, planCode: 'AI_PRO', periodStart, periodEnd,
+    });
     expect(notify.renewed).not.toHaveBeenCalled();
     expect(notify.cancelled).not.toHaveBeenCalled();
   });
 
-  it('does not emit duplicate SYSTEM notifications for duplicate external events', async () => {
+  it('does not notify again when a duplicate event was previously ignored as stale', async () => {
     const notify = notifications();
-    const service = new SubscriptionLifecycleService(repository({ status: 'DUPLICATE' }), notify);
+    const service = new SubscriptionLifecycleService(repository({ status: 'DUPLICATE', applied: null }), notify);
 
     await expect(service.apply({
-      provider: 'TEST_PAY', externalEventKey: 'evt_duplicate', type: 'RENEW',
+      provider: 'TEST_PAY', externalEventKey: 'evt_duplicate_stale', type: 'RENEW',
       userId: 7, planCode: 'AI_PRO', occurredAt, periodStart, periodEnd,
-    })).resolves.toEqual({ status: 'DUPLICATE' });
+    })).resolves.toEqual({ status: 'DUPLICATE', applied: null });
+
+    expect(notify.activated).not.toHaveBeenCalled();
+    expect(notify.renewed).not.toHaveBeenCalled();
+    expect(notify.cancelled).not.toHaveBeenCalled();
+  });
+
+  it('replays the idempotent SYSTEM notification for a duplicate event that was already applied', async () => {
+    const notify = notifications();
+    const service = new SubscriptionLifecycleService(repository({
+      status: 'DUPLICATE',
+      applied: { subscriptionId: 12, userId: 7, type: 'RENEW', periodStart, periodEnd },
+    }), notify);
+
+    await expect(service.apply({
+      provider: 'TEST_PAY', externalEventKey: 'evt_retry_after_notify_failure', type: 'RENEW',
+      userId: 7, planCode: 'AI_PRO', occurredAt, periodStart, periodEnd,
+    })).resolves.toMatchObject({ status: 'DUPLICATE' });
+
+    expect(notify.renewed).toHaveBeenCalledWith({ userId: 7, subscriptionId: 12, periodStart, periodEnd });
+    expect(notify.activated).not.toHaveBeenCalled();
+    expect(notify.cancelled).not.toHaveBeenCalled();
+  });
+
+  it('does not emit SYSTEM notifications for first-seen stale lifecycle events', async () => {
+    const notify = notifications();
+    const service = new SubscriptionLifecycleService(repository({
+      status: 'IGNORED_STALE', userId: 7, type: 'RENEW',
+    }), notify);
+
+    await expect(service.apply({
+      provider: 'TEST_PAY', externalEventKey: 'evt_old_renewal', type: 'RENEW',
+      userId: 7, planCode: 'AI_PRO', occurredAt, periodStart, periodEnd,
+    })).resolves.toEqual({ status: 'IGNORED_STALE', userId: 7, type: 'RENEW' });
 
     expect(notify.activated).not.toHaveBeenCalled();
     expect(notify.renewed).not.toHaveBeenCalled();
@@ -70,7 +105,7 @@ describe('SubscriptionLifecycleService', () => {
   });
 
   it('rejects non-V1 plans before repository mutation', async () => {
-    const repo = repository({ status: 'DUPLICATE' });
+    const repo = repository({ status: 'DUPLICATE', applied: null });
     const service = new SubscriptionLifecycleService(repo, notifications());
 
     await expect(service.apply({
@@ -81,7 +116,7 @@ describe('SubscriptionLifecycleService', () => {
   });
 
   it('rejects activation/renewal without a valid paid period', async () => {
-    const repo = repository({ status: 'DUPLICATE' });
+    const repo = repository({ status: 'DUPLICATE', applied: null });
     const service = new SubscriptionLifecycleService(repo, notifications());
 
     await expect(service.apply({
