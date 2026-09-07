@@ -106,7 +106,8 @@ export class DrizzleCommercialConfigRepository implements CommercialConfigReposi
           jsonb_build_object(
             'aiMediaIngestion', ${input.aiMediaIngestion !== false},
             'aiNaturalSearch', ${input.aiNaturalSearch !== false},
-            'aiRelatedRecords', ${input.aiRelatedRecords !== false}
+            'aiRelatedRecords', ${input.aiRelatedRecords !== false},
+            'aiTimeRangeSummary', ${input.aiTimeRangeSummary !== false}
           ),
           NOW(), NOW()
         )
@@ -123,17 +124,22 @@ export class DrizzleCommercialConfigRepository implements CommercialConfigReposi
             capabilities = jsonb_set(
               jsonb_set(
                 jsonb_set(
-                  COALESCE(worklog_subscription_plans.capabilities, '{}'::jsonb),
-                  '{aiMediaIngestion}',
-                  to_jsonb(${input.aiMediaIngestion !== false}::boolean),
+                  jsonb_set(
+                    COALESCE(worklog_subscription_plans.capabilities, '{}'::jsonb),
+                    '{aiMediaIngestion}',
+                    to_jsonb(${input.aiMediaIngestion !== false}::boolean),
+                    TRUE
+                  ),
+                  '{aiNaturalSearch}',
+                  to_jsonb(${input.aiNaturalSearch !== false}::boolean),
                   TRUE
                 ),
-                '{aiNaturalSearch}',
-                to_jsonb(${input.aiNaturalSearch !== false}::boolean),
+                '{aiRelatedRecords}',
+                to_jsonb(${input.aiRelatedRecords !== false}::boolean),
                 TRUE
               ),
-              '{aiRelatedRecords}',
-              to_jsonb(${input.aiRelatedRecords !== false}::boolean),
+              '{aiTimeRangeSummary}',
+              to_jsonb(${input.aiTimeRangeSummary !== false}::boolean),
               TRUE
             ),
             updated_at = NOW()
@@ -202,6 +208,7 @@ function mapAiPro(row: AiProRow): AiProConfigSnapshot {
     aiMediaIngestion: capabilities.aiMediaIngestion !== false,
     aiNaturalSearch: capabilities.aiNaturalSearch !== false,
     aiRelatedRecords: capabilities.aiRelatedRecords !== false,
+    aiTimeRangeSummary: capabilities.aiTimeRangeSummary !== false,
     monthlyAiPointCap: positiveInteger(row.monthly_ai_point_cap),
     monthlyProviderCostCapTwd: positiveDecimal(row.monthly_provider_cost_cap_twd),
     perRequestAiPointCap: row.per_request_ai_point_cap === null ? null : positiveInteger(row.per_request_ai_point_cap),
