@@ -26,8 +26,6 @@ if (!existsSync(envFile)) {
   fail(`missing ${envFile}. Create .env.${environment} before deploying.`);
 }
 
-// The selected file is authoritative for deployment so stale shell variables from
-// another environment cannot silently override dev/prod targets.
 Object.assign(process.env, parseEnv(readFileSync(envFile, 'utf8')));
 
 const workerNames = {
@@ -103,6 +101,8 @@ function requireApiRuntimeBindings() {
     'WEB_AUTH_SECRET',
     'LINE_LOGIN_CHANNEL_ID',
     'LINE_LOGIN_CHANNEL_SECRET',
+    'GOOGLE_LOGIN_CLIENT_ID',
+    'GOOGLE_LOGIN_CLIENT_SECRET',
     'ADMIN_USERNAME',
     'ADMIN_PASSWORD',
     'ADMIN_SESSION_SECRET',
@@ -198,8 +198,6 @@ async function verifyApiDeployment(origin) {
 }
 
 function runWrangler(label, configPath, args) {
-  // Wrangler is pinned in @aftertrace/api. Reuse that single CLI for all three Worker
-  // configs so Web/Admin do not need duplicate Wrangler devDependencies.
   run(label, 'pnpm', [
     '--filter', '@aftertrace/api', 'exec', 'wrangler', 'deploy',
     '--config', configPath,
@@ -221,7 +219,6 @@ function run(label, command, args) {
 }
 
 function fail(message) {
-  const text = `AFTERTRACE deploy failed: ${message}`;
-  console.error(text);
-  throw new Error(text);
+  console.error(`AFTERTRACE deploy failed: ${message}`);
+  process.exit(1);
 }
