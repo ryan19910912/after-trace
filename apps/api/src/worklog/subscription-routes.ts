@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm';
 import { resolveWebSessionUserId } from '../auth/session-user';
 import { verifyWebSessionToken, type WebSessionClaims } from '../auth/token';
 import { createDatabase } from '../db/client';
+import { FREE_INITIAL_GRANT_ORIGIN_KEY } from './ai-points';
 
 type Bindings = { DATABASE_URL: string; WEB_AUTH_SECRET?: string; WEB_APP_ORIGIN?: string };
 type Env = { Bindings: Bindings; Variables: { session: WebSessionClaims } };
@@ -59,40 +60,58 @@ export function createWorklogSubscriptionRoutes() {
     const user = await userRow(db, userId);
     if (!user) return c.json({ ok: false, error: 'WORKLOG_USER_NOT_FOUND' }, 404);
 
-    const result = await db.execute(sql`
-      SELECT
-        plan.code,
-        plan.plan_type,
-        plan.display_name,
-        plan.price_twd::text AS price_twd,
-        plan.rank,
-        plan.grant_points,
-        CASE WHEN plan.plan_type = 'SUBSCRIPTION' THEN plan.grant_points ELSE 0 END AS subscription_period_points,
-        CASE WHEN plan.plan_type = 'FREE' THEN plan.grant_points ELSE 0 END AS one_time_initial_points,
-        CASE WHEN plan.plan_type = 'ONE_TIME' THEN plan.grant_points ELSE 0 END AS one_time_purchase_points,
-        ((COALESCE(plan.capabilities, '{}'::jsonb)
-          - 'privateOaRecording'
-          - 'aiTextRecording'
-          - 'aiMediaIngestion'
-          - 'export') || jsonb_build_object('export', FALSE)) AS capabilities,
-        CASE
-          WHEN plan.plan_type = 'ONE_TIME' THEN FALSE
-          WHEN ${user.effectiveState} = 'ACTIVE' AND ${user.planCode} = plan.code THEN TRUE
-          WHEN ${user.effectiveState} <> 'ACTIVE' AND plan.code = 'FREE' THEN TRUE
-          ELSE FALSE
-        END AS current
-      FROM worklog_subscription_plans plan
-      WHERE plan.enabled = TRUE
-      ORDER BY CASE plan.plan_type WHEN 'FREE' THEN 0 WHEN 'SUBSCRIPTION' THEN 1 ELSE 2 END,
-               plan.rank ASC, plan.price_twd ASC, plan.code ASC
-    `);
+    const [plansResult, trialResult] = await Promise.all([
+      db.execute(sql`
+        SELECT
+          plan.code,
+          plan.plan_type,
+          plan.display_name,
+          plan.price_twd::text AS price_twd,
+          plan.rank,
+          CASE WHEN plan.code = 'AI_PRO' THEN plan.monthly_ai_point_cap ELSE NULL END AS monthly_ai_point_cap,
+          CASE WHEN plan.code = 'AI_PRO' THEN plan.monthly_provider_cost_cap_twd::text ELSE NULL END AS monthly_provider_cost_cap_twd,
+          CASE WHEN plan.code = 'AI_PRO' THEN plan.per_request_ai_point_cap ELSE NULL END AS per_request_ai_point_cap,
+          COALESCE(plan.capabilities, '{}'::jsonb) AS capabilities,
+          CASE
+            WHEN ${user.effectiveState} = 'ACTIVE' AND ${user.planCode} = 'AI_PRO' AND plan.code = 'AI_PRO' THEN TRUE
+            WHEN NOT (${user.effectiveState} = 'ACTIVE' AND ${user.planCode} = 'AI_PRO') AND plan.code = 'FREE' THEN TRUE
+            ELSE FALSE
+          END AS current
+        FROM worklog_subscription_plans AS plan
+        WHERE plan.enabled = TRUE
+          AND (
+            (plan.code = 'FREE' AND plan.plan_type = 'FREE' AND plan.price_twd = 0)
+            OR
+            (plan.code = 'AI_PRO' AND plan.plan_type = 'SUBSCRIPTION' AND plan.price_twd = 99 AND plan.ai_enabled = TRUE)
+          )
+        ORDER BY CASE plan.code WHEN 'FREE' THEN 0 ELSE 1 END
+      `),
+      db.execute(sql`
+        SELECT g.original_points, g.remaining_points, g.status
+        FROM worklog_ai_grants AS g
+        WHERE g.owner_user_id = ${userId}
+          AND g.type = 'FREE_INITIAL'
+          AND g.origin_key = ${FREE_INITIAL_GRANT_ORIGIN_KEY}
+        ORDER BY g.id ASC
+        LIMIT 1
+      `),
+    ]);
+    const trial = trialResult.rows[0] as { original_points?: unknown; remaining_points?: unknown; status?: unknown } | undefined;
+    const trialRemaining = Number(trial?.remaining_points ?? 0);
 
     return c.json({
       ok: true,
-      currentPlanCode: user.effectiveState === 'ACTIVE' ? user.planCode : 'FREE',
+      currentPlanCode: user.effectiveState === 'ACTIVE' && user.planCode === 'AI_PRO' ? 'AI_PRO' : 'FREE',
       currentSubscriptionState: user.effectiveState,
       checkoutEnabled: CHECKOUT_ENABLED,
-      plans: result.rows,
+      freeAiTrial: trial
+        ? {
+            status: trialRemaining > 0 ? 'AVAILABLE' : 'EXHAUSTED',
+            originalPoints: Number(trial.original_points ?? 0),
+            remainingPoints: Math.max(0, trialRemaining),
+          }
+        : { status: 'NOT_ISSUED', originalPoints: 0, remainingPoints: 0 },
+      plans: plansResult.rows,
     });
   });
 
@@ -112,24 +131,23 @@ export function createWorklogSubscriptionRoutes() {
     const row = body as Record<string, unknown>;
     const planCode = typeof row.planCode === 'string' ? row.planCode.trim().toUpperCase() : '';
     const requestKey = typeof row.requestKey === 'string' ? row.requestKey.trim() : '';
-    if (!/^[A-Z0-9_-]{1,64}$/.test(planCode)) return c.json({ ok: false, error: 'INVALID_PLAN_CODE' }, 400);
+    if (planCode !== 'AI_PRO') return c.json({ ok: false, error: 'V1_ONLY_AI_PRO_IS_PURCHASABLE' }, 409);
     if (!/^[A-Za-z0-9_-]{16,64}$/.test(requestKey)) return c.json({ ok: false, error: 'INVALID_REQUEST_KEY' }, 400);
 
     const planResult = await db.execute(sql`
-      SELECT code, plan_type, display_name, price_twd::text AS price_twd, enabled
+      SELECT code, plan_type, display_name, price_twd::text AS price_twd, enabled, ai_enabled
       FROM worklog_subscription_plans
-      WHERE code = ${planCode}
+      WHERE code = 'AI_PRO'
+        AND plan_type = 'SUBSCRIPTION'
+        AND price_twd = 99
       LIMIT 1
     `);
-    const plan = planResult.rows[0] as { code?: string; plan_type?: string; display_name?: string; price_twd?: string; enabled?: boolean } | undefined;
-    if (!plan?.code || !plan.enabled) return c.json({ ok: false, error: 'PLAN_NOT_AVAILABLE' }, 404);
-    if (plan.plan_type === 'FREE') return c.json({ ok: false, error: 'FREE_PLAN_DOES_NOT_REQUIRE_CHECKOUT' }, 409);
-    if (plan.plan_type !== 'SUBSCRIPTION' && plan.plan_type !== 'ONE_TIME') return c.json({ ok: false, error: 'PLAN_TYPE_NOT_PURCHASABLE' }, 409);
-    if (Number(plan.price_twd ?? 0) <= 0) return c.json({ ok: false, error: 'PAID_PLAN_REQUIRES_POSITIVE_PRICE' }, 409);
+    const plan = planResult.rows[0] as { code?: string; plan_type?: string; display_name?: string; price_twd?: string; enabled?: boolean; ai_enabled?: boolean } | undefined;
+    if (!plan?.code || !plan.enabled || !plan.ai_enabled) return c.json({ ok: false, error: 'PLAN_NOT_AVAILABLE' }, 404);
 
     const inserted = await db.execute(sql`
       INSERT INTO worklog_checkout_intents (user_id, plan_code, request_key, status, created_at, updated_at)
-      VALUES (${user.id}, ${planCode}, ${requestKey}, 'PENDING_PROVIDER', NOW(), NOW())
+      VALUES (${user.id}, 'AI_PRO', ${requestKey}, 'PENDING_PROVIDER', NOW(), NOW())
       ON CONFLICT (request_key) DO NOTHING
       RETURNING id::text AS id, user_id::text AS user_id, plan_code, status, checkout_url, created_at
     `);
@@ -143,7 +161,7 @@ export function createWorklogSubscriptionRoutes() {
 
     const intent = resolved as { id?: string; user_id?: string; plan_code?: string; status?: string; checkout_url?: string | null; created_at?: unknown } | undefined;
     if (!intent?.id) return c.json({ ok: false, error: 'CHECKOUT_INTENT_CREATE_FAILED' }, 500);
-    if (Number(intent.user_id) !== user.id || intent.plan_code !== planCode) {
+    if (Number(intent.user_id) !== user.id || intent.plan_code !== 'AI_PRO') {
       return c.json({ ok: false, error: 'CHECKOUT_IDEMPOTENCY_CONFLICT' }, 409);
     }
 
@@ -167,9 +185,9 @@ async function userRow(db: ReturnType<typeof createDatabase>, userId: number): P
         WHEN subscription.current_period_end IS NOT NULL AND NOW() >= subscription.current_period_end THEN 'PERIOD_EXPIRED'
         ELSE 'ACTIVE'
       END AS effective_state
-    FROM worklog_users u
-    LEFT JOIN worklog_user_subscriptions subscription ON subscription.user_id = u.id
-    LEFT JOIN worklog_subscription_plans plan ON plan.code = subscription.plan_code
+    FROM worklog_users AS u
+    LEFT JOIN worklog_user_subscriptions AS subscription ON subscription.user_id = u.id
+    LEFT JOIN worklog_subscription_plans AS plan ON plan.code = subscription.plan_code
     WHERE u.id = ${userId}
     LIMIT 1
   `);
