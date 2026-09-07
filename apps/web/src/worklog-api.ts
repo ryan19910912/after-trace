@@ -115,19 +115,28 @@ export type CreatedNativeGroupInvite = {
 };
 
 export type SubscriptionPlan = {
-  code: string;
+  code: 'FREE' | 'AI_PRO';
   display_name: string;
   price_twd: string;
   rank: number;
-  subscription_period_points: number;
-  one_time_initial_points?: number;
+  monthly_ai_point_cap?: number | null;
+  monthly_provider_cost_cap_twd?: string | null;
+  per_request_ai_point_cap?: number | null;
   capabilities: Record<string, unknown>;
   current: boolean;
 };
 
+export type FreeAiTrialState = {
+  status: 'AVAILABLE' | 'EXHAUSTED' | 'NOT_ISSUED';
+  originalPoints: number;
+  remainingPoints: number;
+};
+
 export type SubscriptionPlans = {
-  currentPlanCode: string;
+  currentPlanCode: 'FREE' | 'AI_PRO';
+  currentSubscriptionState?: string;
   checkoutEnabled: boolean;
+  freeAiTrial: FreeAiTrialState;
   plans: SubscriptionPlan[];
 };
 
@@ -349,8 +358,10 @@ export class WorklogApi {
     );
     return {
       currentPlanCode: value.currentPlanCode,
+      currentSubscriptionState: value.currentSubscriptionState,
       checkoutEnabled: value.checkoutEnabled,
-      plans: value.plans,
+      freeAiTrial: value.freeAiTrial,
+      plans: value.plans.filter((plan) => plan.code === 'FREE' || plan.code === 'AI_PRO'),
     };
   }
 
