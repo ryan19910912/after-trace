@@ -12,6 +12,7 @@ import {
   DrizzleWorklogAnomalyRepository,
   recordAnomalySafely,
 } from './worklog/anomalies';
+import { createAiEntitlementRoutes } from './worklog/ai-entitlement-routes';
 import { WorklogAiPointLedgerService } from './worklog/ai-point-ledger';
 import { WorklogAttachmentIngestionService } from './worklog/attachment-ingestion';
 import { configureWorklogAttachmentRuntime } from './worklog/attachment-runtime';
@@ -42,6 +43,7 @@ const adminCommercialConfigRoutes = createAdminCommercialConfigRoutes();
 const adminNotificationRoutes = createAdminNotificationRoutes();
 const adminProfitabilityRoutes = createAdminProfitabilityRoutes();
 const accountRoutes = createAccountRoutes();
+const aiEntitlementRoutes = createAiEntitlementRoutes();
 const nativeGroupRoutes = createNativeGroupRoutes();
 const notificationRoutes = createNotificationRoutes();
 const taskRoutes = createTaskRoutes();
@@ -218,6 +220,13 @@ export default {
       const routedRequest = new Request(rewritten, request);
       return withApiAnomalyBoundary('WORKLOG_WEB_API', request, env, () =>
         accountRoutes.fetch(routedRequest, env as never, executionContext as never));
+    }
+    if (url.pathname === '/api/v1/ai/entitlement') {
+      const rewritten = new URL(request.url);
+      rewritten.pathname = '/';
+      const routedRequest = new Request(rewritten, request);
+      return withApiAnomalyBoundary('WORKLOG_WEB_API', request, env, () =>
+        aiEntitlementRoutes.fetch(routedRequest, env as never, executionContext as never));
     }
     if (url.pathname === '/api/v1/notifications' || url.pathname.startsWith('/api/v1/notifications/')) {
       const rewritten = new URL(request.url);
