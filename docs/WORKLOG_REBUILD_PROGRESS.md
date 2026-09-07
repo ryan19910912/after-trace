@@ -112,7 +112,8 @@ The next batch must send an explicitly captured bounded image through AFTERTRACE
 - `apps/api/src/worklog/record-capture-context.ts`;
 - `apps/api/src/worklog/record-capture-context.test.ts`;
 - `apps/api/src/worklog/manual-record-routes.ts`;
-- `apps/api/src/worklog/drizzle-manual-record-routes.ts`.
+- `apps/api/src/worklog/drizzle-manual-record-routes.ts`;
+- `apps/api/src/worklog/manual-record-capture-context.test.ts`.
 
 ### Chrome Extension
 
@@ -127,17 +128,15 @@ The next batch must send an explicitly captured bounded image through AFTERTRACE
 
 All development commits contain `[skip ci]`:
 
+- `22af4e03` — bounded Record capture-context parser;
+- `89d6af6b` — bounded capture-context tests;
 - `4383107a` — target schema capture-context field;
 - `cde57b2f` — parse/persist bounded manual capture context at API boundary;
 - `2c8856bc` — store/read manual Record capture context in Drizzle repository;
+- `32e9641c` — author manual Record capture-context route tests;
 - `172e671d` — persist extension page capture context;
 - `a29cb389` — align extension capture status copy;
-- this checkpoint commit follows.
-
-Earlier parser/test commits in the same batch include:
-
-- `22af4e03` — bounded Record capture-context parser;
-- `89d6af6b` — bounded capture-context tests.
+- `83c36de2` — checkpoint durable extension page context.
 
 No GitHub Actions workflow was run, dispatched, rerun, enabled, modified or used as validation. `apps/api/verify-admin-schema.mjs` was not staged or committed.
 
