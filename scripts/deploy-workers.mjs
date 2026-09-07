@@ -107,6 +107,9 @@ function requireApiRuntimeBindings() {
     'ADMIN_PASSWORD',
     'ADMIN_SESSION_SECRET',
     'ADMIN_WEB_ORIGIN',
+    'WEB_PUSH_PUBLIC_KEY',
+    'WEB_PUSH_PRIVATE_KEY',
+    'WEB_PUSH_SUBJECT',
   ];
   const values = {};
   for (const name of names) {
