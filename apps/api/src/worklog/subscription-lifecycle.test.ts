@@ -89,7 +89,7 @@ describe('SubscriptionLifecycleService', () => {
     expect(notify.cancelled).not.toHaveBeenCalled();
   });
 
-  it('treats cancellation with a future period end as cancel-at-period-end semantics', async () => {
+  it('binds future cancellation to its exact billing period', async () => {
     const notify = notifications();
     const repo = repository({
       status: 'APPLIED', subscriptionId: 12, userId: 7, type: 'CANCEL', periodStart, periodEnd,
@@ -98,10 +98,35 @@ describe('SubscriptionLifecycleService', () => {
 
     await service.apply({
       provider: 'TEST_PAY', externalEventKey: 'evt_cancel', type: 'CANCEL',
-      userId: 7, planCode: 'AI_PRO', occurredAt, periodEnd,
+      userId: 7, planCode: 'AI_PRO', occurredAt, periodStart, periodEnd,
     });
 
+    expect(repo.apply).toHaveBeenCalledWith(expect.objectContaining({ periodStart, periodEnd }));
     expect(notify.cancelled).toHaveBeenCalledWith({ userId: 7, subscriptionId: 12, periodEnd });
+  });
+
+  it('rejects scheduled cancellation without the matching billing period start', async () => {
+    const repo = repository({ status: 'DUPLICATE', applied: null });
+    const service = new SubscriptionLifecycleService(repo, notifications());
+
+    await expect(service.apply({
+      provider: 'TEST_PAY', externalEventKey: 'evt_unsafe_cancel', type: 'CANCEL',
+      userId: 7, planCode: 'AI_PRO', occurredAt, periodEnd,
+    })).rejects.toThrow('SUBSCRIPTION_CANCEL_PERIOD_INVALID');
+    expect(repo.apply).not.toHaveBeenCalled();
+  });
+
+  it('allows explicit immediate cancellation without a scheduled period end', async () => {
+    const notify = notifications();
+    const repo = repository({
+      status: 'APPLIED', subscriptionId: 12, userId: 7, type: 'CANCEL', periodStart, periodEnd: occurredAt,
+    });
+    const service = new SubscriptionLifecycleService(repo, notify);
+
+    await expect(service.apply({
+      provider: 'TEST_PAY', externalEventKey: 'evt_immediate_cancel', type: 'CANCEL',
+      userId: 7, planCode: 'AI_PRO', occurredAt,
+    })).resolves.toMatchObject({ status: 'APPLIED', type: 'CANCEL' });
   });
 
   it('rejects non-V1 plans before repository mutation', async () => {
