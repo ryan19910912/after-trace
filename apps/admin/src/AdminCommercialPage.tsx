@@ -8,6 +8,7 @@ export function AdminCommercialPage({ api }: { api: AdminCommercialApi }) {
   const [trialPoints, setTrialPoints] = useState('');
   const [aiPro, setAiPro] = useState<AiProConfig | null>(null);
   const [aiProEnabled, setAiProEnabled] = useState(true);
+  const [aiMediaIngestion, setAiMediaIngestion] = useState(true);
   const [monthlyPoints, setMonthlyPoints] = useState('');
   const [providerCostCap, setProviderCostCap] = useState('');
   const [perRequestCap, setPerRequestCap] = useState('');
@@ -38,6 +39,7 @@ export function AdminCommercialPage({ api }: { api: AdminCommercialApi }) {
   function applyAiPro(value: AiProConfig | null) {
     setAiPro(value);
     setAiProEnabled(value?.enabled ?? true);
+    setAiMediaIngestion(value?.aiMediaIngestion ?? true);
     setMonthlyPoints(value ? String(value.monthlyAiPointCap) : '');
     setProviderCostCap(value?.monthlyProviderCostCapTwd ?? '');
     setPerRequestCap(value?.perRequestAiPointCap ? String(value.perRequestAiPointCap) : '');
@@ -67,11 +69,12 @@ export function AdminCommercialPage({ api }: { api: AdminCommercialApi }) {
     if (!Number.isSafeInteger(monthly) || monthly <= 0) { setError('AI Pro 每月 AI 點數上限必須大於 0。'); return; }
     if (!/^\d+(?:\.\d{1,6})?$/.test(providerCap) || Number(providerCap) <= 0) { setError('Provider Cost hard cap 必須是大於 0 的 TWD 金額。'); return; }
     if (requestCap !== null && (!Number.isSafeInteger(requestCap) || requestCap <= 0 || requestCap > monthly)) { setError('單次 AI 點數上限必須大於 0，且不得超過每月上限。'); return; }
-    if (!window.confirm(`確定更新 AI Pro 營運上限？\n售價仍固定 NT$99/月；Provider Cost hard cap 只供內部風險控制。`)) return;
+    if (!window.confirm(`確定更新 AI Pro 營運上限與功能開關？\n售價仍固定 NT$99/月；Provider Cost hard cap 只供內部風險控制。`)) return;
     setSaving(true); setError(null); setNotice(null);
     try {
       const next = await api.setAiPro({
         enabled: aiProEnabled,
+        aiMediaIngestion,
         monthlyAiPointCap: monthly,
         monthlyProviderCostCapTwd: providerCap,
         perRequestAiPointCap: requestCap,
@@ -120,6 +123,8 @@ export function AdminCommercialPage({ api }: { api: AdminCommercialApi }) {
         <h2>AI Pro · NT$99 / 月</h2>
         <p className="muted">售價鎖定為 V1 商業契約。以下都是內部公平使用／成本安全參數，不是客戶現金餘額。</p>
         <label><input type="checkbox" checked={aiProEnabled} disabled={loading || saving} onChange={(event) => setAiProEnabled(event.target.checked)} /> 啟用 AI Pro</label>
+        <label><input type="checkbox" checked={aiMediaIngestion} disabled={loading || saving || !aiProEnabled} onChange={(event) => setAiMediaIngestion(event.target.checked)} /> 啟用圖片／截圖 AI</label>
+        <p className="muted">此開關同時控制 AI Pro 與符合資格的 FREE 一次性 AI 試用是否可執行 provider 圖片理解；關閉後圖片 provider work 會 fail closed，手動紀錄不受影響。</p>
         <label>每月 AI 點數／資源上限
           <input type="number" min="1" step="1" value={monthlyPoints} onChange={(event) => setMonthlyPoints(event.target.value)} placeholder="例如 100000" />
         </label>
@@ -130,7 +135,7 @@ export function AdminCommercialPage({ api }: { api: AdminCommercialApi }) {
           <input type="number" min="1" step="1" value={perRequestCap} onChange={(event) => setPerRequestCap(event.target.value)} placeholder="留空表示沒有額外單次 cap" />
         </label>
         <div className="header-actions"><button disabled={loading || saving} onClick={() => void saveAiPro()}>{saving ? '儲存中…' : '儲存 AI Pro 設定'}</button></div>
-        {aiPro && <p className="muted">目前：{aiPro.enabled ? '啟用' : '停用'} · 月點數 {aiPro.monthlyAiPointCap.toLocaleString()} · Provider Cost NT$ {aiPro.monthlyProviderCostCapTwd} · 最後更新 {new Date(aiPro.updatedAt).toLocaleString('zh-TW')}</p>}
+        {aiPro && <p className="muted">目前：{aiPro.enabled ? '啟用' : '停用'} · 圖片 AI {aiPro.aiMediaIngestion ? '啟用' : '停用'} · 月點數 {aiPro.monthlyAiPointCap.toLocaleString()} · Provider Cost NT$ {aiPro.monthlyProviderCostCapTwd} · 最後更新 {new Date(aiPro.updatedAt).toLocaleString('zh-TW')}</p>}
       </article>
 
       <article className="card">
