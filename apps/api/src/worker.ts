@@ -25,8 +25,10 @@ import { GeminiWorklogTextNormalizer } from './worklog/gemini-text-normalizer';
 import { createManualRecordRoutes } from './worklog/manual-record-routes';
 import { createNativeGroupRoutes } from './worklog/native-group-routes';
 import { createNotificationRoutes } from './worklog/notification-routes';
+import { deliverPendingPushBatch } from './worklog/push-runtime';
 import { RecordNormalizationAiPointPort } from './worklog/record-normalization-ai-points';
 import { createWorklogRoutes } from './worklog/routes';
+import { runScheduledNotificationBatch } from './worklog/scheduled-notifications';
 import { createWorklogSubscriptionRoutes } from './worklog/subscription-routes';
 import { WorklogTextNormalizationService } from './worklog/text-normalization';
 
@@ -76,6 +78,26 @@ function manualRecordRoute(pathname: string): boolean {
   if (/^\/api\/v1\/worklog\/records\/personal(?:\/deleted)?$/.test(pathname)) return true;
   if (/^\/api\/v1\/worklog\/records\/group\/\d+(?:\/deleted)?$/.test(pathname)) return true;
   return /^\/api\/v1\/worklog\/records\/\d+(?:\/restore|\/revisions)?$/.test(pathname);
+}
+
+function shouldKickPushAfterAdminAnnouncement(request: Request, response: Response): boolean {
+  if (!response.ok || request.method !== 'POST') return false;
+  const pathname = new URL(request.url).pathname;
+  if (/^\/api\/v1\/admin\/notifications\/announcements\/\d+\/send$/.test(pathname)) return true;
+  if (pathname !== '/api/v1/admin/notifications/announcements') return false;
+  return response.status === 201;
+}
+
+function schedulePushDelivery(env: Bindings, executionContext: ExecutionContextLike): void {
+  executionContext.waitUntil(
+    deliverPendingPushBatch(env, 50).catch((error) => {
+      console.error(JSON.stringify({
+        event: 'worklog_push_delivery_failed',
+        message: error instanceof Error ? error.message : 'unknown error',
+      }));
+      return null;
+    }),
+  );
 }
 
 async function withApiAnomalyBoundary(
@@ -151,8 +173,12 @@ export default {
       const rewritten = new URL(request.url);
       rewritten.pathname = url.pathname.slice('/api/v1/admin/notifications'.length) || '/';
       const routedRequest = new Request(rewritten, request);
-      return withApiAnomalyBoundary('ADMIN_API', request, env, () =>
+      const response = await withApiAnomalyBoundary('ADMIN_API', request, env, () =>
         adminNotificationRoutes.fetch(routedRequest, env as never, executionContext as never));
+      if (shouldKickPushAfterAdminAnnouncement(request, response)) {
+        schedulePushDelivery(env, executionContext);
+      }
+      return response;
     }
     if (
       url.pathname === '/api/v1/admin/profitability'
@@ -234,5 +260,18 @@ export default {
         worklogRoutes.fetch(routedRequest, env as never, executionContext as never));
     }
     return app.fetch(request, env, executionContext as never);
+  },
+
+  async scheduled(_controller: unknown, env: Bindings, executionContext: ExecutionContextLike) {
+    executionContext.waitUntil(
+      runScheduledNotificationBatch(env, { announcementLimit: 25, pushLimit: 50 }).then((result) => {
+        console.log(JSON.stringify({ event: 'worklog_notification_schedule_completed', ...result }));
+      }).catch((error) => {
+        console.error(JSON.stringify({
+          event: 'worklog_notification_schedule_failed',
+          message: error instanceof Error ? error.message : 'unknown error',
+        }));
+      }),
+    );
   },
 };
