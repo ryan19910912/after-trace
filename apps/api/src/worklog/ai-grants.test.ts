@@ -8,7 +8,7 @@ import { FREE_INITIAL_GRANT_ORIGIN_KEY } from './ai-points';
 
 class FakeRepository implements WorklogAiGrantRepository {
   calls: Array<{ kind: string; input: unknown }> = [];
-  freePlanGrantPoints: number | null = 400_000;
+  freeInitialTrialPoints: number | null = 400_000;
   grant: WorklogAiGrantSnapshot = {
     id: 10,
     ownerUserId: 7,
@@ -22,9 +22,9 @@ class FakeRepository implements WorklogAiGrantRepository {
   };
   totalRemainingPoints = 400_000;
 
-  async getFreePlanGrantPoints() {
-    this.calls.push({ kind: 'free-plan-points', input: null });
-    return this.freePlanGrantPoints;
+  async getFreeInitialTrialPoints() {
+    this.calls.push({ kind: 'free-trial-points', input: null });
+    return this.freeInitialTrialPoints;
   }
 
   async ensureGrant(input: Parameters<WorklogAiGrantRepository['ensureGrant']>[0]) {
@@ -48,14 +48,14 @@ class FakeRepository implements WorklogAiGrantRepository {
 }
 
 describe('WorklogAiGrantService', () => {
-  it('uses the current FREE plan point template when provisioning a first grant', async () => {
+  it('snapshots the current FREE trial config when provisioning a first grant', async () => {
     const repository = new FakeRepository();
     const service = new WorklogAiGrantService(repository);
     const at = new Date('2026-09-04T00:00:00.000Z');
 
     await service.ensureInitialFreeGrant({ userId: 7, privateSourceId: 12, at });
 
-    expect(repository.calls[0]).toEqual({ kind: 'free-plan-points', input: null });
+    expect(repository.calls[0]).toEqual({ kind: 'free-trial-points', input: null });
     expect(repository.calls[1]).toEqual({
       kind: 'grant',
       input: {
@@ -65,7 +65,10 @@ describe('WorklogAiGrantService', () => {
         effectiveAt: at,
         expiresAt: null,
         originKey: FREE_INITIAL_GRANT_ORIGIN_KEY,
-        metadata: { planCode: 'FREE', configuredGrantPoints: 400_000 },
+        metadata: {
+          commercialConfigKey: 'free_initial_ai_trial_points',
+          configuredTrialPoints: 400_000,
+        },
       },
     });
     expect(repository.calls[2]).toEqual({
@@ -74,12 +77,13 @@ describe('WorklogAiGrantService', () => {
     });
   });
 
-  it('fails closed when the FREE plan template is not initialized', async () => {
+  it('fails closed for provider AI when FREE trial config is not initialized', async () => {
     const repository = new FakeRepository();
-    repository.freePlanGrantPoints = null;
+    repository.freeInitialTrialPoints = null;
     const service = new WorklogAiGrantService(repository);
 
-    await expect(service.ensureInitialFreeGrant({ userId: 7, privateSourceId: 12 })).rejects.toThrow('FREE_PLAN_NOT_INITIALIZED');
+    await expect(service.ensureInitialFreeGrant({ userId: 7, privateSourceId: 12 }))
+      .rejects.toThrow('FREE_AI_TRIAL_CONFIG_NOT_INITIALIZED');
   });
 
   it('requires positive scoped balance before AI can start', async () => {
