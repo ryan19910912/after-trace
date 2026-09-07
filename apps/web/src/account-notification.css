@@ -23,6 +23,18 @@
   min-width: 0;
 }
 
+.account-task-shortcut {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 7px 11px;
+  border-color: #343943;
+  border-radius: 10px;
+  background: #17191d;
+  color: #e7eaf0;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .notification-anchor { position: relative; }
 .notification-bell {
   position: relative;
@@ -160,6 +172,7 @@ button.compact { padding: 6px 9px; border-radius: 8px; font-size: 11px; }
 @media (max-width: 640px) {
   .account-chrome-inner { padding: 8px 14px; }
   .account-chrome-actions { width: 100%; }
+  .account-task-shortcut { padding-inline: 9px; }
   .account-summary { flex: 1; justify-content: flex-end; min-width: 0; }
   .account-display-name { max-width: 92px; }
   .account-id-copy { flex: 1; justify-content: flex-end; gap: 5px; max-width: 196px; padding-inline: 8px; }
@@ -169,6 +182,7 @@ button.compact { padding: 6px 9px; border-radius: 8px; font-size: 11px; }
 
 @media (max-width: 420px) {
   .account-chrome-actions { gap: 7px; }
+  .account-task-shortcut { padding-inline: 7px; font-size: 11px; }
   .account-display-name { max-width: 70px; }
   .account-id-copy { max-width: 176px; padding-inline: 6px; }
   .account-id-copy strong { max-width: 68px; }
