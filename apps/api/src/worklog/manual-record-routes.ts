@@ -1,4 +1,5 @@
 import { Hono, type Context } from 'hono';
+import { allowedProductClientOrigin } from '../auth/product-client-origin';
 import { resolveWebSessionUserId } from '../auth/session-user';
 import { verifyWebSessionToken, type WebSessionClaims } from '../auth/token';
 import { createDatabase, type Database } from '../db/client';
@@ -127,23 +128,23 @@ export function createManualRecordRoutes(dependencies: ManualRecordRouteDependen
 
   app.use('*', async (c, next) => {
     const origin = c.req.header('origin');
-    const allowedOrigin = c.env.WEB_APP_ORIGIN?.trim();
-    if (origin && (!allowedOrigin || origin !== allowedOrigin)) {
+    const allowedOrigin = allowedProductClientOrigin(origin, c.env.WEB_APP_ORIGIN);
+    if (origin && !allowedOrigin) {
       return c.json({ ok: false, error: 'ORIGIN_NOT_ALLOWED' }, 403);
     }
     await next();
     c.header('Cache-Control', 'no-store');
-    if (origin && allowedOrigin && origin === allowedOrigin) {
-      c.header('Access-Control-Allow-Origin', origin);
+    if (allowedOrigin) {
+      c.header('Access-Control-Allow-Origin', allowedOrigin);
       c.header('Vary', 'Origin');
     }
   });
 
   app.options('*', (c) => {
     const origin = c.req.header('origin');
-    const allowedOrigin = c.env.WEB_APP_ORIGIN?.trim();
-    if (!origin || !allowedOrigin || origin !== allowedOrigin) return c.body(null, 403);
-    c.header('Access-Control-Allow-Origin', origin);
+    const allowedOrigin = allowedProductClientOrigin(origin, c.env.WEB_APP_ORIGIN);
+    if (!allowedOrigin) return c.body(null, 403);
+    c.header('Access-Control-Allow-Origin', allowedOrigin);
     c.header('Access-Control-Allow-Headers', 'Authorization, Content-Type');
     c.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
     c.header('Access-Control-Max-Age', '600');
