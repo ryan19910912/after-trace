@@ -6,7 +6,7 @@ Before substantive work, read the latest documents in the exact order defined by
 
 Never run/dispatch/rerun/enable/modify GitHub Actions. Every development commit must contain `[skip ci]`. Do not stage/commit the unrelated local `apps/api/verify-admin-schema.mjs` unless separately reviewed/approved.
 
-## Current checkpoint — 2026-09-08 provider-neutral subscription lifecycle is source-authored and hardened against stale/out-of-order payment events; AI-tools bounded Record deep links are source-authored; executable/runtime verification still blocked
+## Current checkpoint — 2026-09-08 legacy GROUP funding customer API retired as an explicit 410 tombstone; provider-neutral V1 target remains source-authored; executable/runtime verification still blocked
 
 AFTERTRACE remains Web + PWA-first with a compact Chrome extension fast-capture surface. LINE is retired from the core Record/GROUP/AI product surface. LINE remains only as a provider-neutral login provider and official OA customer-support contact channel.
 
@@ -23,6 +23,7 @@ Current prelaunch Dev and current Prod data are disposable. Clean target-schema/
 - AI Pro retains monthly resource/point cap, provider-cost hard cap, optional per-request cap and operator capability toggles.
 - Every provider-backed request must pass server-side Source authorization + unified entitlement + reservation/provider-cost hold before provider execution, then settle actual provider usage/cost.
 - Deterministic paid features such as current Related Records ranking must not fabricate provider usage or consume trial points when no provider call occurs.
+- There is no target GROUP AI funding owner / responsible-user concept.
 
 ## Accepted target foundation — do not redo
 
@@ -45,146 +46,70 @@ Current branch already source-authors:
 - bounded time-range summary;
 - proposal-only AI rewrite + optimistic confirm flow;
 - customer `/ai-tools` surface;
+- bounded `/ai-tools?sourceId=&recordId=&tool=related|rewrite` deep-link parser/prefill;
 - deterministic AI-limit SYSTEM notification caller;
 - Chrome Extension bounded session handoff, Source/group picker, durable quick text, selected text, browser STT, bounded page title/URL metadata and explicit screenshot/image AI path;
 - provider-neutral normalized AI Pro subscription lifecycle core;
-- bounded `/ai-tools?sourceId=&recordId=&tool=related|rewrite` deep-link parser/prefill.
+- monotonic/replay-safe subscription lifecycle with stale-event rejection and period-aware SYSTEM notification keys.
 
 All above are **SOURCE-AUTHORED** unless separately marked runtime verified. Do not infer PASS from source presence.
 
-## Branch reconciliation at start of this run
+## Starting point for this run
 
-The durable checkpoint initially visible for this run was behind the actual branch. The branch had advanced from the bounded Extension checkpoint to `08fe3353`, ten commits ahead and zero behind.
+The durable checkpoint and actual branch were aligned at `42490a097fa7975eda315643162696c18ab70a05` when substantive work began. No hidden branch reconciliation was required this run.
 
-Those already-present commits were accepted rather than re-authored. They included:
+Executable verification was retried before feature work and remained unavailable:
 
-- provider-neutral lifecycle schema/service/repository for ACTIVATE / RENEW / CANCEL;
-- idempotency boundary `provider + external_event_key`;
-- AI Pro subscription-period Grant creation;
-- lifecycle SYSTEM notification adapter;
-- initial lifecycle tests;
-- bounded AI-tools Record deep-link parser/builder and AiToolsRoot prefill.
+- repository checkout discovery under available `/mnt/data` and `/home/oai` — **FAIL**, no AFTERTRACE `.git` checkout found;
+- `git ls-remote https://github.com/ryan19910912/after-trace.git HEAD` — **FAIL**, `Could not resolve host: github.com`.
 
-Relevant pre-existing commits accepted this run:
+Because executable checkout remained unavailable, this run followed the checkpoint rule to avoid major feature expansion and performed only bounded legacy-surface retirement.
 
-- `8672381b` — add provider-neutral subscription lifecycle events;
-- `2eaafcc8` — export subscription lifecycle schema;
-- `95042644` — add provider-neutral subscription lifecycle service;
-- `fd5d4442` — persist idempotent AI Pro lifecycle events;
-- `da0d88df` — connect subscription lifecycle to SYSTEM notifications;
-- `2879efc2` — author subscription lifecycle tests;
-- `61692310` — constrain subscription lifecycle inbox;
-- `02879150` — add bounded AI tools Record deep links;
-- `89284e30` — test bounded AI tools deep links;
-- `08fe3353` — prefill AI tools from bounded Record deep links.
+## Completed in this run — retire legacy GROUP funding product API
 
-Do not redo these next run.
+### `/api/v1/worklog/funding` is now an explicit migration tombstone
 
-## Completed in this run — monotonic / replay-safe subscription lifecycle
+`apps/api/src/worklog/funding-routes.ts` previously exposed the old product model where:
 
-### Persisted lifecycle processing result
+- customer funding views were Source-scoped;
+- GROUP had an AI 額度負責人 / funding-owner concept;
+- the responsible user could inspect/manage Grant allocation against the GROUP.
 
-`worklog_subscription_lifecycle_events` now records a durable processing result:
+That behavior conflicts with the accepted V1 contract, where AI entitlement is per AFTERTRACE user and GROUP membership only authorizes Source data.
 
-- `PENDING`;
-- `APPLIED`;
-- `IGNORED_STALE`.
+The legacy route module has therefore been replaced with a minimal fail-closed router:
 
-The lifecycle inbox continues to retain provider `occurred_at`, while AFTERTRACE processing/creation timestamps now use processing time. This keeps provider event time separate from when AFTERTRACE handled the webhook.
+- every old funding path/method returns HTTP `410`;
+- error code is `LEGACY_GROUP_FUNDING_DISABLED`;
+- response points stale clients toward `/api/v1/subscription`;
+- it performs no funding mutation, responsible-user assignment, Grant allocation query or legacy funding business logic;
+- `Cache-Control: no-store` is retained;
+- shared Grant/reservation/settlement/accounting infrastructure is intentionally **not** deleted because it is still the accepted implementation foundation for FREE trial and AI Pro accounting.
 
-A newly received event is inserted once by `(provider, external_event_key)`, then atomically finalized as APPLIED or IGNORED_STALE according to whether it was allowed to mutate the current subscription state.
+This is an isolation step, not broad schema cleanup. Legacy responsibility/funding tables/services may remain temporarily until executable target dependency validation succeeds.
 
-### ACTIVATE / RENEW cannot rewind a newer period
+### Focused tombstone tests authored
 
-AI Pro period application now has monotonic guards before updating `worklog_user_subscriptions`:
+Added `apps/api/src/worklog/funding-routes.test.ts` covering:
 
-- incoming event update time must not be older than the current subscription row update time;
-- incoming `current_period_start` must not be older than the already-current period start.
+- old personal funding surface returns `410` without requiring auth/database state;
+- old GROUP responsible-user mutation path returns `410`;
+- tombstone response remains non-cacheable and directs clients to the subscription surface.
 
-A stale older activation/renewal therefore remains auditable in the lifecycle inbox as `IGNORED_STALE` but cannot rewind the active paid period.
-
-The `SUBSCRIPTION_PERIOD` Grant insert now depends on the successfully applied subscription upsert rather than merely on event insertion. Therefore an ignored stale period cannot create an obsolete AI Grant.
-
-### Scheduled cancellation is bound to the exact billing period
-
-The normalized provider-neutral contract was tightened for cancel-at-period-end safety:
-
-- a scheduled/future cancellation (`periodEnd != null`) must provide both the exact `periodStart` and `periodEnd` of that paid billing period;
-- the period must be valid and the cancellation period end cannot already predate the provider event occurrence;
-- PostgreSQL applies the scheduled cancellation only when `worklog_user_subscriptions.current_period_start` exactly matches that incoming `periodStart`;
-- a delayed cancellation from a previous period is stored as `IGNORED_STALE` instead of shortening a newer renewal;
-- an explicit immediate cancellation remains representable by `periodEnd = null` and does not require a scheduled period pair.
-
-When an applicable cancellation shortens/ends the current paid period, the matching period Grant expiry remains aligned to the resulting subscription period end.
-
-### Duplicate applied events can heal a failed SYSTEM notification
-
-The repository now distinguishes duplicates that were originally:
-
-- APPLIED;
-- IGNORED_STALE.
-
-For a duplicate previously APPLIED event, the repository reconstructs the original applied lifecycle facts. `SubscriptionLifecycleService` deliberately replays the deterministic SYSTEM notification call.
-
-This is safe because the shared Notification Service has its own durable idempotency key. The retry path solves a failure mode where subscription/Grant persistence succeeds but the first notification write temporarily fails: a payment-provider webhook retry can now heal the missing notification without re-applying entitlement.
-
-For duplicates of IGNORED_STALE events, `applied = null`; no notification is emitted.
-
-### Subscription SYSTEM idempotency keys are period-aware
-
-Lifecycle SYSTEM event keys now include the relevant billing period boundary:
-
-- activation key includes `periodStart`;
-- renewal key already includes `periodStart`;
-- cancellation key includes the effective `periodEnd` (or `immediate`).
-
-This keeps retries for one event idempotent while allowing a later legitimate activation/cancellation on another billing period of the same durable subscription row to create a distinct SYSTEM notification.
-
-## Tests authored in this run
-
-Updated/new focused tests cover:
-
-- activation notification includes the billing period;
-- duplicate IGNORED_STALE lifecycle event emits no notification;
-- duplicate APPLIED lifecycle event replays the idempotent notification call;
-- first-seen IGNORED_STALE event emits no notification;
-- scheduled cancellation requires exact billing period start/end;
-- immediate cancellation remains accepted without scheduled period end;
-- subscription period SQL contains monotonic ordering guards;
-- stale period Grant insertion is structurally blocked behind successful subscription upsert;
-- scheduled cancellation SQL matches current `periodStart`;
-- activation/renew/cancel SYSTEM keys are period-aware and retry-stable.
-
-All tests above are **AUTHORED / NOT RUN** because an executable checkout is still unavailable.
+These tests are **AUTHORED / NOT RUN**.
 
 ## Files changed in this run
 
-- `apps/api/src/db/schema-worklog-subscription-lifecycle.ts`;
-- `apps/api/src/worklog/subscription-lifecycle.ts`;
-- `apps/api/src/worklog/drizzle-subscription-lifecycle.ts`;
-- `apps/api/src/worklog/subscription-lifecycle-notifications.ts`;
-- `apps/api/src/worklog/system-notification-events.ts`;
-- `apps/api/src/worklog/subscription-lifecycle.test.ts`;
-- `apps/api/src/worklog/subscription-lifecycle-ordering.test.ts`;
-- `apps/api/src/worklog/system-notification-events.test.ts`;
+- `apps/api/src/worklog/funding-routes.ts`;
+- `apps/api/src/worklog/funding-routes.test.ts`;
 - `docs/WORKLOG_REBUILD_PROGRESS.md`.
 
 ## Development commits authored in this run
 
 All successful development commits contain `[skip ci]`:
 
-- `633d38a1` — harden subscription lifecycle replay semantics;
-- `5bf15ee1` — persist subscription lifecycle processing result;
-- `ab489b2a` — ignore stale subscription lifecycle events;
-- `561890af` — make lifecycle SYSTEM notification keys period-aware;
-- `ca9e61ec` — scope subscription SYSTEM idempotency by period;
-- `de2920fd` — test lifecycle replay and stale event behavior;
-- `b41c9859` — guard monotonic subscription lifecycle SQL;
-- `5bd4203a` — bind scheduled cancellation to billing period;
-- `aff5eb89` — reject cross-period delayed cancellations;
-- `add12124` — test scheduled cancel period binding;
-- `874fb668` — guard cross-period cancellation SQL;
-- `41795208` — test period-aware subscription SYSTEM keys;
+- `3db95528` — retire legacy group funding endpoint;
+- `78cfb1db` — test retired group funding surface;
 - this checkpoint commit follows.
 
 No GitHub Actions workflow was run, dispatched, rerun, enabled, modified or used as validation. `apps/api/verify-admin-schema.mjs` was not staged or committed.
@@ -193,16 +118,24 @@ No GitHub Actions workflow was run, dispatched, rerun, enabled, modified or used
 
 ### AUTHORED / NOT RUN this run
 
-- lifecycle `processing_result` target schema — **AUTHORED / NOT RUN**;
-- monotonic ACTIVATE/RENEW SQL — **AUTHORED / NOT RUN**;
-- stale-period Grant prevention — **AUTHORED / NOT RUN**;
-- exact-period scheduled cancellation SQL — **AUTHORED / NOT RUN**;
-- lifecycle notification retry healing — **AUTHORED / NOT RUN**;
-- period-aware SYSTEM notification keys — **AUTHORED / NOT RUN**;
-- `subscription-lifecycle.test.ts` updated cases — **AUTHORED / NOT RUN**;
-- `subscription-lifecycle-ordering.test.ts` — **AUTHORED / NOT RUN**;
-- `system-notification-events.test.ts` — **AUTHORED / NOT RUN**;
-- previously authored AI-tools bounded deep-link tests — **AUTHORED / NOT RUN**.
+- legacy funding API tombstone behavior — **AUTHORED / NOT RUN**;
+- personal funding `410` regression — **AUTHORED / NOT RUN**;
+- GROUP responsible-user mutation `410` regression — **AUTHORED / NOT RUN**.
+
+### Previously authored and still NOT RUN
+
+- provider-neutral identity/login/public account id;
+- native group/invite authorization;
+- FREE one-time AI trial issuance/idempotency;
+- AI Pro entitlement/resource/provider-cost caps;
+- provider-backed text/image/audio/file/PDF capture;
+- natural-language search;
+- Related Records SQL/ranking;
+- time-range summary;
+- AI rewrite proposal/confirm;
+- notifications/PUSH/tasks/shared scheduler;
+- Chrome Extension handoff/capture paths;
+- provider-neutral subscription lifecycle and stale/out-of-order event hardening.
 
 ### Executable verification actually attempted this run
 
@@ -230,21 +163,21 @@ No test/build/runtime item is claimed PASS or RUNTIME VERIFIED.
 ## Known blockers / risks
 
 1. Executable checkout is still unavailable. Accumulated TypeScript/React/SQL/extension code has not compiled or executed; this remains the dominant project risk.
-2. Canonical `drizzle/0000` is behind the target schema and now must include `worklog_subscription_lifecycle_events.processing_result` plus all other accepted target schema changes before clean DB validation.
-3. Lifecycle SQL has not executed against PostgreSQL. The first DB pass must explicitly test duplicate webhook retry, reversed renewal arrival order, stale prior-period cancellation, simultaneous renewal attempts and immediate cancellation.
-4. The notification retry-healing path relies on the already-authored Notification Service idempotency boundary and still needs real DB/runtime verification.
-5. No payment provider transport/webhook adapter is enabled. `CHECKOUT_ENABLED=false` remains correct. A chosen provider adapter must verify webhook authenticity before translating into the normalized lifecycle contract, and scheduled cancellations must supply the exact provider billing-period start/end.
-6. Atomic provider-cost hold still needs real PostgreSQL concurrency smoke.
-7. Google/LINE/Apple OAuth, Gemini operations, Chrome Extension and Push/Cron still need runtime/browser/provider smoke.
-8. Main Worklog Record cards still do not expose final one-click Related/Rewrite buttons. The safe deep-link builder/parser and AiToolsRoot prefill are ready; avoid a broad 32KB WorklogRoot rewrite until compile validation is available or extract a small component safely.
-9. The bounded Extension session remains a signed AFTERTRACE bearer session with seven-day TTL, not a separately revocable per-device credential. This is acceptable for current V1 source target but should be revisited only if real usage demonstrates a need.
-10. Retired LINE/ONE_TIME/GROUP-funding runtime/schema cleanup remains after target dependencies are proven and executable validation succeeds.
+2. Canonical `drizzle/0000` is behind the target schema and must include the latest identity/group/notification/task/AI/lifecycle target state before clean DB validation.
+3. Subscription lifecycle SQL has not executed against PostgreSQL. The first DB pass must explicitly test duplicate webhook retry, reversed renewal arrival order, stale prior-period cancellation, simultaneous renewal attempts and immediate cancellation.
+4. Atomic provider-cost hold still needs real PostgreSQL concurrency smoke.
+5. Google/LINE/Apple OAuth, Gemini operations, Chrome Extension and Push/Cron still need runtime/browser/provider smoke.
+6. Worker routing still calls `configureWorklogRuntime(env)` before delegating to the now-retired funding tombstone because the old generic `/api/v1/worklog/*` block has not yet been structurally split. The funding endpoint can no longer mutate/query legacy funding data, but final target cleanup should move retired paths ahead of legacy runtime configuration or remove that legacy runtime entirely after compile validation.
+7. `confirmation-routes.ts` still uses a legacy `session.lineUserId` resolution path even though its comment describes a PWA title-ambiguity surface. Current Web capture does not visibly depend on this route, but do not delete it solely from static inspection; first verify references/compile/runtime, then either migrate it to provider-neutral `resolveWebSessionUserId` if still required or retire it.
+8. Main Worklog Record cards still do not expose final one-click Related/Rewrite buttons. The bounded deep-link builder/parser and AiToolsRoot prefill are ready; avoid a broad 32KB WorklogRoot replacement without executable validation.
+9. No payment provider transport/webhook adapter is enabled. `CHECKOUT_ENABLED=false` remains correct. A chosen provider adapter must verify webhook authenticity before translating into the normalized lifecycle contract.
+10. Retired LINE/ONE_TIME/GROUP-funding schema/service cleanup remains after target dependencies are proven and executable validation succeeds.
 
 ## Exact next run plan
 
-1. If an executable checkout becomes available, **stop feature expansion immediately** and run/fix:
+1. If an executable checkout becomes available, **stop source feature expansion immediately** and run/fix:
    - API/Web/Admin typecheck;
-   - focused auth/Apple/extension-session/subscription-lifecycle/entitlement/provider-cost/media/search/related/summary/rewrite/notification/task tests;
+   - focused auth/Apple/extension-session/subscription-lifecycle/entitlement/provider-cost/media/search/related/summary/rewrite/funding-tombstone/notification/task tests;
    - full package tests;
    - API Worker dry-run + Web/Admin builds;
    - regenerate canonical Drizzle `0000` baseline and rebuild a disposable PostgreSQL DB;
@@ -253,20 +186,20 @@ No test/build/runtime item is claimed PASS or RUNTIME VERIFIED.
    - Dev Google/LINE/Apple + Gemini provider smoke;
    - Chrome unpacked handoff -> Source -> manual/page/selection -> screenshot AI smoke;
    - Push/Cron browser/runtime smoke.
-2. If executable checkout remains unavailable, do only bounded finishing work:
-   - add the final compact Worklog Record-card -> `/ai-tools` Related/Rewrite actions only if it can be done by extracting/safely replacing a small component rather than broadly rewriting WorklogRoot;
-   - inspect target-independent retired LINE/ONE_TIME/GROUP-funding entry points only where replacement dependencies are already clearly complete;
-   - do not add more major V1 AI/product features.
-3. Keep checkout/payment transport disabled until a real provider is selected, webhook authenticity is implemented and this provider-neutral lifecycle boundary passes PostgreSQL/runtime validation.
+2. If executable checkout remains unavailable, only bounded finishing work is allowed:
+   - inspect `confirmation-routes.ts` references and retire/migrate it only if the target dependency is unambiguous;
+   - isolate more clearly retired `/webhooks/line` / generic LINE worklog runtime entry points only where the replacement target is already complete and the change can be made without a risky broad rewrite;
+   - do not add new major V1 AI/product features.
+3. Keep checkout/payment transport disabled until a real provider is selected, webhook authenticity is implemented and the provider-neutral lifecycle boundary passes PostgreSQL/runtime validation.
 
 ## Current estimated remaining development time
 
-Approximately **2.25–6.5 focused development hours** remain for the accepted V1 source/runtime scope, excluding external waiting for Apple/payment-provider account setup.
+Approximately **2–6 focused development hours** remain for the accepted V1 source/runtime scope, excluding external waiting for Apple/payment-provider account setup.
 
 Rough allocation:
 
-- first executable compile/test + canonical baseline/clean DB fixes: **2.25–5h**;
+- first executable compile/test + canonical baseline/clean DB fixes: **2–4.75h**;
 - real OAuth/Gemini/Chrome/Push/lifecycle runtime smoke and polish: **0.75–1.75h**;
-- final Record-card AI action polish + safe legacy cleanup: **0.25–1h**.
+- final Record-card AI action + safe legacy isolation/cleanup: **0.25–0.75h**.
 
 Ranges overlap. The largest uncertainty remains the first real compile/test + clean PostgreSQL baseline pass. Major V1 feature scope is predominantly SOURCE-AUTHORED, not runtime verified.
