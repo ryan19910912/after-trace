@@ -23,6 +23,7 @@ export const worklogSubscriptionLifecycleEvents = pgTable(
     periodStart: timestamp('period_start', { withTimezone: true }),
     periodEnd: timestamp('period_end', { withTimezone: true }),
     occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+    processingResult: varchar('processing_result', { length: 32 }).notNull(),
     processedAt: timestamp('processed_at', { withTimezone: true }).notNull(),
     metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -33,5 +34,6 @@ export const worklogSubscriptionLifecycleEvents = pgTable(
     index('worklog_subscription_lifecycle_type_time_idx').on(table.eventType, table.occurredAt),
     check('worklog_subscription_lifecycle_event_type_ck', sql`${table.eventType} IN ('ACTIVATE','RENEW','CANCEL')`),
     check('worklog_subscription_lifecycle_plan_code_ck', sql`${table.planCode} = 'AI_PRO'`),
+    check('worklog_subscription_lifecycle_processing_result_ck', sql`${table.processingResult} IN ('PENDING','APPLIED','IGNORED_STALE')`),
   ],
 );
