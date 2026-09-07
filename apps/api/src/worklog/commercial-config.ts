@@ -16,6 +16,7 @@ export type AiProConfigSnapshot = {
   enabled: boolean;
   aiEnabled: boolean;
   aiMediaIngestion: boolean;
+  aiNaturalSearch: boolean;
   monthlyAiPointCap: number;
   monthlyProviderCostCapTwd: string;
   perRequestAiPointCap: number | null;
@@ -25,6 +26,7 @@ export type AiProConfigSnapshot = {
 export type AiProConfigInput = {
   enabled: boolean;
   aiMediaIngestion?: boolean;
+  aiNaturalSearch?: boolean;
   monthlyAiPointCap: number;
   monthlyProviderCostCapTwd: string;
   perRequestAiPointCap?: number | null;
@@ -69,6 +71,7 @@ export class CommercialConfigService {
     return this.repository.setAiProConfig({
       enabled: Boolean(input.enabled),
       aiMediaIngestion: input.aiMediaIngestion !== false,
+      aiNaturalSearch: input.aiNaturalSearch !== false,
       monthlyAiPointCap: input.monthlyAiPointCap,
       monthlyProviderCostCapTwd: providerCostCap,
       perRequestAiPointCap: perRequest,
