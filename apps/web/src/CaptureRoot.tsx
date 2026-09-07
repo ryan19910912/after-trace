@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AiCaptureApi, type AiEntitlementDecision } from './ai-capture-api';
+import { LoginProviderButtons } from './LoginProviderButtons';
 import {
   browserSpeechRecognitionSupported,
   createBrowserSpeechRecognition,
@@ -12,7 +13,6 @@ import './capture.css';
 
 const SESSION_KEY = 'aftertrace.worklog.session';
 const ACTIVE_SCOPE_KEY = 'aftertrace.worklog.scope';
-const RETURN_KEY = 'aftertrace.worklog.returnTo';
 
 type Props = { apiBaseUrl: string };
 type CaptureScope = RecordScope;
@@ -154,7 +154,7 @@ export function CaptureRoot({ apiBaseUrl }: Props) {
 
     if (!recognition) {
       setSpeechState('ERROR');
-      setSpeechMessage('這個瀏覽器目前不支援語音轉文字，仍可直接使用下方文字輸入。');
+      setSpeechMessage('這個瀏覽器目前不支援語音轉文字，仍可直接使用文字輸入。');
       return;
     }
 
@@ -249,10 +249,7 @@ export function CaptureRoot({ apiBaseUrl }: Props) {
         <h1>快速紀錄</h1>
         <p className="muted">登入後，從麥克風或文字直接留下工作紀錄。</p>
         {error ? <div className="error">{error}</div> : null}
-        <button onClick={() => {
-          localStorage.setItem(RETURN_KEY, '/capture');
-          window.location.href = api.lineLoginUrl();
-        }}>登入 AFTERTRACE</button>
+        <LoginProviderButtons apiBaseUrl={apiBaseUrl} returnTo="/capture" />
         <button className="ghost" onClick={() => { window.location.href = '/'; }}>回完整紀錄頁</button>
       </section>
     </main>;
