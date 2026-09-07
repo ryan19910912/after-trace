@@ -86,6 +86,11 @@ function manualRecordRoute(pathname: string): boolean {
   return /^\/api\/v1\/worklog\/records\/\d+(?:\/restore|\/revisions)?$/.test(pathname);
 }
 
+function legacyAdminPlanMutation(request: Request, pathname: string): boolean {
+  return (request.method === 'PUT' || request.method === 'DELETE')
+    && /^\/api\/v1\/admin\/plans\/[^/]+$/.test(pathname);
+}
+
 async function shouldKickPushAfterAdminAnnouncement(request: Request, response: Response): Promise<boolean> {
   if (!response.ok || request.method !== 'POST') return false;
   const pathname = new URL(request.url).pathname;
@@ -206,6 +211,13 @@ export default {
       const routedRequest = new Request(rewritten, request);
       return withApiAnomalyBoundary('ADMIN_API', request, env, () =>
         adminProfitabilityRoutes.fetch(routedRequest, env as never, executionContext as never));
+    }
+    if (legacyAdminPlanMutation(request, url.pathname)) {
+      return Response.json({
+        ok: false,
+        error: 'V1_PLAN_MUTATION_MOVED_TO_COMMERCIAL_CONFIG',
+        commercialConfigPath: '/api/v1/admin/commercial-config',
+      }, { status: 410 });
     }
     if (url.pathname === '/api/v1/admin' || url.pathname.startsWith('/api/v1/admin/')) {
       const rewritten = new URL(request.url);
