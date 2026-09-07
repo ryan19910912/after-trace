@@ -4,6 +4,7 @@ import { AuthenticatedAppChrome } from './AuthenticatedAppChrome';
 import { CaptureRoot } from './CaptureRoot';
 import { FeedbackRoot } from './FeedbackRoot';
 import { HelpRoot } from './HelpRoot';
+import { LoginRoot } from './LoginRoot';
 import { SubscriptionRoot } from './SubscriptionRoot';
 import { TaskRoot } from './TaskRoot';
 import { installTaipeiDateDisplayPolicy } from './time-display';
@@ -22,8 +23,8 @@ function bootstrap() {
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
   if (!apiBaseUrl) throw new Error('系統設定不完整，請稍後再試。');
 
-  // Migration-era login currently returns to WEB_APP_URL root. Preserve the requested
-  // destination while provider-neutral Web authentication is introduced separately.
+  // Provider callbacks currently return to WEB_APP_URL root. Preserve the requested
+  // destination without making any individual provider the product's primary identity.
   if (window.location.pathname === '/' && window.location.hash.includes('session=')) {
     const returnTo = localStorage.getItem(RETURN_KEY);
     if (returnTo === '/subscription' || returnTo === '/feedback' || returnTo === '/capture' || returnTo === '/tasks') {
@@ -34,7 +35,8 @@ function bootstrap() {
   }
 
   let content: React.ReactNode;
-  if (window.location.pathname === '/capture') content = <CaptureRoot apiBaseUrl={apiBaseUrl} />;
+  if (window.location.pathname === '/login') content = <LoginRoot apiBaseUrl={apiBaseUrl} />;
+  else if (window.location.pathname === '/capture') content = <CaptureRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/subscription') content = <SubscriptionRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/feedback') content = <FeedbackRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/help') content = <HelpRoot />;
