@@ -34,9 +34,11 @@ function fakeLedger() {
           chargedUserId: input.chargedUserId,
           actorUserId: input.actorUserId,
           sourceId: Number(input.sourceId),
+          entitlementGrantId: input.entitlementGrantId ?? null,
           pointsReserved: input.requestedPoints,
           pointsCommitted: 0,
           platformSubsidizedPoints: 0,
+          providerCostHoldTwd: input.providerCostHoldTwd ?? null,
           status: 'RESERVED',
           expiresAt: new Date(now.getTime() + 60_000),
         },
@@ -48,8 +50,29 @@ function fakeLedger() {
   return { port, calls };
 }
 
+function paidSnapshot(overrides: Partial<NonNullable<AiEntitlementSnapshot['aiPro']>> = {}): AiEntitlementSnapshot {
+  return {
+    sourceAuthorized: true,
+    freeTrial: { grantId: 11, remainingPoints: 80, perRequestAiPointCap: 100 },
+    aiPro: {
+      planEnabled: true,
+      aiEnabled: true,
+      grantId: 22,
+      periodStart: now,
+      periodEnd,
+      monthlyPointCap: 1000,
+      monthlyProviderCostCapTwd: 30,
+      perRequestAiPointCap: 100,
+      pointsUsed: 200,
+      providerCostTwd: 5,
+      missingProviderCostTwdRequests: 0,
+      ...overrides,
+    },
+  };
+}
+
 describe('EntitledAiPointLedgerService', () => {
-  it('admits an eligible FREE trial request and activates that users selected Grant scope before reserve', async () => {
+  it('admits FREE trial and binds the reservation to the selected Grant without a paid TWD hold', async () => {
     const repository = new FakeEntitlementRepository();
     const ledger = fakeLedger();
     const service = new EntitledAiPointLedgerService(new AiEntitlementService(repository), ledger.port);
@@ -59,12 +82,16 @@ describe('EntitledAiPointLedgerService', () => {
       actorUserId: 7,
       sourceId: 99,
       requestedPoints: 40,
+      providerCostHoldTwd: 1.25,
       at: now,
     });
 
     expect(result.status).toBe('RESERVED');
     expect(repository.scopes).toEqual([{ grantId: 11, sourceId: 99 }]);
-    expect(ledger.calls).toHaveLength(1);
+    expect(ledger.calls).toEqual([expect.objectContaining({
+      entitlementGrantId: 11,
+      providerCostHoldTwd: null,
+    })]);
   });
 
   it('fails closed before the low-level ledger when Source authorization is missing', async () => {
@@ -79,61 +106,66 @@ describe('EntitledAiPointLedgerService', () => {
     expect(ledger.calls).toEqual([]);
   });
 
-  it('does not start an AI Pro request whose conservative hold would exceed the remaining monthly point cap', async () => {
+  it('does not start an AI Pro request whose conservative point hold exceeds the remaining monthly cap', async () => {
     const repository = new FakeEntitlementRepository();
-    repository.value = {
-      sourceAuthorized: true,
-      freeTrial: { grantId: 11, remainingPoints: 80, perRequestAiPointCap: 100 },
-      aiPro: {
-        planEnabled: true,
-        aiEnabled: true,
-        grantId: 22,
-        periodStart: now,
-        periodEnd,
-        monthlyPointCap: 1000,
-        monthlyProviderCostCapTwd: 30,
-        perRequestAiPointCap: 100,
-        pointsUsed: 950,
-        providerCostTwd: 5,
-        missingProviderCostTwdRequests: 0,
-      },
-    };
+    repository.value = paidSnapshot({ pointsUsed: 950 });
     const ledger = fakeLedger();
     const service = new EntitledAiPointLedgerService(new AiEntitlementService(repository), ledger.port);
 
-    const result = await service.reserveAi({ chargedUserId: 7, actorUserId: 7, sourceId: 99, requestedPoints: 60, at: now });
+    const result = await service.reserveAi({
+      chargedUserId: 7,
+      actorUserId: 7,
+      sourceId: 99,
+      requestedPoints: 60,
+      providerCostHoldTwd: 1,
+      at: now,
+    });
 
     expect(result).toEqual({ status: 'AI_ENTITLEMENT_BLOCKED', reason: 'MONTHLY_POINT_CAP_WOULD_BE_EXCEEDED' });
     expect(repository.scopes).toEqual([]);
     expect(ledger.calls).toEqual([]);
   });
 
-  it('prefers AI Pro over a remaining FREE trial and activates only the current AI Pro Grant for the Source', async () => {
+  it('fails closed when AI Pro cannot produce a positive TWD provider-cost hold', async () => {
     const repository = new FakeEntitlementRepository();
-    repository.value = {
-      sourceAuthorized: true,
-      freeTrial: { grantId: 11, remainingPoints: 80, perRequestAiPointCap: 100 },
-      aiPro: {
-        planEnabled: true,
-        aiEnabled: true,
-        grantId: 22,
-        periodStart: now,
-        periodEnd,
-        monthlyPointCap: 1000,
-        monthlyProviderCostCapTwd: 30,
-        perRequestAiPointCap: 100,
-        pointsUsed: 200,
-        providerCostTwd: 5,
-        missingProviderCostTwdRequests: 0,
-      },
-    };
+    repository.value = paidSnapshot();
     const ledger = fakeLedger();
     const service = new EntitledAiPointLedgerService(new AiEntitlementService(repository), ledger.port);
 
-    const result = await service.reserveAi({ chargedUserId: 7, actorUserId: 7, sourceId: 99, requestedPoints: 60, at: now });
+    const result = await service.reserveAi({
+      chargedUserId: 7,
+      actorUserId: 7,
+      sourceId: 99,
+      requestedPoints: 60,
+      providerCostHoldTwd: null,
+      at: now,
+    });
+
+    expect(result).toEqual({ status: 'AI_ENTITLEMENT_BLOCKED', reason: 'PROVIDER_COST_ACCOUNTING_INCOMPLETE' });
+    expect(repository.scopes).toEqual([{ grantId: 22, sourceId: 99 }]);
+    expect(ledger.calls).toEqual([]);
+  });
+
+  it('prefers AI Pro and forwards exact current-period Grant plus conservative TWD hold', async () => {
+    const repository = new FakeEntitlementRepository();
+    repository.value = paidSnapshot();
+    const ledger = fakeLedger();
+    const service = new EntitledAiPointLedgerService(new AiEntitlementService(repository), ledger.port);
+
+    const result = await service.reserveAi({
+      chargedUserId: 7,
+      actorUserId: 7,
+      sourceId: 99,
+      requestedPoints: 60,
+      providerCostHoldTwd: 1.5,
+      at: now,
+    });
 
     expect(result.status).toBe('RESERVED');
     expect(repository.scopes).toEqual([{ grantId: 22, sourceId: 99 }]);
-    expect(ledger.calls).toHaveLength(1);
+    expect(ledger.calls).toEqual([expect.objectContaining({
+      entitlementGrantId: 22,
+      providerCostHoldTwd: 1.5,
+    })]);
   });
 });
