@@ -2,7 +2,7 @@
 
 ## Product direction
 
-AFTERTRACE is a **Web + PWA-first work memory product**. LINE is no longer part of the target product architecture. A Chrome extension is an optional fast-capture surface for desktop use.
+AFTERTRACE is a **Web + PWA-first work memory product**. LINE is no longer a Record/group/AI product surface. The official LINE OA remains an external customer-support channel, and LINE Login remains one supported authentication provider. A Chrome extension is an optional fast-capture surface for desktop use.
 
 Core promise:
 
@@ -18,7 +18,7 @@ PWA is capture-first. The landing experience makes the microphone the primary ac
 
 ### Web
 
-Web is the full management surface: timeline/history, search/date filtering, manual CRUD, groups, subscription and AI features.
+Web is the full management surface: timeline/history, search/date filtering, manual CRUD, groups, subscription, notifications and AI features.
 
 ### Chrome extension
 
@@ -26,37 +26,48 @@ Initial scope: quick microphone/voice input, quick text input, destination Sourc
 
 ## Account and identity
 
-Target architecture uses normal Web/PWA authentication with **both Google Login and LINE Login** available as first-class sign-in options.
+Target architecture uses provider-neutral Web/PWA authentication with these customer login options:
+
+- Google Login;
+- LINE Login;
+- Apple Login.
+
+Google and LINE are first implementation priorities. Apple is supported and may follow after them if sequencing is needed.
 
 Rules:
 
-- Google and LINE identities are provider-neutral authentication identities attached to one AFTERTRACE user;
-- do not make the core `users` table depend on either provider-specific id;
-- a user may later link both providers to the same AFTERTRACE account when safe account-linking is implemented;
-- LINE Login being available does **not** make LINE OA/GROUP/webhook part of the core product surface;
+- provider identities attach to one AFTERTRACE user;
+- do not make the core account depend on Google email, LINE id, Apple relay email or another provider-specific field;
+- do not silently merge accounts merely because two providers expose the same email;
+- LINE Login being available does **not** make LINE OA/GROUP/webhook part of the core Record/AI product surface;
 - LINE OA remains a separate support channel under `WORKLOG_SUPPORT_POLICY.md`;
 - provider identity data is never the customer-facing account identifier.
 
-Recommended identity model:
-
-- `worklog_users` = durable AFTERTRACE account;
-- `worklog_auth_identities` = provider identity rows such as `GOOGLE` or `LINE`;
-- `public_account_id` = immutable, unique, non-secret customer-facing support/account identifier.
-
-`public_account_id` must not be the raw database primary key. Prefer an opaque, non-sequential value such as `AT-7K4M2P` so users can safely provide it to support without exposing internal row ids or third-party identity values.
+Every account has an immutable, unique, opaque/non-sequential `public_account_id`, shown as **帳號 ID**. It must not be the raw database primary key. Example presentation: `AT-7K4M2P`.
 
 ### Web / PWA account header
 
-Authenticated Web/PWA surfaces should expose the current user in the top-right area together with the notification entry.
+Authenticated Web/PWA surfaces expose the current user in the top-right area together with notifications.
 
 Show at minimum:
 
 - notification bell / unread count;
 - user display name;
-- customer-facing **帳號 ID** (`public_account_id`);
+- customer-facing 帳號 ID;
 - one-tap copy action for 帳號 ID.
 
-The copied value should be suitable for support lookup. The user should not need to provide Google email, LINE id, LINE display name or any other third-party identity merely to let support locate the AFTERTRACE account.
+The copied id is the preferred support lookup identifier. The user should not need to provide Google email, LINE id, Apple id or any other third-party identity merely to let support locate the AFTERTRACE account.
+
+Follow `WORKLOG_ACCOUNT_IDENTITY_POLICY.md` for durable identity/linking rules.
+
+## Support / feedback
+
+Web/PWA exposes:
+
+- `意見回饋` — in-product feedback form stored in AFTERTRACE and manageable from Admin;
+- `聯絡客服` — opens the official AFTERTRACE LINE OA.
+
+LINE OA is a support contact channel only. It does not create/search/edit Records, manage groups or mutate AI entitlement. No RAG/general-purpose AI support bot is required for the initial product. Follow `WORKLOG_SUPPORT_POLICY.md`.
 
 ## Sources / groups
 
@@ -189,7 +200,7 @@ Deterministic calculations are preferred for totals/aggregations where feasible.
 
 ## Tasks / reminders
 
-AFTERTRACE may include a simple task list. Paid AI may detect a task from natural-language input and propose it. It must not silently create a task without confirmation unless a later explicit rule changes this.
+AFTERTRACE includes a simple task/reminder direction. Paid AI may detect a task from natural-language input and propose it. It must not silently create a task without confirmation unless a later explicit rule changes this.
 
 Suggested task facts:
 
@@ -200,19 +211,72 @@ Suggested task facts:
 - related Source/Record nullable;
 - `created_at` / `updated_at`.
 
-### Push notifications
+Reminder scheduling is deterministic stored data. AI may interpret time language only as a proposal before user confirmation.
 
-PWA push is an accepted reminder direction. Reminder scheduling is deterministic data; AI may interpret the phrase, but persisted timestamps must be concrete.
+## Notifications
 
-Initial backend scheduler:
+Current notification categories are:
 
-- Cloudflare Worker Cron Trigger, e.g. every 5 minutes;
-- bounded query for due notifications;
-- idempotent delivery state such as `notified_at` or delivery rows;
-- Cloudflare Queue may be added when fan-out volume requires it;
-- one global scheduler, not one Cron per task.
+- `ANNOUNCEMENT` / 公告通知;
+- `SYSTEM` / 系統通知;
+- `TASK` / 待辦通知.
 
-Google Calendar integration is later/optional. Native tasks + PWA push come first.
+Category and channel are separate. Current channels are durable `IN_APP` and optional `PUSH`.
+
+### Announcement notifications
+
+Admin can manually create an announcement such as `今晚 23:00～23:15 進行系統更新` and choose:
+
+- audience: ALL_USERS / FREE_USERS / AI_SUBSCRIBERS / SPECIFIC_USERS;
+- immediate or scheduled send;
+- IN_APP and/or PUSH;
+- preview before send;
+- cancel while still pending;
+- inspect delivery/status summary.
+
+Manual Admin messages are ANNOUNCEMENT by default; do not fabricate a SYSTEM business event merely because Admin typed a message.
+
+### System notifications
+
+SYSTEM notifications are deterministic backend events such as:
+
+- payment success;
+- subscription activation/renewal/cancellation;
+- AI monthly resource limit reached.
+
+Event-driven notification creation must be idempotent so retries/webhook redelivery cannot duplicate the same customer event.
+
+### Task notifications
+
+TASK notifications are generated from the user's confirmed task/reminder data.
+
+Initial scheduler:
+
+- one global Cloudflare Worker scheduled handler/Cron, approximately every 5 minutes;
+- bounded query for due reminders and scheduled announcements;
+- idempotent notification creation/delivery;
+- no one-Cron-per-task design;
+- Cloudflare Queue only later if volume/fan-out requires it.
+
+### Notification center
+
+Web/PWA includes a notification center opened from the top-right bell. It shows unread count and durable read/unread state. Push delivery failure must not remove an IN_APP notification that should remain visible.
+
+### iOS/iPadOS PWA Push
+
+AFTERTRACE supports the installed Home Screen PWA push path on supported iOS/iPadOS versions.
+
+- user adds AFTERTRACE to the Home Screen;
+- notification permission is requested only after an explicit user action such as `開啟通知`;
+- never auto-prompt for notification permission on initial load;
+- if push is denied/unsupported, IN_APP notifications still work;
+- do not claim a normal Safari tab has identical push behavior to the installed Home Screen PWA.
+
+Android/desktop PWA use the same Web Push domain model where supported.
+
+Google Calendar integration remains later/optional. Native tasks + notification center + PWA push come first.
+
+Follow `WORKLOG_NOTIFICATION_POLICY.md` for durable notification behavior.
 
 ## AI subscription usage limits / fair use
 
@@ -246,12 +310,13 @@ Admin retains auditable provider-call facts: user, Source/group, operation, prov
 
 ### High priority
 
-- Google Login + LINE Login through provider-neutral identities;
-- immutable copyable public account id shown in Web/PWA account header;
+- provider-neutral Google + LINE login, with Apple supported next if sequencing is needed;
+- immutable copyable public account id shown in Web/PWA account header + Admin exact lookup;
 - Web/PWA manual Record CRUD;
 - capture-first PWA microphone UX;
 - free browser/device speech-to-text where practical;
 - AFTERTRACE groups + invite links;
+- notification center + Admin announcements + SYSTEM notification foundation;
 - paid AI text/voice/image/file interpretation;
 - AI title/keywords/date for new AI operations only;
 - deterministic content/date search;
@@ -260,11 +325,12 @@ Admin retains auditable provider-call facts: user, Source/group, operation, prov
 - AI time-range summary;
 - AI rewrite;
 - tasks + PWA push reminders;
-- subscription fair-use/resource caps and Admin controls.
+- subscription fair-use/resource caps and Admin controls;
+- in-product feedback + LINE OA support entry.
 
 ### Later / conditional
 
-- safe account-linking between already-existing Google/LINE identities;
+- safe account-linking/merge UX across providers;
 - AI Q&A after grounding quality is proven;
 - Calendar integration;
 - vector/embedding search;
@@ -272,12 +338,13 @@ Admin retains auditable provider-call facts: user, Source/group, operation, prov
 
 ### Not current priority
 
-- LINE OA/GROUP bot product surface;
+- LINE OA/GROUP bot as a Record/AI product surface;
 - GROUP AI responsible user/funding owner;
-- LINE Reply cache/mentions/webhook lifecycle;
+- LINE Reply cache/mentions/product-command lifecycle;
 - automatic historical AI backfill;
 - project/group AI summary as a standalone feature;
-- broad CRM/ERP schema.
+- broad CRM/ERP schema;
+- RAG/general AI customer-support bot.
 
 ## Brand
 
