@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AFTERTRACE 快速紀錄</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 0; width: 360px; background: #fff; color: #111; }
+      main { padding: 16px; display: grid; gap: 12px; }
+      h1 { font-size: 18px; margin: 0; }
+      .muted { color: #666; font-size: 12px; }
+      textarea { width: 100%; min-height: 110px; resize: vertical; box-sizing: border-box; padding: 10px; }
+      select, button { min-height: 38px; }
+      .row { display: flex; gap: 8px; align-items: center; }
+      .grow { flex: 1; }
+      .page { border: 1px solid #ddd; border-radius: 8px; padding: 10px; display: grid; gap: 4px; }
+      .page a { word-break: break-all; font-size: 12px; }
+      .preview { max-width: 100%; border-radius: 8px; border: 1px solid #ddd; }
+      .hidden { display: none; }
+      .status { font-size: 12px; min-height: 18px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>快速紀錄</h1>
+      <div class="row">
+        <label for="source">記錄到</label>
+        <select id="source" class="grow" disabled>
+          <option>我的紀錄</option>
+        </select>
+      </div>
+      <textarea id="content" placeholder="輸入一段短紀錄，或使用語音輸入…"></textarea>
+      <div class="row">
+        <button id="voice" type="button">🎙️ 語音</button>
+        <button id="screenshot" type="button">📷 截圖</button>
+      </div>
+      <label class="row">
+        <input id="includePage" type="checkbox" />
+        <span>附上目前頁面</span>
+      </label>
+      <div id="pageContext" class="page hidden">
+        <strong id="pageTitle"></strong>
+        <a id="pageUrl" target="_blank" rel="noreferrer"></a>
+      </div>
+      <img id="screenshotPreview" class="preview hidden" alt="截圖預覽" />
+      <div id="status" class="status muted"></div>
+      <button id="save" type="button" disabled>登入後即可記錄</button>
+      <div class="muted">完整紀錄管理請開啟 AFTERTRACE Web / PWA。</div>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
