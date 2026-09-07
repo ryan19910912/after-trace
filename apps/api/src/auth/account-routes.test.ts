@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { issueWebSessionToken } from './token';
 import { createAccountRoutes } from './account-routes';
 
@@ -81,5 +81,32 @@ describe('account profile routes', () => {
 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({ ok: false, error: 'ACCOUNT_PROFILE_NOT_READY' });
+  });
+
+  it('issues a bounded seven-day AFTERTRACE session for explicit extension handoff', async () => {
+    const issueSession = vi.fn().mockResolvedValue('extension-session-token');
+    const app = createAccountRoutes({
+      databaseFactory: () => ({} as never),
+      resolveSessionUserId: async (_database, session) => session.userId,
+      repositoryFactory: () => ({ async profile() { return null; } }),
+      issueSession,
+    });
+
+    const response = await app.request('/extension-session', {
+      method: 'POST',
+      headers: headers(await authorization(23)),
+    }, env);
+
+    expect(response.status).toBe(200);
+    expect(issueSession).toHaveBeenCalledWith({
+      userId: 23,
+      secret: env.WEB_AUTH_SECRET,
+      ttlSeconds: 60 * 60 * 24 * 7,
+    });
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      sessionToken: 'extension-session-token',
+      expiresInSeconds: 60 * 60 * 24 * 7,
+    });
   });
 });
