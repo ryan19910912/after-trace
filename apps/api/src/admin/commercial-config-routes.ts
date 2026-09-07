@@ -75,12 +75,9 @@ export function createAdminCommercialConfigRoutes(dependencies: AdminCommercialC
   });
 
   app.put('/free-ai-trial', async (c) => {
-    let body: unknown;
-    try { body = await c.req.json(); } catch { return c.json({ ok: false, error: 'INVALID_JSON' }, 400); }
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
-    }
-    const raw = (body as Record<string, unknown>).freeInitialAiTrialPoints;
+    const body = await jsonBody(c);
+    if (!body) return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
+    const raw = body.freeInitialAiTrialPoints;
     const points = typeof raw === 'number' ? raw : Number(raw);
     try {
       const config = await serviceFor(c, repositoryFactory).setFreeAiTrialPoints(points, c.get('adminUsername'));
@@ -90,7 +87,48 @@ export function createAdminCommercialConfigRoutes(dependencies: AdminCommercialC
     }
   });
 
+  app.get('/ai-pro', async (c) => {
+    const config = await serviceFor(c, repositoryFactory).getAiProConfig();
+    return config
+      ? c.json({ ok: true, config })
+      : c.json({ ok: false, error: 'AI_PRO_CONFIG_NOT_INITIALIZED' }, 404);
+  });
+
+  app.put('/ai-pro', async (c) => {
+    const body = await jsonBody(c);
+    if (!body) return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
+    const monthlyAiPointCap = Number(body.monthlyAiPointCap);
+    const perRequestRaw = body.perRequestAiPointCap;
+    const perRequestAiPointCap = perRequestRaw === null || perRequestRaw === undefined || perRequestRaw === ''
+      ? null
+      : Number(perRequestRaw);
+    try {
+      const config = await serviceFor(c, repositoryFactory).setAiProConfig({
+        enabled: body.enabled !== false,
+        monthlyAiPointCap,
+        monthlyProviderCostCapTwd: typeof body.monthlyProviderCostCapTwd === 'string'
+          ? body.monthlyProviderCostCapTwd
+          : String(body.monthlyProviderCostCapTwd ?? ''),
+        perRequestAiPointCap,
+      }, c.get('adminUsername'));
+      return c.json({ ok: true, config });
+    } catch (error) {
+      return c.json({ ok: false, error: errorCode(error, 'AI_PRO_CONFIG_UPDATE_FAILED') }, 400);
+    }
+  });
+
   return app;
+}
+
+async function jsonBody(c: { req: { json(): Promise<unknown> } }): Promise<Record<string, unknown> | null> {
+  try {
+    const body = await c.req.json();
+    return body && typeof body === 'object' && !Array.isArray(body)
+      ? body as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function serviceFor(
