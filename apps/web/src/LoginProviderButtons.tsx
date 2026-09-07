@@ -12,7 +12,7 @@ export function LoginProviderButtons({
   returnTo,
 }: {
   apiBaseUrl: string;
-  returnTo?: '/capture' | '/subscription' | '/feedback' | '/tasks';
+  returnTo?: string;
 }) {
   const [providers, setProviders] = useState<LoginProviderAvailability>(LOGIN_PROVIDER_FALLBACK);
 
