@@ -55,6 +55,7 @@ export function ExtensionConnectRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
         extensionId: connectTarget.extensionId,
         nonce: connectTarget.nonce,
         sessionToken: extensionSession.sessionToken,
+        sessionExpiresAt: new Date(Date.now() + extensionSession.expiresInSeconds * 1000).toISOString(),
         apiBaseUrl,
         webAppUrl: window.location.origin,
       });
@@ -128,6 +129,7 @@ export async function sendExtensionSession(input: {
   extensionId: string;
   nonce: string;
   sessionToken: string;
+  sessionExpiresAt: string;
   apiBaseUrl: string;
   webAppUrl: string;
 }): Promise<void> {
@@ -142,6 +144,7 @@ export async function sendExtensionSession(input: {
       type: 'AFTERTRACE_EXTENSION_CONNECT',
       nonce: input.nonce,
       sessionToken: input.sessionToken,
+      sessionExpiresAt: input.sessionExpiresAt,
       apiBaseUrl: input.apiBaseUrl,
       webAppUrl: input.webAppUrl,
     }, (response) => {
