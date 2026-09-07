@@ -3,7 +3,7 @@
   "name": "AFTERTRACE",
   "version": "0.1.0",
   "description": "快速留下工作發生過的事，需要時找得到。",
-  "permissions": ["activeTab", "contextMenus", "storage", "tabs"],
+  "permissions": ["activeTab", "contextMenus", "storage"],
   "host_permissions": [
     "https://after-trace-api-dev.a0955625660.workers.dev/*",
     "https://after-trace-api-prod.a0955625660.workers.dev/*"
