@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { AiSearchRoot } from './AiSearchRoot';
 import { AuthenticatedAppChrome } from './AuthenticatedAppChrome';
 import { CaptureRoot } from './CaptureRoot';
 import { ExtensionConnectRoot } from './ExtensionConnectRoot';
@@ -40,6 +41,7 @@ function bootstrap() {
   if (window.location.pathname === '/login') content = <LoginRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/extension/connect') content = <ExtensionConnectRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/capture') content = <CaptureRoot apiBaseUrl={apiBaseUrl} />;
+  else if (window.location.pathname === '/ai-search') content = <AiSearchRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/subscription') content = <SubscriptionRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/feedback') content = <FeedbackRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/help') content = <HelpRoot />;
