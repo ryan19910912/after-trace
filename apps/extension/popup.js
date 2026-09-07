@@ -72,6 +72,7 @@ async function loadAuth() {
   const stored = await chrome.storage.local.get([AUTH_KEY, LAST_WEB_APP_KEY]);
   auth = validAuth(stored[AUTH_KEY]) ? stored[AUTH_KEY] : null;
   if (!auth) {
+    if (stored[AUTH_KEY]) await chrome.storage.local.remove(AUTH_KEY);
     renderDisconnected();
     return;
   }
@@ -300,7 +301,10 @@ saveButton.addEventListener('click', async () => {
 });
 
 async function authenticatedFetch(path, init = {}) {
-  if (!auth) throw new Error('AFTERTRACE_NOT_CONNECTED');
+  if (!auth || !validAuth(auth)) {
+    await clearAuth();
+    throw new Error('INVALID_WEB_SESSION');
+  }
   const headers = new Headers(init.headers ?? {});
   headers.set('Authorization', `Bearer ${auth.sessionToken}`);
   headers.set('Accept', 'application/json');
@@ -315,7 +319,7 @@ function selectedSource() {
 }
 
 function updateSaveState() {
-  const connected = Boolean(auth);
+  const connected = Boolean(auth) && validAuth(auth);
   const target = selectedSource();
   saveButton.disabled = saving || !connected || !target || !content.value.trim();
   saveButton.textContent = saving
@@ -386,9 +390,14 @@ function validAuth(value) {
   if (!value || typeof value !== 'object') return false;
   const apiBaseUrl = safeHttpOrigin(value.apiBaseUrl);
   const webAppUrl = safeHttpOrigin(value.webAppUrl);
+  const expiresAt = typeof value.sessionExpiresAt === 'string' ? new Date(value.sessionExpiresAt) : null;
   return typeof value.sessionToken === 'string'
     && value.sessionToken.trim().length > 0
     && value.sessionToken.length <= 8192
+    && expiresAt instanceof Date
+    && Number.isFinite(expiresAt.getTime())
+    && expiresAt.getTime() > Date.now()
+    && expiresAt.getTime() <= Date.now() + 60 * 60 * 24 * 7 * 1000 + 60_000
     && Boolean(apiBaseUrl)
     && Boolean(webAppUrl)
     && WEB_APP_ORIGINS.has(webAppUrl);
