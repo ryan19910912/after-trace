@@ -78,6 +78,7 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
              author.display_name AS author_display_name,
              record.input_type,
              record.raw_text,
+             record.capture_context,
              record.occurred_at,
              record.status,
              record.version,
@@ -132,10 +133,12 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
     sourceId: number;
     actorUserId: number;
     rawText: string;
+    captureContext: ManualRecordView['captureContext'];
     occurredAt: Date | null;
     title: string | null;
     entityId: number | null;
   }): Promise<ManualRecordView> {
+    const captureContextJson = input.captureContext ? JSON.stringify(input.captureContext) : null;
     const result = await this.database.execute(sql`
       INSERT INTO worklog_records (
         source_id,
@@ -145,6 +148,7 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
         raw_text,
         title,
         search_terms,
+        capture_context,
         ai_enrichment_status,
         occurred_at,
         status,
@@ -159,6 +163,7 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
         ${input.rawText},
         ${input.title},
         '[]'::jsonb,
+        ${captureContextJson}::jsonb,
         'NONE',
         ${input.occurredAt},
         'ACTIVE',
@@ -287,6 +292,7 @@ function recordSelectSql(recordId: number) {
            author.display_name AS author_display_name,
            record.input_type,
            record.raw_text,
+           record.capture_context,
            record.occurred_at,
            record.status,
            record.version,
@@ -311,6 +317,7 @@ function recordView(raw: Record<string, unknown>): ManualRecordView {
     authorDisplayName: nullableString(raw.author_display_name),
     inputType: String(raw.input_type) as ManualRecordView['inputType'],
     rawText: String(raw.raw_text ?? ''),
+    captureContext: captureContextView(raw.capture_context),
     occurredAt: dateString(raw.occurred_at),
     status: String(raw.status) as ManualRecordView['status'],
     version: Number(raw.version),
@@ -318,6 +325,18 @@ function recordView(raw: Record<string, unknown>): ManualRecordView {
     createdAt: dateString(raw.created_at) ?? '',
     updatedAt: dateString(raw.updated_at) ?? '',
   };
+}
+
+function captureContextView(value: unknown): ManualRecordView['captureContext'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const context = value as Record<string, unknown>;
+  if (context.client !== 'CHROME_EXTENSION') return null;
+  if (!context.page || typeof context.page !== 'object' || Array.isArray(context.page)) return null;
+  const page = context.page as Record<string, unknown>;
+  const title = nullableString(page.title);
+  const url = nullableString(page.url);
+  if (!title && !url) return null;
+  return { client: 'CHROME_EXTENSION', page: { title, url } };
 }
 
 function revisionView(raw: Record<string, unknown>): ManualRecordRevisionView {
