@@ -1,7 +1,7 @@
 import { NotificationService } from './notifications';
 
 export type SubscriptionSystemEvent =
-  | { type: 'ACTIVATED'; subscriptionId: number; planCode: string; periodEnd?: Date | null }
+  | { type: 'ACTIVATED'; subscriptionId: number; planCode: string; periodStart: Date; periodEnd?: Date | null }
   | { type: 'RENEWED'; subscriptionId: number; periodStart: Date; periodEnd?: Date | null }
   | { type: 'CANCELLED'; subscriptionId: number; periodEnd?: Date | null }
   | { type: 'AI_LIMIT_REACHED'; periodKey: string };
@@ -32,14 +32,18 @@ export async function notifySubscriptionEvent(
   switch (event.type) {
     case 'ACTIVATED':
       await service.createSystemNotification({
-        eventKey: `subscription:${event.subscriptionId}:activated`,
+        eventKey: `subscription:${event.subscriptionId}:activated:${event.periodStart.toISOString()}`,
         userId,
         title: 'AI Pro 已啟用',
         body: '你的 AI Pro 訂閱已啟用。AI 功能受公平使用原則與每月方案資源上限限制。',
         deepLink: '/subscription',
         referenceType: 'SUBSCRIPTION',
         referenceId: event.subscriptionId,
-        metadata: { planCode: event.planCode, periodEnd: iso(event.periodEnd) },
+        metadata: {
+          planCode: event.planCode,
+          periodStart: event.periodStart.toISOString(),
+          periodEnd: iso(event.periodEnd),
+        },
         pushEnabled: true,
       });
       return;
@@ -56,9 +60,10 @@ export async function notifySubscriptionEvent(
         pushEnabled: true,
       });
       return;
-    case 'CANCELLED':
+    case 'CANCELLED': {
+      const periodKey = iso(event.periodEnd) ?? 'immediate';
       await service.createSystemNotification({
-        eventKey: `subscription:${event.subscriptionId}:cancelled`,
+        eventKey: `subscription:${event.subscriptionId}:cancelled:${periodKey}`,
         userId,
         title: 'AI Pro 訂閱狀態已更新',
         body: event.periodEnd
@@ -71,6 +76,7 @@ export async function notifySubscriptionEvent(
         pushEnabled: true,
       });
       return;
+    }
     case 'AI_LIMIT_REACHED':
       await service.createSystemNotification({
         eventKey: `ai-limit:${event.periodKey}`,
