@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AccountNotificationApi,
   notificationCategoryLabel,
@@ -7,6 +7,7 @@ import {
   type NotificationCenter,
   type NotificationCenterItem,
 } from './account-notification-api';
+import { PushNotificationSettings } from './PushNotificationSettings';
 import './account-notification.css';
 
 const SESSION_KEY = 'aftertrace.worklog.session';
@@ -26,6 +27,13 @@ export function AuthenticatedAppChrome({ apiBaseUrl, children }: Props) {
   const [copyState, setCopyState] = useState<'IDLE' | 'COPIED' | 'FAILED'>('IDLE');
   const [notificationError, setNotificationError] = useState<string | null>(null);
   const [busyNotificationId, setBusyNotificationId] = useState<number | 'ALL' | null>(null);
+
+  const clearExpiredSession = useCallback((cause: unknown): boolean => {
+    if (!isSessionError(cause)) return false;
+    window.localStorage.removeItem(SESSION_KEY);
+    setSession(null);
+    return true;
+  }, []);
 
   useEffect(() => {
     let timer: number | null = null;
@@ -85,13 +93,6 @@ export function AuthenticatedAppChrome({ apiBaseUrl, children }: Props) {
       setCenter(null);
       setNotificationError((current) => current ?? message(cause, '通知載入失敗'));
     }
-  }
-
-  function clearExpiredSession(cause: unknown): boolean {
-    if (!isSessionError(cause)) return false;
-    window.localStorage.removeItem(SESSION_KEY);
-    setSession(null);
-    return true;
   }
 
   async function copyAccountId() {
@@ -160,10 +161,13 @@ export function AuthenticatedAppChrome({ apiBaseUrl, children }: Props) {
               <span aria-hidden="true">🔔</span>
               {center?.unreadCount ? <span className="notification-badge">{center.unreadCount > 99 ? '99+' : center.unreadCount}</span> : null}
             </button>
-            {notificationsOpen ? <NotificationCenterPanel
+            {notificationsOpen && session ? <NotificationCenterPanel
+              api={api}
+              sessionToken={session}
               center={center}
               error={notificationError}
               busyNotificationId={busyNotificationId}
+              onSessionError={clearExpiredSession}
               onMarkRead={(item) => void markRead(item)}
               onOpen={(item) => void markRead(item, true)}
               onMarkAll={() => void markAllRead()}
@@ -187,17 +191,23 @@ export function AuthenticatedAppChrome({ apiBaseUrl, children }: Props) {
 }
 
 function NotificationCenterPanel({
+  api,
+  sessionToken,
   center,
   error,
   busyNotificationId,
+  onSessionError,
   onMarkRead,
   onOpen,
   onMarkAll,
   onClose,
 }: {
+  api: AccountNotificationApi;
+  sessionToken: string;
   center: NotificationCenter | null;
   error: string | null;
   busyNotificationId: number | 'ALL' | null;
+  onSessionError: (cause: unknown) => boolean;
   onMarkRead: (item: NotificationCenterItem) => void;
   onOpen: (item: NotificationCenterItem) => void;
   onMarkAll: () => void;
@@ -212,6 +222,7 @@ function NotificationCenterPanel({
       </div>
     </div>
     {error ? <div className="notification-inline-error">{error}</div> : null}
+    <PushNotificationSettings api={api} sessionToken={sessionToken} onSessionError={onSessionError} />
     {!center && !error ? <div className="notification-empty">通知載入中…</div> : null}
     {center && center.items.length === 0 ? <div className="notification-empty">目前沒有通知。</div> : null}
     {center?.items.length ? <div className="notification-list">
