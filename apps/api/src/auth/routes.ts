@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { createDatabase } from '../db/client';
-import { DrizzleWorklogBootstrapRepository } from '../worklog/drizzle-bootstrap';
+import { ensureAccountOnboarding } from './account-onboarding';
 import { AccountIdentityService } from './account-identity';
 import { DrizzleAccountIdentityRepository } from './drizzle-account-identity';
 import { issueLineLoginState, verifyLineLoginState } from './oauth-state';
@@ -147,10 +147,6 @@ export function createWebAuthRoutes() {
     const profile = (await profileResponse.json()) as LineProfile;
     if (typeof profile.userId !== 'string') return c.json({ ok: false, error: 'LINE_PROFILE_FAILED' }, 502);
 
-    // LINE is one authentication provider. Provisioning binds its subject to a durable
-    // AFTERTRACE user and ensures the provider-neutral public account id in one DB statement.
-    // Exact legacy line_user_id matching is allowed only as a migration bridge; email/name
-    // snapshots never drive account merging.
     const at = new Date();
     const database = createDatabase(c.env.DATABASE_URL);
     const account = await new AccountIdentityService(
@@ -163,9 +159,10 @@ export function createWebAuthRoutes() {
       at,
     });
 
-    const bootstrap = new DrizzleWorklogBootstrapRepository(database);
-    const workspaceId = await bootstrap.ensureWorkspace(account.userId, at);
-    await bootstrap.ensurePrivateSource(account.userId, workspaceId, at);
+    // All providers converge here after resolving the provider-neutral AFTERTRACE user.
+    // FREE trial issuance is idempotent by account+origin key. Missing operator config does
+    // not block the complete manual FREE product; a later successful login retries issuance.
+    await ensureAccountOnboarding(database, account.userId, at);
 
     const sessionToken = await issueWebSessionToken({
       userId: account.userId,
