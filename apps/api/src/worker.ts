@@ -1,11 +1,13 @@
 import app, { type Bindings } from './index';
 import { createAdminCommercialConfigRoutes } from './admin/commercial-config-routes';
+import { createAdminFeedbackManagementRoutes } from './admin/feedback-management-routes';
 import { createAdminNotificationRoutes } from './admin/notification-routes';
 import { createAdminProfitabilityRoutes } from './admin/profitability-routes';
 import { createAdminRoutes } from './admin/routes';
 import { createAccountRoutes } from './auth/account-routes';
 import { createDatabase } from './db/client';
 import { LineMessageContentResolver } from './line/content';
+import { createNewebPayRoutes } from './payments/newebpay-routes';
 import {
   anomalyErrorCode,
   anomalyErrorSummary,
@@ -13,6 +15,7 @@ import {
   recordAnomalySafely,
 } from './worklog/anomalies';
 import { createAiEntitlementRoutes } from './worklog/ai-entitlement-routes';
+import { createAiTaskProposalRoutes } from './worklog/ai-task-proposal-routes';
 import { createAiTextCaptureRoutes } from './worklog/ai-text-capture-routes';
 import { WorklogAiPointLedgerService } from './worklog/ai-point-ledger';
 import { WorklogAttachmentIngestionService } from './worklog/attachment-ingestion';
@@ -41,11 +44,14 @@ type ApiBoundary = 'ADMIN_API' | 'SUBSCRIPTION_API' | 'WORKLOG_WEB_API';
 
 const adminRoutes = createAdminRoutes();
 const adminCommercialConfigRoutes = createAdminCommercialConfigRoutes();
+const adminFeedbackManagementRoutes = createAdminFeedbackManagementRoutes();
 const adminNotificationRoutes = createAdminNotificationRoutes();
 const adminProfitabilityRoutes = createAdminProfitabilityRoutes();
 const accountRoutes = createAccountRoutes();
 const aiEntitlementRoutes = createAiEntitlementRoutes();
+const aiTaskProposalRoutes = createAiTaskProposalRoutes();
 const aiTextCaptureRoutes = createAiTextCaptureRoutes();
+const newebPayRoutes = createNewebPayRoutes();
 const nativeGroupRoutes = createNativeGroupRoutes();
 const notificationRoutes = createNotificationRoutes();
 const taskRoutes = createTaskRoutes();
@@ -136,21 +142,14 @@ async function withApiAnomalyBoundary(
           errorCode: `HTTP_${response.status}`,
           summary: `${boundary} returned HTTP ${response.status}`,
           requestRef: request.headers.get('cf-ray'),
-          metadata: {
-            method: request.method,
-            pathname: requestUrl.pathname,
-            status: response.status,
-          },
+          metadata: { method: request.method, pathname: requestUrl.pathname, status: response.status },
         },
       );
     }
     return response;
   } catch (error) {
     console.error(JSON.stringify({
-      event: 'worklog_api_boundary_failed',
-      boundary,
-      method: request.method,
-      pathname: requestUrl.pathname,
+      event: 'worklog_api_boundary_failed', boundary, method: request.method, pathname: requestUrl.pathname,
       message: error instanceof Error ? error.message : 'unknown error',
     }));
     await recordAnomalySafely(
@@ -160,11 +159,7 @@ async function withApiAnomalyBoundary(
         errorCode: anomalyErrorCode(error, 'UNHANDLED_API_ERROR'),
         summary: anomalyErrorSummary(error, `${boundary} unhandled failure`),
         requestRef: request.headers.get('cf-ray'),
-        metadata: {
-          method: request.method,
-          pathname: requestUrl.pathname,
-          unhandled: true,
-        },
+        metadata: { method: request.method, pathname: requestUrl.pathname, unhandled: true },
       },
     );
     return Response.json({ ok: false, error: 'INTERNAL_SERVER_ERROR' }, { status: 500 });
@@ -181,6 +176,26 @@ export default {
 
     if (legacyRoute(url.pathname)) {
       return Response.json({ ok: false, error: 'LEGACY_AFTERTRACE_RUNTIME_DISABLED' }, { status: 410 });
+    }
+    if (url.pathname === '/api/v1/payments/newebpay' || url.pathname.startsWith('/api/v1/payments/newebpay/')) {
+      const rewritten = new URL(request.url);
+      rewritten.pathname = url.pathname.slice('/api/v1/payments/newebpay'.length) || '/';
+      const routedRequest = new Request(rewritten, request);
+      return withApiAnomalyBoundary('SUBSCRIPTION_API', request, env, () =>
+        newebPayRoutes.fetch(routedRequest, env as never, executionContext as never));
+    }
+    if (url.pathname === '/api/v1/ai/task-proposal') {
+      const rewritten = new URL(request.url); rewritten.pathname = '/';
+      const routedRequest = new Request(rewritten, request);
+      return withApiAnomalyBoundary('WORKLOG_WEB_API', request, env, () =>
+        aiTaskProposalRoutes.fetch(routedRequest, env as never, executionContext as never));
+    }
+    if (url.pathname === '/api/v1/admin/feedback-management' || url.pathname.startsWith('/api/v1/admin/feedback-management/')) {
+      const rewritten = new URL(request.url);
+      rewritten.pathname = url.pathname.slice('/api/v1/admin/feedback-management'.length) || '/';
+      const routedRequest = new Request(rewritten, request);
+      return withApiAnomalyBoundary('ADMIN_API', request, env, () =>
+        adminFeedbackManagementRoutes.fetch(routedRequest, env as never, executionContext as never));
     }
     if (
       url.pathname === '/api/v1/admin/notifications'
@@ -236,8 +251,7 @@ export default {
         accountRoutes.fetch(routedRequest, env as never, executionContext as never));
     }
     if (url.pathname === '/api/v1/ai/entitlement') {
-      const rewritten = new URL(request.url);
-      rewritten.pathname = '/';
+      const rewritten = new URL(request.url); rewritten.pathname = '/';
       const routedRequest = new Request(rewritten, request);
       return withApiAnomalyBoundary('WORKLOG_WEB_API', request, env, () =>
         aiEntitlementRoutes.fetch(routedRequest, env as never, executionContext as never));
