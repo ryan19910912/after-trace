@@ -4,6 +4,7 @@ import { createAdminNotificationRoutes } from './admin/notification-routes';
 import { createAdminProfitabilityRoutes } from './admin/profitability-routes';
 import { createAdminRoutes } from './admin/routes';
 import { createAccountRoutes } from './auth/account-routes';
+import { createAppleAuthRoutes } from './auth/apple-routes';
 import { createDatabase } from './db/client';
 import { LineMessageContentResolver } from './line/content';
 import {
@@ -44,6 +45,7 @@ const adminCommercialConfigRoutes = createAdminCommercialConfigRoutes();
 const adminNotificationRoutes = createAdminNotificationRoutes();
 const adminProfitabilityRoutes = createAdminProfitabilityRoutes();
 const accountRoutes = createAccountRoutes();
+const appleAuthRoutes = createAppleAuthRoutes();
 const aiEntitlementRoutes = createAiEntitlementRoutes();
 const aiTextCaptureRoutes = createAiTextCaptureRoutes();
 const nativeGroupRoutes = createNativeGroupRoutes();
@@ -181,6 +183,13 @@ export default {
 
     if (legacyRoute(url.pathname)) {
       return Response.json({ ok: false, error: 'LEGACY_AFTERTRACE_RUNTIME_DISABLED' }, { status: 410 });
+    }
+    if (url.pathname === '/api/v1/auth/apple' || url.pathname.startsWith('/api/v1/auth/apple/')) {
+      const rewritten = new URL(request.url);
+      rewritten.pathname = url.pathname.slice('/api/v1/auth/apple'.length) || '/';
+      const routedRequest = new Request(rewritten, request);
+      return withApiAnomalyBoundary('WORKLOG_WEB_API', request, env, () =>
+        appleAuthRoutes.fetch(routedRequest, env as never, executionContext as never));
     }
     if (
       url.pathname === '/api/v1/admin/notifications'
