@@ -102,7 +102,11 @@ export class DrizzleTaskRepository implements TaskRepository {
           body = CASE WHEN ${hasBody} THEN ${input.body ?? null} ELSE task.body END,
           due_at = CASE WHEN ${hasDueAt} THEN ${input.dueAt ?? null} ELSE task.due_at END,
           remind_at = CASE WHEN ${hasRemindAt} THEN ${input.remindAt ?? null} ELSE task.remind_at END,
-          reminder_notified_at = CASE WHEN ${hasRemindAt} THEN NULL ELSE task.reminder_notified_at END,
+          reminder_notified_at = CASE
+            WHEN ${hasRemindAt} AND task.remind_at IS DISTINCT FROM ${input.remindAt ?? null}
+              THEN NULL
+            ELSE task.reminder_notified_at
+          END,
           updated_at = NOW()
       WHERE task.id = ${taskId}
         AND task.user_id = ${userId}
