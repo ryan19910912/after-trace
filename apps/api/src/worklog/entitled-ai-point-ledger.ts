@@ -12,6 +12,7 @@ export interface AiPointLedgerPort {
     actorUserId: number;
     sourceId?: number | null;
     requestedPoints: number;
+    entitlementGrantId?: number | null;
     providerCostHoldTwd?: number | null;
     at?: Date;
     ttlMs?: number;
@@ -28,9 +29,9 @@ export interface AiPointLedgerPort {
  * activates only the selected user-owned grant scope for this Source, preventing a paid
  * period from accidentally consuming an older FREE trial (or another legacy grant).
  *
- * AI Pro additionally requires a conservative TWD provider-cost hold from the exact
- * provider/runtime pricing snapshot used to estimate the request. FREE trial does not use
- * the monthly paid hard cap, so its low-level reservation intentionally receives no TWD hold.
+ * The exact selected Grant is forwarded to the PostgreSQL reservation. AI Pro additionally
+ * requires a conservative TWD provider-cost hold from the same provider/runtime pricing
+ * snapshot used for the point estimate. FREE trial has no paid-period TWD hard cap.
  */
 export class EntitledAiPointLedgerService implements AiPointLedgerPort {
   constructor(
@@ -58,7 +59,13 @@ export class EntitledAiPointLedgerService implements AiPointLedgerPort {
       return { status: 'AI_ENTITLEMENT_BLOCKED', reason: 'PROVIDER_COST_ACCOUNTING_INCOMPLETE' };
     }
 
-    return this.ledger.reserveAi({ ...input, sourceId, at, providerCostHoldTwd });
+    return this.ledger.reserveAi({
+      ...input,
+      sourceId,
+      at,
+      entitlementGrantId: admission.grantId,
+      providerCostHoldTwd,
+    });
   }
 
   commitAiUsage(token: string, usage: WorklogAiUsageCommit, at?: Date): Promise<AiPointCommitResult> {
