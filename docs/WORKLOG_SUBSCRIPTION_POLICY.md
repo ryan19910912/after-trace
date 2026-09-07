@@ -65,6 +65,25 @@ Paid runtime retains internal resource/point limits plus a provider-cost hard ca
 
 Current planning assumption may start around a NT$30/month provider-cost ceiling for AI Pro, but this value must remain Admin/runtime configuration rather than a permanent product constant.
 
+## Payment provider — NewebPay / 藍新
+
+V1 paid subscription provider is **NewebPay / 藍新信用卡定期定額**.
+
+Product/runtime rules:
+
+- customer price remains fixed at NT$99/month;
+- checkout is initiated from AFTERTRACE but card entry/authorization occurs on the NewebPay-hosted periodic-payment page;
+- AFTERTRACE must not receive/store raw card numbers or CVV;
+- merchant id/hash key/hash IV and callback URLs are API Worker secrets/config, never `VITE_*` frontend variables;
+- successful first periodic authorization maps to normalized `ACTIVATE` lifecycle processing;
+- successful later periodic charges map to `RENEW`;
+- cancellation/termination maps to `CANCEL` and stops future renewal while preserving already-paid access through the current period end;
+- provider callback retries must remain idempotent through provider event keys plus the shared subscription lifecycle boundary;
+- a failed recurring charge must not erase an already-paid current period;
+- the core subscription lifecycle remains provider-neutral even though the current transport adapter is NewebPay.
+
+NewebPay merchant credentials/environment values may remain unset in source/default examples until the operator supplies the real Dev/Prod values. Missing NewebPay configuration disables paid checkout only; it must not break FREE/manual product behavior.
+
 ## Customer-facing wording
 
 Prefer simple messaging:
@@ -85,8 +104,9 @@ Suggested flow:
 3. user can experience AI features until trial allowance is exhausted;
 4. product warns as trial allowance approaches zero;
 5. once exhausted, AI surfaces offer upgrade to AI Pro NT$99/month;
-6. FREE manual features continue without interruption;
-7. successful AI Pro subscription starts paid period accounting/caps.
+6. customer completes NewebPay periodic-payment authorization;
+7. successful NewebPay activation starts paid period accounting/caps;
+8. FREE manual features continue without interruption regardless of AI entitlement/payment state.
 
 ## No one-time top-up in V1
 
