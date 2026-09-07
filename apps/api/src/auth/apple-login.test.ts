@@ -12,11 +12,12 @@ describe('Apple Login crypto contract', () => {
       ['sign', 'verify'],
     );
     const pkcs8 = new Uint8Array(await crypto.subtle.exportKey('pkcs8', pair.privateKey));
+    const pem = `-----BEGIN PRIVATE KEY-----\n${standardBase64(pkcs8)}\n-----END PRIVATE KEY-----`;
     const clientSecret = await createAppleClientSecret({
       clientId: 'com.aftertrace.web',
       teamId: 'TEAM123456',
       keyId: 'KEY1234567',
-      privateKeyP8Base64: standardBase64(pkcs8),
+      privateKeyP8Base64: standardBase64(encoder.encode(pem)),
     }, new Date('2026-09-07T10:00:00.000Z'), 600);
 
     const [headerPart, payloadPart, signaturePart] = clientSecret.split('.');
@@ -30,6 +31,12 @@ describe('Apple Login crypto contract', () => {
       sub: 'com.aftertrace.web',
     });
     expect(base64UrlDecode(signaturePart)).toHaveLength(64);
+    await expect(crypto.subtle.verify(
+      { name: 'ECDSA', hash: 'SHA-256' },
+      pair.publicKey,
+      base64UrlDecode(signaturePart),
+      encoder.encode(`${headerPart}.${payloadPart}`),
+    )).resolves.toBe(true);
   });
 
   it('verifies Apple identity tokens as RS256 against Apple RSA JWKS', async () => {
@@ -69,6 +76,40 @@ describe('Apple Login crypto contract', () => {
       subject: 'apple-subject-1',
       emailSnapshot: 'relay@example.test',
     });
+  });
+
+  it('rejects an otherwise valid Apple identity token when nonce differs', async () => {
+    const pair = await crypto.subtle.generateKey(
+      {
+        name: 'RSASSA-PKCS1-v1_5',
+        modulusLength: 2048,
+        publicExponent: new Uint8Array([1, 0, 1]),
+        hash: 'SHA-256',
+      },
+      true,
+      ['sign', 'verify'],
+    );
+    const publicJwk = await crypto.subtle.exportKey('jwk', pair.publicKey);
+    const now = new Date('2026-09-07T10:00:00.000Z');
+    const idToken = await signRs256(pair.privateKey, {
+      iss: 'https://appleid.apple.com',
+      aud: 'com.aftertrace.web',
+      sub: 'apple-subject-1',
+      iat: Math.floor(now.getTime() / 1000),
+      exp: Math.floor(now.getTime() / 1000) + 600,
+      nonce: 'expected-nonce',
+    });
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({
+      keys: [{ ...publicJwk, kid: 'apple-key-1', alg: 'RS256', use: 'sig' }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+
+    await expect(verifyAppleIdentityToken({
+      idToken,
+      clientId: 'com.aftertrace.web',
+      expectedNonce: 'different-nonce',
+      now,
+      fetchFn: fetchFn as typeof fetch,
+    })).rejects.toMatchObject({ code: 'APPLE_ID_TOKEN_INVALID' });
   });
 
   it('rejects an ES256 identity token before accepting Apple signing keys', async () => {
