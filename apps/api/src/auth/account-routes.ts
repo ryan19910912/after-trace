@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { resolveWebSessionUserId } from './session-user';
-import { verifyWebSessionToken, type WebSessionClaims } from './token';
+import { issueWebSessionToken, verifyWebSessionToken, type WebSessionClaims } from './token';
 import { createDatabase, type Database } from '../db/client';
 import { DrizzleAccountIdentityRepository } from './drizzle-account-identity';
 import type { AccountProfile } from './account-identity';
@@ -20,6 +20,7 @@ export type AccountRouteDependencies = {
   verifySession?: (token: string, secret: string, now?: Date) => Promise<WebSessionClaims | null>;
   resolveSessionUserId?: (database: Database, session: WebSessionClaims) => Promise<number | null>;
   repositoryFactory?: (database: Database) => AccountProfileRepository;
+  issueSession?: typeof issueWebSessionToken;
 };
 
 type AccountEnv = {
@@ -27,12 +28,15 @@ type AccountEnv = {
   Variables: { userId: number; database: Database };
 };
 
+const EXTENSION_SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
+
 export function createAccountRoutes(dependencies: AccountRouteDependencies = {}) {
   const databaseFactory = dependencies.databaseFactory ?? createDatabase;
   const verifySession = dependencies.verifySession ?? verifyWebSessionToken;
   const resolveSessionUser = dependencies.resolveSessionUserId ?? resolveWebSessionUserId;
   const repositoryFactory = dependencies.repositoryFactory
     ?? ((database: Database) => new DrizzleAccountIdentityRepository(database));
+  const issueSession = dependencies.issueSession ?? issueWebSessionToken;
   const app = new Hono<AccountEnv>();
 
   app.use('*', async (c, next) => {
@@ -55,7 +59,7 @@ export function createAccountRoutes(dependencies: AccountRouteDependencies = {})
     if (!origin || !allowedOrigin || origin !== allowedOrigin) return c.body(null, 403);
     c.header('Access-Control-Allow-Origin', origin);
     c.header('Access-Control-Allow-Headers', 'Authorization, Content-Type');
-    c.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    c.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     c.header('Access-Control-Max-Age', '600');
     c.header('Vary', 'Origin');
     return c.body(null, 204);
@@ -85,6 +89,21 @@ export function createAccountRoutes(dependencies: AccountRouteDependencies = {})
         displayName: profile.displayName,
         publicAccountId: profile.publicAccountId,
       },
+    });
+  });
+
+  app.post('/extension-session', async (c) => {
+    const secret = authSecret(c.env);
+    if (!secret) return c.json({ ok: false, error: 'WEB_AUTH_NOT_CONFIGURED' }, 503);
+    const sessionToken = await issueSession({
+      userId: c.get('userId'),
+      secret,
+      ttlSeconds: EXTENSION_SESSION_TTL_SECONDS,
+    });
+    return c.json({
+      ok: true,
+      sessionToken,
+      expiresInSeconds: EXTENSION_SESSION_TTL_SECONDS,
     });
   });
 
