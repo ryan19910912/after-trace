@@ -2,7 +2,7 @@
 
 ## Product direction
 
-AFTERTRACE is a **Web + PWA-first work memory product**. LINE is no longer a Record/group/AI product surface. The official LINE OA remains an external customer-support channel, and LINE Login remains one supported authentication provider. A Chrome extension is an optional fast-capture surface for desktop use.
+AFTERTRACE is a **Web + PWA-first work memory product**. LINE is no longer a Record/group/AI product surface. The official LINE OA remains an external customer-support channel, and LINE Login remains one supported authentication provider. A Chrome extension is a committed fast-capture surface for desktop use.
 
 Core promise:
 
@@ -22,7 +22,21 @@ Web is the full management surface: timeline/history, search/date filtering, man
 
 ### Chrome extension
 
-Initial scope: quick microphone/voice input, quick text input, destination Source/group selection, and submit through the same API/domain model as Web/PWA. Current-page title/URL capture is optional later work.
+The Chrome extension is a compact quick-capture surface, not a second full workspace. It reuses the same AFTERTRACE account, Source/group authorization, Record APIs, AI entitlement and cost accounting as Web/PWA.
+
+Accepted V1 capture scope:
+
+- quick text;
+- quick voice;
+- destination Source/group selection;
+- explicit selected-webpage-text capture;
+- optional active-page title + URL context;
+- explicit visible-page/bounded screenshot/image capture for AI Pro or eligible Free AI trial;
+- submit into the same AFTERTRACE timeline/domain model.
+
+Do not silently archive full pages, browsing history, clipboard, tabs, screen, or microphone. Do not build a large sidebar workspace, meeting-length recorder, automatic tab monitor, or RAG over visited pages for V1.
+
+Follow `WORKLOG_EXTENSION_POLICY.md` for the durable extension contract.
 
 ## Account and identity
 
@@ -88,11 +102,13 @@ MVP roles may stay minimal (`OWNER`, `MEMBER`). Group membership is an AFTERTRAC
 
 ## Free product
 
-The free product is a complete manual work-record tool and includes **no provider-backed AI**.
+The free product is a complete manual work-record tool. Provider-backed AI is available only through the one-time eligible Free AI trial until that trial allowance is exhausted.
 
-Free users may manually create/edit/delete/restore Records, view timeline/history, search stored Record content, filter by time/date, use permitted group features, and use browser/device speech-to-text where supported when it does not call AFTERTRACE provider AI.
+Free users may manually create/edit/delete/restore Records, view timeline/history, search stored Record content, filter by time/date, use permitted group features, use provider-free extension capture, and use browser/device speech-to-text where supported when it does not call AFTERTRACE provider AI.
 
 Free voice is **voice input / speech-to-text**, not AI voice interpretation.
+
+A newly eligible FREE account receives one idempotent one-time AI trial allowance using internal AI points. Admin configures the initial point quantity; it does not refresh monthly and is not displayed as a TWD trial price. Follow `WORKLOG_SUBSCRIPTION_POLICY.md` and `WORKLOG_AI_POINT_POLICY.md`.
 
 ### Free Record fields
 
@@ -107,9 +123,16 @@ Free Records do not require AI title, AI keywords or AI entities.
 
 ## AI subscription
 
-AI is a paid subscription capability. AI entitlement is **per user**, not per group. There is no GROUP AI responsible-user concept in the target product.
+Launch commercial shape is exactly:
 
-If paid user A and free user B are in the same GROUP, A may use AI against authorized GROUP data; B may manually use permitted GROUP Record features but cannot invoke provider-backed AI.
+- `FREE` — NT$0;
+- `AI_PRO` — NT$99/month.
+
+No one-time AI top-up and no extra paid tier are part of V1.
+
+AI entitlement is **per user**, not per group. There is no GROUP AI responsible-user concept in the target product.
+
+If paid user A and free user B are in the same GROUP, A may use AI against authorized GROUP data; B may manually use permitted GROUP Record features and may use provider AI only while B has eligible Free trial points.
 
 ### AI input capabilities
 
@@ -161,7 +184,7 @@ Provider-free search uses raw Record content, date/time filters and Source/group
 
 ### AI natural-language search
 
-Paid AI may interpret a natural-language request into bounded search terms/filters. PostgreSQL remains authoritative retrieval.
+Paid AI or eligible Free trial AI may interpret a natural-language request into bounded search terms/filters. PostgreSQL remains authoritative retrieval.
 
 Search combines, where available:
 
@@ -296,7 +319,8 @@ Admin plan configuration should support at minimum:
 - monthly provider-cost cap in TWD;
 - optional per-request safety cap;
 - optional modality limits such as file size/image count/audio duration;
-- feature toggles such as natural-language search, summary, image/file AI.
+- feature toggles such as natural-language search, summary, image/file AI;
+- FREE one-time initial AI trial point quantity.
 
 Runtime fails closed when a hard limit is reached. The provider-cost cap protects unit economics even if token mix/model pricing changes.
 
@@ -304,7 +328,7 @@ Runtime fails closed when a hard limit is reached. The provider-cost cap protect
 
 Internal AI points/resource units may remain an implementation/accounting detail and do not need to dominate customer UX.
 
-Admin retains auditable provider-call facts: user, Source/group, operation, provider/model, usage units/tokens, pricing snapshot, actual provider cost USD/TWD, plan/period, and whether a request was blocked by plan/resource caps.
+Admin retains auditable provider-call facts: user, Source/group, operation, provider/model, usage units/tokens, pricing snapshot, actual provider cost USD/TWD, plan/period or Free trial grant, and whether a request was blocked by plan/resource caps.
 
 ## Product priorities
 
@@ -317,6 +341,7 @@ Admin retains auditable provider-call facts: user, Source/group, operation, prov
 - free browser/device speech-to-text where practical;
 - AFTERTRACE groups + invite links;
 - notification center + Admin announcements + SYSTEM notification foundation;
+- FREE one-time AI trial points + Admin configuration;
 - paid AI text/voice/image/file interpretation;
 - AI title/keywords/date for new AI operations only;
 - deterministic content/date search;
@@ -326,7 +351,8 @@ Admin retains auditable provider-call facts: user, Source/group, operation, prov
 - AI rewrite;
 - tasks + PWA push reminders;
 - subscription fair-use/resource caps and Admin controls;
-- in-product feedback + LINE OA support entry.
+- in-product feedback + LINE OA support entry;
+- Chrome extension quick capture: text, voice, selected text, page title/URL and explicit screenshot/image.
 
 ### Later / conditional
 
@@ -334,7 +360,7 @@ Admin retains auditable provider-call facts: user, Source/group, operation, prov
 - AI Q&A after grounding quality is proven;
 - Calendar integration;
 - vector/embedding search;
-- Chrome current-page URL/title capture.
+- richer screenshot region-selection if visible-page capture ships first.
 
 ### Not current priority
 
@@ -344,7 +370,8 @@ Admin retains auditable provider-call facts: user, Source/group, operation, prov
 - automatic historical AI backfill;
 - project/group AI summary as a standalone feature;
 - broad CRM/ERP schema;
-- RAG/general AI customer-support bot.
+- RAG/general AI customer-support bot;
+- automatic browsing-history/full-page capture or extension sidebar agent.
 
 ## Brand
 
