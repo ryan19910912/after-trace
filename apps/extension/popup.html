@@ -47,7 +47,7 @@
       <textarea id="content" placeholder="輸入一段短紀錄，或使用語音輸入…"></textarea>
       <div class="row">
         <button id="voice" type="button">🎙️ 語音</button>
-        <button id="screenshot" type="button">📷 截圖預覽</button>
+        <button id="screenshot" type="button">📷 擷取可見畫面</button>
       </div>
       <label class="row">
         <input id="includePage" type="checkbox" />
@@ -58,10 +58,11 @@
         <a id="pageUrl" target="_blank" rel="noreferrer"></a>
       </div>
       <img id="screenshotPreview" class="preview hidden" alt="截圖預覽" />
+      <button id="saveScreenshot" class="hidden" type="button">用 AI 整理截圖並儲存</button>
       <div id="status" class="status muted"></div>
       <button id="save" type="button" disabled>請先連接 AFTERTRACE</button>
       <a id="openWeb" class="footer-link" href="https://after-trace-web-prod.a0955625660.workers.dev/" target="_blank" rel="noreferrer">開啟完整 AFTERTRACE Web</a>
-      <div class="muted">文字、選取文字、頁面 title/URL 與瀏覽器語音轉文字都會走 AFTERTRACE Record API。頁面資訊只有你明確勾選時才會附上，不會擷取完整頁面內容。截圖 AI 仍需 AI Pro／試用 entitlement。</div>
+      <div class="muted">文字、選取文字、頁面 title/URL 與瀏覽器語音轉文字都走 AFTERTRACE Record API。頁面資訊只有你明確勾選時才會附上。截圖只在你按「用 AI 整理截圖並儲存」後送到 AFTERTRACE backend，需 AI Pro 或尚有 FREE AI 試用額度。</div>
     </main>
     <script src="popup.js"></script>
   </body>
