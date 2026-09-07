@@ -1,6 +1,8 @@
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+type OAuthProvider = 'LINE' | 'GOOGLE' | 'APPLE';
+
 function base64UrlEncode(bytes: Uint8Array): string {
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -31,10 +33,15 @@ async function key(secret: string): Promise<CryptoKey> {
   );
 }
 
-export async function issueLineLoginState(secret: string, now = new Date(), ttlSeconds = 600): Promise<string> {
+export async function issueOAuthLoginState(
+  provider: OAuthProvider,
+  secret: string,
+  now = new Date(),
+  ttlSeconds = 600,
+): Promise<string> {
   const nonceBytes = crypto.getRandomValues(new Uint8Array(24));
   const payload = encoder.encode(JSON.stringify({
-    type: 'LINE_LOGIN_STATE',
+    type: `${provider}_LOGIN_STATE`,
     nonce: base64UrlEncode(nonceBytes),
     exp: Math.floor(now.getTime() / 1000) + ttlSeconds,
   }));
@@ -42,7 +49,12 @@ export async function issueLineLoginState(secret: string, now = new Date(), ttlS
   return `${base64UrlEncode(payload)}.${base64UrlEncode(signature)}`;
 }
 
-export async function verifyLineLoginState(token: string, secret: string, now = new Date()): Promise<boolean> {
+export async function verifyOAuthLoginState(
+  provider: OAuthProvider,
+  token: string,
+  secret: string,
+  now = new Date(),
+): Promise<boolean> {
   const [payloadPart, signaturePart, extra] = token.trim().split('.');
   if (!payloadPart || !signaturePart || extra) return false;
   try {
@@ -56,7 +68,7 @@ export async function verifyLineLoginState(token: string, secret: string, now = 
     );
     if (!valid) return false;
     const parsed = JSON.parse(decoder.decode(payload)) as { type?: unknown; nonce?: unknown; exp?: unknown };
-    return parsed.type === 'LINE_LOGIN_STATE'
+    return parsed.type === `${provider}_LOGIN_STATE`
       && typeof parsed.nonce === 'string'
       && /^[A-Za-z0-9_-]{16,128}$/.test(parsed.nonce)
       && typeof parsed.exp === 'number'
@@ -65,4 +77,20 @@ export async function verifyLineLoginState(token: string, secret: string, now = 
   } catch {
     return false;
   }
+}
+
+export function issueLineLoginState(secret: string, now = new Date(), ttlSeconds = 600): Promise<string> {
+  return issueOAuthLoginState('LINE', secret, now, ttlSeconds);
+}
+
+export function verifyLineLoginState(token: string, secret: string, now = new Date()): Promise<boolean> {
+  return verifyOAuthLoginState('LINE', token, secret, now);
+}
+
+export function issueGoogleLoginState(secret: string, now = new Date(), ttlSeconds = 600): Promise<string> {
+  return issueOAuthLoginState('GOOGLE', secret, now, ttlSeconds);
+}
+
+export function verifyGoogleLoginState(token: string, secret: string, now = new Date()): Promise<boolean> {
+  return verifyOAuthLoginState('GOOGLE', token, secret, now);
 }
