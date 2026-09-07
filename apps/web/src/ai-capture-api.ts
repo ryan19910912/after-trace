@@ -72,15 +72,17 @@ async function json<T>(response: Response, fallback: string): Promise<T & { erro
 }
 
 function mapRecord(raw: Record<string, unknown>): AiCapturedRecord {
+  const rawTerms = raw.searchTerms ?? raw.search_terms;
+  const searchTerms = Array.isArray(rawTerms)
+    ? rawTerms.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean)
+    : [];
   return {
     id: positiveNumber(raw.id, 'record id'),
     sourceId: positiveNumber(raw.sourceId ?? raw.source_id, 'source id'),
     authorUserId: positiveNumber(raw.authorUserId ?? raw.author_user_id, 'author user id'),
     rawText: String(raw.rawText ?? raw.raw_text ?? ''),
     title: nullableString(raw.title),
-    searchTerms: Array.isArray(raw.searchTerms ?? raw.search_terms)
-      ? (raw.searchTerms ?? raw.search_terms as unknown[]).filter((item): item is string => typeof item === 'string')
-      : [],
+    searchTerms,
     occurredAt: nullableString(raw.occurredAt ?? raw.occurred_at),
     createdAt: String(raw.createdAt ?? raw.created_at ?? ''),
   };
