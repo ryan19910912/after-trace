@@ -109,6 +109,7 @@ export function createAdminCommercialConfigRoutes(dependencies: AdminCommercialC
         aiNaturalSearch: body.aiNaturalSearch !== false,
         aiRelatedRecords: body.aiRelatedRecords !== false,
         aiTimeRangeSummary: body.aiTimeRangeSummary !== false,
+        aiRecordRewrite: body.aiRecordRewrite !== false,
         monthlyAiPointCap,
         monthlyProviderCostCapTwd: typeof body.monthlyProviderCostCapTwd === 'string'
           ? body.monthlyProviderCostCapTwd
