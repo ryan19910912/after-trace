@@ -20,6 +20,7 @@ export type AiProConfig = {
   aiRelatedRecords: boolean;
   aiTimeRangeSummary: boolean;
   aiRecordRewrite: boolean;
+  aiTaskProposal: boolean;
   monthlyAiPointCap: number;
   monthlyProviderCostCapTwd: string;
   perRequestAiPointCap: number | null;
@@ -30,21 +31,10 @@ export class AdminCommercialApi {
   private sessionToken: string | null = null;
   constructor(private readonly baseUrl: string) {}
 
-  setSessionToken(token: string | null) {
-    this.sessionToken = token?.trim() || null;
-  }
-
-  async getFreeAiTrial(): Promise<FreeAiTrialConfig | null> {
-    return this.getNullable<FreeAiTrialConfig>('/free-ai-trial');
-  }
-
-  async setFreeAiTrial(points: number): Promise<FreeAiTrialConfig> {
-    return this.put<FreeAiTrialConfig>('/free-ai-trial', { freeInitialAiTrialPoints: points });
-  }
-
-  async getAiPro(): Promise<AiProConfig | null> {
-    return this.getNullable<AiProConfig>('/ai-pro');
-  }
+  setSessionToken(token: string | null) { this.sessionToken = token?.trim() || null; }
+  async getFreeAiTrial(): Promise<FreeAiTrialConfig | null> { return this.getNullable<FreeAiTrialConfig>('/free-ai-trial'); }
+  async setFreeAiTrial(points: number): Promise<FreeAiTrialConfig> { return this.put<FreeAiTrialConfig>('/free-ai-trial', { freeInitialAiTrialPoints: points }); }
+  async getAiPro(): Promise<AiProConfig | null> { return this.getNullable<AiProConfig>('/ai-pro'); }
 
   async setAiPro(input: {
     enabled: boolean;
@@ -53,6 +43,7 @@ export class AdminCommercialApi {
     aiRelatedRecords: boolean;
     aiTimeRangeSummary: boolean;
     aiRecordRewrite: boolean;
+    aiTaskProposal: boolean;
     monthlyAiPointCap: number;
     monthlyProviderCostCapTwd: string;
     perRequestAiPointCap: number | null;
