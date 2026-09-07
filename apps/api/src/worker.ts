@@ -1,6 +1,7 @@
 import app, { type Bindings } from './index';
 import { createAdminProfitabilityRoutes } from './admin/profitability-routes';
 import { createAdminRoutes } from './admin/routes';
+import { createAccountRoutes } from './auth/account-routes';
 import { createDatabase } from './db/client';
 import { LineMessageContentResolver } from './line/content';
 import {
@@ -32,6 +33,7 @@ type ApiBoundary = 'ADMIN_API' | 'SUBSCRIPTION_API' | 'WORKLOG_WEB_API';
 
 const adminRoutes = createAdminRoutes();
 const adminProfitabilityRoutes = createAdminProfitabilityRoutes();
+const accountRoutes = createAccountRoutes();
 const nativeGroupRoutes = createNativeGroupRoutes();
 const manualRecordRoutes = createManualRecordRoutes();
 const worklogRoutes = createWorklogRoutes();
@@ -154,6 +156,13 @@ export default {
       const routedRequest = new Request(rewritten, request);
       return withApiAnomalyBoundary('ADMIN_API', request, env, () =>
         adminRoutes.fetch(routedRequest, env as never, executionContext as never));
+    }
+    if (url.pathname === '/api/v1/account' || url.pathname.startsWith('/api/v1/account/')) {
+      const rewritten = new URL(request.url);
+      rewritten.pathname = url.pathname.slice('/api/v1/account'.length) || '/';
+      const routedRequest = new Request(rewritten, request);
+      return withApiAnomalyBoundary('WORKLOG_WEB_API', request, env, () =>
+        accountRoutes.fetch(routedRequest, env as never, executionContext as never));
     }
     if (url.pathname === '/api/v1/subscription' || url.pathname.startsWith('/api/v1/subscription/')) {
       const rewritten = new URL(request.url);
