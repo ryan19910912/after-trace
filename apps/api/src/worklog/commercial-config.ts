@@ -19,6 +19,7 @@ export type AiProConfigSnapshot = {
   aiNaturalSearch: boolean;
   aiRelatedRecords: boolean;
   aiTimeRangeSummary: boolean;
+  aiRecordRewrite: boolean;
   monthlyAiPointCap: number;
   monthlyProviderCostCapTwd: string;
   perRequestAiPointCap: number | null;
@@ -31,6 +32,7 @@ export type AiProConfigInput = {
   aiNaturalSearch?: boolean;
   aiRelatedRecords?: boolean;
   aiTimeRangeSummary?: boolean;
+  aiRecordRewrite?: boolean;
   monthlyAiPointCap: number;
   monthlyProviderCostCapTwd: string;
   perRequestAiPointCap?: number | null;
@@ -78,6 +80,7 @@ export class CommercialConfigService {
       aiNaturalSearch: input.aiNaturalSearch !== false,
       aiRelatedRecords: input.aiRelatedRecords !== false,
       aiTimeRangeSummary: input.aiTimeRangeSummary !== false,
+      aiRecordRewrite: input.aiRecordRewrite !== false,
       monthlyAiPointCap: input.monthlyAiPointCap,
       monthlyProviderCostCapTwd: providerCostCap,
       perRequestAiPointCap: perRequest,
