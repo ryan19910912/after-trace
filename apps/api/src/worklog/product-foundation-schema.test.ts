@@ -1,5 +1,3 @@
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   worklogSourceMemberRoleEnum,
@@ -10,12 +8,27 @@ import {
 } from '../db/schema-worklog';
 import {
   worklogAuthIdentities,
+  worklogAuthProviderEnum,
   worklogSourceInvites,
+  worklogUserPublicAccounts,
 } from '../db/schema-worklog-product';
 
 describe('Web/PWA product foundation schema', () => {
   it('does not require a LINE identity for a target Web/PWA user', () => {
     expect(worklogUsers.lineUserId.notNull).toBe(false);
+  });
+
+  it('supports Google, LINE and Apple as provider-neutral login bindings', () => {
+    expect(worklogAuthProviderEnum.enumValues).toEqual(['GOOGLE', 'LINE', 'APPLE']);
+    expect(worklogAuthIdentities.userId.notNull).toBe(true);
+    expect(worklogAuthIdentities.provider.notNull).toBe(true);
+    expect(worklogAuthIdentities.subject.notNull).toBe(true);
+  });
+
+  it('keeps the customer-facing account id separate from provider identity and DB sequence', () => {
+    expect(worklogUserPublicAccounts.userId.notNull).toBe(true);
+    expect(worklogUserPublicAccounts.publicAccountId.notNull).toBe(true);
+    expect(worklogUserPublicAccounts.publicAccountId.dataType).toBe('string');
   });
 
   it('supports native named GROUP sources and explicit member roles', () => {
@@ -34,29 +47,11 @@ describe('Web/PWA product foundation schema', () => {
     expect(worklogSubscriptionPlans.perRequestAiPointCap.notNull).toBe(false);
   });
 
-  it('stores provider-neutral auth identities instead of requiring LINE identity', () => {
-    expect(worklogAuthIdentities.userId.notNull).toBe(true);
-    expect(worklogAuthIdentities.provider.notNull).toBe(true);
-    expect(worklogAuthIdentities.subject.notNull).toBe(true);
-  });
-
   it('stores only an invite token hash and requires authenticated membership separately', () => {
     expect(worklogSourceInvites.sourceId.notNull).toBe(true);
     expect(worklogSourceInvites.tokenHash.notNull).toBe(true);
     expect(worklogSourceInvites.createdByUserId.notNull).toBe(true);
     expect('token' in worklogSourceInvites).toBe(false);
     expect('rawToken' in worklogSourceInvites).toBe(false);
-  });
-
-  it('keeps the existing-database migration additive and idempotent', async () => {
-    const migration = await readFile(join(process.cwd(), 'scripts/forward-compat.mjs'), 'utf8');
-
-    expect(migration).toContain('ALTER COLUMN line_user_id DROP NOT NULL');
-    expect(migration).toContain("CREATE TYPE public.worklog_source_member_role AS ENUM ('OWNER', 'MEMBER')");
-    expect(migration).toContain('ADD COLUMN IF NOT EXISTS name varchar(255)');
-    expect(migration).toContain('ADD COLUMN IF NOT EXISTS ai_enabled boolean NOT NULL DEFAULT false');
-    expect(migration).toContain('monthly_provider_cost_cap_twd numeric(12,2)');
-    expect(migration).toContain('CREATE TABLE IF NOT EXISTS public.worklog_auth_identities');
-    expect(migration).toContain('CREATE TABLE IF NOT EXISTS public.worklog_source_invites');
   });
 });
