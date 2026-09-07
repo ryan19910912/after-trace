@@ -9,6 +9,18 @@ export type FreeAiTrialConfig = {
   consumedPoints: number;
 };
 
+export type AiProConfig = {
+  code: 'AI_PRO';
+  displayName: string;
+  priceTwd: '99.00';
+  enabled: boolean;
+  aiEnabled: boolean;
+  monthlyAiPointCap: number;
+  monthlyProviderCostCapTwd: string;
+  perRequestAiPointCap: number | null;
+  updatedAt: string;
+};
+
 export class AdminCommercialApi {
   private sessionToken: string | null = null;
   constructor(private readonly baseUrl: string) {}
@@ -18,21 +30,39 @@ export class AdminCommercialApi {
   }
 
   async getFreeAiTrial(): Promise<FreeAiTrialConfig | null> {
-    const response = await this.request('/free-ai-trial', { method: 'GET' }, true);
-    if (response.status === 404) return null;
-    const body = await parseBody(response);
-    if (!response.ok) throw new Error(body.error || `ADMIN_COMMERCIAL_API_FAILED_${response.status}`);
-    return body.config as FreeAiTrialConfig;
+    return this.getNullable<FreeAiTrialConfig>('/free-ai-trial');
   }
 
   async setFreeAiTrial(points: number): Promise<FreeAiTrialConfig> {
-    const response = await this.request('/free-ai-trial', {
-      method: 'PUT',
-      body: JSON.stringify({ freeInitialAiTrialPoints: points }),
-    }, true);
+    return this.put<FreeAiTrialConfig>('/free-ai-trial', { freeInitialAiTrialPoints: points });
+  }
+
+  async getAiPro(): Promise<AiProConfig | null> {
+    return this.getNullable<AiProConfig>('/ai-pro');
+  }
+
+  async setAiPro(input: {
+    enabled: boolean;
+    monthlyAiPointCap: number;
+    monthlyProviderCostCapTwd: string;
+    perRequestAiPointCap: number | null;
+  }): Promise<AiProConfig> {
+    return this.put<AiProConfig>('/ai-pro', input);
+  }
+
+  private async getNullable<T>(path: string): Promise<T | null> {
+    const response = await this.request(path, { method: 'GET' }, true);
+    if (response.status === 404) return null;
     const body = await parseBody(response);
     if (!response.ok) throw new Error(body.error || `ADMIN_COMMERCIAL_API_FAILED_${response.status}`);
-    return body.config as FreeAiTrialConfig;
+    return body.config as T;
+  }
+
+  private async put<T>(path: string, value: unknown): Promise<T> {
+    const response = await this.request(path, { method: 'PUT', body: JSON.stringify(value) }, true);
+    const body = await parseBody(response);
+    if (!response.ok) throw new Error(body.error || `ADMIN_COMMERCIAL_API_FAILED_${response.status}`);
+    return body.config as T;
   }
 
   private request(path: string, init: RequestInit, authenticated: boolean): Promise<Response> {
