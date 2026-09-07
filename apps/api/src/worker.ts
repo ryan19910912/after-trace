@@ -82,12 +82,18 @@ function manualRecordRoute(pathname: string): boolean {
   return /^\/api\/v1\/worklog\/records\/\d+(?:\/restore|\/revisions)?$/.test(pathname);
 }
 
-function shouldKickPushAfterAdminAnnouncement(request: Request, response: Response): boolean {
+async function shouldKickPushAfterAdminAnnouncement(request: Request, response: Response): Promise<boolean> {
   if (!response.ok || request.method !== 'POST') return false;
   const pathname = new URL(request.url).pathname;
-  if (/^\/api\/v1\/admin\/notifications\/announcements\/\d+\/send$/.test(pathname)) return true;
-  if (pathname !== '/api/v1/admin/notifications/announcements') return false;
-  return response.status === 201;
+  const isSendEndpoint = /^\/api\/v1\/admin\/notifications\/announcements\/\d+\/send$/.test(pathname);
+  const isCreateEndpoint = pathname === '/api/v1/admin/notifications/announcements';
+  if (!isSendEndpoint && !isCreateEndpoint) return false;
+  try {
+    const body = await response.clone().json() as { announcement?: { status?: unknown } };
+    return body?.announcement?.status === 'SENT';
+  } catch {
+    return false;
+  }
 }
 
 function schedulePushDelivery(env: Bindings, executionContext: ExecutionContextLike): void {
@@ -174,7 +180,7 @@ export default {
       const routedRequest = new Request(rewritten, request);
       const response = await withApiAnomalyBoundary('ADMIN_API', request, env, () =>
         adminNotificationRoutes.fetch(routedRequest, env as never, executionContext as never));
-      if (shouldKickPushAfterAdminAnnouncement(request, response)) schedulePushDelivery(env, executionContext);
+      if (await shouldKickPushAfterAdminAnnouncement(request, response)) schedulePushDelivery(env, executionContext);
       return response;
     }
     if (
