@@ -12,23 +12,43 @@ export type SubscriptionLifecycleEvent = {
   metadata?: Record<string, unknown>;
 };
 
+export type SubscriptionLifecycleApplied = {
+  subscriptionId: number;
+  userId: number;
+  type: SubscriptionLifecycleEventType;
+  periodStart: Date | null;
+  periodEnd: Date | null;
+};
+
 export type SubscriptionLifecycleApplyResult =
+  | ({ status: 'APPLIED' } & SubscriptionLifecycleApplied)
   | {
-      status: 'APPLIED';
-      subscriptionId: number;
+      status: 'DUPLICATE';
+      /**
+       * Present when the original event was applied. The service intentionally replays the
+       * deterministic/idempotent SYSTEM notification so a transient notification failure on
+       * the first webhook attempt can heal on provider retry.
+       */
+      applied: SubscriptionLifecycleApplied | null;
+    }
+  | {
+      status: 'IGNORED_STALE';
       userId: number;
       type: SubscriptionLifecycleEventType;
-      periodStart: Date | null;
-      periodEnd: Date | null;
-    }
-  | { status: 'DUPLICATE' };
+    };
 
 export interface SubscriptionLifecycleRepository {
   apply(event: SubscriptionLifecycleEvent): Promise<SubscriptionLifecycleApplyResult>;
 }
 
 export interface SubscriptionLifecycleNotificationPort {
-  activated(input: { userId: number; subscriptionId: number; planCode: 'AI_PRO'; periodEnd: Date | null }): Promise<void>;
+  activated(input: {
+    userId: number;
+    subscriptionId: number;
+    planCode: 'AI_PRO';
+    periodStart: Date;
+    periodEnd: Date | null;
+  }): Promise<void>;
   renewed(input: { userId: number; subscriptionId: number; periodStart: Date; periodEnd: Date | null }): Promise<void>;
   cancelled(input: { userId: number; subscriptionId: number; periodEnd: Date | null }): Promise<void>;
 }
@@ -49,13 +69,25 @@ export class SubscriptionLifecycleService {
   async apply(input: SubscriptionLifecycleEvent): Promise<SubscriptionLifecycleApplyResult> {
     const event = normalizeEvent(input);
     const result = await this.repository.apply(event);
-    if (result.status === 'DUPLICATE') return result;
 
+    if (result.status === 'IGNORED_STALE') return result;
+    if (result.status === 'DUPLICATE') {
+      if (result.applied) await this.emitNotification(result.applied);
+      return result;
+    }
+
+    await this.emitNotification(result);
+    return result;
+  }
+
+  private async emitNotification(result: SubscriptionLifecycleApplied): Promise<void> {
     if (result.type === 'ACTIVATE') {
+      if (!result.periodStart) throw new Error('SUBSCRIPTION_ACTIVATE_PERIOD_START_MISSING');
       await this.notifications.activated({
         userId: result.userId,
         subscriptionId: result.subscriptionId,
         planCode: 'AI_PRO',
+        periodStart: result.periodStart,
         periodEnd: result.periodEnd,
       });
     } else if (result.type === 'RENEW') {
@@ -73,7 +105,6 @@ export class SubscriptionLifecycleService {
         periodEnd: result.periodEnd,
       });
     }
-    return result;
   }
 }
 
