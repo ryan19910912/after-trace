@@ -6,12 +6,15 @@ import { DrizzleNotificationRepository } from './drizzle-notifications';
 import { DrizzlePushNotificationRepository } from './drizzle-push-notifications';
 import { NotificationService, type NotificationRepository } from './notifications';
 import { PushNotificationService, type PushNotificationRepository } from './push-notifications';
+import { webPushRuntimeConfigured } from './push-runtime';
 
 export type NotificationRoutesBindings = {
   DATABASE_URL: string;
   WEB_AUTH_SECRET?: string;
   WEB_APP_ORIGIN?: string;
   WEB_PUSH_PUBLIC_KEY?: string;
+  WEB_PUSH_PRIVATE_KEY?: string;
+  WEB_PUSH_SUBJECT?: string;
 };
 
 export type NotificationRouteDependencies = {
@@ -87,7 +90,9 @@ export function createNotificationRoutes(dependencies: NotificationRouteDependen
   app.get('/push', async (c) => {
     const service = new PushNotificationService(pushRepositoryFactory(c.get('database')));
     const state = await service.state(c.get('userId'));
-    const publicKey = webPushPublicKey(c.env.WEB_PUSH_PUBLIC_KEY);
+    const publicKey = webPushRuntimeConfigured(c.env)
+      ? webPushPublicKey(c.env.WEB_PUSH_PUBLIC_KEY)
+      : null;
     return c.json({
       ok: true,
       serverPushEnabled: Boolean(publicKey),
@@ -97,7 +102,7 @@ export function createNotificationRoutes(dependencies: NotificationRouteDependen
   });
 
   app.post('/push/subscription', async (c) => {
-    if (!webPushPublicKey(c.env.WEB_PUSH_PUBLIC_KEY)) {
+    if (!webPushRuntimeConfigured(c.env)) {
       return c.json({ ok: false, error: 'PUSH_NOT_CONFIGURED' }, 503);
     }
     const body = await jsonObject(c);
