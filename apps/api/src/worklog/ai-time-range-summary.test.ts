@@ -109,4 +109,34 @@ describe('AiTimeRangeSummaryService', () => {
       'commit:AI_TIME_RANGE_SUMMARY:100:20',
     ]);
   });
+
+  it('bounds provider text size even when fewer than 200 Records contain large manual content', async () => {
+    const calls: string[] = [];
+    const largeRecords = Array.from({ length: 10 }, (_, index) => ({
+      id: index + 1,
+      inputType: 'TEXT' as const,
+      title: null,
+      rawText: 'x'.repeat(20_000),
+      occurredAt: `2026-09-0${Math.min(index + 1, 9)}T02:00:00.000Z`,
+      createdAt: `2026-09-0${Math.min(index + 1, 9)}T02:01:00.000Z`,
+    }));
+    const service = new AiTimeRangeSummaryService(repository(calls, largeRecords), {
+      async resolve() {
+        calls.push('resolve');
+        return { source: 'AI_PRO', allowed: true, reason: 'AI_PRO_AVAILABLE', remainingPoints: 500, periodEndsAt: '2026-10-01T00:00:00.000Z', perRequestAiPointCap: 200 };
+      },
+    }, ledger(calls), {
+      reservationPoints(input) { calls.push(`estimate:${input.records.length}`); return 50; },
+      async summarize(input) {
+        calls.push(`provider:${input.records.length}`);
+        expect(input.records.reduce((sum, record) => sum + record.rawText.length, 0)).toBeLessThanOrEqual(120_000);
+        return { summary: '大型資料集仍以 bounded provider input 摘要。', inputTokens: 100, outputTokens: 20, providerResponseId: 'resp-summary-large', latencyMs: 10 };
+      },
+    });
+
+    const result = await service.summarize({ userId: 7, sourceId: 12, ...range });
+    expect(result).toMatchObject({ status: 'SUMMARY', recordCount: 5, truncated: true });
+    expect(calls).toContain('estimate:5');
+    expect(calls).toContain('provider:5');
+  });
 });
