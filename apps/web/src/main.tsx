@@ -2,9 +2,11 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { AuthenticatedAppChrome } from './AuthenticatedAppChrome';
 import { CaptureRoot } from './CaptureRoot';
+import { ExtensionConnectRoot } from './ExtensionConnectRoot';
 import { FeedbackRoot } from './FeedbackRoot';
 import { HelpRoot } from './HelpRoot';
 import { LoginRoot } from './LoginRoot';
+import { safeLoginReturn } from './login-return';
 import { SubscriptionRoot } from './SubscriptionRoot';
 import { TaskRoot } from './TaskRoot';
 import { installTaipeiDateDisplayPolicy } from './time-display';
@@ -23,11 +25,11 @@ function bootstrap() {
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
   if (!apiBaseUrl) throw new Error('系統設定不完整，請稍後再試。');
 
-  // Provider callbacks currently return to WEB_APP_URL root. Preserve the requested
-  // destination without making any individual provider the product's primary identity.
+  // Provider callbacks return to WEB_APP_URL root. Preserve only bounded customer
+  // destinations, including the explicit extension handoff request.
   if (window.location.pathname === '/' && window.location.hash.includes('session=')) {
-    const returnTo = localStorage.getItem(RETURN_KEY);
-    if (returnTo === '/subscription' || returnTo === '/feedback' || returnTo === '/capture' || returnTo === '/tasks') {
+    const returnTo = safeLoginReturn(localStorage.getItem(RETURN_KEY));
+    if (returnTo) {
       localStorage.removeItem(RETURN_KEY);
       window.location.replace(`${returnTo}${window.location.hash}`);
       return;
@@ -36,6 +38,7 @@ function bootstrap() {
 
   let content: React.ReactNode;
   if (window.location.pathname === '/login') content = <LoginRoot apiBaseUrl={apiBaseUrl} />;
+  else if (window.location.pathname === '/extension/connect') content = <ExtensionConnectRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/capture') content = <CaptureRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/subscription') content = <SubscriptionRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/feedback') content = <FeedbackRoot apiBaseUrl={apiBaseUrl} />;
