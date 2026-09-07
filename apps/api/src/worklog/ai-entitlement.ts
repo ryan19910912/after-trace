@@ -11,9 +11,13 @@ export type AiEntitlementDecision = {
     | 'TRIAL_EXHAUSTED'
     | 'MONTHLY_POINT_CAP_REACHED'
     | 'MONTHLY_PROVIDER_COST_CAP_REACHED'
+    | 'PROVIDER_COST_ACCOUNTING_INCOMPLETE'
+    | 'AI_PRO_GRANT_NOT_READY'
+    | 'PER_REQUEST_POINT_CAP_EXCEEDED'
     | 'PLAN_DISABLED';
   remainingPoints: number | null;
   periodEndsAt: string | null;
+  perRequestAiPointCap: number | null;
 };
 
 export type AiEntitlementSnapshot = {
@@ -21,6 +25,7 @@ export type AiEntitlementSnapshot = {
   freeTrial: null | {
     grantId: number;
     remainingPoints: number;
+    perRequestAiPointCap: number | null;
   };
   aiPro: null | {
     planEnabled: boolean;
@@ -30,8 +35,10 @@ export type AiEntitlementSnapshot = {
     periodEnd: Date;
     monthlyPointCap: number;
     monthlyProviderCostCapTwd: number;
+    perRequestAiPointCap: number | null;
     pointsUsed: number;
     providerCostTwd: number;
+    missingProviderCostTwdRequests: number;
   };
 };
 
@@ -44,56 +51,129 @@ export interface AiEntitlementRepository {
  * One provider-AI admission boundary shared by Web/PWA/GROUP/Chrome clients.
  * Source authorization is checked first. Entitlement always belongs to the requesting user;
  * GROUP membership never transfers or sponsors another user's AI allowance.
+ *
+ * resolve() is read-only and suitable for UI state. admit() is the provider preflight: it
+ * enforces the optional per-request cap and only then ensures the requesting user's grant
+ * scope for the authorized Source.
  */
 export class AiEntitlementService {
   constructor(private readonly repository: AiEntitlementRepository) {}
 
   async resolve(userId: number, sourceId: number, at = new Date()): Promise<AiEntitlementDecision> {
-    validId(userId, 'INVALID_USER_ID');
-    validId(sourceId, 'INVALID_SOURCE_ID');
-    validDate(at);
-    const snapshot = await this.repository.snapshot(userId, sourceId, at);
-    if (!snapshot.sourceAuthorized) return blocked('SOURCE_NOT_AUTHORIZED');
+    const normalized = normalizedInput(userId, sourceId, at);
+    const snapshot = await this.repository.snapshot(normalized.userId, normalized.sourceId, normalized.at);
+    return evaluate(snapshot).decision;
+  }
 
-    const paid = snapshot.aiPro;
-    if (paid) {
-      if (!paid.planEnabled || !paid.aiEnabled) return blocked('PLAN_DISABLED', paid.periodEnd);
-      if (paid.pointsUsed >= paid.monthlyPointCap) {
-        return blocked('MONTHLY_POINT_CAP_REACHED', paid.periodEnd, 0);
-      }
-      if (paid.providerCostTwd >= paid.monthlyProviderCostCapTwd) {
-        return blocked('MONTHLY_PROVIDER_COST_CAP_REACHED', paid.periodEnd, Math.max(0, paid.monthlyPointCap - paid.pointsUsed));
-      }
-      if (paid.grantId) await this.repository.ensureGrantScope(paid.grantId, sourceId, at);
+  async admit(
+    userId: number,
+    sourceId: number,
+    requestedPoints: number,
+    at = new Date(),
+  ): Promise<AiEntitlementDecision> {
+    const normalized = normalizedInput(userId, sourceId, at);
+    if (!Number.isSafeInteger(requestedPoints) || requestedPoints <= 0) {
+      throw new Error('INVALID_REQUESTED_AI_POINTS');
+    }
+    const snapshot = await this.repository.snapshot(normalized.userId, normalized.sourceId, normalized.at);
+    const evaluated = evaluate(snapshot);
+    if (!evaluated.decision.allowed || evaluated.grantId === null) return evaluated.decision;
+    const requestCap = evaluated.decision.perRequestAiPointCap;
+    if (requestCap !== null && requestedPoints > requestCap) {
       return {
+        ...evaluated.decision,
+        source: 'BLOCKED',
+        allowed: false,
+        reason: 'PER_REQUEST_POINT_CAP_EXCEEDED',
+      };
+    }
+    await this.repository.ensureGrantScope(evaluated.grantId, normalized.sourceId, normalized.at);
+    return evaluated.decision;
+  }
+}
+
+function evaluate(snapshot: AiEntitlementSnapshot): { decision: AiEntitlementDecision; grantId: number | null } {
+  if (!snapshot.sourceAuthorized) return { decision: blocked('SOURCE_NOT_AUTHORIZED'), grantId: null };
+
+  const paid = snapshot.aiPro;
+  if (paid) {
+    if (!paid.planEnabled || !paid.aiEnabled) {
+      return { decision: blocked('PLAN_DISABLED', paid.periodEnd, null, paid.perRequestAiPointCap), grantId: null };
+    }
+    if (paid.missingProviderCostTwdRequests > 0) {
+      return {
+        decision: blocked(
+          'PROVIDER_COST_ACCOUNTING_INCOMPLETE',
+          paid.periodEnd,
+          Math.max(0, paid.monthlyPointCap - paid.pointsUsed),
+          paid.perRequestAiPointCap,
+        ),
+        grantId: null,
+      };
+    }
+    if (paid.pointsUsed >= paid.monthlyPointCap) {
+      return { decision: blocked('MONTHLY_POINT_CAP_REACHED', paid.periodEnd, 0, paid.perRequestAiPointCap), grantId: null };
+    }
+    if (paid.providerCostTwd >= paid.monthlyProviderCostCapTwd) {
+      return {
+        decision: blocked(
+          'MONTHLY_PROVIDER_COST_CAP_REACHED',
+          paid.periodEnd,
+          Math.max(0, paid.monthlyPointCap - paid.pointsUsed),
+          paid.perRequestAiPointCap,
+        ),
+        grantId: null,
+      };
+    }
+    if (!paid.grantId) {
+      return {
+        decision: blocked(
+          'AI_PRO_GRANT_NOT_READY',
+          paid.periodEnd,
+          Math.max(0, paid.monthlyPointCap - paid.pointsUsed),
+          paid.perRequestAiPointCap,
+        ),
+        grantId: null,
+      };
+    }
+    return {
+      decision: {
         source: 'AI_PRO',
         allowed: true,
         reason: 'AI_PRO_AVAILABLE',
         remainingPoints: Math.max(0, paid.monthlyPointCap - paid.pointsUsed),
         periodEndsAt: paid.periodEnd.toISOString(),
-      };
-    }
+        perRequestAiPointCap: paid.perRequestAiPointCap,
+      },
+      grantId: paid.grantId,
+    };
+  }
 
-    const trial = snapshot.freeTrial;
-    if (trial) {
-      if (trial.remainingPoints <= 0) return blocked('TRIAL_EXHAUSTED', null, 0);
-      await this.repository.ensureGrantScope(trial.grantId, sourceId, at);
-      return {
+  const trial = snapshot.freeTrial;
+  if (trial) {
+    if (trial.remainingPoints <= 0) {
+      return { decision: blocked('TRIAL_EXHAUSTED', null, 0, trial.perRequestAiPointCap), grantId: null };
+    }
+    return {
+      decision: {
         source: 'FREE_TRIAL',
         allowed: true,
         reason: 'FREE_TRIAL_AVAILABLE',
         remainingPoints: trial.remainingPoints,
         periodEndsAt: null,
-      };
-    }
-    return blocked('AI_NOT_ENTITLED');
+        perRequestAiPointCap: trial.perRequestAiPointCap,
+      },
+      grantId: trial.grantId,
+    };
   }
+  return { decision: blocked('AI_NOT_ENTITLED'), grantId: null };
 }
 
 function blocked(
   reason: AiEntitlementDecision['reason'],
   periodEnd: Date | null = null,
   remainingPoints: number | null = null,
+  perRequestAiPointCap: number | null = null,
 ): AiEntitlementDecision {
   return {
     source: 'BLOCKED',
@@ -101,7 +181,15 @@ function blocked(
     reason,
     remainingPoints,
     periodEndsAt: periodEnd?.toISOString() ?? null,
+    perRequestAiPointCap,
   };
+}
+
+function normalizedInput(userId: number, sourceId: number, at: Date) {
+  validId(userId, 'INVALID_USER_ID');
+  validId(sourceId, 'INVALID_SOURCE_ID');
+  validDate(at);
+  return { userId, sourceId, at: new Date(at.getTime()) };
 }
 
 function validId(value: number, error: string): void {
