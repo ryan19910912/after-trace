@@ -1,0 +1,19 @@
+{
+  "name": "AFTERTRACE",
+  "short_name": "AFTERTRACE",
+  "description": "快速留下工作發生過的事，需要時找得到。",
+  "lang": "zh-Hant",
+  "start_url": "/capture",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#171c24",
+  "theme_color": "#171c24",
+  "icons": [
+    {
+      "src": "/aftertrace-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
