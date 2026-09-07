@@ -105,7 +105,8 @@ export class DrizzleCommercialConfigRepository implements CommercialConfigReposi
           ${input.monthlyProviderCostCapTwd}, ${input.perRequestAiPointCap ?? null},
           jsonb_build_object(
             'aiMediaIngestion', ${input.aiMediaIngestion !== false},
-            'aiNaturalSearch', ${input.aiNaturalSearch !== false}
+            'aiNaturalSearch', ${input.aiNaturalSearch !== false},
+            'aiRelatedRecords', ${input.aiRelatedRecords !== false}
           ),
           NOW(), NOW()
         )
@@ -121,13 +122,18 @@ export class DrizzleCommercialConfigRepository implements CommercialConfigReposi
             per_request_ai_point_cap = EXCLUDED.per_request_ai_point_cap,
             capabilities = jsonb_set(
               jsonb_set(
-                COALESCE(worklog_subscription_plans.capabilities, '{}'::jsonb),
-                '{aiMediaIngestion}',
-                to_jsonb(${input.aiMediaIngestion !== false}::boolean),
+                jsonb_set(
+                  COALESCE(worklog_subscription_plans.capabilities, '{}'::jsonb),
+                  '{aiMediaIngestion}',
+                  to_jsonb(${input.aiMediaIngestion !== false}::boolean),
+                  TRUE
+                ),
+                '{aiNaturalSearch}',
+                to_jsonb(${input.aiNaturalSearch !== false}::boolean),
                 TRUE
               ),
-              '{aiNaturalSearch}',
-              to_jsonb(${input.aiNaturalSearch !== false}::boolean),
+              '{aiRelatedRecords}',
+              to_jsonb(${input.aiRelatedRecords !== false}::boolean),
               TRUE
             ),
             updated_at = NOW()
@@ -195,6 +201,7 @@ function mapAiPro(row: AiProRow): AiProConfigSnapshot {
     aiEnabled: Boolean(row.ai_enabled),
     aiMediaIngestion: capabilities.aiMediaIngestion !== false,
     aiNaturalSearch: capabilities.aiNaturalSearch !== false,
+    aiRelatedRecords: capabilities.aiRelatedRecords !== false,
     monthlyAiPointCap: positiveInteger(row.monthly_ai_point_cap),
     monthlyProviderCostCapTwd: positiveDecimal(row.monthly_provider_cost_cap_twd),
     perRequestAiPointCap: row.per_request_ai_point_cap === null ? null : positiveInteger(row.per_request_ai_point_cap),
