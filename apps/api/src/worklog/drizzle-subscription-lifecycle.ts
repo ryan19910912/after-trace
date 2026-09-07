@@ -160,6 +160,7 @@ export class DrizzleSubscriptionLifecycleRepository implements SubscriptionLifec
 
   private async applyCancel(event: SubscriptionLifecycleEvent): Promise<SubscriptionLifecycleApplyResult> {
     const metadata = JSON.stringify(event.metadata ?? {});
+    const periodStart = event.periodStart ?? null;
     const periodEnd = event.periodEnd ?? null;
     const result = await this.db.execute(sql`
       WITH current_subscription AS MATERIALIZED (
@@ -176,7 +177,7 @@ export class DrizzleSubscriptionLifecycleRepository implements SubscriptionLifec
         )
         SELECT
           ${event.provider}, ${event.externalEventKey}, 'CANCEL', ${event.userId}, 'AI_PRO',
-          current_subscription.current_period_start,
+          COALESCE(${periodStart}::timestamptz, current_subscription.current_period_start),
           ${periodEnd},
           ${event.occurredAt}, 'PENDING', NOW(), ${metadata}::jsonb, NOW()
         FROM current_subscription
@@ -201,8 +202,10 @@ export class DrizzleSubscriptionLifecycleRepository implements SubscriptionLifec
           AND subscription_row.updated_at <= ${event.occurredAt}
           AND (
             ${periodEnd}::timestamptz IS NULL
-            OR subscription_row.current_period_start IS NULL
-            OR ${periodEnd}::timestamptz >= subscription_row.current_period_start
+            OR (
+              ${periodStart}::timestamptz IS NOT NULL
+              AND subscription_row.current_period_start = ${periodStart}
+            )
           )
         RETURNING subscription_row.id, subscription_row.user_id,
                   subscription_row.current_period_start, subscription_row.current_period_end
@@ -229,6 +232,7 @@ export class DrizzleSubscriptionLifecycleRepository implements SubscriptionLifec
           jsonb_build_object(
             'externalEventKey', ${event.externalEventKey},
             'eventType', 'CANCEL',
+            'periodStart', subscription_update.current_period_start,
             'periodEnd', subscription_update.current_period_end
           ),
           ${event.occurredAt}
@@ -285,7 +289,7 @@ export class DrizzleSubscriptionLifecycleRepository implements SubscriptionLifec
         AND lifecycle_event.external_event_key = ${event.externalEventKey}
       LIMIT 1
     `);
-    const row = existing.rows[0] as ApplyRow & { event_type?: unknown } | undefined;
+    const row = existing.rows[0] as (ApplyRow & { event_type?: unknown }) | undefined;
     if (row) {
       if (row.processing_result === 'IGNORED_STALE') return { status: 'DUPLICATE', applied: null };
       if (row.processing_result === 'APPLIED') {
