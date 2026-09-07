@@ -100,7 +100,7 @@ AI may interpret a reminder phrase but persisted schedule/action is deterministi
 
 Do not continue adding LINE product features.
 
-LINE-specific code/schema may remain temporarily while replacements are implemented. Remove only when safe and preserve unrelated durable data.
+Because the product is still prelaunch/test-stage, legacy LINE-era code and schema do not need to be preserved merely for compatibility. Prefer deleting or rewriting obsolete code when a clean replacement is safer and easier to maintain.
 
 Priority is to replace product dependencies in this order:
 
@@ -125,15 +125,26 @@ Hard rule:
 - when PostgreSQL returns `42601`, inspect alias/identifier collisions before speculative schema/date changes;
 - retain repository regression coverage for the known `grant` alias issue.
 
-## Database migration policy
+## Database / code rebuild policy
 
-Preserve existing Dev DB unless safe forward migration is genuinely impossible.
+AFTERTRACE is still in prelaunch testing. **Existing Dev data is disposable unless the user explicitly says otherwise for a future environment.**
 
-- do not rebuild Dev/Prod simply because target schema changes;
-- add replacements before dropping legacy dependencies where needed;
-- preserve Record/revision/user/subscription/usage/audit facts;
-- remove LINE-specific schema only after dependency review;
-- keep migration scripts idempotent.
+For Dev/local work:
+
+- the Dev database may be dropped, recreated, or rebuilt from a clean canonical baseline;
+- existing test users, Records, LINE state, Grants, AI runtime config, plan data, audit rows and other Dev-only data do not need preservation;
+- forward-compatibility migrations are optional, not mandatory, when a clean reset produces a simpler and more correct target schema;
+- the canonical `drizzle/0000` baseline may be regenerated after accepted schema changes;
+- old compatibility code may be deleted instead of carried forward indefinitely;
+- application modules may be rewritten or rebuilt when the new Web/PWA architecture is cleaner than adapting LINE-era code;
+- prefer the simplest correct target architecture over compatibility with disposable test data;
+- after a reset, recreate only the explicit seed/runtime configuration actually required by the current product;
+- do not create migration complexity solely to preserve disposable Dev data.
+
+Production remains protected:
+
+- do not destructively reset or rebuild Prod unless the user explicitly requests it;
+- do not infer permission to destroy real production data from the Dev/prelaunch reset rule.
 
 The unrelated local untracked `apps/api/verify-admin-schema.mjs` must not be staged/committed unless separately reviewed/approved.
 
