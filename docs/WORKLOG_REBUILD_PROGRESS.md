@@ -6,172 +6,196 @@ Before substantive work, read the latest documents in the exact order defined by
 
 Never run/dispatch/rerun/enable/modify GitHub Actions. Every development commit must contain `[skip ci]`. Do not stage/commit the unrelated local `apps/api/verify-admin-schema.mjs` unless separately reviewed/approved.
 
-## Current checkpoint — 2026-09-07 bounded Chrome Extension session handoff hardened; major V1 feature scope mostly source-authored; executable/runtime verification still blocked
+## Current checkpoint — 2026-09-08 provider-neutral subscription lifecycle boundary + bounded AI-tools Record deep links source-authored; executable/runtime verification still blocked
 
 AFTERTRACE remains Web + PWA-first with a compact Chrome extension fast-capture surface. LINE is retired from the core Record/GROUP/AI product surface. LINE remains only as a provider-neutral login provider and official OA customer-support contact channel.
 
-Current prelaunch Dev and current Prod data are disposable. Clean target-schema/canonical-baseline rebuilds are allowed while no real durable production data exists. This permission expires once real customer/durable production data exists.
+Current prelaunch Dev and current Prod data are disposable. Clean target-schema/canonical-baseline rebuilds remain explicitly allowed while no real durable production data exists. This destructive permission expires once real customers/durable production data exist.
 
 ## Commercial/product contract still in force
 
-- Exactly `FREE` NT$0 + `AI_PRO` NT$99/month for V1.
-- No one-time AI top-up products and no extra paid tiers.
+- V1 has exactly `FREE` NT$0 + `AI_PRO` NT$99/month.
+- No one-time AI top-up and no extra paid tier.
 - FREE remains a complete manual product.
 - Newly eligible FREE accounts receive one idempotent one-time AI trial using Admin-configured `free_initial_ai_trial_points`.
 - Trial points are internal AI points, not TWD; they do not refresh monthly and issued grants are never resized retroactively.
 - AI entitlement belongs to the requesting AFTERTRACE account; GROUP membership only authorizes Source data.
 - AI Pro retains monthly resource/point cap, provider-cost hard cap, optional per-request cap and operator capability toggles.
 - Every provider-backed request must pass server-side Source authorization + unified entitlement + reservation/provider-cost hold before provider execution, then settle actual provider usage/cost.
-- A deterministic AI Pro feature may use PostgreSQL logic without a provider call; such a call must not fabricate provider usage or consume AI points.
 
 ## Accepted target foundation — do not redo
 
-Current branch already source-authors the following accepted V1 foundation:
+Current branch already source-authors:
 
-- provider-neutral Google / LINE / Apple identities;
+- provider-neutral Google / LINE / Apple identities and login chooser;
 - immutable opaque `public_account_id`, Web/PWA display+copy and Admin exact lookup;
-- provider-neutral login chooser and optional Apple availability/config behavior;
 - native AFTERTRACE groups/invites independent from LINE GROUP membership;
-- free manual Record CRUD/search, nullable `occurred_at`, provider-free browser speech-to-text;
+- free manual Record CRUD/search + nullable `occurred_at` + provider-free browser STT;
 - notification center + ANNOUNCEMENT/SYSTEM/TASK + IN_APP/PUSH;
 - Admin announcements, Web Push subscription/preferences/delivery, one shared ~5 minute scheduler;
 - native Task backend + Web/PWA task surface;
 - FREE one-time AI trial config + provider-neutral onboarding issuance;
-- V1-only FREE + AI_PRO subscription surface;
-- unified `AiEntitlementService`, exact selected Grant admission, `EntitledAiPointLedgerService`, reservation/settlement and provider-cost accounting;
-- atomic AI Pro concurrent provider-cost reservation hold;
-- provider-backed AI text capture backend + PWA manual/AI capture UI;
-- provider-neutral bounded IMAGE/AUDIO/FILE/PDF backend capture routes using shared entitlement/accounting;
-- bounded natural-language search interpretation + deterministic PostgreSQL retrieval + Web `/ai-search`;
-- deterministic Related Records backend/Admin capability;
-- provider-backed time-range summary with bounded Record-count + provider text envelope;
-- explicit proposal-only AI rewrite + optimistic confirm flow;
-- customer `/ai-tools` for Related Records, summary and rewrite;
+- V1-only FREE + AI_PRO subscription surface, checkout still disabled;
+- unified `AiEntitlementService`, exact selected-Grant admission, `EntitledAiPointLedgerService`, reservation/settlement/provider-cost accounting;
+- atomic AI Pro concurrent provider-cost hold;
+- provider-backed text/image/audio/file/PDF capture paths and PWA AI capture UI;
+- natural-language search + deterministic PostgreSQL retrieval + `/ai-search`;
+- Related Records deterministic ranking;
+- bounded time-range summary;
+- proposal-only AI rewrite + optimistic confirm flow;
+- customer `/ai-tools` surface;
 - deterministic AI-limit SYSTEM notification caller;
-- Chrome Extension explicit Web handoff, Source/group picker, durable quick text, selected text, browser STT, bounded page title/URL metadata and explicit visible-tab screenshot AI path.
+- Chrome Extension bounded session handoff, Source/group picker, durable quick text, selected text, browser STT, bounded page title/URL metadata and explicit screenshot/image AI path.
 
-All above are **SOURCE-AUTHORED** unless separately marked runtime verified. Do not infer PASS from source presence.
+All above are SOURCE-AUTHORED unless separately marked runtime verified. Do not infer PASS from source presence.
 
-## This run — bounded Extension session hardening
+## This run — provider-neutral subscription lifecycle boundary
 
-This run stayed narrow and did not redo the already-authored extension feature set.
+This run stayed bounded and did not choose or hard-code a payment provider.
 
-### Existing Extension flow confirmed
+### Durable external-event inbox
 
-The actual branch already contained more extension work than the previous checkpoint implied:
+New target table `worklog_subscription_lifecycle_events` records normalized payment/subscription lifecycle facts.
 
-- `manifest.json` has only the accepted bounded permissions plus Dev/Prod API host permissions;
-- `externally_connectable` is restricted to the AFTERTRACE Dev/Prod Web origins;
-- popup-generated extension connect requests use a Chrome extension id + random nonce;
-- Web `/extension/connect` validates a 32-character Chrome extension id, bounded base64url nonce and rejects extra query parameters;
-- background external-message handling validates the sender Web origin, environment-matched API origin and pending nonce;
-- popup loads durable AFTERTRACE Source/group authorization through `/api/v1/worklog/surfaces`;
-- quick text and explicit selected-text drafts persist through the existing manual Record API;
-- optional page title/URL is bounded and persists to dedicated Record `capture_context`, not AI `extracted_metadata`;
-- manual Extension capture remains provider-free;
-- screenshot preview does not silently call provider AI.
+Idempotency boundary:
 
-### Web -> Extension handoff no longer copies the ordinary long Web session
+`provider + external_event_key`
 
-New authenticated account endpoint:
+The table stores no raw card credentials. It is constrained to:
 
-- `POST /api/v1/account/extension-session`
+- event type `ACTIVATE | RENEW | CANCEL`;
+- plan `AI_PRO` only for current V1;
+- user id;
+- optional paid period start/end;
+- occurred/processed timestamps;
+- bounded metadata.
 
-The endpoint:
+The schema is exported through authoritative `schema-all.ts` and must be included when the canonical `drizzle/0000` baseline is regenerated.
 
-- requires the already-authenticated provider-neutral AFTERTRACE Web session;
-- resolves durable AFTERTRACE `userId`;
-- issues a new AFTERTRACE Web-session token with a fixed maximum TTL of **7 days** for explicit Extension handoff;
-- returns only the AFTERTRACE session token and TTL; no Google/LINE/Apple credentials or provider identifiers are shared;
-- remains the same AFTERTRACE account and reuses the same Source/Record APIs rather than creating extension-only identity/storage.
+### Provider-neutral lifecycle service
 
-Account CORS now permits POST for this authenticated exchange.
+New `SubscriptionLifecycleService` accepts only the normalized AFTERTRACE contract:
 
-### Web Extension connect flow uses the bounded session
+- `ACTIVATE`;
+- `RENEW`;
+- `CANCEL`.
 
-`ExtensionConnectRoot.tsx` now:
+Payment adapters are expected to authenticate/verify their own webhook first and then call this core service. The core service has no Stripe/ECPay/LINE Pay/etc dependency.
 
-1. validates the extension id + connect nonce through existing `safeLoginReturn()`;
-2. calls `/api/v1/account/extension-session` with the current Web bearer session;
-3. rejects any returned TTL above seven days;
-4. computes explicit session expiry;
-5. only then sends the shorter-lived AFTERTRACE session to the installed extension.
+Validation fails closed for:
 
-The original Web session is no longer copied directly into extension storage.
+- non-AI_PRO plans;
+- malformed provider/event keys;
+- invalid user ids/timestamps;
+- invalid activation/renewal periods;
+- oversized metadata.
 
-### Extension background validates and persists expiry
+Duplicate external events return `DUPLICATE` and do not emit another SYSTEM notification.
 
-`background.js` now requires `sessionExpiresAt` in the external handoff payload and validates that it is:
+### PostgreSQL lifecycle persistence
 
-- a real timestamp;
-- still in the future;
-- no more than seven days ahead (small clock-skew allowance only).
+New `DrizzleSubscriptionLifecycleRepository` source-authors idempotent application of normalized lifecycle events.
 
-The expiry is persisted next to the AFTERTRACE extension session.
+For ACTIVATE / RENEW:
 
-### Popup fails closed on locally expired Extension sessions
+1. verify the current AI_PRO commercial template is enabled, AI-enabled, fixed at NT$99 and has a positive monthly AI point cap;
+2. insert the provider event only when `(provider, external_event_key)` is new;
+3. upsert the user's `worklog_user_subscriptions` row to active AI_PRO / PAYMENT with the new period;
+4. append durable subscription history;
+5. create the period's `SUBSCRIPTION_PERIOD` Grant using the monthly point-cap snapshot;
+6. use a user+period origin key so repeated processing cannot create another period Grant.
 
-`popup.js` now validates stored auth using:
+For CANCEL:
 
-- non-empty bounded session token;
-- explicit future `sessionExpiresAt` within the seven-day handoff maximum;
-- HTTPS API/Web origins;
-- allowlisted AFTERTRACE Web environment.
+- cancellation is treated as **stop renewal / cancel-at-period-end** when a future `periodEnd` is supplied;
+- the already-paid current period remains ACTIVE until that end rather than being revoked immediately;
+- an immediate/no-period-end cancellation ends the current period at the cancellation timestamp;
+- if cancellation shortens the paid period, the matching period Grant expiry is shortened to the same durable period end;
+- no per-user Cron is introduced; existing entitlement already fails after `current_period_end`.
 
-Expired/invalid stored auth is removed on popup load. `authenticatedFetch()` also re-checks local expiry before API calls. The user is asked to reconnect instead of seeing a stale `已連接` state until a later 401.
+### Subscription SYSTEM notifications
 
-### Tests authored
+`SubscriptionLifecycleNotificationAdapter` reuses the existing shared Notification Service and deterministic helpers for:
 
-`apps/api/src/auth/account-routes.test.ts` now covers bounded seven-day extension-session issuance.
+- AI Pro activated;
+- AI Pro renewed;
+- AI Pro cancelled / period ending.
 
-New `apps/web/src/ExtensionConnectRoot.test.ts` covers:
+Notifications occur only after repository result `APPLIED`; duplicate external events do not emit another lifecycle notification.
 
-- strict extension id/nonce target parsing;
-- bearer exchange of current Web session for the shorter extension session;
-- rejection of a server response attempting to issue more than seven days.
+Checkout remains disabled (`CHECKOUT_ENABLED=false`). This batch creates the provider-neutral core boundary only; it does not pretend a real payment transport exists.
 
-These are **AUTHORED / NOT RUN**.
+## This run — bounded AI-tools Record deep links
+
+New `ai-tools-deep-link.ts` defines a strict same-app deep-link contract:
+
+`/ai-tools?sourceId=<positive-id>&recordId=<positive-id>&tool=related|rewrite`
+
+Parser safety:
+
+- only `sourceId`, `recordId`, `tool` keys are accepted;
+- duplicate query keys are rejected;
+- ids must be positive safe integers;
+- tool must be exactly `related` or `rewrite`;
+- arbitrary external destinations/extra params are rejected.
+
+`AiToolsRoot.tsx` now:
+
+- reads the bounded deep-link state;
+- pre-fills the Related or Rewrite Record ID;
+- selects the linked Source only if that Source exists in the authenticated user's returned surfaces;
+- otherwise falls back to the user's authorized default Source and shows a notice;
+- scrolls to the requested Related/Rewrite section when the linked Source is authorized.
+
+The URL never grants authorization. Backend Source/Record authorization remains mandatory.
+
+A future small Worklog Record-card button may now use `aiToolsDeepLinkUrl()` instead of constructing arbitrary query strings. The large WorklogRoot file was intentionally not broadly rewritten in the no-compile environment.
 
 ## Files changed this run
 
-- `apps/api/src/auth/account-routes.ts` — bounded extension-session issuance;
-- `apps/api/src/auth/account-routes.test.ts` — exchange contract test;
-- `apps/web/src/ExtensionConnectRoot.tsx` — exchange before handoff + expiry propagation;
-- `apps/web/src/ExtensionConnectRoot.test.ts` — Web handoff tests;
-- `apps/extension/background.js` — expiry validation/persistence;
-- `apps/extension/popup.js` — local expiry fail-closed behavior;
-- `docs/WORKLOG_REBUILD_PROGRESS.md` — this checkpoint.
+- `apps/api/src/db/schema-worklog-subscription-lifecycle.ts`;
+- `apps/api/src/db/schema-all.ts`;
+- `apps/api/src/worklog/subscription-lifecycle.ts`;
+- `apps/api/src/worklog/drizzle-subscription-lifecycle.ts`;
+- `apps/api/src/worklog/subscription-lifecycle-notifications.ts`;
+- `apps/api/src/worklog/subscription-lifecycle.test.ts`;
+- `apps/web/src/ai-tools-deep-link.ts`;
+- `apps/web/src/ai-tools-deep-link.test.ts`;
+- `apps/web/src/AiToolsRoot.tsx`;
+- `docs/WORKLOG_REBUILD_PROGRESS.md`.
 
 ## Commits this run
 
 All successful development commits contain `[skip ci]`:
 
-- `665d98ec` — issue bounded extension session from account;
-- `17ab028a` — test bounded extension session issuance;
-- `e5cbe0b9` — hand off bounded extension session;
-- `1e57dc4f` — test bounded extension session handoff;
-- `f7a33de4` — include extension session expiry in handoff;
-- `2fce1c4a` — persist bounded extension session expiry;
-- `3d2fdfb0` — expire bounded extension sessions locally;
+- `8672381b` — add provider-neutral subscription lifecycle events;
+- `2eaafcc8` — export subscription lifecycle schema;
+- `95042644` — add provider-neutral subscription lifecycle service;
+- `fd5d4442` — persist idempotent AI Pro lifecycle events;
+- `da0d88df` — connect subscription lifecycle to SYSTEM notifications;
+- `2879efc2` — author subscription lifecycle tests;
+- `61692310` — constrain subscription lifecycle inbox;
+- `02879150` — add bounded AI tools Record deep links;
+- `89284e30` — test bounded AI tools deep links;
+- `08fe3353` — prefill AI tools from bounded Record deep links;
 - this checkpoint commit follows.
 
 No GitHub Actions workflow was run, dispatched, rerun, enabled, modified or used as validation. `apps/api/verify-admin-schema.mjs` was not staged or committed.
 
 ## Validation status
 
-### AUTHORED / NOT RUN
+### AUTHORED / NOT RUN this run
 
-- bounded extension-session account endpoint;
-- Web extension-session exchange and expiry propagation;
-- Extension background expiry validation;
-- popup local expiry guard;
-- `account-routes.test.ts` extension-session case;
-- `ExtensionConnectRoot.test.ts`;
-- previously authored Google/LINE/Apple auth tests;
-- provider-neutral AUDIO/IMAGE/FILE/PDF capture;
-- natural-language search / Related / summary / rewrite;
-- Chrome quick text/page/selection/voice/screenshot paths;
-- Task/Push/Notification focused tests.
+- subscription lifecycle event target schema — **AUTHORED / NOT RUN**;
+- lifecycle ACTIVATE/RENEW/CANCEL service — **AUTHORED / NOT RUN**;
+- idempotent lifecycle PostgreSQL SQL — **AUTHORED / NOT RUN**;
+- subscription-period Grant creation/renewal SQL — **AUTHORED / NOT RUN**;
+- cancel-at-period-end + period-Grant expiry update — **AUTHORED / NOT RUN**;
+- lifecycle SYSTEM notification adapter — **AUTHORED / NOT RUN**;
+- `subscription-lifecycle.test.ts` — **AUTHORED / NOT RUN**;
+- bounded AI-tools deep-link parser/builder — **AUTHORED / NOT RUN**;
+- `ai-tools-deep-link.test.ts` — **AUTHORED / NOT RUN**;
+- AiToolsRoot deep-link prefill/authorized Source selection — **AUTHORED / NOT RUN**.
 
 ### Executable verification actually attempted
 
@@ -180,14 +204,15 @@ No GitHub Actions workflow was run, dispatched, rerun, enabled, modified or used
 - API TypeScript typecheck — **NOT RUN**;
 - Web/Admin TypeScript typecheck — **NOT RUN**;
 - focused/full Vitest — **NOT RUN**;
-- Chrome unpacked-extension smoke — **NOT RUN**;
 - API Worker dry-run build — **NOT RUN**;
 - Web/Admin production builds — **NOT RUN**;
 - PostgreSQL clean target-schema rebuild — **NOT RUN**;
-- PostgreSQL exact-Grant/provider-cost concurrency smoke — **NOT RUN**;
-- Related Records PostgreSQL ranking smoke — **NOT RUN**;
+- subscription lifecycle PostgreSQL/idempotency/concurrency smoke — **NOT RUN**;
+- exact-Grant/provider-cost concurrency smoke — **NOT RUN**;
+- Related Records SQL/ranking smoke — **NOT RUN**;
 - Google/LINE/Apple real OAuth smoke — **NOT RUN**;
-- Gemini text/image/audio/file/search/summary/rewrite provider smoke — **NOT RUN**;
+- Gemini provider smoke — **NOT RUN**;
+- Chrome unpacked-extension smoke — **NOT RUN**;
 - Drizzle canonical baseline regeneration/guard — **NOT RUN**;
 - Dev/Prod clean rebuild — **NOT RUN**;
 - Push/Cron runtime smoke — **NOT RUN**;
@@ -197,46 +222,40 @@ No test/build/runtime item is claimed PASS or RUNTIME VERIFIED.
 
 ## Known blockers / risks
 
-1. Executable checkout remains unavailable, so accumulated TypeScript/React/SQL/extension code still has not compiled or executed. This is now the dominant project risk.
-2. Canonical `drizzle/0000` remains behind the target schema and must be regenerated before clean DB validation.
-3. The bounded extension session is still a signed AFTERTRACE bearer session rather than a separately revocable per-device credential. Seven-day TTL + explicit disconnect is acceptable for current V1 source target, but device-level server revocation could be added later if real usage requires it.
-4. Extension handoff/Source/manual/page/selection/screenshot flows still require Chrome unpacked-extension smoke.
-5. Atomic provider-cost hold requires real PostgreSQL concurrent-reservation smoke.
-6. Related Records SQL/ranking requires real PostgreSQL execution.
-7. Real Google/LINE/Apple OAuth and Gemini provider configuration remain unverified.
-8. Payment provider transport remains disabled (`CHECKOUT_ENABLED=false`). Provider-neutral activation/renewal/cancellation + idempotent SYSTEM lifecycle still needs the final external-event boundary/provider choice.
-9. Push/Cron/Task behavior is authored but still needs browser/provider/runtime smoke.
-10. `/ai-tools` Related/Rewrite still has numeric Record-ID UX in places; compact Record-card/deep-link polish remains.
-11. Retired LINE/ONE_TIME/GROUP-funding runtime/schema cleanup remains after target dependencies are proven and executable validation succeeds.
+1. Executable checkout is still unavailable. Accumulated TypeScript/React/SQL/extension code has not compiled or executed; this is now the dominant project risk.
+2. Canonical `drizzle/0000` remains behind the target schema, now also including `worklog_subscription_lifecycle_events`.
+3. Lifecycle SQL is source-authored and must be exercised against real PostgreSQL before a payment adapter is enabled.
+4. No payment provider transport/webhook adapter is enabled. `CHECKOUT_ENABLED=false` remains correct.
+5. Cancellation currently models normal cancel-at-period-end semantics when the adapter supplies a future period end. A chosen payment provider must map its webhook semantics to that normalized contract correctly.
+6. Atomic provider-cost hold still needs real PostgreSQL concurrency smoke.
+7. Google/LINE/Apple OAuth, Gemini operations, Chrome Extension and Push/Cron still need runtime/browser/provider smoke.
+8. Main Worklog Record cards do not yet expose the final one-click Related/Rewrite buttons; the safe deep-link builder/parser is ready, but broad WorklogRoot editing is deferred until executable validation or a small safe component extraction.
+9. Retired LINE/ONE_TIME/GROUP-funding runtime/schema cleanup remains after target dependencies are proven.
 
 ## Exact next run plan
 
-1. If an executable checkout becomes available, **stop feature expansion immediately** and run/fix:
+1. If executable checkout becomes available, **stop feature expansion immediately** and run/fix:
    - API/Web/Admin typecheck;
-   - focused auth/Apple/extension-session/entitlement/provider-cost/media/search/related/summary/rewrite/notification/task tests;
+   - focused auth/Apple/extension-session/subscription-lifecycle/entitlement/provider-cost/media/search/related/summary/rewrite/notification/task tests;
    - full package tests;
    - API Worker dry-run + Web/Admin builds;
-   - regenerate canonical Drizzle `0000` baseline and rebuild a disposable PostgreSQL database;
-   - execute Related Records SQL smoke and exact-Grant/provider-cost-hold concurrency smoke;
-   - Dev Google/LINE/Apple + Gemini text/image/audio/file/search/summary/rewrite smoke;
-   - Chrome unpacked handoff -> Source -> manual/page/selection -> screenshot AI smoke;
-   - Push/Cron browser/runtime smoke.
-2. If executable checkout remains unavailable, keep development bounded:
-   - add compact Record-card/deep-link entry into `/ai-tools` so Related/Rewrite do not require manual numeric Record ID;
-   - complete the provider-neutral subscription lifecycle event boundary (idempotent external payment event -> subscription-period assignment/renewal/cancellation -> deterministic SYSTEM notification) without choosing/hard-coding an unapproved payment provider;
-   - avoid adding more major AI product features before compile/runtime validation.
-3. After executable validation and target dependency proof, regenerate baseline/rebuild disposable Dev/Prod as appropriate and remove/isolate remaining retired LINE/ONE_TIME/GROUP-funding code.
+   - regenerate canonical Drizzle `0000` baseline and rebuild a disposable PostgreSQL DB;
+   - run lifecycle idempotency/renew/cancel smoke, Related SQL smoke and exact-Grant/provider-cost concurrency smoke;
+   - Dev OAuth + Gemini + Chrome + Push/Cron runtime smoke.
+2. If executable checkout remains unavailable, do only low-risk finishing work:
+   - optionally extract a small Record-card AI-actions component and wire `aiToolsDeepLinkUrl()` without broad WorklogRoot rewrite;
+   - inspect/remove target-independent retired LINE/ONE_TIME/GROUP-funding entry points only where replacement dependencies are already clear;
+   - do not add more major V1 features.
+3. Keep checkout disabled until a real payment provider is selected, its webhook authenticity is implemented, and the provider-neutral lifecycle boundary passes runtime validation.
 
 ## Current estimated remaining development time
 
-Approximately **2.75–8 focused development hours** remain for the currently accepted V1 scope, excluding external waiting for Apple/payment-provider account setup.
+Approximately **2.5–7 focused development hours** remain for the accepted V1 source/runtime scope, excluding external waiting for Apple/payment-provider account setup.
 
 Rough allocation:
 
 - first executable compile/test + canonical baseline/clean DB fixes: **2.5–5.5h**;
-- real OAuth/Gemini/Chrome/Push runtime smoke and polish: **0.75–1.75h**;
-- AI-tools Record-card/deep-link polish: **0.25–0.75h**;
-- provider-neutral subscription lifecycle event boundary: **0.75–2h**;
-- final legacy cleanup: **0.5–1.5h**.
+- real OAuth/Gemini/Chrome/Push/lifecycle runtime smoke and polish: **0.75–1.75h**;
+- final Record-card AI action polish + safe legacy cleanup: **0.25–1h**.
 
-Ranges overlap. The largest uncertainty remains the first real compile/test + clean PostgreSQL baseline pass. Major accepted AI and Extension V1 capabilities are **AUTHORED**, not runtime verified.
+Ranges overlap. The largest uncertainty is still the first real compile/test + clean PostgreSQL baseline pass. Major V1 feature scope is now predominantly SOURCE-AUTHORED, not runtime verified.
