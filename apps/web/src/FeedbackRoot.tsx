@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
+import { LoginProviderButtons } from './LoginProviderButtons';
 import { WorklogApi } from './worklog-api';
 import './worklog.css';
 
 const SESSION_KEY = 'aftertrace.worklog.session';
-const RETURN_KEY = 'aftertrace.worklog.returnTo';
 
 export function FeedbackRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
   const api = useMemo(() => new WorklogApi(apiBaseUrl), [apiBaseUrl]);
@@ -56,10 +56,7 @@ export function FeedbackRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
       <h1>意見回饋</h1>
       <p className="muted">登入後可把問題、建議或覺得不好用的地方直接送給我們。</p>
       {error ? <div className="error">{error}</div> : null}
-      <button onClick={() => {
-        localStorage.setItem(RETURN_KEY, '/feedback');
-        location.href = api.lineLoginUrl();
-      }}>登入 AFTERTRACE</button>
+      <LoginProviderButtons apiBaseUrl={apiBaseUrl} returnTo="/feedback" />
     </section>
   </main>;
 
