@@ -1,4 +1,5 @@
-import { bigint, bigserial, index, jsonb, pgTable, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { bigint, bigserial, check, index, jsonb, pgTable, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
 import { worklogUsers } from './schema-worklog';
 
 /**
@@ -30,5 +31,7 @@ export const worklogSubscriptionLifecycleEvents = pgTable(
     uniqueIndex('worklog_subscription_lifecycle_provider_event_uq').on(table.provider, table.externalEventKey),
     index('worklog_subscription_lifecycle_user_time_idx').on(table.userId, table.occurredAt),
     index('worklog_subscription_lifecycle_type_time_idx').on(table.eventType, table.occurredAt),
+    check('worklog_subscription_lifecycle_event_type_ck', sql`${table.eventType} IN ('ACTIVATE','RENEW','CANCEL')`),
+    check('worklog_subscription_lifecycle_plan_code_ck', sql`${table.planCode} = 'AI_PRO'`),
   ],
 );
