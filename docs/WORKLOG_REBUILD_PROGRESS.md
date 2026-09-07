@@ -6,7 +6,7 @@ Before substantive work, read the documents in the exact order defined by `docs/
 
 Never use GitHub Actions unless the user explicitly asks. Every development commit contains `[skip ci]`.
 
-## Current checkpoint — 2026-09-07 Chrome extension capture scope committed and first popup/context-capture scaffold authored; executable/browser/schema verification still pending
+## Current checkpoint — 2026-09-07 Admin ANNOUNCEMENT frontend authored; executable/browser/schema verification still pending
 
 AFTERTRACE remains Web + PWA-first work memory with a committed Chrome extension fast-capture surface. LINE is no longer a Record/group/AI product surface. LINE remains only as:
 
@@ -25,134 +25,137 @@ Launch commercial shape is exactly:
 
 FREE remains a complete manual product. A newly eligible FREE account receives one idempotent, one-time AI trial allowance using internal AI points.
 
-Trial rules that remain authoritative:
+Trial rules remain:
 
 - Admin configures `free_initial_ai_trial_points` / `FREE 初始 AI 試用點數`;
-- do not configure or display a TWD trial price;
-- do not hard-code the point amount;
-- trial does not refresh monthly;
-- later Admin template changes affect only users who have not already received the trial;
-- already-issued trial balances are never resized retroactively;
-- trial provider calls use the same reservation/settlement and immutable provider-cost audit path as paid AI;
-- after trial exhaustion, provider-backed AI stops while FREE manual/product features continue and the UI may offer AI Pro upgrade.
+- no TWD trial price/value in Admin or customer UI;
+- point amount is never hard-coded;
+- trial is issued once per AFTERTRACE account and never refreshes monthly;
+- later template changes affect only accounts that have not received the trial;
+- already-issued balances are never resized retroactively;
+- provider-backed trial calls use the normal reservation/settlement/provider-cost audit path;
+- when trial points reach zero, provider-backed AI stops while FREE manual features continue.
 
-AI Pro retains internal monthly point/resource caps plus a configurable provider-cost hard cap in TWD. Current planning may begin around NT$30/month provider cost, but that is operator configuration, not customer cash value or a source-code constant.
+AI Pro retains monthly internal resource/point limits plus a configurable provider-cost hard cap in TWD. A planning value around NT$30/month may be used as operator configuration only, never as a customer balance or source-code constant.
 
 ## Product foundation retained from earlier batches
 
-The accepted target foundation remains:
+Current accepted implementation foundation includes:
 
-- provider-neutral Google / LINE / Apple identity bindings;
-- Google + LINE are first implementation priorities; Apple follows if sequencing is needed;
-- provider email/id/display-name data is not the AFTERTRACE account identity;
-- accounts are never silently merged from matching email;
-- each account has immutable opaque `public_account_id`, displayed as `帳號 ID` and usable for exact Admin support lookup;
+- provider-neutral Google / LINE / Apple identity binding model;
+- Google + LINE first implementation priority; Apple follows if sequencing is needed;
+- provider email/id/display-name facts are not core account identity;
+- no silent account merge from matching email;
+- immutable opaque `public_account_id` / `帳號 ID` and Admin exact lookup foundation;
 - current LINE Login callback provisions through the provider-neutral account service;
-- Admin exact `public_account_id` user lookup is already authored;
-- native AFTERTRACE GROUP membership/invites exist without LINE group authorization;
-- free manual Record CRUD/search supports nullable event date and no required AI title/entities;
-- capture-first PWA/browser speech foundation exists and does not consume AFTERTRACE provider AI;
-- notification schema/service defines exactly `ANNOUNCEMENT | SYSTEM | TASK` and independent `IN_APP | PUSH` delivery concepts;
-- durable notification recipient rows preserve `read_at` and push state independently;
+- native AFTERTRACE GROUP membership/invites independent from LINE group authorization;
+- free manual Record CRUD/search with nullable event date and no required AI title/entities;
+- capture-first PWA/browser speech foundation without AFTERTRACE provider AI;
+- durable notification domain with exactly `ANNOUNCEMENT | SYSTEM | TASK` and independent `IN_APP | PUSH` channel concepts;
+- notification recipient rows preserve durable `read_at` independently from push delivery state;
 - Admin ANNOUNCEMENT backend supports ALL/FREE/AI/SPECIFIC audience, draft/send-now/scheduled lifecycle, preview, cancellation and delivery summary;
-- SYSTEM notification creation has a user-scoped deterministic idempotency key;
+- SYSTEM notification creation uses user-scoped deterministic idempotency keys;
+- authenticated Web/PWA shared chrome/account/notification-center foundation is source-authored;
+- Chrome extension capture contract/scaffold exists but auth/API persistence is not wired yet;
 - LINE OA remains support-only and must not reintroduce legacy Record/group/AI bot behavior.
 
-## Chrome extension capture contract — accepted this run
+## Admin ANNOUNCEMENT frontend — authored this run
 
-`docs/WORKLOG_EXTENSION_POLICY.md` is now the durable extension contract.
+A dedicated Admin announcement management surface now exists at:
 
-Committed V1 capture scope:
+- `apps/admin/src/AdminAnnouncementsPage.tsx`;
+- Admin URL path: `/announcements`.
 
-- quick text;
-- quick voice;
-- Source/group selection;
-- explicit selected webpage text capture;
-- optional current-page title + URL context;
-- explicit visible-page/bounded screenshot/image capture for AI Pro or eligible FREE trial;
-- persistence into the same AFTERTRACE Record timeline/domain model.
+The page reuses the same Admin session stored under `aftertrace.admin.session`; it does not create a second admin identity/auth system.
 
-Privacy/product boundaries:
+Implemented frontend behavior:
 
-- no automatic full-page archive;
-- no browsing-history or clipboard monitoring;
-- no continuous microphone/screen capture;
-- no meeting-length background recording;
-- no automatic tab monitoring;
-- no RAG over every visited page;
-- no separate extension-only account/subscription/domain;
-- no large persistent sidebar/agent for V1.
+- authenticated announcement list;
+- announcement detail/status inspection;
+- create form for title/body;
+- audience selection: `ALL_USERS`, `FREE_USERS`, `AI_SUBSCRIBERS`, `SPECIFIC_USERS`;
+- channel selection independent from category: `IN_APP` and/or `PUSH`;
+- lifecycle selection: `DRAFT`, `SEND_NOW`, `SCHEDULED`;
+- scheduled local datetime converted to ISO for backend validation/persistence;
+- optional bounded deep-link input;
+- preview must be created before the UI enables create/send confirmation;
+- `SEND_NOW` additionally requires an explicit browser confirmation showing title/audience/channels;
+- existing DRAFT/SCHEDULED announcements can be manually sent only after explicit confirmation;
+- existing DRAFT/SCHEDULED announcements can be cancelled with explicit confirmation;
+- recipient/unread/push-success/push-failure counts are visible from backend summary facts;
+- no arbitrary Admin-authored message is labelled SYSTEM; this surface creates ANNOUNCEMENT only.
 
-## Chrome extension scaffold — authored this run
+### SPECIFIC_USERS safety
 
-New `apps/extension` package has been started as a Manifest V3 extension foundation.
+The Admin UI intentionally fails closed:
 
-Current files:
+- `SPECIFIC_USERS` with zero selected users is rejected before preview;
+- broad audiences strip stale specific-user ids rather than accidentally carrying hidden recipients;
+- duplicate selected ids are deduplicated;
+- user lookup reuses the existing Admin user search, so `public_account_id` can be used as the operator-facing lookup key where backend search supports it;
+- selected users are shown with customer-facing 帳號 ID/display name when available;
+- the browser never converts an empty specific list into ALL_USERS.
 
-- `apps/extension/package.json` — workspace package placeholder;
-- `apps/extension/manifest.json` — Manifest V3, compact action popup, minimum current permissions (`activeTab`, `contextMenus`, `storage`);
-- `apps/extension/background.js` — explicit `儲存到 AFTERTRACE` selected-text context-menu flow; selected text + page title/URL are staged only as transient extension draft data;
-- `apps/extension/popup.html` — compact quick-capture shell with text, Source placeholder, voice action, page-context toggle and screenshot preview;
-- `apps/extension/popup.js` — active-page title/URL lookup, selected-text draft restore, browser speech input attempt/fallback, explicit visible-tab screenshot capture and preview.
+### Announcement API client
 
-Important current limitation:
+New `apps/admin/src/announcement-api.ts` provides a bounded typed client for:
 
-- durable auth/session handoff is **not wired yet**;
-- Source/group list is **not wired yet**;
-- save/persistence is intentionally disabled until it can use the normal AFTERTRACE authenticated Record APIs;
-- screenshot/voice are currently local capture UI only and must not be claimed as end-to-end Record creation;
-- no browser/runtime validation has been executed.
+- list announcements;
+- fetch detail;
+- preview;
+- create;
+- send;
+- cancel;
+- specific-user lookup adapter through the existing provider-neutral Admin user search.
 
-This is deliberate: the extension must not invent an extension-only durable storage/login path merely to appear complete.
+It uses the same Bearer Admin session and existing timestamp normalization policy as the rest of Admin.
 
-## Authenticated Web/PWA app chrome retained
+### Form/lifecycle helpers
 
-`apps/web/src/AuthenticatedAppChrome.tsx` remains mounted once around the current Web route content from `apps/web/src/main.tsx`.
+New `apps/admin/src/announcement-form.ts` centralizes client-side safety and labels:
 
-For an authenticated session it provides:
+- required title/body bounds;
+- at-least-one-channel requirement;
+- SPECIFIC_USERS exact-id safety;
+- scheduled local timestamp normalization;
+- send/cancel lifecycle eligibility;
+- audience/status/mode labels.
 
-- notification bell;
-- visible unread badge when unread count is non-zero;
-- user display name;
-- visible `帳號 ID` label and immutable `publicAccountId`;
-- one-tap account-id copy;
-- visible `已複製` confirmation after successful copy;
-- copy fallback for browsers where Clipboard API is unavailable;
-- narrow mobile/PWA layout keeps `帳號 ID` and copy affordance visible rather than hiding them.
+### Admin entry routing
 
-The account chrome consumes only provider-neutral account/profile facts.
+`apps/admin/src/main.tsx` now mounts `/announcements` to `AdminAnnouncementsPage` while preserving existing `/`, `/profitability`, and `/pricing-calculator` behavior.
 
-## Web/PWA notification center retained
+The page currently links back to the Admin home. A dedicated tab/link inside the large legacy `App.tsx` root navigation is not yet added; the route is usable directly but root-navigation discoverability is a small remaining Admin UX polish item.
 
-The shared app chrome consumes the durable notification backend through `apps/web/src/account-notification-api.ts`.
+## Chrome extension state retained
 
-Current customer behavior includes:
+`docs/WORKLOG_EXTENSION_POLICY.md` remains authoritative. Current `apps/extension` scaffold contains Manifest V3 popup/context-capture foundations for:
 
-- initial authenticated load fetches `/api/v1/notifications`;
-- unread count on bell;
-- durable notification-center list;
-- exactly `公告通知`, `系統通知`, `待辦通知` category labels;
-- mark-one-read and mark-all-read actions;
-- safe same-product relative deep links only;
-- invalid/expired signed sessions clear shared local session state.
+- quick text shell;
+- selected webpage text staging from explicit context-menu action;
+- active page title/URL context;
+- browser speech input attempt/fallback;
+- explicit visible-tab screenshot preview.
 
-PUSH remains independent and still incomplete.
+Important extension limits still apply:
 
-## Notification backend retained
+- durable auth/session handoff not wired;
+- Source/group list not wired;
+- save/persistence intentionally not wired until normal AFTERTRACE APIs are reused;
+- screenshot/voice are local UI capture only, not end-to-end Record creation;
+- no automatic full-page/history/clipboard/tab/microphone capture;
+- no browser/runtime verification executed.
 
-Current backend boundary remains:
+## Notification backend/customer center state retained
+
+Backend foundation remains in:
 
 - `apps/api/src/worklog/notifications.ts`;
 - `apps/api/src/worklog/drizzle-notifications.ts`;
 - `apps/api/src/worklog/notification-routes.ts`;
 - `apps/api/src/admin/notification-routes.ts`.
 
-Audience rules remain:
-
-- `ALL_USERS`;
-- `FREE_USERS`;
-- `AI_SUBSCRIBERS`;
-- `SPECIFIC_USERS`.
+Customer Web/PWA notification center/account chrome source remains authored. Push remains independent and incomplete.
 
 Scheduled announcement persistence exists, but the shared Worker scheduled handler/Cron is not connected yet.
 
@@ -160,14 +163,12 @@ Scheduled announcement persistence exists, but the shared Worker scheduled handl
 
 All commits contain `[skip ci]`:
 
-- `21a3eac1` — define Chrome extension capture scope;
-- `8d50fde6` — scaffold extension workspace package;
-- `5498b8b8` — add Manifest V3 extension manifest;
-- `bc4b5884` — add explicit selected-text context-menu capture;
-- `2a6c828f` — add compact quick-capture popup shell;
-- `df86a3d8` — wire page context, speech-input attempt and explicit visible screenshot preview;
-- `8569803c` — promote extension scope into product spec;
-- `bb29aac5` — add extension rules to development policy;
+- `a1e9852a` — add dedicated Admin ANNOUNCEMENT API client;
+- `eb0624d7` — add announcement form/lifecycle safety helpers;
+- `788c095d` — add Admin announcement management page;
+- `d947c545` — route `/announcements` from Admin entrypoint;
+- `c76fae67` — author announcement form/lifecycle safety tests;
+- `52ade9e0` — author Admin announcement API tests;
 - this checkpoint commit follows the list.
 
 No GitHub Actions workflow was run, dispatched, rerun, enabled, modified, or used as validation.
@@ -176,21 +177,34 @@ The unrelated local `apps/api/verify-admin-schema.mjs` was not staged or committ
 
 ## Validation status
 
-### Chrome extension work from this run
+### Tests authored this run
 
-- `apps/extension/package.json` — **AUTHORED / NOT RUN**;
-- `apps/extension/manifest.json` — **AUTHORED / NOT RUN**;
-- `apps/extension/background.js` — **AUTHORED / NOT RUN**;
-- `apps/extension/popup.html` — **AUTHORED / NOT RUN**;
-- `apps/extension/popup.js` — **AUTHORED / NOT RUN**;
-- load-unpacked Chrome smoke — **NOT RUN**;
-- context-menu selected-text smoke — **NOT RUN**;
-- active page title/URL smoke — **NOT RUN**;
-- browser speech permission/input smoke — **NOT RUN**;
-- screenshot permission/capture smoke — **NOT RUN**;
-- extension auth/API persistence smoke — **NOT IMPLEMENTED / NOT RUN**.
+- `apps/admin/src/announcement-form.test.ts` — **AUTHORED / NOT RUN**;
+  - empty SPECIFIC_USERS rejection;
+  - exact/deduplicated user id behavior;
+  - broad-audience stale-id stripping;
+  - channel-required rule;
+  - scheduled datetime normalization;
+  - DRAFT/SCHEDULED send/cancel action eligibility.
+- `apps/admin/src/announcement-api.test.ts` — **AUTHORED / NOT RUN**;
+  - Admin Bearer token on preview;
+  - bounded preview payload;
+  - dedicated send endpoint;
+  - dedicated cancel endpoint.
 
-### Web/PWA current work awaiting executable verification
+### Admin executable verification still required
+
+- Admin TypeScript typecheck — **NOT RUN**;
+- Admin focused Vitest (`announcement-form`, `announcement-api`) — **NOT RUN**;
+- Admin full Vitest — **NOT RUN**;
+- Admin production build — **NOT RUN**;
+- browser login/session smoke for `/announcements` — **NOT RUN**;
+- ALL/FREE/AI/SPECIFIC preview/create browser smoke — **NOT RUN**;
+- SEND_NOW explicit confirmation/browser smoke — **NOT RUN**;
+- scheduled creation/cancellation/browser smoke — **NOT RUN**;
+- recipient/delivery summary browser smoke — **NOT RUN**.
+
+### Existing Web/PWA work awaiting executable verification
 
 - Web TypeScript typecheck — **NOT RUN**;
 - Web focused/full Vitest — **NOT RUN**;
@@ -199,7 +213,7 @@ The unrelated local `apps/api/verify-admin-schema.mjs` was not staged or committ
 - account-id clipboard/fallback smoke — **NOT RUN**;
 - PWA responsive/install/speech smoke — **NOT RUN**.
 
-### Backend/schema/runtime work awaiting executable verification
+### Existing backend/schema/runtime work awaiting executable verification
 
 - API TypeScript typecheck — **NOT RUN**;
 - focused notification/auth/account/native-GROUP/manual-Record/schema tests — **NOT RUN**;
@@ -211,62 +225,78 @@ The unrelated local `apps/api/verify-admin-schema.mjs` was not staged or committ
 - clean Dev/Prod rebuild — **NOT RUN**;
 - native GROUP/manual Record Dev HTTP E2E — **NOT RUN**.
 
-No test in this run is labelled PASS or RUNTIME VERIFIED.
+### Execution environment result this run
 
-Execution environment limitation remains: GitHub source read/write is available, but no executable AFTERTRACE checkout is mounted for local/browser/runtime validation.
+- executable AFTERTRACE checkout discovery — **FAIL**;
+- direct `git ls-remote https://github.com/ryan19910912/after-trace.git HEAD` — **FAIL** with `Could not resolve host: github.com`;
+- therefore no package TypeScript/Vitest/build/browser/runtime command was claimed PASS.
+
+GitHub source read/write through the repository connector remains available, but it is not equivalent to executable validation.
 
 ## Known blockers / risks
 
-1. **Executable validation remains the immediate release blocker.** New Web/API/extension code is source-authored but not compiled/executed.
-2. **Canonical `drizzle/0000` remains behind the current target schema.** Regenerate before database rebuild/deploy.
-3. **Extension auth/session handoff is the main extension blocker.** Do not store third-party credentials or invent a separate identity model in extension storage.
-4. **Extension Source/group selection and Record persistence are not wired.** The popup save button remains disabled intentionally.
-5. **Extension microphone and screenshot behavior are browser-permission dependent and have not been runtime-smoked.**
-6. **Admin announcement frontend is still incomplete.**
-7. **Scheduled ANNOUNCEMENT/TASK dispatch is not connected to Worker `scheduled()` yet.**
-8. **Push subscription CRUD/preferences/VAPID delivery/service-worker push handling/iOS installed-PWA smoke remain incomplete.**
-9. **SYSTEM notification primitive still needs domain callers such as payment/subscription/trial/AI-limit events.**
-10. **Google Login and Apple Login callbacks remain incomplete.**
-11. **FREE one-time AI trial issuance/runtime is still not implemented to the latest contract.**
-12. **Paid AI entitlement/hard-cap runtime and native task/reminder execution remain incomplete.**
+1. **Executable validation remains the immediate release blocker.** New Admin/Web/API/extension code is source-authored but not compiled/executed in this environment.
+2. **Canonical `drizzle/0000` remains behind the current target schema.** Regenerate before clean database rebuild/deploy.
+3. **Admin announcement root-navigation discoverability is incomplete.** `/announcements` works as the authored route, but the existing large `App.tsx` tab row does not yet link to it.
+4. **PUSH runtime is not complete.** Admin can configure the intended PUSH channel, but subscription CRUD/preferences/VAPID delivery/service-worker push handling still need implementation/runtime verification. Durable IN_APP remains the source of truth.
+5. **Scheduled ANNOUNCEMENT/TASK dispatch is not connected to Worker `scheduled()` yet.**
+6. **SYSTEM notification primitive still needs deterministic domain callers such as payment/subscription/trial/AI-limit events.**
+7. **Google Login and Apple Login callbacks remain incomplete.** LINE Login is only one provider and must not regain core product authority.
+8. **FREE one-time AI trial issuance/runtime is still not implemented to the latest contract.**
+9. **Paid AI entitlement/hard-cap runtime and native task/reminder execution remain incomplete.**
+10. **Extension auth/session handoff, Source picker and durable Record persistence remain incomplete.**
+11. Existing legacy Admin plan/group screens still contain LINE-era/ONE_TIME terminology in places. Do not extend those obsolete concepts; clean them as the accepted target screens replace them.
 
 ## Exact next run order
 
-1. If an executable checkout becomes available, stop adding speculative layers long enough to run/fix Web/API and load-unpacked extension smoke. Never mark anything PASS without execution.
-2. If executable checkout is still unavailable, continue the current highest-priority app flow before deep extension work:
-   - Admin ANNOUNCEMENT frontend;
-   - customer notification history/pagination polish if needed;
-   - Push subscription/preferences APIs + explicit `開啟通知` UX;
-   - Tasks/reminders + shared scheduled Worker handler;
-   - deterministic SYSTEM event callers;
-   - FREE one-time AI trial Admin/issuance/accounting;
-   - Google/LINE/Apple login completion.
-3. After shared auth/account/Record APIs are stable, return to `apps/extension` and wire:
-   - safe authenticated session/token handoff;
-   - Source/group list;
-   - quick text persistence;
-   - page title/URL metadata persistence;
-   - selected-text persistence;
-   - quick voice into provider-free or paid-AI path;
-   - screenshot/image upload through AI Pro/FREE-trial entitlement;
-   - explicit error/retry states;
-   - Chrome permission/privacy smoke and packaging.
-4. Regenerate clean canonical `drizzle/0000`, run guard/tests, rebuild disposable Dev/Prod as appropriate, then run auth/account/notification/PWA/extension runtime E2E.
-5. Continue AI Pro capture/search/related records/summary/rewrite and final legacy LINE product cleanup.
+1. If an executable checkout becomes available, pause feature expansion and run/fix:
+   - Admin typecheck;
+   - `announcement-form.test.ts` + `announcement-api.test.ts`;
+   - Admin production build;
+   - Web/API focused typecheck/tests;
+   - load-unpacked extension smoke when feasible.
+2. If executable checkout is still unavailable, continue the next bounded notification batch:
+   - Push subscription persistence/API;
+   - per-user PUSH preferences for ANNOUNCEMENT/SYSTEM/TASK where allowed;
+   - explicit customer `開啟通知` UX only after user action;
+   - service-worker push event/click handling without auto permission prompt;
+   - invalid/revoked subscription lifecycle.
+3. Then implement native Tasks/reminders and one shared Worker `scheduled()` handler at approximately 5-minute cadence:
+   - bounded due reminder scan;
+   - bounded scheduled ANNOUNCEMENT scan;
+   - idempotent dispatch;
+   - never one Cron per task;
+   - Queue only if fan-out/volume justifies it.
+4. Wire deterministic SYSTEM callers for payment/subscription/trial/AI-limit events.
+5. Implement FREE one-time AI trial Admin configuration/issuance/accounting, then Google/LINE/Apple auth completion.
+6. Return to Chrome extension after shared auth/Record/entitlement APIs are stable enough for real persistence.
+7. Regenerate canonical `drizzle/0000`, rebuild disposable Dev/Prod as appropriate, run runtime E2E, then continue AI Pro search/enrichment/related-record/summary/rewrite and final legacy LINE cleanup.
+
+## Next run checklist
+
+- [ ] Read all durable docs in Development Policy order.
+- [ ] Check whether an executable checkout is finally available.
+- [ ] Never touch GitHub Actions.
+- [ ] Never touch `apps/api/verify-admin-schema.mjs` without separate approval.
+- [ ] Prefer executable validation first if available.
+- [ ] Otherwise continue Push subscription/preferences as the next bounded shared-service batch.
+- [ ] Keep notification category separate from channel.
+- [ ] Never auto-prompt notification permission on initial PWA load.
+- [ ] Keep IN_APP durable even if PUSH fails/denied.
 
 ## Estimated remaining development time
 
-Current estimate: **about 42–79 focused development hours**.
+Current estimate: **about 39–75 focused development hours**.
 
 Approximate remaining buckets:
 
-- executable validation + canonical baseline/rebuild + current free/PWA/native-GROUP/account/notification E2E: 7–13h;
-- Admin announcement UI + notification history polish: 2–5h;
+- executable validation + canonical baseline/rebuild + current free/PWA/native-GROUP/account/notification/Admin E2E: 7–13h;
+- Admin announcement root-navigation/final UX polish + notification history polish: 1–3h;
 - Push subscriptions/preferences/delivery + Tasks/reminders/shared Cron + iOS/browser smoke: 7–12h;
 - FREE one-time AI trial issuance/accounting/Admin control: 3–6h;
 - Google/LINE/Apple login completion + account UI/Admin cleanup: 4–8h;
 - AI Pro per-user entitlement/capture/search/hard caps: 10–18h;
 - Related Records/range summary/rewrite: 4–7h;
-- Chrome extension auth/API integration, browser smoke, packaging and final readiness/legacy cleanup: 5–10h.
+- Chrome extension auth/API integration, browser smoke, packaging and final readiness/legacy cleanup: 3–8h.
 
-Tighten the estimate after the first executable typecheck/test pass, regenerated canonical baseline and real Dev runtime E2E.
+Tighten the estimate after the first executable Admin/Web/API typecheck/test pass, regenerated canonical baseline and real Dev runtime E2E.
