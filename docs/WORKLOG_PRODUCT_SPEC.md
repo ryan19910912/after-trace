@@ -26,7 +26,37 @@ Initial scope: quick microphone/voice input, quick text input, destination Sourc
 
 ## Account and identity
 
-Target architecture uses normal Web/PWA authentication. LINE Login, OA friendship, LINE GROUP membership, webhook lifecycle, Reply targets and LINE-specific identity are not required by the target product. Existing LINE-specific code/schema may remain temporarily during migration but is legacy and must not drive new design.
+Target architecture uses normal Web/PWA authentication with **both Google Login and LINE Login** available as first-class sign-in options.
+
+Rules:
+
+- Google and LINE identities are provider-neutral authentication identities attached to one AFTERTRACE user;
+- do not make the core `users` table depend on either provider-specific id;
+- a user may later link both providers to the same AFTERTRACE account when safe account-linking is implemented;
+- LINE Login being available does **not** make LINE OA/GROUP/webhook part of the core product surface;
+- LINE OA remains a separate support channel under `WORKLOG_SUPPORT_POLICY.md`;
+- provider identity data is never the customer-facing account identifier.
+
+Recommended identity model:
+
+- `worklog_users` = durable AFTERTRACE account;
+- `worklog_auth_identities` = provider identity rows such as `GOOGLE` or `LINE`;
+- `public_account_id` = immutable, unique, non-secret customer-facing support/account identifier.
+
+`public_account_id` must not be the raw database primary key. Prefer an opaque, non-sequential value such as `AT-7K4M2P` so users can safely provide it to support without exposing internal row ids or third-party identity values.
+
+### Web / PWA account header
+
+Authenticated Web/PWA surfaces should expose the current user in the top-right area together with the notification entry.
+
+Show at minimum:
+
+- notification bell / unread count;
+- user display name;
+- customer-facing **帳號 ID** (`public_account_id`);
+- one-tap copy action for 帳號 ID.
+
+The copied value should be suitable for support lookup. The user should not need to provide Google email, LINE id, LINE display name or any other third-party identity merely to let support locate the AFTERTRACE account.
 
 ## Sources / groups
 
@@ -216,6 +246,8 @@ Admin retains auditable provider-call facts: user, Source/group, operation, prov
 
 ### High priority
 
+- Google Login + LINE Login through provider-neutral identities;
+- immutable copyable public account id shown in Web/PWA account header;
 - Web/PWA manual Record CRUD;
 - capture-first PWA microphone UX;
 - free browser/device speech-to-text where practical;
@@ -232,6 +264,7 @@ Admin retains auditable provider-call facts: user, Source/group, operation, prov
 
 ### Later / conditional
 
+- safe account-linking between already-existing Google/LINE identities;
 - AI Q&A after grounding quality is proven;
 - Calendar integration;
 - vector/embedding search;
