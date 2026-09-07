@@ -1,4 +1,5 @@
 import app, { type Bindings } from './index';
+import { createAdminNotificationRoutes } from './admin/notification-routes';
 import { createAdminProfitabilityRoutes } from './admin/profitability-routes';
 import { createAdminRoutes } from './admin/routes';
 import { createAccountRoutes } from './auth/account-routes';
@@ -23,6 +24,7 @@ import { GeminiWorklogAttachmentNormalizer } from './worklog/gemini-attachment-n
 import { GeminiWorklogTextNormalizer } from './worklog/gemini-text-normalizer';
 import { createManualRecordRoutes } from './worklog/manual-record-routes';
 import { createNativeGroupRoutes } from './worklog/native-group-routes';
+import { createNotificationRoutes } from './worklog/notification-routes';
 import { RecordNormalizationAiPointPort } from './worklog/record-normalization-ai-points';
 import { createWorklogRoutes } from './worklog/routes';
 import { createWorklogSubscriptionRoutes } from './worklog/subscription-routes';
@@ -32,9 +34,11 @@ type ExecutionContextLike = { waitUntil(promise: Promise<unknown>): void };
 type ApiBoundary = 'ADMIN_API' | 'SUBSCRIPTION_API' | 'WORKLOG_WEB_API';
 
 const adminRoutes = createAdminRoutes();
+const adminNotificationRoutes = createAdminNotificationRoutes();
 const adminProfitabilityRoutes = createAdminProfitabilityRoutes();
 const accountRoutes = createAccountRoutes();
 const nativeGroupRoutes = createNativeGroupRoutes();
+const notificationRoutes = createNotificationRoutes();
 const manualRecordRoutes = createManualRecordRoutes();
 const worklogRoutes = createWorklogRoutes();
 const worklogConfirmationRoutes = createWorklogConfirmationRoutes();
@@ -141,6 +145,16 @@ export default {
       return Response.json({ ok: false, error: 'LEGACY_AFTERTRACE_RUNTIME_DISABLED' }, { status: 410 });
     }
     if (
+      url.pathname === '/api/v1/admin/notifications'
+      || url.pathname.startsWith('/api/v1/admin/notifications/')
+    ) {
+      const rewritten = new URL(request.url);
+      rewritten.pathname = url.pathname.slice('/api/v1/admin/notifications'.length) || '/';
+      const routedRequest = new Request(rewritten, request);
+      return withApiAnomalyBoundary('ADMIN_API', request, env, () =>
+        adminNotificationRoutes.fetch(routedRequest, env as never, executionContext as never));
+    }
+    if (
       url.pathname === '/api/v1/admin/profitability'
       || url.pathname.startsWith('/api/v1/admin/profitability/')
     ) {
@@ -163,6 +177,13 @@ export default {
       const routedRequest = new Request(rewritten, request);
       return withApiAnomalyBoundary('WORKLOG_WEB_API', request, env, () =>
         accountRoutes.fetch(routedRequest, env as never, executionContext as never));
+    }
+    if (url.pathname === '/api/v1/notifications' || url.pathname.startsWith('/api/v1/notifications/')) {
+      const rewritten = new URL(request.url);
+      rewritten.pathname = url.pathname.slice('/api/v1/notifications'.length) || '/';
+      const routedRequest = new Request(rewritten, request);
+      return withApiAnomalyBoundary('WORKLOG_WEB_API', request, env, () =>
+        notificationRoutes.fetch(routedRequest, env as never, executionContext as never));
     }
     if (url.pathname === '/api/v1/subscription' || url.pathname.startsWith('/api/v1/subscription/')) {
       const rewritten = new URL(request.url);
