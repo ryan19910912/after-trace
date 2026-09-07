@@ -52,4 +52,46 @@ describe('AdminCommercialApi', () => {
     const [, init] = fetchMock.mock.calls[0];
     expect(JSON.parse(String(init?.body))).toEqual({ freeInitialAiTrialPoints: 800 });
   });
+
+  it('sends AI media/search feature gates with the fixed AI Pro hard-cap configuration', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      config: {
+        code: 'AI_PRO',
+        displayName: 'AI Pro',
+        priceTwd: '99.00',
+        enabled: true,
+        aiEnabled: true,
+        aiMediaIngestion: true,
+        aiNaturalSearch: false,
+        monthlyAiPointCap: 100000,
+        monthlyProviderCostCapTwd: '30',
+        perRequestAiPointCap: 5000,
+        updatedAt: '2026-09-07T08:00:00.000Z',
+      },
+    }), { status: 200 }));
+    const api = new AdminCommercialApi('https://api.example');
+    api.setSessionToken('admin-session');
+
+    const config = await api.setAiPro({
+      enabled: true,
+      aiMediaIngestion: true,
+      aiNaturalSearch: false,
+      monthlyAiPointCap: 100000,
+      monthlyProviderCostCapTwd: '30',
+      perRequestAiPointCap: 5000,
+    });
+
+    expect(config.priceTwd).toBe('99.00');
+    expect(config.aiNaturalSearch).toBe(false);
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(String(init?.body))).toEqual({
+      enabled: true,
+      aiMediaIngestion: true,
+      aiNaturalSearch: false,
+      monthlyAiPointCap: 100000,
+      monthlyProviderCostCapTwd: '30',
+      perRequestAiPointCap: 5000,
+    });
+  });
 });
