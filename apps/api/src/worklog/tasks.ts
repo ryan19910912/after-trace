@@ -85,12 +85,15 @@ export class TaskService {
 }
 
 function normalizeCreate(input: CreateTaskInput): CreateTaskInput {
+  const sourceId = validOptionalId(input.sourceId, 'INVALID_SOURCE_ID');
+  const recordId = validOptionalId(input.recordId, 'INVALID_RECORD_ID');
+  if (recordId !== null && sourceId === null) throw new Error('TASK_SOURCE_REQUIRED_FOR_RECORD');
   return {
     userId: validUserId(input.userId),
     title: requiredText(input.title, 255, 'INVALID_TASK_TITLE'),
     body: optionalText(input.body, 10_000),
-    sourceId: validOptionalId(input.sourceId, 'INVALID_SOURCE_ID'),
-    recordId: validOptionalId(input.recordId, 'INVALID_RECORD_ID'),
+    sourceId,
+    recordId,
     dueAt: validOptionalDate(input.dueAt, 'INVALID_TASK_DUE_AT'),
     remindAt: validOptionalDate(input.remindAt, 'INVALID_TASK_REMIND_AT'),
   };
