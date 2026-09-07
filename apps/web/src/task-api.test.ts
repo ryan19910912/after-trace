@@ -69,8 +69,8 @@ describe('TaskApi Web/PWA contract', () => {
 
     expect(completed.status).toBe('COMPLETED');
     expect(cancelled.status).toBe('CANCELLED');
-    expect(String(fetchMock.mock.calls[0]?.[0])).toEndWith('/api/v1/tasks/9/complete');
-    expect(String(fetchMock.mock.calls[1]?.[0])).toEndWith('/api/v1/tasks/10/cancel');
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe('https://api.example.test/api/v1/tasks/9/complete');
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe('https://api.example.test/api/v1/tasks/10/cancel');
   });
 
   it('surfaces backend validation codes to the UI', async () => {
