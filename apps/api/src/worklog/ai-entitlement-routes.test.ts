@@ -17,19 +17,19 @@ async function authorization(userId = 7) {
 function repository(snapshot: AiEntitlementSnapshot): AiEntitlementRepository {
   return {
     async snapshot() { return snapshot; },
-    async ensureGrantScope() {},
+    async ensureGrantScope() { throw new Error('GET entitlement must remain read-only'); },
   };
 }
 
 describe('AI entitlement route', () => {
-  it('uses durable session userId and returns FREE_TRIAL for an authorized Source', async () => {
+  it('uses durable session userId and returns FREE_TRIAL for an authorized Source without mutating grant scope', async () => {
     let resolvedUserId = 0;
     const app = createAiEntitlementRoutes({
       databaseFactory: () => ({} as never),
       resolveSessionUserId: async (_database, session) => { resolvedUserId = session.userId ?? 0; return session.userId; },
       repositoryFactory: () => repository({
         sourceAuthorized: true,
-        freeTrial: { grantId: 9, remainingPoints: 80 },
+        freeTrial: { grantId: 9, remainingPoints: 80, perRequestAiPointCap: 50 },
         aiPro: null,
       }),
     });
@@ -40,7 +40,9 @@ describe('AI entitlement route', () => {
     expect(resolvedUserId).toBe(23);
     await expect(response.json()).resolves.toMatchObject({
       ok: true,
-      entitlement: { source: 'FREE_TRIAL', allowed: true, remainingPoints: 80 },
+      entitlement: {
+        source: 'FREE_TRIAL', allowed: true, remainingPoints: 80, perRequestAiPointCap: 50,
+      },
     });
   });
 
