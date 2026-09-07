@@ -129,7 +129,7 @@ export function TaskRoot({ apiBaseUrl }: Props) {
         {error ? <div className="error">{error}</div> : null}
         <button onClick={() => {
           localStorage.setItem(RETURN_KEY, '/tasks');
-          window.location.href = '/';
+          window.location.href = '/login';
         }}>登入 AFTERTRACE</button>
       </section>
     </main>;
