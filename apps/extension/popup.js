@@ -26,6 +26,7 @@ const openWeb = document.querySelector('#openWeb');
 
 let activeTab = null;
 let auth = null;
+let draftPageContext = null;
 let screenshotDataUrl = null;
 let recognition = null;
 let recognizing = false;
@@ -38,9 +39,8 @@ function setStatus(message) {
 async function loadActiveTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   activeTab = tab ?? null;
-  pageTitle.textContent = activeTab?.title ?? '目前頁面';
-  pageUrl.textContent = activeTab?.url ?? '';
-  pageUrl.href = activeTab?.url ?? '#';
+  draftPageContext = normalizedPageContext(activeTab?.title, activeTab?.url);
+  renderPageContext(draftPageContext);
 }
 
 async function loadPendingSelection() {
@@ -49,12 +49,19 @@ async function loadPendingSelection() {
 
   if (aftertracePendingCapture.kind === 'SELECTION' && aftertracePendingCapture.text) {
     content.value = aftertracePendingCapture.text;
-    if (aftertracePendingCapture.pageTitle || aftertracePendingCapture.pageUrl) {
-      pageTitle.textContent = aftertracePendingCapture.pageTitle ?? '來源頁面';
-      pageUrl.textContent = aftertracePendingCapture.pageUrl ?? '';
-      pageUrl.href = aftertracePendingCapture.pageUrl ?? '#';
+    const selectionPage = normalizedPageContext(
+      aftertracePendingCapture.pageTitle,
+      aftertracePendingCapture.pageUrl,
+    );
+    if (selectionPage) {
+      draftPageContext = selectionPage;
+      renderPageContext(draftPageContext);
+      includePage.checked = true;
+      pageContext.classList.remove('hidden');
+      setStatus('已帶入你剛剛選取的文字與來源頁面。儲存前可取消「附上目前頁面」。');
+    } else {
+      setStatus('已帶入你剛剛選取的文字。');
     }
-    setStatus('已帶入你剛剛選取的文字。這一批會儲存文字；頁面 title/URL metadata 會在下一個 capture batch 正式接上。');
   }
 
   await chrome.storage.local.remove('aftertracePendingCapture');
@@ -205,9 +212,15 @@ content.addEventListener('input', updateSaveState);
 
 includePage.addEventListener('change', async () => {
   if (includePage.checked) {
-    if (!activeTab) await loadActiveTab();
+    if (!draftPageContext) await loadActiveTab();
+    if (!draftPageContext) {
+      includePage.checked = false;
+      pageContext.classList.add('hidden');
+      setStatus('目前頁面沒有可安全附上的 title / http(s) URL。');
+      return;
+    }
     pageContext.classList.remove('hidden');
-    setStatus('目前頁面只做預覽；title/URL metadata 尚未在這個 quick-text batch 寫入 Record。');
+    setStatus('目前頁面的 title / URL 會以 bounded metadata 隨這筆 Record 儲存，不會擷取完整頁面內容。');
   } else {
     pageContext.classList.add('hidden');
   }
@@ -229,7 +242,7 @@ screenshotButton.addEventListener('click', async () => {
     screenshotDataUrl = await chrome.tabs.captureVisibleTab(undefined, { format: 'png' });
     screenshotPreview.src = screenshotDataUrl;
     screenshotPreview.classList.remove('hidden');
-    setStatus('已擷取目前可見畫面供預覽。這個 batch 不會把截圖送到 provider；圖片 AI 仍需 AI Pro 或可用試用額度。');
+    setStatus('已擷取目前可見畫面供預覽。截圖尚未送到 provider；圖片 AI 仍需 AI Pro 或可用試用額度。');
   } catch {
     screenshotDataUrl = null;
     screenshotPreview.classList.add('hidden');
@@ -250,20 +263,29 @@ saveButton.addEventListener('click', async () => {
     const path = target.type === 'PERSONAL'
       ? '/api/v1/worklog/records/personal'
       : `/api/v1/worklog/records/group/${target.sourceId}`;
+    const requestBody = { rawText, occurredAt: null };
+    if (includePage.checked && draftPageContext) {
+      requestBody.captureContext = {
+        page: {
+          title: draftPageContext.title,
+          url: draftPageContext.url,
+        },
+      };
+    }
     const response = await authenticatedFetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rawText, occurredAt: null }),
+      body: JSON.stringify(requestBody),
     });
     const body = await response.json();
     if (!response.ok) throw apiError(response, body, '記錄失敗');
 
+    const pageStored = Boolean(requestBody.captureContext);
     content.value = '';
     if (recognizing) recognition?.stop();
-    const unsentContext = includePage.checked || Boolean(screenshotDataUrl);
-    setStatus(unsentContext
-      ? '文字已儲存到 AFTERTRACE。頁面資訊／截圖仍只在本機預覽，尚未送出。'
-      : '已儲存到 AFTERTRACE。');
+    setStatus(screenshotDataUrl
+      ? `${pageStored ? '文字與頁面資訊' : '文字'}已儲存到 AFTERTRACE。截圖仍只在本機預覽，尚未送出。`
+      : `${pageStored ? '文字與頁面資訊' : '紀錄'}已儲存到 AFTERTRACE。`);
   } catch (error) {
     if (sessionExpired(error)) {
       await clearAuth();
@@ -333,6 +355,31 @@ function normalizedSurfaces(value) {
     });
   }
   return result;
+}
+
+function normalizedPageContext(titleValue, urlValue) {
+  const title = typeof titleValue === 'string'
+    ? titleValue.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 255) || null
+    : null;
+  let url = null;
+  if (typeof urlValue === 'string' && urlValue.trim()) {
+    try {
+      const parsed = new URL(urlValue.trim());
+      if ((parsed.protocol === 'https:' || parsed.protocol === 'http:') && !parsed.username && !parsed.password) {
+        const candidate = parsed.toString();
+        if (candidate.length <= 2048) url = candidate;
+      }
+    } catch {
+      url = null;
+    }
+  }
+  return title || url ? { title, url } : null;
+}
+
+function renderPageContext(context) {
+  pageTitle.textContent = context?.title ?? '目前頁面';
+  pageUrl.textContent = context?.url ?? '';
+  pageUrl.href = context?.url ?? '#';
 }
 
 function validAuth(value) {
