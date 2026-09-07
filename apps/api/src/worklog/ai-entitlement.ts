@@ -10,6 +10,7 @@ export type AiEntitlementDecision = {
     | 'AI_NOT_ENTITLED'
     | 'TRIAL_EXHAUSTED'
     | 'MONTHLY_POINT_CAP_REACHED'
+    | 'MONTHLY_POINT_CAP_WOULD_BE_EXCEEDED'
     | 'MONTHLY_PROVIDER_COST_CAP_REACHED'
     | 'PROVIDER_COST_ACCOUNTING_INCOMPLETE'
     | 'AI_PRO_GRANT_NOT_READY'
@@ -18,6 +19,12 @@ export type AiEntitlementDecision = {
   remainingPoints: number | null;
   periodEndsAt: string | null;
   perRequestAiPointCap: number | null;
+};
+
+export type AiEntitlementAdmission = {
+  decision: AiEntitlementDecision;
+  /** Internal settlement target only. Never expose this as customer identity/balance. */
+  grantId: number | null;
 };
 
 export type AiEntitlementSnapshot = {
@@ -52,9 +59,9 @@ export interface AiEntitlementRepository {
  * Source authorization is checked first. Entitlement always belongs to the requesting user;
  * GROUP membership never transfers or sponsors another user's AI allowance.
  *
- * resolve() is read-only and suitable for UI state. admit() is the provider preflight: it
- * enforces the optional per-request cap and only then ensures the requesting user's grant
- * scope for the authorized Source.
+ * resolve() is read-only and suitable for UI state. admit()/admitWithGrant() are provider
+ * preflight paths: they enforce request/period caps and only then ensure the exact selected
+ * user-owned grant scope for the authorized Source.
  */
 export class AiEntitlementService {
   constructor(private readonly repository: AiEntitlementRepository) {}
@@ -71,24 +78,53 @@ export class AiEntitlementService {
     requestedPoints: number,
     at = new Date(),
   ): Promise<AiEntitlementDecision> {
+    return (await this.admitWithGrant(userId, sourceId, requestedPoints, at)).decision;
+  }
+
+  async admitWithGrant(
+    userId: number,
+    sourceId: number,
+    requestedPoints: number,
+    at = new Date(),
+  ): Promise<AiEntitlementAdmission> {
     const normalized = normalizedInput(userId, sourceId, at);
     if (!Number.isSafeInteger(requestedPoints) || requestedPoints <= 0) {
       throw new Error('INVALID_REQUESTED_AI_POINTS');
     }
     const snapshot = await this.repository.snapshot(normalized.userId, normalized.sourceId, normalized.at);
     const evaluated = evaluate(snapshot);
-    if (!evaluated.decision.allowed || evaluated.grantId === null) return evaluated.decision;
+    if (!evaluated.decision.allowed || evaluated.grantId === null) {
+      return { decision: evaluated.decision, grantId: null };
+    }
     const requestCap = evaluated.decision.perRequestAiPointCap;
     if (requestCap !== null && requestedPoints > requestCap) {
       return {
-        ...evaluated.decision,
-        source: 'BLOCKED',
-        allowed: false,
-        reason: 'PER_REQUEST_POINT_CAP_EXCEEDED',
+        decision: {
+          ...evaluated.decision,
+          source: 'BLOCKED',
+          allowed: false,
+          reason: 'PER_REQUEST_POINT_CAP_EXCEEDED',
+        },
+        grantId: null,
+      };
+    }
+    if (
+      evaluated.decision.source === 'AI_PRO'
+      && evaluated.decision.remainingPoints !== null
+      && requestedPoints > evaluated.decision.remainingPoints
+    ) {
+      return {
+        decision: {
+          ...evaluated.decision,
+          source: 'BLOCKED',
+          allowed: false,
+          reason: 'MONTHLY_POINT_CAP_WOULD_BE_EXCEEDED',
+        },
+        grantId: null,
       };
     }
     await this.repository.ensureGrantScope(evaluated.grantId, normalized.sourceId, normalized.at);
-    return evaluated.decision;
+    return { decision: evaluated.decision, grantId: evaluated.grantId };
   }
 }
 
