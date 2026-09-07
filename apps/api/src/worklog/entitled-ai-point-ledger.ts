@@ -2,10 +2,22 @@ import type {
   AiPointCommitResult,
   AiPointReleaseResult,
   AiPointReservationResult,
-  WorklogAiPointLedgerService,
 } from './ai-point-ledger';
 import { AiEntitlementService } from './ai-entitlement';
 import type { WorklogAiUsageCommit } from './ai-provider-usage';
+
+export interface AiPointLedgerPort {
+  reserveAi(input: {
+    chargedUserId: number;
+    actorUserId: number;
+    sourceId?: number | null;
+    requestedPoints: number;
+    at?: Date;
+    ttlMs?: number;
+  }): Promise<AiPointReservationResult>;
+  commitAiUsage(token: string, usage: WorklogAiUsageCommit, at?: Date): Promise<AiPointCommitResult>;
+  releaseAi(token: string, at?: Date): Promise<AiPointReleaseResult>;
+}
 
 /**
  * Shared provider-facing AI point port.
@@ -15,20 +27,13 @@ import type { WorklogAiUsageCommit } from './ai-provider-usage';
  * activates only the selected user-owned grant scope for this Source, preventing a paid
  * period from accidentally consuming an older FREE trial (or another legacy grant).
  */
-export class EntitledAiPointLedgerService {
+export class EntitledAiPointLedgerService implements AiPointLedgerPort {
   constructor(
     private readonly entitlement: AiEntitlementService,
-    private readonly ledger: WorklogAiPointLedgerService,
+    private readonly ledger: AiPointLedgerPort,
   ) {}
 
-  async reserveAi(input: {
-    chargedUserId: number;
-    actorUserId: number;
-    sourceId?: number | null;
-    requestedPoints: number;
-    at?: Date;
-    ttlMs?: number;
-  }): Promise<AiPointReservationResult> {
+  async reserveAi(input: Parameters<AiPointLedgerPort['reserveAi']>[0]): Promise<AiPointReservationResult> {
     const sourceId = positiveInteger(input.sourceId, 'sourceId');
     const at = input.at ?? new Date();
     const admission = await this.entitlement.admitWithGrant(
