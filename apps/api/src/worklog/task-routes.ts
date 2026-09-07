@@ -85,10 +85,10 @@ export function createTaskRoutes(dependencies: TaskRouteDependencies = {}) {
         userId: c.get('userId'),
         title: stringValue(body.title),
         body: nullableString(body.body),
-        sourceId: optionalPositiveId(body.sourceId),
-        recordId: optionalPositiveId(body.recordId),
-        dueAt: optionalDate(body.dueAt),
-        remindAt: optionalDate(body.remindAt),
+        sourceId: optionalPositiveId(body.sourceId, 'INVALID_SOURCE_ID'),
+        recordId: optionalPositiveId(body.recordId, 'INVALID_RECORD_ID'),
+        dueAt: optionalDate(body.dueAt, 'INVALID_TASK_DUE_AT'),
+        remindAt: optionalDate(body.remindAt, 'INVALID_TASK_REMIND_AT'),
       });
       return c.json({ ok: true, task }, 201);
     } catch (error) {
@@ -102,12 +102,12 @@ export function createTaskRoutes(dependencies: TaskRouteDependencies = {}) {
     if (!taskId) return c.json({ ok: false, error: 'INVALID_TASK_ID' }, 400);
     const body = await jsonObject(c);
     if (!body) return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
-    const update: UpdateTaskInput = {};
-    if ('title' in body) update.title = stringValue(body.title);
-    if ('body' in body) update.body = nullableString(body.body);
-    if ('dueAt' in body) update.dueAt = optionalDate(body.dueAt);
-    if ('remindAt' in body) update.remindAt = optionalDate(body.remindAt);
     try {
+      const update: UpdateTaskInput = {};
+      if ('title' in body) update.title = stringValue(body.title);
+      if ('body' in body) update.body = nullableString(body.body);
+      if ('dueAt' in body) update.dueAt = optionalDate(body.dueAt, 'INVALID_TASK_DUE_AT');
+      if ('remindAt' in body) update.remindAt = optionalDate(body.remindAt, 'INVALID_TASK_REMIND_AT');
       const task = await serviceFor(c, repositoryFactory).update(c.get('userId'), taskId, update);
       return task ? c.json({ ok: true, task }) : c.json({ ok: false, error: 'TASK_NOT_FOUND_OR_NOT_OPEN' }, 404);
     } catch (error) {
@@ -152,18 +152,18 @@ function positiveId(value: string): number | null {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
-function optionalPositiveId(value: unknown): number | null {
+function optionalPositiveId(value: unknown, error: string): number | null {
   if (value === undefined || value === null || value === '') return null;
   const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error('INVALID_TASK_REFERENCE');
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(error);
   return parsed;
 }
 
-function optionalDate(value: unknown): Date | null {
+function optionalDate(value: unknown, error: string): Date | null {
   if (value === undefined || value === null || value === '') return null;
-  if (typeof value !== 'string') throw new Error('INVALID_TASK_DATE');
+  if (typeof value !== 'string') throw new Error(error);
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) throw new Error('INVALID_TASK_DATE');
+  if (Number.isNaN(parsed.getTime())) throw new Error(error);
   return parsed;
 }
 
