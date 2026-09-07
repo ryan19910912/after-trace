@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
+import { FREE_INITIAL_GRANT_ORIGIN_KEY } from './ai-points';
 import type { AiEntitlementRepository, AiEntitlementSnapshot } from './ai-entitlement';
 
 type SnapshotRow = {
@@ -89,7 +90,7 @@ export class DrizzleAiEntitlementRepository implements AiEntitlementRepository {
         FROM worklog_ai_grants AS g
         WHERE g.owner_user_id = ${userId}
           AND g.type = 'FREE_INITIAL'
-          AND g.origin_key = 'free-initial'
+          AND g.origin_key = ${FREE_INITIAL_GRANT_ORIGIN_KEY}
           AND g.status IN ('ACTIVE', 'EXHAUSTED')
           AND g.effective_at <= ${at}
           AND (g.expires_at IS NULL OR g.expires_at > ${at})
