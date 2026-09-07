@@ -57,9 +57,12 @@ async function acceptWebSessionHandoff(message, sender) {
 
   const nonce = text(message.nonce, 128);
   const sessionToken = text(message.sessionToken, 8192);
+  const sessionExpiresAt = futureIso(message.sessionExpiresAt, 60 * 60 * 24 * 7);
   const apiBaseUrl = origin(message.apiBaseUrl);
   const webAppUrl = origin(message.webAppUrl);
-  if (!nonce || !sessionToken || !apiBaseUrl || !webAppUrl) throw new Error('EXTENSION_CONNECT_PAYLOAD_INVALID');
+  if (!nonce || !sessionToken || !sessionExpiresAt || !apiBaseUrl || !webAppUrl) {
+    throw new Error('EXTENSION_CONNECT_PAYLOAD_INVALID');
+  }
   if (webAppUrl !== senderOrigin || apiBaseUrl !== expectedApiBaseUrl) throw new Error('EXTENSION_CONNECT_ENVIRONMENT_MISMATCH');
 
   const pending = await chrome.storage.session.get(PENDING_CONNECT_KEY);
@@ -68,6 +71,7 @@ async function acceptWebSessionHandoff(message, sender) {
   await chrome.storage.local.set({
     [AUTH_KEY]: {
       sessionToken,
+      sessionExpiresAt,
       apiBaseUrl,
       webAppUrl,
       connectedAt: new Date().toISOString(),
@@ -101,4 +105,14 @@ function text(value, max) {
   if (typeof value !== 'string') return null;
   const normalized = value.trim();
   return normalized && normalized.length <= max ? normalized : null;
+}
+
+function futureIso(value, maxFutureSeconds) {
+  if (typeof value !== 'string') return null;
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return null;
+  const now = Date.now();
+  const delta = parsed.getTime() - now;
+  if (delta <= 0 || delta > maxFutureSeconds * 1000 + 60_000) return null;
+  return parsed.toISOString();
 }
