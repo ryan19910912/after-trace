@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
+import { LoginProviderButtons } from './LoginProviderButtons';
 import { WorklogApi, type SubscriptionPlan, type SubscriptionPlans } from './worklog-api';
 import './worklog.css';
 
 const SESSION_KEY = 'aftertrace.worklog.session';
-const RETURN_KEY = 'aftertrace.worklog.returnTo';
 
 export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
   const api = useMemo(() => new WorklogApi(apiBaseUrl), [apiBaseUrl]);
@@ -85,10 +85,7 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
         <h1>方案與訂閱</h1>
         <p className="muted">登入後可查看 FREE 試用與 AI Pro 狀態。</p>
         {error ? <div className="error">{error}</div> : null}
-        <button onClick={() => {
-          localStorage.setItem(RETURN_KEY, '/subscription');
-          location.href = api.lineLoginUrl();
-        }}>登入 AFTERTRACE</button>
+        <LoginProviderButtons apiBaseUrl={apiBaseUrl} returnTo="/subscription" />
       </section>
     </main>;
   }
