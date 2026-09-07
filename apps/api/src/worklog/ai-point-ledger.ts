@@ -12,6 +12,8 @@ export type WorklogAiPointReservationSnapshot = {
   pointsReserved: number;
   pointsCommitted: number;
   platformSubsidizedPoints: number;
+  /** Conservative AI Pro provider-cost hold while status=RESERVED. */
+  providerCostHoldTwd?: number | null;
   status: WorklogAiPointReservationStatus;
   expiresAt: Date;
 };
@@ -29,6 +31,7 @@ export interface WorklogAiPointLedgerRepository {
     actorUserId: number;
     sourceId: number;
     requestedPoints: number;
+    providerCostHoldTwd?: number | null;
     at: Date;
     expiresAt: Date;
   }): Promise<WorklogAiPointReservationSnapshot | null>;
@@ -77,6 +80,10 @@ export type AiPointReleaseResult =
  * including bounded platform-subsidy settlement when actual provider usage exceeds a hold.
  * The entitlement layer is responsible for activating only the selected user-owned Grant
  * scope for the requested Source before delegation reaches this ledger.
+ *
+ * For AI Pro, the caller may additionally supply a conservative providerCostHoldTwd. The
+ * PostgreSQL repository evaluates that hold atomically with the point reservation so two
+ * concurrent requests cannot both pass a committed-cost-only monthly hard cap check.
  */
 export class WorklogAiPointLedgerService {
   constructor(
@@ -89,6 +96,7 @@ export class WorklogAiPointLedgerService {
     actorUserId: number;
     sourceId?: number | null;
     requestedPoints: number;
+    providerCostHoldTwd?: number | null;
     at?: Date;
     ttlMs?: number;
   }): Promise<AiPointReservationResult> {
@@ -96,19 +104,28 @@ export class WorklogAiPointLedgerService {
     const actorUserId = positiveInteger(input.actorUserId, 'actorUserId');
     const sourceId = positiveInteger(input.sourceId, 'sourceId');
     const requestedPoints = positiveInteger(input.requestedPoints, 'requestedPoints');
+    const providerCostHoldTwd = optionalNonNegativeFinite(input.providerCostHoldTwd, 'providerCostHoldTwd');
     const at = validDate(input.at ?? new Date(), 'at');
     const ttlMs = positiveInteger(input.ttlMs ?? 10 * 60_000, 'ttlMs');
 
     await this.repository.expireStaleReservations({ chargedUserId, sourceId, at });
-    const reservation = await this.repository.reservePointsAtomic({
-      token: normalizeToken(this.tokenFactory()),
-      chargedUserId,
-      actorUserId,
-      sourceId,
-      requestedPoints,
-      at,
-      expiresAt: new Date(at.getTime() + ttlMs),
-    });
+    let reservation: WorklogAiPointReservationSnapshot | null;
+    try {
+      reservation = await this.repository.reservePointsAtomic({
+        token: normalizeToken(this.tokenFactory()),
+        chargedUserId,
+        actorUserId,
+        sourceId,
+        requestedPoints,
+        providerCostHoldTwd,
+        at,
+        expiresAt: new Date(at.getTime() + ttlMs),
+      });
+    } catch (error) {
+      const reason = providerCostReservationBlockReason(error);
+      if (reason) return { status: 'AI_ENTITLEMENT_BLOCKED', reason };
+      throw error;
+    }
     if (!reservation || reservation.pointsReserved <= 0) return { status: 'AI_POINTS_EXHAUSTED' };
 
     return {
@@ -177,6 +194,16 @@ export class WorklogAiPointLedgerService {
   }
 }
 
+function providerCostReservationBlockReason(error: unknown): string | null {
+  if (!(error instanceof Error)) return null;
+  if (
+    error.message === 'MONTHLY_PROVIDER_COST_CAP_REACHED'
+    || error.message === 'PROVIDER_COST_ACCOUNTING_INCOMPLETE'
+    || error.message === 'AI_PRO_GRANT_NOT_READY'
+  ) return error.message;
+  return null;
+}
+
 function positiveInteger(value: number | null | undefined, label: string): number {
   if (!Number.isSafeInteger(value) || (value ?? 0) <= 0) {
     throw new Error(`${label} must be a positive safe integer`);
@@ -187,6 +214,11 @@ function positiveInteger(value: number | null | undefined, label: string): numbe
 function nonNegativeFinite(value: number, label: string): number {
   if (!Number.isFinite(value) || value < 0) throw new Error(`${label} must be non-negative`);
   return value;
+}
+
+function optionalNonNegativeFinite(value: number | null | undefined, label: string): number | null {
+  if (value === null || value === undefined) return null;
+  return nonNegativeFinite(value, label);
 }
 
 function positiveFinite(value: number, label: string): number {
