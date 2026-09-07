@@ -6,7 +6,7 @@ Before substantive work, read the latest documents in the exact order defined by
 
 Never run/dispatch/rerun/enable/modify GitHub Actions. Every development commit must contain `[skip ci]`. Do not stage/commit the unrelated local `apps/api/verify-admin-schema.mjs` unless separately reviewed/approved.
 
-## Current checkpoint — 2026-09-07 FREE one-time AI trial commercial config + provider-neutral onboarding issuance source-authored; executable/runtime verification still pending
+## Current checkpoint — 2026-09-07 V1 commercial surfaces + unified per-user AI entitlement/admission source-authored; executable/runtime verification still pending
 
 AFTERTRACE remains Web + PWA-first with a committed compact Chrome extension fast-capture surface. LINE is retired from the core Record/GROUP/AI product surface. LINE remains only as a provider-neutral login provider and official OA customer-support contact channel.
 
@@ -20,8 +20,9 @@ Current prelaunch Dev and current Prod data are disposable. Clean target-schema/
 - Every newly eligible FREE AFTERTRACE account receives one idempotent one-time AI trial allowance in internal points.
 - Admin config key is `free_initial_ai_trial_points` / `FREE 初始 AI 試用點數`.
 - Trial points are not a TWD balance, are not hard-coded, do not refresh monthly, and do not retroactively resize already-issued trials.
-- Trial/AI_PRO provider calls must use auditable reservation/settlement/provider-cost accounting where it cleanly fits.
-- AI Pro keeps internal monthly point/resource caps plus operator-configured provider-cost hard cap.
+- AI entitlement belongs to the requesting AFTERTRACE user. GROUP membership only authorizes data access; it never transfers another member's AI allowance.
+- AI Pro is fixed at NT$99/month and keeps monthly internal resource/point cap, configurable provider-cost hard cap, and optional per-request point cap.
+- Trial/AI_PRO provider calls continue through existing reservation/settlement/provider-cost accounting where it cleanly fits.
 
 ## Accepted foundation from prior checkpoints
 
@@ -33,107 +34,175 @@ Current prelaunch Dev and current Prod data are disposable. Clean target-schema/
 - Admin ANNOUNCEMENT backend/frontend, scheduled dispatch, Web Push subscriptions/preferences/encrypted transport/retry state.
 - One shared `*/5 * * * *` Worker scheduler for due ANNOUNCEMENT -> due TASK -> pending PUSH.
 - Native Task target schema/service/repository/API + Web/PWA Task surface.
+- Dedicated FREE trial commercial config + provider-neutral onboarding issuance + idempotent FREE-trial SYSTEM notification.
 - Chrome extension scaffold remains committed to shared account/Source/Record/AI entitlement model.
 
-## This run — FREE AI trial + SYSTEM event foundation
+## This run — V1 commercial cleanup + unified AI entitlement
 
-This run continued the exact next planned backend batch and did not redo a broad static audit.
+This run continued the exact next planned batch and did not redo a broad static audit.
 
-### Dedicated commercial config for FREE AI trial
+### Unified AI entitlement domain
 
-New `apps/api/src/db/schema-worklog-commercial.ts` adds singleton operator configuration:
+New `apps/api/src/worklog/ai-entitlement.ts` defines one shared decision model for Web/PWA/GROUP/Chrome provider-backed AI:
 
-- `free_initial_ai_trial_points`;
-- positive integer only;
-- `updated_by`, created/updated timestamps;
-- explicitly not a customer TWD balance.
+- `FREE_TRIAL`;
+- `AI_PRO`;
+- `BLOCKED`.
 
-The schema is exported from `schema-all.ts`.
+The service enforces Source authorization before entitlement. PRIVATE requires the requesting user; GROUP requires current AFTERTRACE membership. No LINE GROUP fact and no GROUP AI responsible/funding user participates.
 
-The trial quantity is no longer read from legacy FREE plan `grant_points`. `WorklogAiGrantService` now reads the dedicated commercial config and snapshots that quantity into the user's immutable/idempotent `FREE_INITIAL` grant. Later Admin config edits do not resize existing grants.
+`resolve()` is intentionally read-only for UI/status checks.
 
-### Admin commercial config API
+`admit(userId, sourceId, requestedPoints)` is the provider preflight and only then ensures the requesting user's own current grant scope for that authorized Source.
 
-New commercial config service/repository and Admin routes provide:
+Admission now fails closed for:
 
-- `GET /api/v1/admin/commercial-config/free-ai-trial`;
-- `PUT /api/v1/admin/commercial-config/free-ai-trial`;
-- Admin auth/origin enforcement;
-- positive point validation;
-- audit row `FREE_AI_TRIAL_CONFIG_UPDATED`;
-- operational summary: recipients, exhausted recipients, issued points, remaining points, consumed points.
+- unauthorized Source;
+- no entitlement / exhausted trial;
+- disabled AI Pro plan;
+- missing matching AI Pro current-period grant;
+- monthly AI resource/point cap reached;
+- monthly provider-cost TWD hard cap reached;
+- incomplete current-period provider TWD cost accounting;
+- optional per-request AI point cap exceeded.
 
-This is point-based only. No TWD trial price/value is introduced.
+### PostgreSQL entitlement accounting
 
-### Provider-neutral account onboarding issues the trial idempotently
+New `drizzle-ai-entitlement.ts` reads provider-neutral user/Source facts and current commercial state.
 
-New `auth/account-onboarding.ts` is the shared post-provider-login onboarding boundary.
+Important source-authored rules:
 
-It:
+- authorized GROUP Source uses the requesting user's own grant only;
+- AI Pro active period must be current and specifically `AI_PRO`;
+- matching `SUBSCRIPTION_PERIOD` grant must match current period start/end;
+- monthly resource use counts `customer_points_charged + platform_subsidized_points`, so provider work cannot evade the monthly resource cap through subsidy accounting;
+- provider-cost hard cap sums actual `provider_cost_twd` for the current period;
+- any current-period usage event missing `provider_cost_twd` blocks new paid provider work rather than undercounting cost;
+- FREE trial inherits the configured AI Pro per-request point safety cap where available;
+- Source scope creation is idempotent and happens only on `admit()`, not on status GET.
 
-1. ensures workspace/private Source;
-2. attempts the one-time FREE trial grant using owner + durable origin key uniqueness;
-3. ensures PRIVATE grant scope;
-4. emits an idempotent SYSTEM notification `free-ai-trial-issued:v1`;
-5. returns `CONFIG_PENDING` rather than blocking login/manual FREE product when operator trial config has not yet been initialized.
+### Provider-neutral entitlement API
 
-Current LINE Login callback now uses this shared onboarding helper. Future Google/Apple callbacks should call the same helper after provider-neutral account provisioning, avoiding provider-specific trial logic.
+New authenticated:
 
-### Deterministic SYSTEM event helpers
+- `GET /api/v1/ai/entitlement?sourceId=...`
 
-New `worklog/system-notification-events.ts` source-authors stable event helpers for:
+It resolves the durable Web session to AFTERTRACE `userId`, checks the requested Source, and returns the shared decision. It is mounted before legacy LINE/Gemini runtime initialization.
 
-- FREE trial issued — currently wired by account onboarding;
-- AI Pro activated;
-- AI Pro renewed;
-- AI Pro cancelled;
-- AI usage-limit reached.
+This endpoint is suitable for Web/PWA/Extension status display. Provider execution must use `AiEntitlementService.admit()` rather than treating the status endpoint as authority to bypass preflight.
 
-All use deterministic event keys intended for the existing Notification Service idempotency boundary. Arbitrary Admin text remains ANNOUNCEMENT, not SYSTEM.
+### Admin commercial page
 
-Actual payment/renewal/cancellation and AI-limit call sites are still pending because those runtime lifecycle paths are not yet complete.
+New Admin `/commercial` customer-economics/operator page now manages the accepted V1 shape:
 
-### Existing grant tests aligned
+FREE:
 
-`ai-grants.test.ts` now targets the dedicated commercial trial config instead of legacy FREE plan grant points. New `commercial-config.test.ts` covers positive point validation and explicitly asserts that the config surface does not expose TWD trial pricing.
+- `FREE 初始 AI 試用點數` / `free_initial_ai_trial_points`;
+- clear one-time/non-TWD/non-monthly-refresh wording;
+- recipients / exhausted recipients / issued / remaining / consumed point stats.
+
+AI Pro:
+
+- price is fixed as `NT$99 / 月` and is not editable through this surface;
+- enabled state;
+- monthly AI point/resource cap;
+- monthly Provider Cost hard cap TWD;
+- optional per-request AI point cap;
+- explicit wording that provider-cost cap is internal risk control, not customer cash balance.
+
+The Admin commercial API has corresponding GET/PUT endpoints for FREE trial and AI Pro config, with audit-backed persistence.
+
+### Customer subscription surface now exposes only V1 products
+
+`GET /api/v1/subscription/plans` now returns only:
+
+- `FREE` with price 0;
+- `AI_PRO` with `SUBSCRIPTION`, price exactly 99 and AI enabled.
+
+Legacy `ONE_TIME` rows cannot leak onto the customer plan list.
+
+The response also includes the authenticated user's FREE trial state:
+
+- `AVAILABLE` + original/remaining points;
+- `EXHAUSTED`;
+- `NOT_ISSUED`.
+
+`POST /checkout-intents` now fails closed for any plan code other than `AI_PRO`; existing `CHECKOUT_ENABLED=false` remains in place until payment/runtime validation is complete.
+
+Web `/subscription` was updated accordingly:
+
+- FREE is described as the complete manual product plus one-time AI Pro trial;
+- trial remaining/exhausted/not-issued state is shown without TWD semantics;
+- AI Pro is shown as `NT$99 / 月`;
+- fair-use/monthly resource/provider-cost language is preserved;
+- only AI_PRO can ever enter the checkout path.
+
+### Legacy Admin plan mutation retired
+
+The old generic Admin plan GET/read surface may remain temporarily for migration diagnostics, but Worker now rejects legacy `PUT/DELETE /api/v1/admin/plans/:code` with HTTP 410 and points operators to the dedicated commercial config surface.
+
+This prevents the old generic plan editor from creating `ONE_TIME`, extra tiers, or mutating the fixed AI Pro V1 commercial shape. Target commercial mutation is `/api/v1/admin/commercial-config/*`.
+
+### Tests authored/updated
+
+- `ai-entitlement.test.ts` now covers read-only resolution, admission scope creation, GROUP isolation, FREE-trial per-request cap, AI Pro monthly point cap, provider-cost cap, incomplete provider cost fail-closed, missing period grant fail-closed, and normal AI_PRO admission.
+- `ai-entitlement-routes.test.ts` covers durable userId session, FREE_TRIAL response, GROUP isolation, invalid Source, and asserts the GET path does not mutate grant scope.
+- `commercial-config.test.ts` covers FREE trial semantics plus fixed AI Pro price and cap validation.
+- `commercial-api.test.ts` covers Admin bearer auth and FREE trial point-only API shape.
 
 ## Files changed this run
 
-- `apps/api/src/db/schema-worklog-commercial.ts` — dedicated FREE trial config schema;
-- `apps/api/src/db/schema-all.ts` — target schema export;
-- `apps/api/src/worklog/ai-grants.ts` — FREE trial config contract;
-- `apps/api/src/worklog/drizzle-ai-grants.ts` — reads singleton commercial config;
-- `apps/api/src/worklog/commercial-config.ts` — operator config service;
-- `apps/api/src/worklog/drizzle-commercial-config.ts` — config persistence/audit/stats;
-- `apps/api/src/admin/commercial-config-routes.ts` — Admin config API;
-- `apps/api/src/worker.ts` — Admin commercial-config route mounting;
-- `apps/api/src/worklog/system-notification-events.ts` — deterministic SYSTEM event helpers;
-- `apps/api/src/auth/account-onboarding.ts` — provider-neutral post-login onboarding;
-- `apps/api/src/auth/routes.ts` — LINE Login uses shared onboarding;
-- `apps/api/src/worklog/ai-grants.test.ts` — trial config contract tests updated;
-- `apps/api/src/worklog/commercial-config.test.ts` — config tests authored;
+- `apps/api/src/worklog/ai-entitlement.ts` — unified read/admission domain;
+- `apps/api/src/worklog/drizzle-ai-entitlement.ts` — Source authorization + trial/AI Pro current-period/cost accounting;
+- `apps/api/src/worklog/ai-entitlement.test.ts` — entitlement/admission tests;
+- `apps/api/src/worklog/ai-entitlement-routes.ts` — provider-neutral status route;
+- `apps/api/src/worklog/ai-entitlement-routes.test.ts` — route tests;
+- `apps/api/src/worklog/commercial-config.ts` — AI Pro V1 commercial config domain;
+- `apps/api/src/worklog/drizzle-commercial-config.ts` — fixed-price AI Pro config persistence/audit;
+- `apps/api/src/worklog/commercial-config.test.ts` — FREE + AI Pro config tests;
+- `apps/api/src/admin/commercial-config-routes.ts` — FREE/AI Pro Admin commercial config APIs;
+- `apps/api/src/worklog/subscription-routes.ts` — V1-only customer plan/checkout + trial status;
+- `apps/api/src/worker.ts` — entitlement route + retired generic Admin plan mutations;
+- `apps/admin/src/commercial-api.ts` — Admin commercial config client;
+- `apps/admin/src/commercial-api.test.ts` — client tests;
+- `apps/admin/src/AdminCommercialPage.tsx` — FREE trial + AI Pro operator page;
+- `apps/admin/src/main.tsx` — `/commercial` route;
+- `apps/web/src/worklog-api.ts` — V1 subscription/trial types;
+- `apps/web/src/SubscriptionRoot.tsx` — customer FREE trial + AI Pro UI;
 - `docs/WORKLOG_REBUILD_PROGRESS.md` — this checkpoint.
 
 ## Commits this run
 
 All successful development commits contain `[skip ci]`:
 
-- `e703da3e` add FREE AI trial commercial config schema;
-- `8b9b338a` export commercial trial config schema;
-- `b9ec9e02` source FREE trial points from commercial config;
-- `ff22d4c0` read FREE trial points from commercial config;
-- `ac6f2182` add commercial FREE trial config service;
-- `798bf9d0` persist FREE trial commercial config;
-- `f7cb14dc` add Admin FREE trial config API;
-- `c73c8bc5` mount Admin FREE trial config routes;
-- `dab68655` require positive FREE trial points;
-- `20d8de06` reject zero-point FREE trial config;
-- `8ac569b3` add deterministic SYSTEM notification event helpers;
-- `b986608b` add provider-neutral account onboarding;
-- `f97adbfe` issue FREE AI trial during provider onboarding;
-- `b7ae70b9` align FREE trial grant tests with commercial config;
-- `90c26467` author FREE trial commercial config tests;
+- `6255ba3f` — add unified AI entitlement domain;
+- `d653e7b7` — persist unified AI entitlement lookup;
+- `784abaf6` — fix FREE trial entitlement origin key;
+- `3eac435e` — author unified AI entitlement tests;
+- `c8a5b6b5` — add Admin commercial config client;
+- `afa42e14` — add Admin FREE trial commercial page;
+- `f14aec01` — route Admin commercial settings;
+- `8f953f05` — author Admin commercial API tests;
+- `192e1dc5` — add AI Pro commercial config domain;
+- `f2f64ab0` — persist AI Pro commercial config;
+- `932d0b99` — expose AI Pro commercial config routes;
+- `852d3d5f` — expose AI Pro Admin commercial client;
+- `b1115f5a` — manage AI Pro caps in Admin commercial page;
+- `4e9b08ec` — extend commercial config tests for AI Pro;
+- `889f5a04` — enforce V1 FREE and AI Pro subscription surface;
+- `96b638a4` — expose V1 subscription trial state;
+- `9b48c84e` — align customer subscription UI with FREE trial and AI Pro;
+- `54d5c632` — expose provider-neutral AI entitlement route;
+- `6a4a56ea` — mount provider-neutral AI entitlement API;
+- `128f62a8` — author AI entitlement route tests;
+- `10e5c948` — harden AI entitlement provider admission;
+- `c9f49596` — enforce complete AI Pro accounting in entitlement;
+- `0f263889` — harden unified AI entitlement tests;
+- `3865c320` — align AI entitlement route tests;
+- `f2085da9` — retire legacy Admin plan mutations;
 - this checkpoint commit follows.
+
+A stale-SHA GitHub update attempt returned HTTP 409 before commit; it produced no repository change.
 
 No GitHub Actions workflow was run, dispatched, rerun, enabled, modified, or used as validation.
 
@@ -143,26 +212,30 @@ The unrelated local `apps/api/verify-admin-schema.mjs` was not staged or committ
 
 ### Authored/updated this run
 
-- `apps/api/src/worklog/ai-grants.test.ts` — **AUTHORED/UPDATED / NOT RUN**;
-- `apps/api/src/worklog/commercial-config.test.ts` — **AUTHORED / NOT RUN**;
-- commercial config schema/repository/Admin API — **AUTHORED / NOT RUN**;
-- provider-neutral account onboarding + FREE trial issuance — **AUTHORED / NOT RUN**;
-- FREE trial SYSTEM notification caller — **AUTHORED / NOT RUN**;
-- subscription/renewal/cancel/AI-limit SYSTEM helper contracts — **AUTHORED / NOT RUN**.
+- `apps/api/src/worklog/ai-entitlement.test.ts` — **AUTHORED/UPDATED / NOT RUN**;
+- `apps/api/src/worklog/ai-entitlement-routes.test.ts` — **AUTHORED/UPDATED / NOT RUN**;
+- `apps/api/src/worklog/commercial-config.test.ts` — **AUTHORED/UPDATED / NOT RUN**;
+- `apps/admin/src/commercial-api.test.ts` — **AUTHORED / NOT RUN**;
+- unified FREE_TRIAL / AI_PRO admission — **AUTHORED / NOT RUN**;
+- GROUP per-requesting-user grant scope behavior — **AUTHORED / NOT RUN**;
+- AI Pro point/provider-cost hard caps — **AUTHORED / NOT RUN**;
+- Admin `/commercial` UI/API — **AUTHORED / NOT RUN**;
+- V1-only customer subscription API/UI — **AUTHORED / NOT RUN**;
+- legacy generic Admin plan mutation guard — **AUTHORED / NOT RUN**.
 
 ### Executable verification actually attempted
 
 - executable AFTERTRACE checkout discovery — **FAIL**; no mounted checkout was found;
 - direct `git ls-remote https://github.com/ryan19910912/after-trace.git HEAD` — **FAIL**, `Could not resolve host: github.com`;
 - API TypeScript typecheck — **NOT RUN**;
-- FREE trial/config focused Vitest — **NOT RUN**;
+- entitlement/commercial/subscription focused Vitest — **NOT RUN**;
 - existing Task/Push/Notification focused Vitest — **NOT RUN**;
 - full API Vitest — **NOT RUN**;
 - API Worker dry-run build — **NOT RUN**;
-- Admin/Web typecheck/tests/build — **NOT RUN**;
-- PostgreSQL FREE trial concurrent-login/idempotency smoke — **NOT RUN**;
-- PostgreSQL config-change-does-not-resize-existing-grant smoke — **NOT RUN**;
-- actual SYSTEM notification retry/idempotency smoke — **NOT RUN**;
+- Admin TypeScript/tests/build — **NOT RUN**;
+- Web TypeScript/tests/build — **NOT RUN**;
+- PostgreSQL entitlement GROUP scope/current-period/cost-cap smoke — **NOT RUN**;
+- PostgreSQL FREE trial/config/AI Pro config smoke — **NOT RUN**;
 - Drizzle canonical baseline regeneration/guard — **NOT RUN**;
 - Dev/Prod clean rebuild — **NOT RUN**;
 - runtime E2E — **NOT RUN**.
@@ -171,49 +244,50 @@ No test/build/runtime item is claimed PASS or RUNTIME VERIFIED.
 
 ## Known blockers / risks
 
-1. Executable checkout remains unavailable, so the new schema/TypeScript/SQL has not compiled/executed.
-2. Canonical `drizzle/0000` is behind current target schema, now also including `worklog_commercial_config`.
-3. Admin UI does not yet expose the FREE trial config; backend API exists.
-4. Existing Admin plan UI/schema still contains legacy `grant_points` / `ONE_TIME` concepts and should be cleaned in the target baseline so V1 visibly exposes only FREE + AI_PRO.
-5. FREE trial is currently scoped to the user's PRIVATE Source at onboarding. Target per-user AI entitlement must add authorized GROUP Source use without reviving GROUP responsible-user/funding complexity.
-6. Provider-backed AI admission still needs a unified target entitlement check: eligible FREE trial OR active AI_PRO, then request/period/provider-cost caps.
-7. Payment/renewal/cancellation and AI-limit runtime call sites still need to invoke the authored deterministic SYSTEM helpers.
-8. Google Login and Apple Login callbacks remain incomplete; future callbacks must use the same provider-neutral onboarding helper and never merge by email.
-9. Real Web Push/Cron/Task runtime and browser/provider validation remain pending.
-10. Chrome extension real auth handoff/Source picker/durable Record persistence remains incomplete.
+1. Executable checkout remains unavailable, so current TypeScript/React/SQL has not compiled or executed.
+2. Canonical `drizzle/0000` is still behind target schema, including provider-neutral auth, notification/PUSH, native Task, commercial config and current entitlement assumptions.
+3. `AiEntitlementService.admit()` is now the target provider preflight, but existing migration-era LINE/Gemini normalization/attachment paths still call the old grant ledger directly. New Web/PWA/Extension provider-backed operations must use `admit()`; retired LINE paths should be removed/isolate rather than expanded.
+4. AI Pro provider-cost hard cap currently fails closed if any current-period usage lacks `provider_cost_twd`; real provider usage/FX settlement must consistently populate TWD cost before paid launch.
+5. Payment lifecycle remains disabled (`CHECKOUT_ENABLED=false`); payment provider, webhook idempotency, renewal/cancellation state and actual SYSTEM notification callers remain incomplete.
+6. Google Login and Apple Login callbacks remain incomplete. LINE Login is provider-neutral and uses shared onboarding.
+7. Admin old plan read/UI artifacts may still display legacy migration fields, but generic plan mutation is now disabled and cannot create new V1-incompatible products.
+8. Real Web Push/Cron/Task runtime and browser/provider validation remain pending.
+9. Chrome extension real auth handoff/Source picker/durable Record persistence remains incomplete.
+10. Target paid AI capture/search/summary/rewrite routes still need to be built on top of unified entitlement + reservation/settlement.
 
 ## Exact next run plan
 
 1. If executable checkout becomes available, pause feature expansion and run/fix first:
    - API typecheck;
-   - FREE trial/config focused tests;
-   - existing Task/Push/Notification focused tests;
+   - entitlement/commercial/subscription focused tests;
+   - Task/Push/Notification focused tests;
    - API Worker dry-run build;
-   - Admin/Web typecheck/tests/build;
-   - PostgreSQL clean target-schema trial/idempotency smoke.
-2. If executable checkout remains unavailable, continue the next bounded product batch:
-   - add Admin UI for `FREE 初始 AI 試用點數` and trial operating stats;
-   - remove one-time purchase/top-up exposure from current V1 Admin/customer plan surfaces;
-   - build one target AI entitlement service that resolves `FREE_TRIAL | AI_PRO | BLOCKED` per requesting user and authorized Source;
-   - allow FREE trial/AI_PRO per-user entitlement on authorized GROUP Sources without GROUP funding/responsibility concepts;
-   - wire actual SYSTEM callers at subscription-period assignment and future payment/AI-limit state transitions.
-3. Complete Google Login first, keep LINE Login, add Apple next; all callbacks use provider-neutral provisioning + shared onboarding.
-4. Complete AI Pro monthly point/resource cap + provider-cost hard-cap admission/settlement and customer fair-use state.
-5. Continue Chrome extension in committed order: auth handoff -> Source picker -> quick text -> page context -> selected text -> quick voice -> screenshot/image AI entitlement -> permission/privacy/browser smoke/package.
-6. Regenerate canonical baseline, rebuild disposable Dev/Prod, run runtime E2E, then remove/isolate remaining retired LINE/ONE_TIME/GROUP-funding code.
+   - Admin typecheck + commercial API tests + build;
+   - Web typecheck + existing focused tests + build;
+   - PostgreSQL entitlement/current-period/cost-cap + FREE trial/AI Pro config smoke.
+2. If executable checkout remains unavailable, continue the next bounded target batch:
+   - add a new provider-backed Web/PWA AI capture/admission path that calls `AiEntitlementService.admit()` before the existing reservation/settlement/provider call;
+   - emit idempotent AI-limit SYSTEM notification when hard-cap admission blocks at the durable period boundary;
+   - keep manual capture provider-free;
+   - do not extend retired LINE AI runtime.
+3. Complete Google Login using provider-neutral provisioning + shared account onboarding; keep LINE Login; add Apple next.
+4. Implement payment provider/AI Pro activation-renewal-cancellation lifecycle with deterministic SYSTEM notifications; keep checkout disabled until verified.
+5. Complete natural-language search / related Records / time-range summary / explicit rewrite using the same entitlement/accounting boundary.
+6. Continue Chrome extension in committed order: auth handoff -> Source picker -> quick text -> page context -> selected text -> quick voice -> screenshot/image AI entitlement -> permission/privacy/browser smoke/package.
+7. Regenerate canonical baseline, rebuild disposable Dev/Prod, run runtime E2E, then remove/isolate remaining retired LINE/ONE_TIME/GROUP-funding code.
 
 ## Current estimated remaining development time
 
-Approximately **23–46 focused development hours** remain.
+Approximately **18–38 focused development hours** remain.
 
 Rough remaining allocation:
 
-- executable validation + canonical baseline/DB rebuild fixes: **4–9h**;
-- Admin FREE-trial UI + V1 plan cleanup: **2–4h**;
-- unified FREE_TRIAL / AI_PRO entitlement + GROUP authorization + hard caps: **5–9h**;
-- Google + Apple login completion and auth smoke: **3–6h**;
-- paid AI capture/search/enrichment/summary/rewrite gaps: **4–8h**;
-- Chrome extension real auth/capture integration: **3–6h**;
-- final Dev runtime/Web Push/Cron/PWA smoke + legacy cleanup: **2–4h**.
+- executable validation + canonical baseline/clean DB rebuild fixes: **4–8h**;
+- provider-backed AI capture/admission + limit SYSTEM caller + settlement integration: **3–6h**;
+- Google + Apple login completion/auth smoke: **3–5h**;
+- payment/AI Pro lifecycle + deterministic SYSTEM callers: **2–4h**;
+- natural-language search / related / summary / rewrite accepted gaps: **2–5h**;
+- Chrome extension real auth/capture integration: **2–5h**;
+- Web Push/Cron/PWA/browser/runtime smoke + final legacy cleanup: **2–5h**.
 
 Largest uncertainty remains the first real API/Web/Admin compile/test pass, PostgreSQL target-schema rebuild, Web Push provider/browser smoke, and Dev runtime E2E. Narrow this estimate again after those execute.
