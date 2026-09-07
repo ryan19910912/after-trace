@@ -5,6 +5,7 @@ import { CaptureRoot } from './CaptureRoot';
 import { FeedbackRoot } from './FeedbackRoot';
 import { HelpRoot } from './HelpRoot';
 import { SubscriptionRoot } from './SubscriptionRoot';
+import { TaskRoot } from './TaskRoot';
 import { installTaipeiDateDisplayPolicy } from './time-display';
 import { WorklogRoot } from './WorklogRoot';
 import './styles.css';
@@ -25,7 +26,7 @@ function bootstrap() {
   // destination while provider-neutral Web authentication is introduced separately.
   if (window.location.pathname === '/' && window.location.hash.includes('session=')) {
     const returnTo = localStorage.getItem(RETURN_KEY);
-    if (returnTo === '/subscription' || returnTo === '/feedback' || returnTo === '/capture') {
+    if (returnTo === '/subscription' || returnTo === '/feedback' || returnTo === '/capture' || returnTo === '/tasks') {
       localStorage.removeItem(RETURN_KEY);
       window.location.replace(`${returnTo}${window.location.hash}`);
       return;
@@ -37,6 +38,7 @@ function bootstrap() {
   else if (window.location.pathname === '/subscription') content = <SubscriptionRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/feedback') content = <FeedbackRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/help') content = <HelpRoot />;
+  else if (window.location.pathname === '/tasks' || window.location.pathname.startsWith('/tasks/')) content = <TaskRoot apiBaseUrl={apiBaseUrl} />;
   else content = <WorklogRoot apiBaseUrl={apiBaseUrl} />;
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
