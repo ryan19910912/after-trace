@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { aiTaskDeepLinkFromSearch } from './ai-task-deep-link';
 import { LoginProviderButtons } from './LoginProviderButtons';
 import { TaskApi } from './task-api';
 import { WorklogApi, type WorklogSurfaces } from './worklog-api';
@@ -44,7 +45,16 @@ export function AiTaskRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
       if (!token) return;
       const next = await worklogApi.surfaces(token);
       setSurfaces(next);
-      setSourceId(next.personal?.sourceId ?? next.groups[0]?.sourceId ?? null);
+      const deepLink = aiTaskDeepLinkFromSearch(location.search);
+      const deepLinkAuthorized = deepLink
+        ? next.personal?.sourceId === deepLink.sourceId || next.groups.some((group) => group.sourceId === deepLink.sourceId)
+        : false;
+      if (deepLink && deepLinkAuthorized) {
+        setSourceId(deepLink.sourceId);
+        setRecordId(String(deepLink.recordId));
+      } else {
+        setSourceId(next.personal?.sourceId ?? next.groups[0]?.sourceId ?? null);
+      }
     } catch (cause) { handleError(cause, 'AI 待辦載入失敗'); }
     finally { setBusy(false); }
   }
