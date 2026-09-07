@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
+import type { WorklogAttachmentInputType } from './attachment-ingestion';
 import type { AiMediaCaptureRepository } from './ai-media-capture';
 import type { WorklogAiRuntimeConfigSnapshot } from './text-normalization';
 
@@ -47,7 +48,7 @@ export class DrizzleAiMediaCaptureRepository implements AiMediaCaptureRepository
     };
   }
 
-  async createImageRecord(input: Parameters<AiMediaCaptureRepository['createImageRecord']>[0]) {
+  async createMediaRecord(input: Parameters<AiMediaCaptureRepository['createMediaRecord']>[0]) {
     const metadataJson = JSON.stringify(input.attachmentMetadata);
     const captureContextJson = input.captureContext ? JSON.stringify(input.captureContext) : null;
     const result = await this.db.execute(sql`
@@ -72,7 +73,7 @@ export class DrizzleAiMediaCaptureRepository implements AiMediaCaptureRepository
       SELECT source_row.id,
              NULL,
              ${input.userId},
-             'IMAGE',
+             ${input.inputType},
              ${input.rawText},
              NULL,
              '[]'::jsonb,
@@ -115,7 +116,7 @@ export class DrizzleAiMediaCaptureRepository implements AiMediaCaptureRepository
         id: positiveInteger(row.id, 'record id'),
         sourceId: positiveInteger(row.source_id, 'source id'),
         authorUserId: positiveInteger(row.author_user_id, 'author user id'),
-        inputType: 'IMAGE' as const,
+        inputType: inputType(row.input_type),
         rawText: requiredText(row.raw_text, 'raw text'),
         captureContext: captureContext(row.capture_context),
         createdAt: iso(row.created_at),
@@ -124,6 +125,10 @@ export class DrizzleAiMediaCaptureRepository implements AiMediaCaptureRepository
   }
 }
 
+function inputType(value: unknown): WorklogAttachmentInputType {
+  if (value === 'IMAGE' || value === 'AUDIO' || value === 'FILE') return value;
+  throw new Error('invalid media input type');
+}
 function captureContext(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const context = value as Record<string, unknown>;
