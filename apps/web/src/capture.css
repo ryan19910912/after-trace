@@ -1,0 +1,29 @@
+.capture-shell { max-width: 760px; }
+.capture-topbar { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:14px; }
+.capture-card { display:grid; gap:16px; }
+.capture-login-card { max-width:520px; margin:10vh auto 0; display:grid; gap:12px; }
+.capture-destination { display:flex; flex-direction:column; gap:4px; padding:12px 14px; border:1px solid rgba(127,127,127,.22); border-radius:12px; }
+.capture-destination span { font-size:.82rem; opacity:.72; }
+.capture-destination strong { font-size:1rem; }
+.capture-scope-row { display:flex; gap:8px; overflow-x:auto; padding-bottom:2px; }
+.capture-mic { min-height:168px; width:100%; border-radius:28px; display:flex; flex-direction:column; justify-content:center; align-items:center; gap:12px; font-size:1.05rem; font-weight:700; }
+.capture-mic.listening { box-shadow:0 0 0 4px rgba(255,255,255,.1), 0 0 28px rgba(255,255,255,.08); }
+.capture-mic-icon { font-size:3.4rem; line-height:1; }
+.capture-provider-note { margin:0; text-align:center; font-size:.82rem; opacity:.72; line-height:1.5; }
+.capture-warning { margin:0; padding:10px 12px; border-radius:10px; border:1px solid rgba(194,145,39,.28); background:rgba(194,145,39,.08); font-size:.86rem; line-height:1.5; }
+.capture-interim { display:grid; gap:5px; padding:11px 13px; border-radius:10px; border:1px solid rgba(127,127,127,.2); }
+.capture-interim span { font-size:.78rem; opacity:.68; }
+.capture-text-label, .capture-time-label { display:grid; gap:6px; font-size:.85rem; }
+.capture-text-label textarea, .capture-time-label input { width:100%; border:1px solid #4a515d; border-radius:12px; padding:10px 12px; background:#242a33; color:#fff; }
+.capture-text-label textarea { min-height:150px; resize:vertical; line-height:1.55; }
+.capture-time-label input { min-height:44px; }
+.capture-text-label textarea:focus, .capture-time-label input:focus { border-color:#7b8492; background:#2a313b; outline:none; box-shadow:0 0 0 2px rgb(255 255 255 / 6%); }
+.capture-actions { display:flex; gap:8px; }
+@media (max-width: 680px) {
+  .capture-shell { padding-bottom:24px; }
+  .capture-topbar { flex-direction:column; }
+  .capture-topbar .filter-actions, .capture-actions { width:100%; }
+  .capture-topbar .filter-actions button, .capture-actions button { flex:1; }
+  .capture-mic { min-height:190px; border-radius:24px; }
+  .capture-mic-icon { font-size:4rem; }
+}
