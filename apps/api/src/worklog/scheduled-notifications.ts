@@ -9,7 +9,7 @@ export type ScheduledNotificationRunResult = {
   dueAnnouncementsExamined: number;
   announcementsSent: number;
   announcementsSkipped: number;
-  pushBatchProcessed: number;
+  pushBatchClaimed: number;
 };
 
 type DueAnnouncementRow = { id: string };
@@ -29,7 +29,7 @@ export async function runScheduledNotificationBatch(
   );
   return {
     ...announcementResult,
-    pushBatchProcessed: pushResult?.processed ?? 0,
+    pushBatchClaimed: pushResult?.claimed ?? 0,
   };
 }
 
