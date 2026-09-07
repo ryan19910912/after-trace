@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  aiPointReservationCostHoldTwd,
   customerPointSettlement,
   providerCostToAiPoints,
 } from './ai-points';
@@ -17,6 +18,27 @@ describe('AI point policy', () => {
       providerCostUsd: 0.000001,
       outputUsdPerMillion: 3,
     })).toBe(1);
+  });
+
+  it('converts a point reservation into a conservative TWD provider-cost hold', () => {
+    expect(aiPointReservationCostHoldTwd({
+      points: 720,
+      outputUsdPerMillion: 2.5,
+      usdTwdRate: 32,
+    })).toBeCloseTo(0.0576, 10);
+  });
+
+  it('fails closed at the caller boundary when TWD FX is unavailable', () => {
+    expect(aiPointReservationCostHoldTwd({
+      points: 720,
+      outputUsdPerMillion: 2.5,
+      usdTwdRate: null,
+    })).toBeNull();
+    expect(aiPointReservationCostHoldTwd({
+      points: 720,
+      outputUsdPerMillion: 2.5,
+      usdTwdRate: 0,
+    })).toBeNull();
   });
 
   it('floors customer balance at zero and records the overage as platform subsidy', () => {
