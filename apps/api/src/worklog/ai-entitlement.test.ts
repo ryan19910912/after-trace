@@ -17,9 +17,7 @@ class FakeRepository implements AiEntitlementRepository {
   };
 
   async snapshot(): Promise<AiEntitlementSnapshot> { return this.value; }
-  async ensureGrantScope(grantId: number, sourceId: number): Promise<void> {
-    this.scopes.push({ grantId, sourceId });
-  }
+  async ensureGrantScope(grantId: number, sourceId: number): Promise<void> { this.scopes.push({ grantId, sourceId }); }
 }
 
 function aiPro(overrides: Partial<NonNullable<AiEntitlementSnapshot['aiPro']>> = {}) {
@@ -64,6 +62,18 @@ describe('AiEntitlementService', () => {
     expect(repository.scopes).toEqual([]);
   });
 
+  it('fails closed when a FREE trial request exceeds the remaining trial points', async () => {
+    const repository = new FakeRepository();
+    repository.value = {
+      sourceAuthorized: true,
+      freeTrial: { grantId: 11, remainingPoints: 5, perRequestAiPointCap: 50 },
+      aiPro: null,
+    };
+    const result = await new AiEntitlementService(repository).admit(7, 99, 10, now);
+    expect(result).toMatchObject({ source: 'BLOCKED', reason: 'TRIAL_EXHAUSTED', remainingPoints: 5 });
+    expect(repository.scopes).toEqual([]);
+  });
+
   it('never grants AI merely because a GROUP Source exists without membership', async () => {
     const repository = new FakeRepository();
     repository.value = { ...repository.value, sourceAuthorized: false };
@@ -87,26 +97,16 @@ describe('AiEntitlementService', () => {
 
   it('fails closed when current-period provider TWD accounting is incomplete', async () => {
     const repository = new FakeRepository();
-    repository.value = {
-      sourceAuthorized: true,
-      freeTrial: null,
-      aiPro: aiPro({ missingProviderCostTwdRequests: 1 }),
-    };
+    repository.value = { sourceAuthorized: true, freeTrial: null, aiPro: aiPro({ missingProviderCostTwdRequests: 1 }) };
     const result = await new AiEntitlementService(repository).admit(7, 99, 20, now);
     expect(result).toMatchObject({ source: 'BLOCKED', reason: 'PROVIDER_COST_ACCOUNTING_INCOMPLETE' });
   });
 
   it('enforces AI Pro provider-cost hard cap before provider work', async () => {
     const repository = new FakeRepository();
-    repository.value = {
-      sourceAuthorized: true,
-      freeTrial: null,
-      aiPro: aiPro({ providerCostTwd: 30 }),
-    };
+    repository.value = { sourceAuthorized: true, freeTrial: null, aiPro: aiPro({ providerCostTwd: 30 }) };
     const result = await new AiEntitlementService(repository).admit(7, 99, 20, now);
-    expect(result).toMatchObject({
-      source: 'BLOCKED', reason: 'MONTHLY_PROVIDER_COST_CAP_REACHED', remainingPoints: 800,
-    });
+    expect(result).toMatchObject({ source: 'BLOCKED', reason: 'MONTHLY_PROVIDER_COST_CAP_REACHED', remainingPoints: 800 });
   });
 
   it('fails closed if an active AI Pro period does not have its matching grant yet', async () => {
