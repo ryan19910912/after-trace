@@ -64,12 +64,22 @@ export class DrizzleTaskRepository implements TaskRepository {
         ${input.sourceId ?? null}::bigint IS NULL
         OR EXISTS (
           SELECT 1
-          FROM worklog_source_members AS member
-          INNER JOIN worklog_sources AS source ON source.id = member.source_id
-          WHERE member.source_id = ${input.sourceId ?? null}
-            AND member.user_id = ${input.userId}
-            AND member.is_active = TRUE
+          FROM worklog_sources AS source
+          WHERE source.id = ${input.sourceId ?? null}
             AND source.status = 'ACTIVE'
+            AND (
+              (source.type = 'PRIVATE' AND source.private_user_id = ${input.userId})
+              OR (
+                source.type = 'GROUP'
+                AND EXISTS (
+                  SELECT 1
+                  FROM worklog_source_members AS member
+                  WHERE member.source_id = source.id
+                    AND member.user_id = ${input.userId}
+                    AND member.is_active = TRUE
+                )
+              )
+            )
         )
       )
       AND (
