@@ -39,7 +39,7 @@ pnpm deploy:prod:admin
 - `.env.dev` — Dev migration/deploy/runtime source;
 - `.env.prod` — Prod migration/deploy/runtime source.
 
-Target API runtime requires Web/PWA auth, database, AI provider, notification PUSH and Admin bindings. LINE-specific bindings may remain temporarily during migration but are legacy and should be removed once no retained runtime depends on them.
+Target API runtime requires provider-neutral Web/PWA auth, database, AI provider, notification PUSH and Admin bindings.
 
 Target core bindings include equivalents of:
 
@@ -48,12 +48,21 @@ Target core bindings include equivalents of:
 - `WEB_APP_URL`;
 - `WEB_APP_ORIGIN`;
 - `WEB_AUTH_SECRET`;
+- Google Login client configuration;
+- LINE Login channel configuration;
+- Apple Login configuration when Apple Login is enabled for that environment;
 - `WEB_PUSH_PUBLIC_KEY`;
 - `WEB_PUSH_PRIVATE_KEY`;
 - `WEB_PUSH_SUBJECT`;
 - Admin auth/session/origin secrets.
 
-Current optional NewebPay paid-subscription bindings are:
+The official LINE OA support destination may be exposed to Web/PWA as support-link configuration. It is not a Messaging webhook/runtime dependency.
+
+**Do not require or restore LINE Messaging Channel access tokens/secrets, webhook verification secrets, LINE GROUP ids, bot-entry nonce config or OA friendship state for target deployment.** LINE Login is a separate accepted authentication integration and remains supported.
+
+## NewebPay / 藍新 configuration
+
+Current optional paid-subscription bindings are:
 
 - `NEWEBPAY_MERCHANT_ID`;
 - `NEWEBPAY_HASH_KEY`;
@@ -64,7 +73,7 @@ Current optional NewebPay paid-subscription bindings are:
 - `NEWEBPAY_NOTIFY_URL`;
 - `NEWEBPAY_RETURN_URL`.
 
-The merchant id/hash key/hash IV and callback configuration belong only in API Worker runtime secrets/config. Do not put them in `VITE_*` variables. NewebPay configuration is optional all-or-none for deployment: when unset, FREE/manual and all non-payment product functions remain available while paid checkout reports unavailable.
+Merchant id/hash key/hash IV and callback configuration belong only in API Worker runtime secrets/config. Do not put them in `VITE_*` variables. NewebPay configuration is optional all-or-none for deployment: when unset, FREE/manual and all non-payment product functions remain available while paid checkout reports unavailable.
 
 The manual deploy script selects runtime values from the environment-specific file and uploads them through a temporary Wrangler secrets file; no deployment is implied merely because source configuration exists.
 
@@ -73,9 +82,9 @@ The manual deploy script selects runtime values from the environment-specific fi
 - PRIVATE manual data: authorized user only;
 - GROUP manual data: current AFTERTRACE group member/role only;
 - manual Web/PWA CRUD is independent from AI subscription;
-- paid AI entitlement is per requesting user;
-- GROUP does not require an AI responsible-user binding;
-- provider-backed operations must pass current subscription/resource-cap checks.
+- provider-backed AI entitlement is per requesting user;
+- GROUP has no AI responsible-user/funding-owner binding;
+- provider-backed operations must pass current entitlement/resource/provider-cost checks.
 
 ## Cloudflare Cron for reminders / scheduled notifications
 
@@ -99,7 +108,7 @@ Rules:
 - task reminder creation and push delivery are idempotent/retry-safe through durable state;
 - Cloudflare Queue is optional later only when actual fan-out/volume justifies it;
 - PUSH failure must not remove durable IN_APP notifications;
-- the previously stale Dashboard `* * * * *` trigger is legacy and must not be recreated or mistaken for the accepted scheduler;
+- no retired LINE scheduler/webhook behavior is part of the accepted runtime;
 - Cron configuration is deployed only through the accepted manual Worker deployment flow; source presence is not runtime verification.
 
 Dev and Prod currently share the source Cron cadence when their API Workers are manually deployed. If environment-specific cadence is needed later, split configuration deliberately rather than adding an extra task-level scheduler.
@@ -108,13 +117,13 @@ Dev and Prod currently share the source Cron cadence when their API Workers are 
 
 Target notification architecture includes durable Web Push subscriptions per user/browser installation and retry-safe delivery facts. Push failures/revocations must not corrupt tasks or notification-center data. Permanently invalid subscriptions are revoked independently from the AFTERTRACE account.
 
-Notification permission must still be requested only from explicit user action in Web/PWA. Supported iOS/iPadOS PUSH assumes the installed Home Screen PWA path; denied/unsupported PUSH falls back to durable IN_APP behavior.
+Notification permission must be requested only from explicit user action in Web/PWA. Supported iOS/iPadOS PUSH assumes the installed Home Screen PWA path; denied/unsupported PUSH falls back to durable IN_APP behavior.
 
 ## Database / canonical baseline policy during prelaunch
 
-Authoritative Drizzle export remains `apps/api/src/db/schema-all.ts`.
+Authoritative Drizzle export is `apps/api/src/db/schema-all.ts`.
 
-AFTERTRACE is currently prelaunch/test-stage and the user has explicitly confirmed that existing Dev and current Prod data are disposable. While that remains true:
+AFTERTRACE is currently prelaunch/test-stage and existing Dev/current Prod data are disposable. While that remains true:
 
 - Dev and current prelaunch Prod may be dropped/recreated from a clean target schema;
 - canonical `drizzle/0000` may be regenerated after accepted schema changes;
@@ -123,13 +132,13 @@ AFTERTRACE is currently prelaunch/test-stage and the user has explicitly confirm
 - after reset, recreate only explicit target seed/runtime configuration required by the current product;
 - do not add migration complexity solely to preserve disposable prelaunch data.
 
-Current target-schema work includes provider-neutral identities/public account ids, native groups/invites, manual Records, notifications/PUSH, native tasks/reminders, feedback management, NewebPay subscription adapter state, FREE one-time AI trial and AI Pro entitlement/cost caps.
+The target source schema now excludes retired LINE Messaging/GROUP bot schema, Entity/Alias/confirmation schema, GROUP AI responsible-user/funding-owner schema and ONE_TIME/TOP_UP product schema. The checked-in canonical `drizzle/0000_worklog_baseline.sql` and metadata must still be regenerated from the current `schema-all.ts` before clean database validation/deployment; do not hand-edit those generated artifacts to simulate success.
 
-Safety boundary: this destructive permission expires once real customers or durable production data exist. At that point, destructive Prod rebuilds require a new explicit user decision and the development/deployment policies must be updated before proceeding.
+Safety boundary: destructive permission expires once real customers or durable production data exist. At that point, destructive Prod rebuilds require a new explicit user decision and the development/deployment policies must be updated before proceeding.
 
 ## AI subscription runtime
 
-Before any provider call, runtime must check the current accepted entitlement source:
+Before any provider call, runtime checks the current accepted entitlement source:
 
 - eligible FREE one-time trial points; or
 - active AI_PRO entitlement.
@@ -148,13 +157,13 @@ Launch commercial contract remains exactly FREE NT$0 + AI_PRO NT$99/month. Do no
 ## API liveness/readiness
 
 - `GET /health` = Worker liveness;
-- `GET /health/ready` = schema/config/runtime readiness.
+- `GET /health/ready` = target schema/config/runtime readiness.
 
-Readiness should evolve with the target Web/PWA product and must not permanently require retired LINE credentials once legacy LINE runtime has been removed.
+Readiness must validate target provider-neutral auth, AI/commercial configuration, notification/PUSH foundation and target schema. It must not require retired LINE Messaging credentials or legacy LINE/GROUP product tables.
 
 ## Local release validation
 
-Use local validation, never GitHub Actions unless explicitly requested.
+Use local/executable validation, never GitHub Actions unless explicitly requested.
 
 ```text
 pnpm install --frozen-lockfile
@@ -186,6 +195,6 @@ Real MerchantID/HashKey/HashIV and Dev/Prod callback URLs still need operator-su
 
 Admin login remains the only unauthenticated Admin API surface. Dev/Prod credentials/secrets should be distinct where practical. CORS origins are exact per environment.
 
-The V1 Admin root exposes target product operations only: provider-neutral account lookup, commercial/AI configuration, announcements, feedback management, pricing/profitability. Legacy LINE/GROUP-funding/ONE_TIME management code may remain temporarily in source for migration cleanup but is not routed from the Admin product surface.
+The V1 Admin root exposes target product operations only: provider-neutral account lookup, commercial/AI configuration, announcements, feedback management, pricing/profitability and accepted payment/subscription operations. Retired LINE/GROUP-funding/ONE_TIME management surfaces must not be restored.
 
 GitHub Actions must not be used as deployment or validation unless the user explicitly requests it.
