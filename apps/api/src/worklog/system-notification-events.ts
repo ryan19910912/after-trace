@@ -67,7 +67,7 @@ export async function notifySubscriptionEvent(
         userId,
         title: 'AI Pro 訂閱狀態已更新',
         body: event.periodEnd
-          ? `你的 AI Pro 已取消續訂，目前方案可使用至 ${event.periodEnd.toISOString()}。`
+          ? `你的 AI Pro 已取消續訂，目前方案可使用至 ${formatTaipei(event.periodEnd)}。`
           : '你的 AI Pro 訂閱已取消。',
         deepLink: '/subscription',
         referenceType: 'SUBSCRIPTION',
@@ -93,4 +93,16 @@ export async function notifySubscriptionEvent(
 
 function iso(value: Date | null | undefined): string | null {
   return value ? value.toISOString() : null;
+}
+
+function formatTaipei(value: Date): string {
+  return new Intl.DateTimeFormat('zh-TW', {
+    timeZone: 'Asia/Taipei',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(value);
 }
