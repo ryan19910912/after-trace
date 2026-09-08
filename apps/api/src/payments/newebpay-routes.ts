@@ -197,8 +197,9 @@ export function createNewebPayRoutes() {
       new DrizzleSubscriptionLifecycleRepository(database),
       new SubscriptionLifecycleNotificationAdapter(database),
     );
+    let lifecycleResult;
     try {
-      await lifecycle.apply({
+      lifecycleResult = await lifecycle.apply({
         provider: 'NEWEBPAY', externalEventKey,
         type: isActivation ? 'ACTIVATE' : 'RENEW',
         userId, planCode: 'AI_PRO', occurredAt: periodStart, periodStart, periodEnd,
@@ -209,6 +210,16 @@ export function createNewebPayRoutes() {
       return c.text('RETRY', 500);
     }
 
+    const currentAdapterStart = dateValue(adapter.current_period_start);
+    const staleAgainstAdapter = Boolean(currentAdapterStart && periodStart.getTime() < currentAdapterStart.getTime());
+    const duplicateAfterTermination = lifecycleResult.status === 'DUPLICATE' && adapter.status === 'TERMINATED';
+    if (lifecycleResult.status === 'IGNORED_STALE' || !lifecycleResult || staleAgainstAdapter || duplicateAfterTermination) {
+      return c.text('OK');
+    }
+    if (lifecycleResult.status === 'DUPLICATE' && !lifecycleResult.applied) {
+      return c.text('OK');
+    }
+
     await database.execute(sql`
       UPDATE worklog_newebpay_subscriptions
       SET period_no=${periodNo}, status='ACTIVE', current_period_start=${periodStart}, current_period_end=${periodEnd},
@@ -216,6 +227,8 @@ export function createNewebPayRoutes() {
           metadata=${JSON.stringify(boundedMetadata({ merchantOrderNo, periodNo, tradeNo, alreadyTimes }))}::jsonb,
           updated_at=NOW()
       WHERE user_id=${userId}
+        AND (current_period_start IS NULL OR current_period_start <= ${periodStart})
+        AND NOT (status = 'TERMINATED' AND ${lifecycleResult.status === 'DUPLICATE'})
     `);
     await database.execute(sql`
       UPDATE worklog_checkout_intents SET status='COMPLETED', updated_at=NOW()
