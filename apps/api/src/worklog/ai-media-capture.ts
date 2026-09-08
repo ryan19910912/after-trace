@@ -1,9 +1,4 @@
 import type { AiEntitlementDecision } from './ai-entitlement';
-import type {
-  WorklogAttachmentInputType,
-  WorklogAttachmentProvider,
-  WorklogAttachmentProviderResponse,
-} from './attachment-ingestion';
 import type { WorklogAiUsageCommit } from './ai-provider-usage';
 import { aiPointReservationCostHoldTwd } from './ai-points';
 import type { AiPointLedgerPort } from './entitled-ai-point-ledger';
@@ -11,11 +6,40 @@ import { snapshotAiUsage } from './entitlements';
 import type { RecordCaptureContext } from './record-capture-context';
 import type { WorklogAiRuntimeConfigSnapshot } from './text-normalization';
 
+export type AiMediaInputType = 'AUDIO' | 'IMAGE' | 'FILE';
+export type AiMediaProviderContent = {
+  mimeType: string;
+  byteLength: number;
+  dataBase64: string;
+};
+export type AiMediaProviderOutput = {
+  inputType: AiMediaInputType;
+  rawText: string;
+  attachmentMetadata: Record<string, unknown>;
+};
+export type AiMediaProviderResponse = {
+  output: AiMediaProviderOutput;
+  inputTokens: number;
+  outputTokens: number;
+  audioInputUnits: number;
+  imageInputUnits: number;
+  providerResponseId: string | null;
+  latencyMs: number;
+};
+export interface AiMediaProvider {
+  reservationPoints(content: AiMediaProviderContent, config: WorklogAiRuntimeConfigSnapshot): number;
+  analyze(
+    content: AiMediaProviderContent,
+    config: WorklogAiRuntimeConfigSnapshot,
+    instruction?: string | null,
+  ): Promise<AiMediaProviderResponse>;
+}
+
 export type AiMediaCaptureRecord = {
   id: number;
   sourceId: number;
   authorUserId: number;
-  inputType: WorklogAttachmentInputType;
+  inputType: AiMediaInputType;
   rawText: string;
   captureContext: RecordCaptureContext | null;
   createdAt: string;
@@ -27,7 +51,7 @@ export type AiMediaCaptureRepository = {
   createMediaRecord(input: {
     userId: number;
     sourceId: number;
-    inputType: WorklogAttachmentInputType;
+    inputType: AiMediaInputType;
     rawText: string;
     attachmentMetadata: Record<string, unknown>;
     captureContext: RecordCaptureContext | null;
@@ -61,7 +85,7 @@ export class AiMediaCaptureService {
     private readonly repository: AiMediaCaptureRepository,
     private readonly entitlement: AiMediaCaptureEntitlementPort,
     private readonly aiPoints: AiPointLedgerPort,
-    private readonly provider: WorklogAttachmentProvider,
+    private readonly provider: AiMediaProvider,
   ) {}
 
   captureImage(input: { userId: number; sourceId: number; image: AiImageInput; captureContext: RecordCaptureContext | null; instruction?: string | null; referenceAt?: Date }): Promise<AiMediaCaptureResult> {
@@ -79,8 +103,8 @@ export class AiMediaCaptureService {
   private async capture(input: {
     userId: number;
     sourceId: number;
-    inputType: WorklogAttachmentInputType;
-    media: { mimeType: string; byteLength: number; dataBase64: string };
+    inputType: AiMediaInputType;
+    media: AiMediaProviderContent;
     captureContext: RecordCaptureContext | null;
     instruction?: string | null;
     referenceAt?: Date;
@@ -97,17 +121,10 @@ export class AiMediaCaptureService {
     const config = await this.repository.runtimeConfig();
     if (!config) return { status: 'DEFERRED', reason: 'AI_RUNTIME_CONFIG_MISSING' };
 
-    const providerContent = {
-      lineMessageId: `provider-neutral-inline-${input.inputType.toLowerCase()}`,
-      mimeType: media.mimeType,
-      byteLength: media.byteLength,
-      dataBase64: media.dataBase64,
-    };
-
     let requestedPoints: number;
     let providerCostHoldTwd: number | null;
     try {
-      requestedPoints = positiveId(this.provider.reservationPoints(providerContent, config), 'AI_RESERVATION_ESTIMATE_INVALID');
+      requestedPoints = positiveId(this.provider.reservationPoints(media, config), 'AI_RESERVATION_ESTIMATE_INVALID');
       providerCostHoldTwd = aiPointReservationCostHoldTwd({ points: requestedPoints, outputUsdPerMillion: config.outputUsdPerMillion, usdTwdRate: config.usdTwdRate });
     } catch (error) {
       return { status: 'FAILED', reason: errorCode(error, 'AI_RESERVATION_ESTIMATE_INVALID') };
@@ -130,9 +147,9 @@ export class AiMediaCaptureService {
     }
 
     const token = reservation.reservation.token;
-    let providerResponse: WorklogAttachmentProviderResponse;
+    let providerResponse: AiMediaProviderResponse;
     try {
-      providerResponse = await this.provider.analyze(providerContent, config, boundedInstruction(input.instruction));
+      providerResponse = await this.provider.analyze(media, config, boundedInstruction(input.instruction));
     } catch (error) {
       await safeRelease(this.aiPoints, token);
       return { status: 'FAILED', reason: errorCode(error, 'AI_PROVIDER_FAILED') };
@@ -176,7 +193,7 @@ export class AiMediaCaptureService {
   }
 }
 
-function usageFromProvider(config: WorklogAiRuntimeConfigSnapshot, response: WorklogAttachmentProviderResponse, operation: string): WorklogAiUsageCommit {
+function usageFromProvider(config: WorklogAiRuntimeConfigSnapshot, response: AiMediaProviderResponse, operation: string): WorklogAiUsageCommit {
   return {
     operation,
     workspaceId: null,
@@ -197,7 +214,7 @@ function blockedDecision(preliminary: AiEntitlementDecision, reservationStatus: 
   return { source: 'BLOCKED', allowed: false, reason, remainingPoints: reason === 'PER_REQUEST_POINT_CAP_EXCEEDED' ? preliminary.remainingPoints : 0, periodEndsAt: preliminary.periodEndsAt, perRequestAiPointCap: preliminary.perRequestAiPointCap };
 }
 
-function validateMedia(inputType: WorklogAttachmentInputType, media: { mimeType: string; byteLength: number; dataBase64: string }) {
+function validateMedia(inputType: AiMediaInputType, media: AiMediaProviderContent): AiMediaProviderContent {
   const mimeType = media.mimeType.trim().toLowerCase();
   const rule = inputType === 'IMAGE'
     ? { allowed: IMAGE_MIME_TYPES, maxBytes: MAX_IMAGE_BYTES, typeError: 'AI_IMAGE_TYPE_UNSUPPORTED', sizeError: 'AI_IMAGE_TOO_LARGE' }
