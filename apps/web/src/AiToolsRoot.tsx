@@ -105,7 +105,7 @@ export function AiToolsRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
       if (!text) throw new Error('AI_SUMMARY_INVALID_RESPONSE');
       setSummary(text);
       const count = Number(body.recordCount ?? 0);
-      setSummaryMeta(`${Number.isSafeInteger(count) ? count : 0} 筆紀錄${body.truncated === true ? '（已達單次 200 筆上限）' : ''} · ${body.entitlementSource === 'FREE_TRIAL' ? 'AI 試用' : 'AI Pro'}`);
+      setSummaryMeta(`${Number.isSafeInteger(count) ? count : 0} 筆紀錄${body.truncated === true ? '（內容已依單次安全上限截斷）' : ''} · ${body.entitlementSource === 'FREE_TRIAL' ? 'AI 試用' : 'AI Pro'}`);
     } catch (cause) { handleError(cause, '區間摘要失敗'); }
     finally { setBusy(false); }
   }
