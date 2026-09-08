@@ -174,13 +174,24 @@ export function createNewebPayRoutes() {
     const periodNo = providerString(result, 'PeriodNo');
     if (!periodNo) return c.text('OK');
     const authDateRaw = providerString(result, 'AuthDate', 'AuthTime');
-    const nextAuthRaw = providerString(result, 'NextAuthDate');
-    const periodStart = parseNewebPayTaipeiDate(authDateRaw) ?? new Date();
-    const nextAuth = parseNewebPayTaipeiDate(nextAuthRaw);
-    const periodEnd = nextAuth && nextAuth.getTime() > periodStart.getTime() ? nextAuth : nextMonthlyPeriod(periodStart);
+    const periodStart = parseNewebPayTaipeiDate(authDateRaw);
     const tradeNo = providerString(result, 'TradeNo', 'OrderNo', 'AuthCode');
     const alreadyTimes = providerString(result, 'AlreadyTimes', 'AuthTimes');
-    const externalEventKey = `period:${periodNo}:${tradeNo ?? `${periodStart.toISOString()}:${alreadyTimes ?? '1'}`}`.slice(0, 255);
+    if (!periodStart || (!tradeNo && !alreadyTimes)) {
+      console.error(JSON.stringify({
+        event: 'newebpay_callback_missing_stable_facts',
+        merchantOrderNo,
+        periodNo,
+        hasAuthDate: Boolean(authDateRaw),
+        hasTradeNo: Boolean(tradeNo),
+        hasAlreadyTimes: Boolean(alreadyTimes),
+      }));
+      return c.text('RETRY', 500);
+    }
+    const nextAuthRaw = providerString(result, 'NextAuthDate');
+    const nextAuth = parseNewebPayTaipeiDate(nextAuthRaw);
+    const periodEnd = nextAuth && nextAuth.getTime() > periodStart.getTime() ? nextAuth : nextMonthlyPeriod(periodStart);
+    const externalEventKey = `period:${periodNo}:${tradeNo ?? `attempt:${alreadyTimes}`}`.slice(0, 255);
     const isActivation = !adapter.current_period_start;
 
     const lifecycle = new SubscriptionLifecycleService(
@@ -191,7 +202,7 @@ export function createNewebPayRoutes() {
       await lifecycle.apply({
         provider: 'NEWEBPAY', externalEventKey,
         type: isActivation ? 'ACTIVATE' : 'RENEW',
-        userId, planCode: 'AI_PRO', occurredAt: new Date(), periodStart, periodEnd,
+        userId, planCode: 'AI_PRO', occurredAt: periodStart, periodStart, periodEnd,
         metadata: boundedMetadata({ merchantOrderNo, periodNo, tradeNo, alreadyTimes, status: callback.status }),
       });
     } catch (error) {
