@@ -7,7 +7,7 @@ import {
 } from './manual-record-routes';
 
 const env = {
-  DATABASE_URL: 'postgresql://unused.invalid/aftertrace',
+  DATABASE_URL: 'postgresql://user:password@unused.invalid/aftertrace',
   WEB_AUTH_SECRET: '0123456789abcdef0123456789abcdef',
   WEB_APP_ORIGIN: 'https://web.example.test',
 };
@@ -16,12 +16,12 @@ function record(overrides: Partial<ManualRecordView> = {}): ManualRecordView {
   return {
     id: 100,
     sourceId: 10,
-    entityId: null,
     title: null,
     authorUserId: 7,
     authorDisplayName: 'Ryan',
     inputType: 'TEXT',
     rawText: 'content only',
+    captureContext: null,
     occurredAt: null,
     status: 'ACTIVE',
     version: 1,
@@ -41,20 +41,14 @@ class FakeRepository implements ManualRecordRouteRepository {
   async surfaces() {
     return {
       personal: { sourceId: 10 },
-      groups: [{ sourceId: 20, name: '產品群', role: 'OWNER' as const, legacyLineGroupId: null }],
+      groups: [{ sourceId: 20, name: '產品群', role: 'OWNER' as const }],
     };
   }
 
-  async personalSourceId() {
-    return 10;
-  }
+  async personalSourceId() { return 10; }
 
   async hasGroupAccess(_userId: number, sourceId: number) {
     return this.groupAllowed && sourceId === 20;
-  }
-
-  async legacyEntity(_sourceId: number, entityId: number) {
-    return entityId === 3 ? { id: 3, name: '舊標題' } : null;
   }
 
   async listRecords(input: Parameters<ManualRecordRouteRepository['listRecords']>[0]) {
@@ -65,9 +59,7 @@ class FakeRepository implements ManualRecordRouteRepository {
     };
   }
 
-  async record(recordId: number) {
-    return this.records.get(recordId) ?? null;
-  }
+  async record(recordId: number) { return this.records.get(recordId) ?? null; }
 
   async create(input: Parameters<ManualRecordRouteRepository['create']>[0]) {
     this.lastCreate = input;
@@ -78,7 +70,7 @@ class FakeRepository implements ManualRecordRouteRepository {
       rawText: input.rawText,
       occurredAt: input.occurredAt?.toISOString() ?? null,
       title: input.title,
-      entityId: input.entityId,
+      captureContext: input.captureContext,
     });
     this.records.set(created.id, created);
     return created;
@@ -101,18 +93,11 @@ class FakeRepository implements ManualRecordRouteRepository {
     return updated;
   }
 
-  async revisions() {
-    return [];
-  }
+  async revisions() { return []; }
 }
 
-async function authorization(input: { userId?: number; lineUserId?: string } = { userId: 7 }) {
-  const token = await issueWebSessionToken({
-    userId: input.userId,
-    lineUserId: input.lineUserId,
-    secret: env.WEB_AUTH_SECRET,
-    ttlSeconds: 3600,
-  });
+async function authorization(userId = 7) {
+  const token = await issueWebSessionToken({ userId, secret: env.WEB_AUTH_SECRET, ttlSeconds: 3600 });
   return `Bearer ${token}`;
 }
 
@@ -127,16 +112,16 @@ function headers(authorization: string) {
 function routes(repository: FakeRepository) {
   return createManualRecordRoutes({
     databaseFactory: () => ({} as never),
-    resolveSessionUserId: async (_database, session) => session.userId ?? (session.lineUserId ? 7 : null),
+    resolveSessionUserId: async (_database, session) => session.userId,
     repositoryFactory: () => repository,
   });
 }
 
 describe('manual record routes', () => {
-  it('lets a durable user-id-only session reach target surfaces', async () => {
+  it('lets a durable user-id session reach target surfaces', async () => {
     const repository = new FakeRepository();
     const response = await routes(repository).request('/surfaces', {
-      headers: headers(await authorization({ userId: 7 })),
+      headers: headers(await authorization()),
     }, env);
 
     expect(response.status).toBe(200);
@@ -145,16 +130,6 @@ describe('manual record routes', () => {
       userId: 7,
       surfaces: { personal: { sourceId: 10 }, groups: [{ sourceId: 20, name: '產品群', role: 'OWNER' }] },
     });
-  });
-
-  it('keeps signed LINE-only legacy sessions resolvable during migration', async () => {
-    const repository = new FakeRepository();
-    const response = await routes(repository).request('/records/personal', {
-      headers: headers(await authorization({ lineUserId: 'U0123456789abcdef0123456789abcdef' })),
-    }, env);
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ ok: true, records: [{ id: 100 }] });
   });
 
   it('creates a content-only free Record with nullable event date and no title', async () => {
@@ -172,7 +147,6 @@ describe('manual record routes', () => {
       rawText: '今天先記這件事',
       occurredAt: null,
       title: null,
-      entityId: null,
     });
     await expect(response.json()).resolves.toMatchObject({
       ok: true,
@@ -180,16 +154,17 @@ describe('manual record routes', () => {
     });
   });
 
-  it('accepts legacy entity selection without making title mandatory for new manual Records', async () => {
+  it('rejects retired Entity input explicitly', async () => {
     const repository = new FakeRepository();
     const response = await routes(repository).request('/records/personal', {
       method: 'POST',
       headers: headers(await authorization()),
-      body: JSON.stringify({ rawText: '保留舊 UI 過渡', entityId: 3 }),
+      body: JSON.stringify({ rawText: '不接受舊 Entity', entityId: 3 }),
     }, env);
 
-    expect(response.status).toBe(201);
-    expect(repository.lastCreate).toMatchObject({ entityId: 3, title: '舊標題', occurredAt: null });
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ ok: false, error: 'LEGACY_ENTITY_NOT_SUPPORTED' });
+    expect(repository.lastCreate).toBeNull();
   });
 
   it('rejects malformed occurredAt but allows explicitly clearing an event date', async () => {
