@@ -1,10 +1,10 @@
 import type { Database } from '../db/client';
 import { WorklogAiGrantService } from '../worklog/ai-grants';
 import { DrizzleWorklogAiGrantRepository } from '../worklog/drizzle-ai-grants';
-import { DrizzleWorklogBootstrapRepository } from '../worklog/drizzle-bootstrap';
 import { DrizzleNotificationRepository } from '../worklog/drizzle-notifications';
 import { NotificationService } from '../worklog/notifications';
 import { notifyFreeTrialIssued } from '../worklog/system-notification-events';
+import { DrizzleAccountOnboardingRepository } from './drizzle-account-onboarding';
 
 export type AccountOnboardingResult = {
   workspaceId: number;
@@ -13,21 +13,17 @@ export type AccountOnboardingResult = {
 };
 
 /**
- * Shared provider-neutral post-auth onboarding. Login providers must call this after resolving
- * the AFTERTRACE user. It deliberately does not inspect provider email/id/name.
- *
- * Missing commercial trial config must not block the complete FREE manual product. The next
- * successful login retries issuance; once configured, owner+origin_key makes issuance exactly
- * once per AFTERTRACE account and the SYSTEM notification is independently idempotent.
+ * Shared provider-neutral post-auth onboarding. Login providers call this only after resolving
+ * an AFTERTRACE user. It does not inspect provider email/id/name or LINE webhook state.
  */
 export async function ensureAccountOnboarding(
   database: Database,
   userId: number,
   at = new Date(),
 ): Promise<AccountOnboardingResult> {
-  const bootstrap = new DrizzleWorklogBootstrapRepository(database);
-  const workspaceId = await bootstrap.ensureWorkspace(userId, at);
-  const privateSourceId = await bootstrap.ensurePrivateSource(userId, workspaceId, at);
+  const onboarding = new DrizzleAccountOnboardingRepository(database);
+  const workspaceId = await onboarding.ensureWorkspace(userId, at);
+  const privateSourceId = await onboarding.ensurePrivateSource(userId, workspaceId, at);
   const grants = new WorklogAiGrantService(new DrizzleWorklogAiGrantRepository(database));
 
   try {
