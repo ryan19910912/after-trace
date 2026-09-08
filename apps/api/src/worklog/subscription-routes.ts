@@ -16,6 +16,8 @@ type UserSubscriptionRow = {
   effectiveState: 'NO_SUBSCRIPTION' | 'SUBSCRIPTION_INACTIVE' | 'PLAN_DISABLED' | 'NOT_YET_EFFECTIVE' | 'PERIOD_NOT_STARTED' | 'PERIOD_EXPIRED' | 'ACTIVE';
 };
 
+type NewebPayRenewalState = 'ACTIVE' | 'TERMINATED' | 'PENDING' | 'FAILED' | 'NONE';
+
 export function createWorklogSubscriptionRoutes() {
   const app = new Hono<Env>();
 
@@ -60,7 +62,7 @@ export function createWorklogSubscriptionRoutes() {
     const user = await userRow(db, userId);
     if (!user) return c.json({ ok: false, error: 'WORKLOG_USER_NOT_FOUND' }, 404);
 
-    const [plansResult, trialResult] = await Promise.all([
+    const [plansResult, trialResult, paymentStateResult] = await Promise.all([
       db.execute(sql`
         SELECT
           plan.code,
@@ -95,14 +97,23 @@ export function createWorklogSubscriptionRoutes() {
         ORDER BY g.id ASC
         LIMIT 1
       `),
+      db.execute(sql`
+        SELECT status
+        FROM worklog_newebpay_subscriptions
+        WHERE user_id = ${userId}
+        LIMIT 1
+      `),
     ]);
     const trial = trialResult.rows[0] as { original_points?: unknown; remaining_points?: unknown; status?: unknown } | undefined;
     const trialRemaining = Number(trial?.remaining_points ?? 0);
+    const paymentStatusRaw = String((paymentStateResult.rows[0] as { status?: unknown } | undefined)?.status ?? '').toUpperCase();
+    const paymentRenewalState: NewebPayRenewalState = isNewebPayRenewalState(paymentStatusRaw) ? paymentStatusRaw : 'NONE';
 
     return c.json({
       ok: true,
       currentPlanCode: user.effectiveState === 'ACTIVE' && user.planCode === 'AI_PRO' ? 'AI_PRO' : 'FREE',
       currentSubscriptionState: user.effectiveState,
+      paymentRenewalState,
       checkoutEnabled: CHECKOUT_ENABLED,
       freeAiTrial: trial
         ? {
@@ -198,4 +209,8 @@ async function userRow(db: ReturnType<typeof createDatabase>, userId: number): P
     planCode: row.plan_code ?? 'FREE',
     effectiveState: row.effective_state ?? 'NO_SUBSCRIPTION',
   };
+}
+
+function isNewebPayRenewalState(value: string): value is Exclude<NewebPayRenewalState, 'NONE'> {
+  return value === 'ACTIVE' || value === 'TERMINATED' || value === 'PENDING' || value === 'FAILED';
 }
