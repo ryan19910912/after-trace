@@ -74,6 +74,9 @@ export class DrizzleTaskRepository implements TaskRepository {
               (source.type = 'PRIVATE' AND source.private_user_id = ${input.userId})
               OR (
                 source.type = 'GROUP'
+                AND source.line_group_id IS NULL
+                AND source.name IS NOT NULL
+                AND length(btrim(source.name)) > 0
                 AND EXISTS (
                   SELECT 1
                   FROM worklog_source_members AS member
