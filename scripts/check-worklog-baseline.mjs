@@ -9,7 +9,6 @@ const baselinePath = resolve(drizzleDir, '0000_worklog_baseline.sql');
 const snapshotPath = resolve(metaDir, '0000_snapshot.json');
 const journalPath = resolve(metaDir, '_journal.json');
 const failures = [];
-const warnings = [];
 
 checkArtifactShape();
 
@@ -34,11 +33,26 @@ const forbidden = [
   ['subscription_owner_user_id', 'retired subscription Owner binding'],
   ['recording_enabled', 'retired GROUP recording preference'],
   ['subscription_period_points', 'retired subscription-only plan point template column'],
+  ['worklog_source_ai_responsibility', 'retired GROUP AI responsible-user schema'],
+  ["'ONE_TIME'", 'retired one-time paid plan enum value'],
+  ["'TOP_UP'", 'retired AI top-up Grant type'],
+  ['worklog_line_ai_edits', 'retired LINE AI edit state'],
+  ['web_auth_entry_nonces', 'retired LINE Web-entry nonce'],
+  ['line_user_id', 'retired core LINE user identity column'],
+  ['line_group_id', 'retired LINE GROUP identity column'],
+  ['worklog_entities', 'retired Entity table'],
+  ['worklog_entity_aliases', 'retired Entity alias table'],
+  ['worklog_ai_confirmations', 'retired AI confirmation table'],
+  ['worklog_line_text_cache', 'retired LINE text cache'],
+  ['worklog_line_record_reply_targets', 'retired LINE reply target table'],
+  ['worklog_line_text_interpretations', 'retired LINE interpretation table'],
+  ['worklog_record_ai_normalizations', 'retired post-persistence normalization table'],
+  ['worklog_attachment_ingestions', 'retired LINE attachment ingestion table'],
+  ['worklog_source_line_profiles', 'retired LINE group profile table'],
+  ['LINE_AI_EDIT', 'retired LINE Record revision channel'],
+  ["'LEGACY'", 'retired Record enrichment status'],
 ];
 
-// Accepted V1 release baseline. These markers intentionally follow the provider-neutral
-// Web/PWA + native group + task/notification + FREE-trial/AI-Pro + NewebPay target rather
-// than the retired LINE GROUP funding product.
 const required = [
   ['worklog_auth_provider', 'Google/LINE/Apple provider-neutral auth enum'],
   ['worklog_auth_identities', 'provider-neutral login identity bindings'],
@@ -70,26 +84,12 @@ const required = [
   ['worklog_ai_usage_funding_grant_scope_fk', 'usage funding scope belongs to Grant'],
 ];
 
-// These are known migration residue. They are no longer V1 requirements, but remain in
-// source until executable dependency validation proves they can be physically removed.
-// Make their presence visible without letting the old product contract define readiness.
-const migrationResidue = [
-  ['worklog_source_ai_responsibility', 'retired GROUP AI responsible-user schema'],
-  ["'ONE_TIME'", 'retired one-time paid plan enum value'],
-  ["'TOP_UP'", 'retired AI top-up Grant type'],
-  ['worklog_line_ai_edits', 'retired LINE AI edit state'],
-  ['web_auth_entry_nonces', 'legacy LINE GROUP Web-entry nonce'],
-];
-
 for (const [sourceName, source] of sources) {
   for (const [marker, description] of forbidden) {
     if (source.includes(marker)) failures.push(`${sourceName} forbidden: ${marker} (${description})`);
   }
   for (const [marker, description] of required) {
     if (!source.includes(marker)) failures.push(`${sourceName} missing: ${marker} (${description})`);
-  }
-  for (const [marker, description] of migrationResidue) {
-    if (source.includes(marker)) warnings.push(`${sourceName} migration residue: ${marker} (${description})`);
   }
 }
 
@@ -108,11 +108,6 @@ if (journal) {
       failures.push('Drizzle journal baseline entry must be idx=0 and tag=0000_worklog_baseline');
     }
   }
-}
-
-if (warnings.length > 0) {
-  console.warn('AFTERTRACE baseline still contains known migration residue (allowed until executable dependency cleanup):');
-  for (const warning of warnings) console.warn(`- ${warning}`);
 }
 
 if (failures.length > 0) {
