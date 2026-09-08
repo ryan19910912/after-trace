@@ -44,7 +44,6 @@ function provider(calls: string[]): WorklogTextNormalizationProvider {
       return {
         output: {
           title: '晴空案收款',
-          titleRequiresConfirmation: false,
           occurredAt: '2026-09-07T00:00:00.000Z',
           searchTerms: ['晴空案', '收款'],
         },
