@@ -21,15 +21,15 @@ const input = {
 };
 
 describe('GeminiWorklogTextNormalizer', () => {
-  it('builds a narrow title/date/search request without legacy summary/category fields', () => {
+  it('builds a narrow title/date/search request without legacy confirmation/entity/category fields', () => {
     const body = buildGeminiWorklogTextRequestBody(input, 256);
     const serialized = JSON.stringify(body);
 
     expect(serialized).toContain('record_text');
-    expect(serialized).toContain('title_requires_confirmation');
     expect(serialized).toContain('occurred_at');
     expect(serialized).toContain('search_terms');
     expect(serialized).toContain('Asia/Taipei');
+    expect(serialized).not.toContain('title_requires_confirmation');
     expect(serialized).not.toContain('customer_hint');
     expect(serialized).not.toContain('project_hint');
     expect(serialized).not.toContain('"category"');
@@ -44,7 +44,6 @@ describe('GeminiWorklogTextNormalizer', () => {
           parts: [{
             text: JSON.stringify({
               title: '晴空案',
-              title_requires_confirmation: false,
               occurred_at: '2026-09-04',
               search_terms: ['冷氣', '維修'],
             }),
@@ -65,7 +64,6 @@ describe('GeminiWorklogTextNormalizer', () => {
     await expect(provider.normalize(input, config)).resolves.toEqual({
       output: {
         title: '晴空案',
-        titleRequiresConfirmation: false,
         occurredAt: '2026-09-03T16:00:00.000Z',
         searchTerms: ['冷氣', '維修'],
       },
@@ -80,11 +78,10 @@ describe('GeminiWorklogTextNormalizer', () => {
     expect(String(firstCall![0])).toContain('/models/gemini-3.5-flash-lite:generateContent');
   });
 
-  it('accepts a null title when the provider explicitly marks it for confirmation', async () => {
+  it('accepts a null title when the input does not ground one safely', async () => {
     const fetchFn = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({
       candidates: [{ content: { parts: [{ text: JSON.stringify({
         title: null,
-        title_requires_confirmation: true,
         occurred_at: null,
         search_terms: [],
       }) }] } }],
@@ -95,20 +92,19 @@ describe('GeminiWorklogTextNormalizer', () => {
     await expect(provider.normalize(input, config)).resolves.toMatchObject({
       output: {
         title: null,
-        titleRequiresConfirmation: true,
         occurredAt: null,
         searchTerms: [],
       },
     });
   });
 
-  it('rejects the removed legacy summary/category response shape', async () => {
+  it('rejects the removed legacy confirmation/entity/category response shape', async () => {
     const fetchFn = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({
       candidates: [{ content: { parts: [{ text: JSON.stringify({
-        summary: '舊格式',
-        category: 'WORK',
-        customer_hint: null,
-        project_hint: null,
+        title: '舊格式',
+        title_requires_confirmation: true,
+        occurred_at: null,
+        search_terms: [],
       }) }] } }],
       usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5 },
     }), { status: 200 }));
