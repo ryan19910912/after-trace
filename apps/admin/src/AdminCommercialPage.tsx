@@ -94,7 +94,7 @@ export function AdminCommercialPage({ api }: { api: AdminCommercialApi }) {
         <div className="header-actions"><button disabled={loading||saving} onClick={()=>void saveAiPro()}>{saving?'儲存中…':'儲存 AI Pro 設定'}</button></div>
         {aiPro&&<p className="muted">目前：{aiPro.enabled?'啟用':'停用'} · 媒體 AI {aiPro.aiMediaIngestion?'啟用':'停用'} · AI 搜尋 {aiPro.aiNaturalSearch?'啟用':'停用'} · 相關紀錄 {aiPro.aiRelatedRecords?'啟用':'停用'} · 區間摘要 {aiPro.aiTimeRangeSummary?'啟用':'停用'} · AI 改寫 {aiPro.aiRecordRewrite?'啟用':'停用'} · AI 待辦 {aiPro.aiTaskProposal?'啟用':'停用'} · 月點數 {aiPro.monthlyAiPointCap.toLocaleString()} · Provider Cost NT$ {aiPro.monthlyProviderCostCapTwd} · 最後更新 {new Date(aiPro.updatedAt).toLocaleString('zh-TW')}</p>}
       </article>
-      <article className="card"><h2>V1 不存在的商品</h2><p className="muted">不提供一次性 AI top-up，也不提供第三個付費 tier。舊 schema 中殘留的 ONE_TIME / TOP_UP 只屬 migration cleanup，不是可售商品。</p></article>
+      <article className="card"><h2>V1 商品邊界</h2><p className="muted">V1 僅提供 FREE 與 AI Pro NT$99/月；不提供一次性 AI top-up 或其他付費 tier。</p></article>
     </section>
   </main>;
 }
