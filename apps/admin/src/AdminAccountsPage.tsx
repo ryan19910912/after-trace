@@ -18,8 +18,7 @@ export function AdminAccountsPage({ api }: { api: AdminApi }) {
     if (!value || busy) return;
     setBusy(true); setError(null);
     try {
-      const result = await api.users({ query: value, sortUpdated: 'DESC' });
-      setRows(result);
+      setRows(await api.accounts(value));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '帳號查詢失敗');
     } finally { setBusy(false); }
