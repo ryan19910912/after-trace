@@ -46,7 +46,10 @@ export class DrizzleTaskRepository implements TaskRepository {
              task.updated_at
       FROM worklog_tasks AS task
       WHERE task.user_id = ${userId}
-      ORDER BY COALESCE(task.remind_at, task.due_at, task.created_at) ASC, task.id ASC
+      ORDER BY CASE WHEN task.status = 'OPEN' THEN 0 ELSE 1 END ASC,
+               CASE WHEN task.status = 'OPEN' THEN COALESCE(task.remind_at, task.due_at, task.created_at) END ASC NULLS LAST,
+               CASE WHEN task.status <> 'OPEN' THEN task.updated_at END DESC NULLS LAST,
+               task.id DESC
       LIMIT ${limit}
     `);
     return (result.rows as TaskRow[]).map(taskRow);
