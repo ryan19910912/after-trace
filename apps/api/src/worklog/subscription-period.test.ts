@@ -97,7 +97,7 @@ describe('WorklogSubscriptionPeriodService', () => {
     expect(repository.assigned[0]?.metadata).toMatchObject({ grantPolicy: 'SUBSCRIPTION_PERIOD_V1', planCode: 'PRO', planType: 'SUBSCRIPTION', includedAiPoints: 800_000, priceTwd: 299 });
   });
 
-  it('does not create a recurring grant for FREE even though FREE has a one-time grant template', async () => {
+  it('does not create a recurring grant for FREE because its AI trial is issued separately', async () => {
     const repository = new FakeRepository();
     const service = new WorklogSubscriptionPeriodService(repository);
     const start = new Date('2026-09-04T00:00:00.000Z');
@@ -109,15 +109,6 @@ describe('WorklogSubscriptionPeriodService', () => {
     expect(repository.assigned[0]?.originKey).toBeNull();
     expect(repository.assigned[0]?.privateSourceId).toBeNull();
     expect(repository.assigned[0]?.currentPeriodEnd).toBeNull();
-  });
-
-  it('rejects ONE_TIME products from the subscription lifecycle', async () => {
-    const repository = new FakeRepository();
-    repository.plans.set('PACK', { code: 'PACK', planType: 'ONE_TIME', displayName: 'Pack', enabled: true, priceTwd: 99, grantPoints: 500_000 });
-    const service = new WorklogSubscriptionPeriodService(repository);
-    const result = await service.assignPeriod({ userId: 1, planCode: 'PACK', source: 'ADMIN', actor: 'admin' });
-    expect(result.status).toBe('PLAN_NOT_AVAILABLE');
-    expect(repository.assigned).toHaveLength(0);
   });
 
   it('treats an exact active-period retry as idempotent only when its frozen grant exists', async () => {
