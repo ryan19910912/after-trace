@@ -15,6 +15,7 @@ import {
   parseNewebPayTaipeiDate,
   parsePeriodicCallback,
   providerString,
+  validatePeriodicConfig,
   type NewebPayPeriodicConfig,
 } from './newebpay-periodic';
 
@@ -39,7 +40,6 @@ export function createNewebPayRoutes() {
 
   app.use('*', async (c, next) => {
     c.header('Cache-Control', 'no-store');
-    // Provider callback is server-to-server and intentionally has no browser Origin requirement.
     if (c.req.path === '/notify') { await next(); return; }
     const origin = c.req.header('origin');
     const allowed = c.env.WEB_APP_ORIGIN?.trim();
@@ -155,7 +155,7 @@ export function createNewebPayRoutes() {
       LIMIT 1
     `);
     const adapter = adapterResult.rows[0] as Record<string, unknown> | undefined;
-    if (!adapter) return c.text('OK'); // Do not leak whether an order exists to callback callers.
+    if (!adapter) return c.text('OK');
     const userId = Number(adapter.user_id);
     if (!Number.isSafeInteger(userId) || userId <= 0) return c.text('OK');
 
@@ -164,7 +164,6 @@ export function createNewebPayRoutes() {
         UPDATE worklog_checkout_intents SET status = CASE WHEN status = 'COMPLETED' THEN status ELSE 'FAILED' END, updated_at = NOW()
         WHERE id = ${Number(adapter.checkout_intent_id)}
       `);
-      // A failed recurring authorization does not erase an already-paid active period.
       if (adapter.status === 'PENDING') {
         await database.execute(sql`UPDATE worklog_newebpay_subscriptions SET status='FAILED', updated_at=NOW() WHERE merchant_order_no=${merchantOrderNo}`);
       }
@@ -278,12 +277,31 @@ export function createNewebPayRoutes() {
 }
 
 function configOrNull(env: NewebPayBindings): NewebPayPeriodicConfig | null {
-  const merchantId = env.NEWEBPAY_MERCHANT_ID?.trim(); const hashKey = env.NEWEBPAY_HASH_KEY; const hashIv = env.NEWEBPAY_HASH_IV;
-  const notifyUrl = env.NEWEBPAY_NOTIFY_URL?.trim(); const returnUrl = env.NEWEBPAY_RETURN_URL?.trim();
+  const merchantId = env.NEWEBPAY_MERCHANT_ID?.trim();
+  const hashKey = env.NEWEBPAY_HASH_KEY;
+  const hashIv = env.NEWEBPAY_HASH_IV;
+  const notifyUrl = env.NEWEBPAY_NOTIFY_URL?.trim();
+  const returnUrl = env.NEWEBPAY_RETURN_URL?.trim();
   if (!merchantId || !hashKey || !hashIv || !notifyUrl || !returnUrl) return null;
-  const mode = env.NEWEBPAY_MODE?.trim().toUpperCase() === 'PROD' ? 'PROD' : 'TEST';
+
+  const rawMode = env.NEWEBPAY_MODE?.trim().toUpperCase() || 'TEST';
+  if (rawMode !== 'TEST' && rawMode !== 'PROD') return null;
   const periodTimes = Number(env.NEWEBPAY_PERIOD_TIMES ?? '99');
-  return { merchantId, hashKey, hashIv, mode, version: env.NEWEBPAY_PERIOD_VERSION?.trim() || '1.5', periodTimes, notifyUrl, returnUrl };
+  const candidate: NewebPayPeriodicConfig = {
+    merchantId,
+    hashKey,
+    hashIv,
+    mode: rawMode,
+    version: env.NEWEBPAY_PERIOD_VERSION?.trim() || '1.5',
+    periodTimes,
+    notifyUrl,
+    returnUrl,
+  };
+  try {
+    return validatePeriodicConfig(candidate);
+  } catch {
+    return null;
+  }
 }
 async function authenticatedContext(env: NewebPayBindings, header: string | undefined): Promise<{ userId: number; database: Database } | { error: string; status: 401 | 404 | 503 }> {
   const secret = env.WEB_AUTH_SECRET?.trim() ?? ''; if (secret.length < 32) return { error:'WEB_AUTH_NOT_CONFIGURED', status:503 };
