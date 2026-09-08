@@ -80,7 +80,44 @@ export function createNewebPayRoutes() {
     `);
     if (active.rows[0]) return c.json({ ok: false, error: 'AI_PRO_ALREADY_ACTIVE' }, 409);
 
+    await auth.database.execute(sql`
+      WITH expired_intents AS (
+        UPDATE worklog_checkout_intents AS checkout_intent
+        SET status = 'FAILED', updated_at = NOW()
+        WHERE checkout_intent.user_id = ${auth.userId}
+          AND checkout_intent.provider = 'NEWEBPAY'
+          AND checkout_intent.status = 'READY'
+          AND checkout_intent.expires_at IS NOT NULL
+          AND checkout_intent.expires_at <= NOW()
+        RETURNING checkout_intent.id
+      )
+      UPDATE worklog_newebpay_subscriptions AS adapter_row
+      SET status = 'FAILED', updated_at = NOW()
+      WHERE adapter_row.user_id = ${auth.userId}
+        AND adapter_row.status = 'PENDING'
+        AND adapter_row.checkout_intent_id IN (SELECT id FROM expired_intents)
+    `);
+
+    const pendingResult = await auth.database.execute(sql`
+      SELECT checkout_intent.request_key, checkout_intent.provider_checkout_id
+      FROM worklog_newebpay_subscriptions AS adapter_row
+      INNER JOIN worklog_checkout_intents AS checkout_intent ON checkout_intent.id = adapter_row.checkout_intent_id
+      WHERE adapter_row.user_id = ${auth.userId}
+        AND adapter_row.status = 'PENDING'
+        AND checkout_intent.status = 'READY'
+        AND checkout_intent.expires_at > NOW()
+      LIMIT 1
+    `);
+    const pending = pendingResult.rows[0] as { request_key?: unknown; provider_checkout_id?: unknown } | undefined;
+    if (pending && pending.request_key !== requestKey) {
+      return c.json({ ok: false, error: 'NEWEBPAY_CHECKOUT_ALREADY_PENDING' }, 409);
+    }
+
     const merchantOrderNo = await merchantOrderNumber(requestKey);
+    if (pending && pending.provider_checkout_id !== merchantOrderNo) {
+      return c.json({ ok: false, error: 'CHECKOUT_IDEMPOTENCY_CONFLICT' }, 409);
+    }
+
     let checkout;
     try { checkout = await buildPeriodicCheckout({ config, merchantOrderNo, payerEmail }); }
     catch (error) { return c.json({ ok: false, error: errorCode(error, 'NEWEBPAY_CHECKOUT_INVALID') }, 400); }
@@ -102,7 +139,8 @@ export function createNewebPayRoutes() {
     if (!intent || Number(intent.user_id) !== auth.userId || intent.provider_checkout_id !== merchantOrderNo) {
       return c.json({ ok: false, error: 'CHECKOUT_IDEMPOTENCY_CONFLICT' }, 409);
     }
-    await auth.database.execute(sql`
+
+    const adapterWrite = await auth.database.execute(sql`
       INSERT INTO worklog_newebpay_subscriptions (
         user_id, checkout_intent_id, merchant_order_no, status, metadata, created_at, updated_at
       ) VALUES (
@@ -118,8 +156,16 @@ export function createNewebPayRoutes() {
           current_period_end = NULL,
           metadata = EXCLUDED.metadata,
           updated_at = NOW()
-      WHERE worklog_newebpay_subscriptions.status <> 'ACTIVE'
+      WHERE worklog_newebpay_subscriptions.status IN ('FAILED', 'TERMINATED')
+         OR (
+           worklog_newebpay_subscriptions.status = 'PENDING'
+           AND worklog_newebpay_subscriptions.merchant_order_no = EXCLUDED.merchant_order_no
+         )
+      RETURNING user_id
     `);
+    if (!adapterWrite.rows[0]) {
+      return c.json({ ok: false, error: 'NEWEBPAY_ADAPTER_STATE_CONFLICT' }, 409);
+    }
 
     return c.json({
       ok: true,
@@ -197,7 +243,7 @@ export function createNewebPayRoutes() {
       new DrizzleSubscriptionLifecycleRepository(database),
       new SubscriptionLifecycleNotificationAdapter(database),
     );
-    let lifecycleResult;
+    let lifecycleResult: Awaited<ReturnType<SubscriptionLifecycleService['apply']>>;
     try {
       lifecycleResult = await lifecycle.apply({
         provider: 'NEWEBPAY', externalEventKey,
@@ -213,7 +259,7 @@ export function createNewebPayRoutes() {
     const currentAdapterStart = dateValue(adapter.current_period_start);
     const staleAgainstAdapter = Boolean(currentAdapterStart && periodStart.getTime() < currentAdapterStart.getTime());
     const duplicateAfterTermination = lifecycleResult.status === 'DUPLICATE' && adapter.status === 'TERMINATED';
-    if (lifecycleResult.status === 'IGNORED_STALE' || !lifecycleResult || staleAgainstAdapter || duplicateAfterTermination) {
+    if (lifecycleResult.status === 'IGNORED_STALE' || staleAgainstAdapter || duplicateAfterTermination) {
       return c.text('OK');
     }
     if (lifecycleResult.status === 'DUPLICATE' && !lifecycleResult.applied) {
