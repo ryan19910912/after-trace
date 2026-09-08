@@ -1,5 +1,6 @@
 const SCREENSHOT_AUTH_KEY = 'aftertraceAuth';
 const MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024;
+const MAX_EXTENSION_SESSION_MS = 7 * 24 * 60 * 60 * 1000;
 const screenshotAction = document.querySelector('#saveScreenshot');
 const screenshotPreviewElement = document.querySelector('#screenshotPreview');
 const screenshotSource = document.querySelector('#source');
@@ -41,7 +42,9 @@ screenshotAction?.addEventListener('click', async () => {
   const stored = await chrome.storage.local.get(SCREENSHOT_AUTH_KEY);
   const auth = validScreenshotAuth(stored[SCREENSHOT_AUTH_KEY]);
   if (!auth) {
+    await chrome.storage.local.remove(SCREENSHOT_AUTH_KEY);
     setScreenshotStatus('AFTERTRACE 登入已過期，請重新連接。');
+    syncScreenshotAction();
     return;
   }
 
@@ -133,7 +136,11 @@ function validScreenshotAuth(value) {
   if (typeof value.sessionToken !== 'string' || !value.sessionToken.trim() || value.sessionToken.length > 8192) return null;
   const apiBaseUrl = safeHttpsOrigin(value.apiBaseUrl);
   if (!apiBaseUrl || !/^https:\/\/after-trace-api-(?:dev|prod)\.a0955625660\.workers\.dev$/.test(apiBaseUrl)) return null;
-  return { sessionToken: value.sessionToken.trim(), apiBaseUrl };
+  const expiresAt = typeof value.sessionExpiresAt === 'string' ? new Date(value.sessionExpiresAt) : null;
+  if (!(expiresAt instanceof Date) || !Number.isFinite(expiresAt.getTime())) return null;
+  const remainingMs = expiresAt.getTime() - Date.now();
+  if (remainingMs <= 0 || remainingMs > MAX_EXTENSION_SESSION_MS + 60_000) return null;
+  return { sessionToken: value.sessionToken.trim(), apiBaseUrl, sessionExpiresAt: expiresAt.toISOString() };
 }
 
 function boundedTitle(value) {
