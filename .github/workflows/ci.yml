@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, revive/line-worklog]
   pull_request:
 
 jobs:
