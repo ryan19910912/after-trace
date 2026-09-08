@@ -1,11 +1,11 @@
 import { z } from 'zod';
-import { base64ToUtf8, type LineMessageContent } from '../line/content';
 import type {
-  WorklogAttachmentInputType,
-  WorklogAttachmentOutput,
-  WorklogAttachmentProvider,
-  WorklogAttachmentProviderResponse,
-} from './attachment-ingestion';
+  AiMediaInputType,
+  AiMediaProvider,
+  AiMediaProviderContent,
+  AiMediaProviderOutput,
+  AiMediaProviderResponse,
+} from './ai-media-capture';
 import { providerCostToAiPoints } from './ai-points';
 import type { WorklogAiRuntimeConfigSnapshot } from './text-normalization';
 
@@ -57,7 +57,7 @@ type GeminiResponse = {
   };
 };
 
-export class GeminiWorklogAttachmentNormalizer implements WorklogAttachmentProvider {
+export class GeminiWorklogAttachmentNormalizer implements AiMediaProvider {
   private readonly fetchFn: typeof fetch;
   private readonly endpoint: string;
   private readonly maxOutputTokens: number;
@@ -68,7 +68,7 @@ export class GeminiWorklogAttachmentNormalizer implements WorklogAttachmentProvi
     this.maxOutputTokens = positiveInteger(options.maxOutputTokens ?? 768, 'maxOutputTokens');
   }
 
-  reservationPoints(content: LineMessageContent, config: WorklogAiRuntimeConfigSnapshot): number {
+  reservationPoints(content: AiMediaProviderContent, config: WorklogAiRuntimeConfigSnapshot): number {
     this.assertConfig(config);
     const outputBudget = this.maxOutputTokens;
     const upperBoundUnits = content.byteLength + 8_000 + outputBudget + outputBudget;
@@ -89,10 +89,10 @@ export class GeminiWorklogAttachmentNormalizer implements WorklogAttachmentProvi
   }
 
   async analyze(
-    content: LineMessageContent,
+    content: AiMediaProviderContent,
     config: WorklogAiRuntimeConfigSnapshot,
     instruction?: string | null,
-  ): Promise<WorklogAttachmentProviderResponse> {
+  ): Promise<AiMediaProviderResponse> {
     this.assertConfig(config);
     const inputType = attachmentType(content.mimeType);
     const request = buildRequest(content, inputType, instruction, this.maxOutputTokens);
@@ -134,7 +134,7 @@ export class GeminiWorklogAttachmentNormalizer implements WorklogAttachmentProvi
     const outputTokens = safeAddTokens(candidateTokens, thoughtsTokens, 'billed output');
     const modality = promptModalityUsage(body.usageMetadata?.promptTokensDetails, inputTokens);
 
-    const output: WorklogAttachmentOutput = {
+    const output: AiMediaProviderOutput = {
       inputType,
       rawText: parsed.raw_text,
       attachmentMetadata: {
@@ -174,8 +174,8 @@ export class GeminiWorklogAttachmentNormalizer implements WorklogAttachmentProvi
 }
 
 function buildRequest(
-  content: LineMessageContent,
-  inputType: WorklogAttachmentInputType,
+  content: AiMediaProviderContent,
+  inputType: AiMediaInputType,
   instruction: string | null | undefined,
   maxOutputTokens: number,
 ) {
@@ -234,7 +234,7 @@ function promptModalityUsage(
   return { audioInputUnits, imageInputUnits };
 }
 
-function attachmentType(mimeType: string): WorklogAttachmentInputType {
+function attachmentType(mimeType: string): AiMediaInputType {
   const mime = mimeType.toLowerCase();
   if (mime.startsWith('image/')) return 'IMAGE';
   if (mime.startsWith('audio/')) return 'AUDIO';
@@ -248,6 +248,16 @@ function attachmentType(mimeType: string): WorklogAttachmentInputType {
 function isTextLike(mimeType: string) {
   const mime = mimeType.toLowerCase();
   return mime.startsWith('text/') || mime === 'application/json' || mime === 'application/xml' || mime === 'text/csv' || mime === 'text/markdown';
+}
+
+function base64ToUtf8(value: string): string {
+  try {
+    const binary = atob(value);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+  } catch {
+    throw new WorklogAttachmentProviderError('ATTACHMENT_INVALID_BASE64', 'Attachment text payload is not valid Base64');
+  }
 }
 
 function providerHttpError(status: number, detail: string) {
