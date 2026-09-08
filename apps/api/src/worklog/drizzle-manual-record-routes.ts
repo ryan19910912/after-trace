@@ -73,7 +73,7 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
       SELECT record.id::text AS id,
              record.source_id::text AS source_id,
              record.entity_id::text AS entity_id,
-             COALESCE(record.title, entity.name) AS title,
+             record.title,
              record.author_user_id::text AS author_user_id,
              author.display_name AS author_display_name,
              record.input_type,
@@ -86,7 +86,6 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
              record.created_at,
              record.updated_at
       FROM worklog_records record
-      LEFT JOIN worklog_entities entity ON entity.id = record.entity_id
       LEFT JOIN worklog_users author ON author.id = record.author_user_id
       WHERE record.source_id = ${sourceId}
         AND record.status = ${status}
@@ -94,7 +93,6 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
           ${filters.query}::text IS NULL
           OR record.raw_text ILIKE '%' || ${filters.query} || '%'
           OR COALESCE(record.title, '') ILIKE '%' || ${filters.query} || '%'
-          OR COALESCE(entity.name, '') ILIKE '%' || ${filters.query} || '%'
           OR COALESCE(record.search_terms::text, '') ILIKE '%' || ${filters.query} || '%'
         )
         AND (
@@ -264,16 +262,14 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
              revision.previous_occurred_at,
              revision.new_occurred_at,
              revision.previous_entity_id::text AS previous_entity_id,
-             previous_entity.name AS previous_title,
+             NULL::text AS previous_title,
              revision.new_entity_id::text AS new_entity_id,
-             new_entity.name AS new_title,
+             NULL::text AS new_title,
              revision.previous_status,
              revision.new_status,
              revision.created_at
       FROM worklog_record_revisions revision
       LEFT JOIN worklog_users editor ON editor.id = revision.editor_user_id
-      LEFT JOIN worklog_entities previous_entity ON previous_entity.id = revision.previous_entity_id
-      LEFT JOIN worklog_entities new_entity ON new_entity.id = revision.new_entity_id
       WHERE revision.record_id = ${recordId}
       ORDER BY revision.version DESC, revision.id DESC
       LIMIT 200
@@ -287,7 +283,7 @@ function recordSelectSql(recordId: number) {
     SELECT record.id::text AS id,
            record.source_id::text AS source_id,
            record.entity_id::text AS entity_id,
-           COALESCE(record.title, entity.name) AS title,
+           record.title,
            record.author_user_id::text AS author_user_id,
            author.display_name AS author_display_name,
            record.input_type,
@@ -300,7 +296,6 @@ function recordSelectSql(recordId: number) {
            record.created_at,
            record.updated_at
     FROM worklog_records record
-    LEFT JOIN worklog_entities entity ON entity.id = record.entity_id
     LEFT JOIN worklog_users author ON author.id = record.author_user_id
     WHERE record.id = ${recordId}
     LIMIT 1
