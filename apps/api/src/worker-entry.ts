@@ -1,22 +1,24 @@
 import worker from './worker';
 import type { Bindings } from './index';
+import { createAdminAccountLookupRoutes } from './admin/account-lookup-routes';
 import { targetReadinessResponse } from './target-readiness';
 import { createFeedbackRoutes } from './worklog/feedback-routes';
 
 type ExecutionContextLike = { waitUntil(promise: Promise<unknown>): void };
 
+const accountLookupRoutes = createAdminAccountLookupRoutes();
 const feedbackRoutes = createFeedbackRoutes();
 
 /**
  * Thin target-first Worker entry.
  *
  * `/health/ready` validates the accepted Web/PWA V1 target and intentionally does not
- * require retired LINE webhook/group/funding schema. Retired LINE webhook, GROUP funding
- * and legacy title/entity confirmation product traffic is rejected here before it can reach
- * legacy runtime. Provider-neutral feedback is intercepted here so Google/Apple/LINE
- * accounts all resolve through AFTERTRACE user id. Only the accepted V1 manual Worklog
- * paths are allowed to pass through to the existing manual-record router; all other legacy
- * `/api/v1/worklog/*` paths are tombstoned until their source is physically removed.
+ * require retired LINE webhook/group/funding schema. Provider-neutral Admin account lookup
+ * and in-product Feedback are intercepted here before legacy runtime. Retired LINE webhook,
+ * GROUP funding and legacy title/entity confirmation product traffic is rejected here. Only
+ * the accepted V1 manual Worklog paths are allowed to pass through to the existing
+ * manual-record router; all other legacy `/api/v1/worklog/*` paths are tombstoned until
+ * their source is physically removed.
  */
 export default {
   async fetch(request: Request, env: Bindings, executionContext: ExecutionContextLike) {
@@ -27,6 +29,11 @@ export default {
     }
     if (pathname === '/webhooks/line') {
       return tombstone('LEGACY_LINE_WEBHOOK_DISABLED');
+    }
+    if (pathname === '/api/v1/admin/accounts') {
+      const rewritten = new URL(request.url);
+      rewritten.pathname = '/';
+      return accountLookupRoutes.fetch(new Request(rewritten, request), env as never, executionContext as never);
     }
     if (pathname === '/api/v1/worklog/feedback') {
       const rewritten = new URL(request.url);
