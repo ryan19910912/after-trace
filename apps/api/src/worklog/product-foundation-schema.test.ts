@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  worklogPlanTypeEnum,
   worklogSourceMemberRoleEnum,
   worklogSourceMembers,
   worklogSources,
@@ -14,8 +15,9 @@ import {
 } from '../db/schema-worklog-product';
 
 describe('Web/PWA product foundation schema', () => {
-  it('does not require a LINE identity for a target Web/PWA user', () => {
-    expect(worklogUsers.lineUserId.notNull).toBe(false);
+  it('keeps the core user provider-neutral with no legacy LINE identity column', () => {
+    expect('lineUserId' in worklogUsers).toBe(false);
+    expect('isOaFriend' in worklogUsers).toBe(false);
   });
 
   it('supports Google, LINE and Apple as provider-neutral login bindings', () => {
@@ -31,12 +33,17 @@ describe('Web/PWA product foundation schema', () => {
     expect(worklogUserPublicAccounts.publicAccountId.dataType).toBe('string');
   });
 
-  it('supports native named GROUP sources and explicit member roles', () => {
+  it('supports native named GROUP sources and explicit member roles without LINE group identity', () => {
     expect(worklogSources.name.notNull).toBe(false);
     expect(worklogSources.createdByUserId.notNull).toBe(false);
+    expect('lineGroupId' in worklogSources).toBe(false);
     expect(worklogSourceMemberRoleEnum.enumValues).toEqual(['OWNER', 'MEMBER']);
     expect(worklogSourceMembers.role.notNull).toBe(true);
     expect(worklogSourceMembers.role.default).toBe('MEMBER');
+  });
+
+  it('allows only FREE and recurring SUBSCRIPTION plan types', () => {
+    expect(worklogPlanTypeEnum.enumValues).toEqual(['FREE', 'SUBSCRIPTION']);
   });
 
   it('keeps paid AI plan caps explicit and fail-closed-capable', () => {
