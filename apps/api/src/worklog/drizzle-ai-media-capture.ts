@@ -54,7 +54,6 @@ export class DrizzleAiMediaCaptureRepository implements AiMediaCaptureRepository
     const result = await this.db.execute(sql`
       INSERT INTO worklog_records (
         source_id,
-        entity_id,
         author_user_id,
         input_type,
         raw_text,
@@ -71,7 +70,6 @@ export class DrizzleAiMediaCaptureRepository implements AiMediaCaptureRepository
         updated_at
       )
       SELECT source_row.id,
-             NULL,
              ${input.userId},
              ${input.inputType},
              ${input.rawText},
