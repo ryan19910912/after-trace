@@ -9,6 +9,7 @@ const baselinePath = resolve(drizzleDir, '0000_worklog_baseline.sql');
 const snapshotPath = resolve(metaDir, '0000_snapshot.json');
 const journalPath = resolve(metaDir, '_journal.json');
 const failures = [];
+const warnings = [];
 
 checkArtifactShape();
 
@@ -35,37 +36,49 @@ const forbidden = [
   ['subscription_period_points', 'retired subscription-only plan point template column'],
 ];
 
+// Accepted V1 release baseline. These markers intentionally follow the provider-neutral
+// Web/PWA + native group + task/notification + FREE-trial/AI-Pro + NewebPay target rather
+// than the retired LINE GROUP funding product.
 const required = [
-  ['worklog_entities', 'single-title Entity table'],
-  ['worklog_entity_aliases', 'Entity Alias table'],
-  ['worklog_record_revisions', 'immutable Record Revision table'],
-  ['worklog_ai_confirmations', 'durable Pending Confirmation table'],
+  ['worklog_auth_provider', 'Google/LINE/Apple provider-neutral auth enum'],
+  ['worklog_auth_identities', 'provider-neutral login identity bindings'],
+  ['worklog_user_public_accounts', 'opaque customer-facing account id'],
+  ['worklog_source_invites', 'AFTERTRACE-native group invite tokens'],
+  ['worklog_record_revisions', 'immutable Record revision history'],
   ['worklog_ai_grants', 'user-owned AI Grant table'],
   ['worklog_ai_grant_scopes', 'Grant Source scope table'],
   ['worklog_ai_point_reservations', 'Grant-backed AI point reservation table'],
   ['worklog_ai_usage_funding', 'exact usage-to-Grant funding attribution'],
-  ['worklog_source_ai_responsibility', 'GROUP AI responsibility table'],
-  ['worklog_plan_type', 'FREE/SUBSCRIPTION/ONE_TIME plan type enum'],
-  ['plan_type', 'typed commercial plan discriminator'],
-  ['grant_points', 'generic plan/product AI Grant template amount'],
-  ['worklog_plan_free_identity_ck', 'single FREE identity/price shape constraint'],
+  ['provider_cost_committed_twd', 'subscription-period committed provider-cost counter'],
+  ['provider_cost_reserved_twd', 'subscription-period concurrent provider-cost hold counter'],
+  ['provider_cost_hold_twd', 'per-reservation provider-cost hold'],
+  ['worklog_commercial_config', 'operator commercial singleton'],
+  ['free_initial_ai_trial_points', 'Admin-configured one-time FREE AI trial quantity'],
+  ['worklog_notifications', 'durable ANNOUNCEMENT/SYSTEM/TASK notification table'],
+  ['worklog_notification_recipients', 'durable per-user notification/read state'],
+  ['worklog_push_subscriptions', 'Web Push subscriptions'],
+  ['worklog_notification_preferences', 'user Push preferences'],
+  ['worklog_tasks', 'user-confirmed task/reminder table'],
+  ['worklog_checkout_intents', 'bounded paid checkout intent table'],
+  ['worklog_subscription_lifecycle_events', 'provider-neutral idempotent subscription lifecycle inbox'],
+  ['worklog_feedback', 'durable in-product feedback'],
+  ['worklog_feedback_management', 'Admin feedback category/status workflow'],
+  ['worklog_newebpay_subscriptions', 'NewebPay adapter state'],
   ['customer_points_charged', 'customer point charge fact'],
   ['platform_subsidized_points', 'platform subsidy fact'],
-  ['worklog_line_ai_edits', 'durable Reply-targeted LINE edit state'],
-  ['worklog_source_identity_shape_ck', 'PRIVATE/GROUP Source identity shape is enforced'],
-  ['worklog_private_web_entry_user_source_fk', 'PRIVATE Web entry user and Source must match'],
-  ['worklog_entity_alias_source_entity_fk', 'Alias cannot point at an Entity from another Source'],
-  ['worklog_record_source_entity_fk', 'Record title Entity must belong to the same Source'],
-  ['worklog_ai_confirmation_source_record_fk', 'Pending Confirmation Record must belong to the same Source'],
-  ['worklog_ai_confirmation_source_entity_fk', 'Pending Confirmation candidate Entity must belong to the same Source'],
-  ['worklog_line_ai_edit_source_record_fk', 'LINE AI edit target Record must belong to the same Source'],
-  ['worklog_line_ai_edit_source_reservation_fk', 'LINE AI edit reservation must belong to the same Source'],
-  ['worklog_line_ai_edit_source_confirmation_fk', 'LINE AI edit confirmation must belong to the same Source'],
-  ['worklog_line_ai_edit_source_entity_fk', 'LINE AI edit applied Entity must belong to the same Source'],
-  ['worklog_attachment_ingestion_source_record_fk', 'attachment ingestion Record must belong to the same Source'],
-  ['worklog_attachment_ingestion_source_reservation_fk', 'attachment reservation must belong to the same Source'],
-  ['worklog_ai_point_reservation_funding_grant_scope_fk', 'reservation funding scope must belong to the same Grant'],
-  ['worklog_ai_usage_funding_grant_scope_fk', 'usage funding scope must belong to the same Grant'],
+  ['worklog_ai_point_reservation_funding_grant_scope_fk', 'reservation funding scope belongs to Grant'],
+  ['worklog_ai_usage_funding_grant_scope_fk', 'usage funding scope belongs to Grant'],
+];
+
+// These are known migration residue. They are no longer V1 requirements, but remain in
+// source until executable dependency validation proves they can be physically removed.
+// Make their presence visible without letting the old product contract define readiness.
+const migrationResidue = [
+  ['worklog_source_ai_responsibility', 'retired GROUP AI responsible-user schema'],
+  ["'ONE_TIME'", 'retired one-time paid plan enum value'],
+  ["'TOP_UP'", 'retired AI top-up Grant type'],
+  ['worklog_line_ai_edits', 'retired LINE AI edit state'],
+  ['web_auth_entry_nonces', 'legacy LINE GROUP Web-entry nonce'],
 ];
 
 for (const [sourceName, source] of sources) {
@@ -74,6 +87,9 @@ for (const [sourceName, source] of sources) {
   }
   for (const [marker, description] of required) {
     if (!source.includes(marker)) failures.push(`${sourceName} missing: ${marker} (${description})`);
+  }
+  for (const [marker, description] of migrationResidue) {
+    if (source.includes(marker)) warnings.push(`${sourceName} migration residue: ${marker} (${description})`);
   }
 }
 
@@ -94,6 +110,11 @@ if (journal) {
   }
 }
 
+if (warnings.length > 0) {
+  console.warn('AFTERTRACE baseline still contains known migration residue (allowed until executable dependency cleanup):');
+  for (const warning of warnings) console.warn(`- ${warning}`);
+}
+
 if (failures.length > 0) {
   console.error('AFTERTRACE migration baseline is stale/inconsistent and deployment must stop.');
   for (const failure of failures) console.error(`- ${failure}`);
@@ -101,7 +122,7 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log('AFTERTRACE Worklog baseline + Drizzle metadata guard passed.');
+console.log('AFTERTRACE V1 target baseline + Drizzle metadata guard passed.');
 
 function checkArtifactShape() {
   if (!existsSync(drizzleDir)) { failures.push('missing drizzle directory'); return; }
