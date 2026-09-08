@@ -13,8 +13,6 @@ export type ProvisionAccountIdentityInput = {
   subject: string;
   emailSnapshot?: string | null;
   displayNameSnapshot?: string | null;
-  /** Migration-only bridge for an existing LINE-era worklog_users row. */
-  legacyLineUserId?: string | null;
   at?: Date;
 };
 
