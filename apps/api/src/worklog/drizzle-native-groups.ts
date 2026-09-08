@@ -31,7 +31,6 @@ type JoinRow = GroupRow & {
   join_status: 'JOINED' | 'ALREADY_MEMBER';
 };
 
-/** Persistence for AFTERTRACE-native groups. Legacy LINE group rows are never mutated here. */
 export class DrizzleNativeGroupRepository implements NativeGroupRepository {
   constructor(private readonly db: Database) {}
 
@@ -47,7 +46,6 @@ export class DrizzleNativeGroupRepository implements NativeGroupRepository {
        AND member.is_active = TRUE
       WHERE source.type = 'GROUP'
         AND source.status = 'ACTIVE'
-        AND source.line_group_id IS NULL
         AND source.name IS NOT NULL
         AND length(btrim(source.name)) > 0
       ORDER BY lower(source.name) ASC, source.id ASC
@@ -68,10 +66,10 @@ export class DrizzleNativeGroupRepository implements NativeGroupRepository {
       ), inserted_source AS (
         INSERT INTO worklog_sources (
           workspace_id, type, status, private_user_id, name,
-          created_by_user_id, line_group_id, created_at, updated_at
+          created_by_user_id, created_at, updated_at
         )
         SELECT creator_workspace.id, 'GROUP', 'ACTIVE', NULL, ${input.name},
-               ${input.creatorUserId}, NULL, NOW(), NOW()
+               ${input.creatorUserId}, NOW(), NOW()
         FROM creator_workspace
         RETURNING id, name
       ), inserted_member AS (
@@ -119,7 +117,6 @@ export class DrizzleNativeGroupRepository implements NativeGroupRepository {
         WHERE source.id = ${input.sourceId}
           AND source.type = 'GROUP'
           AND source.status = 'ACTIVE'
-          AND source.line_group_id IS NULL
           AND source.name IS NOT NULL
           AND length(btrim(source.name)) > 0
           AND member.is_active = TRUE
@@ -153,7 +150,6 @@ export class DrizzleNativeGroupRepository implements NativeGroupRepository {
         WHERE source.id = ${input.sourceId}
           AND source.type = 'GROUP'
           AND source.status = 'ACTIVE'
-          AND source.line_group_id IS NULL
           AND source.name IS NOT NULL
           AND length(btrim(source.name)) > 0
           AND member.is_active = TRUE
@@ -184,7 +180,6 @@ export class DrizzleNativeGroupRepository implements NativeGroupRepository {
           WHERE source.id = invite.source_id
             AND source.type = 'GROUP'
             AND source.status = 'ACTIVE'
-            AND source.line_group_id IS NULL
             AND source.name IS NOT NULL
             AND length(btrim(source.name)) > 0
             AND member.is_active = TRUE
@@ -223,7 +218,6 @@ export class DrizzleNativeGroupRepository implements NativeGroupRepository {
           AND member.is_active = TRUE
           AND source.type = 'GROUP'
           AND source.status = 'ACTIVE'
-          AND source.line_group_id IS NULL
           AND source.name IS NOT NULL
           AND length(btrim(source.name)) > 0
         LIMIT 1
@@ -236,7 +230,6 @@ export class DrizzleNativeGroupRepository implements NativeGroupRepository {
           AND (invite_row.max_uses IS NULL OR invite_row.use_count < invite_row.max_uses)
           AND source.type = 'GROUP'
           AND source.status = 'ACTIVE'
-          AND source.line_group_id IS NULL
           AND source.name IS NOT NULL
           AND length(btrim(source.name)) > 0
       ), membership_upsert AS (
