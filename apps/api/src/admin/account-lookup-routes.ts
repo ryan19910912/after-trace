@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { sql } from 'drizzle-orm';
+import { isPublicAccountId } from '../auth/public-account-id';
 import { createDatabase, type Database } from '../db/client';
 import { bearerToken, verifyAdminSessionToken, type AdminAccessEnv } from './auth';
 
@@ -63,6 +64,7 @@ export function createAdminAccountLookupRoutes() {
   app.get('/', async (c) => {
     const query = boundedQuery(c.req.query('q'));
     if (!query) return c.json({ ok: false, error: 'ACCOUNT_QUERY_REQUIRED' }, 400);
+    const accountIdLookup = isPublicAccountId(query);
     const limit = boundedLimit(c.req.query('limit'));
     const db = c.get('database');
     const result = await db.execute(sql`
@@ -84,7 +86,10 @@ export function createAdminAccountLookupRoutes() {
           WHERE member.user_id = account.id
             AND member.is_active = TRUE
             AND source.type = 'GROUP'
-            AND source.status = 'ACTIVE')::text AS member_group_count,
+            AND source.status = 'ACTIVE'
+            AND source.line_group_id IS NULL
+            AND source.name IS NOT NULL
+            AND length(btrim(source.name)) > 0)::text AS member_group_count,
         (SELECT COUNT(*) FROM worklog_records AS record WHERE record.author_user_id = account.id AND record.input_type = 'TEXT')::text AS text_count,
         (SELECT COUNT(*) FROM worklog_records AS record WHERE record.author_user_id = account.id AND record.input_type = 'AUDIO')::text AS audio_count,
         (SELECT COUNT(*) FROM worklog_records AS record WHERE record.author_user_id = account.id AND record.input_type = 'IMAGE')::text AS image_count,
@@ -94,12 +99,12 @@ export function createAdminAccountLookupRoutes() {
       FROM worklog_users AS account
       INNER JOIN worklog_user_public_accounts AS public_account ON public_account.user_id = account.id
       LEFT JOIN worklog_user_subscriptions AS subscription ON subscription.user_id = account.id
-      WHERE upper(public_account.public_account_id) = upper(${query})
-         OR COALESCE(account.display_name, '') ILIKE '%' || ${query} || '%'
-      ORDER BY
-        CASE WHEN upper(public_account.public_account_id) = upper(${query}) THEN 0 ELSE 1 END,
-        account.updated_at DESC,
-        account.id DESC
+      WHERE (
+        (${accountIdLookup} AND upper(public_account.public_account_id) = upper(${query}))
+        OR
+        (NOT ${accountIdLookup} AND COALESCE(account.display_name, '') ILIKE '%' || ${query} || '%')
+      )
+      ORDER BY account.updated_at DESC, account.id DESC
       LIMIT ${limit}
     `);
     return c.json({ ok: true, accounts: result.rows });
