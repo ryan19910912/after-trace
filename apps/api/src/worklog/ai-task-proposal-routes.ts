@@ -9,8 +9,11 @@ import { WorklogAiPointLedgerService } from './ai-point-ledger';
 import { DrizzleAiEntitlementRepository } from './drizzle-ai-entitlement';
 import { DrizzleAiTaskProposalRepository } from './drizzle-ai-task-proposal';
 import { DrizzleWorklogAiPointLedgerRepository } from './drizzle-ai-point-ledger';
+import { DrizzleNotificationRepository } from './drizzle-notifications';
 import { EntitledAiPointLedgerService } from './entitled-ai-point-ledger';
 import { GeminiWorklogTaskProposer } from './gemini-task-proposal';
+import { NotificationService } from './notifications';
+import { notifySubscriptionEvent } from './system-notification-events';
 
 export type AiTaskProposalBindings = {
   DATABASE_URL: string;
@@ -89,10 +92,36 @@ export function createAiTaskProposalRoutes() {
     if (result.status === 'NOT_FOUND') return c.json({ ok: false, error: result.reason }, 404);
     if (result.status === 'DEFERRED') return c.json({ ok: false, error: result.reason }, 503);
     if (result.status === 'FAILED') return c.json({ ok: false, error: result.reason }, result.reason === 'AI_TASK_PROPOSAL_DISABLED' ? 409 : 502);
+    if (isDurableAiProLimit(result.decision.reason)) {
+      await notifyAiLimitSafely(database, c.get('userId'), result.decision.reason, result.decision.periodEndsAt);
+    }
     return c.json({ ok: false, error: result.decision.reason, entitlement: result.decision }, result.decision.reason === 'SOURCE_NOT_AUTHORIZED' ? 403 : 409);
   });
 
   return app;
+}
+
+async function notifyAiLimitSafely(database: Database, userId: number, reason: string, periodEndsAt: string | null): Promise<void> {
+  try {
+    await notifySubscriptionEvent(
+      new NotificationService(new DrizzleNotificationRepository(database)),
+      userId,
+      { type: 'AI_LIMIT_REACHED', periodKey: `${periodEndsAt ?? 'unknown-period'}:${reason}` },
+    );
+  } catch (error) {
+    console.error(JSON.stringify({
+      event: 'ai_task_limit_system_notification_failed',
+      userId,
+      reason,
+      message: error instanceof Error ? error.message : 'unknown error',
+    }));
+  }
+}
+
+function isDurableAiProLimit(reason: string): boolean {
+  return reason === 'MONTHLY_POINT_CAP_REACHED'
+    || reason === 'MONTHLY_POINT_CAP_WOULD_BE_EXCEEDED'
+    || reason === 'MONTHLY_PROVIDER_COST_CAP_REACHED';
 }
 
 function bearerToken(header: string | undefined) { if (!header) return null; const match = /^Bearer\s+(.+)$/i.exec(header.trim()); return match?.[1]?.trim() || null; }
