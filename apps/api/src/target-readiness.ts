@@ -88,7 +88,7 @@ export async function targetReadinessResponse(env: TargetReadinessBindings): Pro
     if (!free || free.plan_type !== 'FREE' || Number(free.price_twd) !== 0 || free.enabled !== true) {
       return Response.json({ service: 'after-trace-api', product: 'worklog', status: 'not_ready', error: 'FREE_PLAN_NOT_INITIALIZED' }, { status: 503 });
     }
-    if (!pro || pro.plan_type !== 'SUBSCRIPTION' || Number(pro.price_twd) !== 99 || pro.ai_enabled !== true
+    if (!pro || pro.plan_type !== 'SUBSCRIPTION' || Number(pro.price_twd) !== 99 || pro.enabled !== true || pro.ai_enabled !== true
       || Number(pro.monthly_ai_point_cap) <= 0 || Number(pro.monthly_provider_cost_cap_twd) <= 0) {
       return Response.json({ service: 'after-trace-api', product: 'worklog', status: 'not_ready', error: 'AI_PRO_PLAN_NOT_INITIALIZED' }, { status: 503 });
     }
