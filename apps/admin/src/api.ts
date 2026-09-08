@@ -1,22 +1,4 @@
-export type AdminOverview = {
-  users: number;
-  oaFriends: number;
-  groups: number;
-  activeGroups: number;
-  records: number;
-  recordsToday: number;
-  aiCallsToday: number;
-  aiPointsToday: number;
-  platformSubsidizedPointsToday: number;
-  aiCostTwdToday: string;
-  platformSubsidizedCostTwdToday: string;
-  missingAiCostTwdRequestsToday: number;
-  missingSubsidyCostTwdRequestsToday: number;
-  openAnomalies: number;
-  failedAttachments: number;
-  failedNormalizations: number;
-  feedback30d: number;
-};
+export type Row = Record<string, unknown>;
 
 export type AdminProfitabilityPeriod = 'TODAY' | '7D' | '30D' | 'BILLING_MONTH';
 
@@ -78,35 +60,6 @@ export type AdminProfitabilityReport = {
   }>;
 };
 
-export type Row = Record<string, unknown>;
-
-export type AdminCapabilityDefinition = {
-  key: string;
-  label: string;
-  type: 'boolean' | 'number' | 'string';
-  defaultValue: boolean | number | string;
-  min?: number;
-  max?: number;
-  description?: string;
-  shipped?: boolean;
-};
-
-export type AdminPlanType = 'FREE' | 'SUBSCRIPTION' | 'ONE_TIME';
-
-export type AdminPlan = {
-  id?: string;
-  code: string;
-  plan_type: AdminPlanType;
-  display_name: string;
-  price_twd: string;
-  rank: number;
-  enabled: boolean;
-  grant_points: number;
-  capabilities: Record<string, boolean | number | string>;
-  created_at?: string;
-  updated_at?: string;
-};
-
 export type AdminAiRuntimeConfig = {
   id?: number;
   provider: string;
@@ -121,19 +74,6 @@ export type AdminAiRuntimeConfig = {
   updated_at?: string;
 };
 
-export type AdminAnomalies = {
-  events: Row[];
-  attachments: Row[];
-  normalizations: Row[];
-};
-
-export type UserListFilters = {
-  query?: string;
-  planCode?: string;
-  userType?: '' | 'INDIVIDUAL' | 'GROUP_ENABLED';
-  sortUpdated?: 'ASC' | 'DESC';
-};
-
 export class AdminApi {
   private sessionToken: string | null = null;
 
@@ -144,18 +84,11 @@ export class AdminApi {
   }
 
   async login(username: string, password: string): Promise<{ sessionToken: string; username: string }> {
-    return this.request('/login', {
-      method: 'POST',
-      body: JSON.stringify({ username, password }),
-    }, false);
+    return this.request('/login', { method: 'POST', body: JSON.stringify({ username, password }) }, false);
   }
 
   async session(): Promise<{ username: string }> {
     return this.request('/session');
-  }
-
-  async overview(): Promise<AdminOverview> {
-    return (await this.request<{ overview: AdminOverview }>('/overview')).overview;
   }
 
   async profitability(period: AdminProfitabilityPeriod = 'TODAY'): Promise<AdminProfitabilityReport> {
@@ -164,85 +97,12 @@ export class AdminApi {
     )).report;
   }
 
-  async accounts(query: string): Promise<Row[]> {
-    const normalized = query.trim();
-    if (!normalized) return [];
-    const params = new URLSearchParams({ q: normalized });
-    return applyServerLabels((await this.request<{ accounts: Row[] }>(`/accounts?${params.toString()}`)).accounts);
-  }
-
-  async users(filters: UserListFilters = {}): Promise<Row[]> {
-    const params = new URLSearchParams();
-    if (filters.query?.trim()) params.set('q', filters.query.trim());
-    if (filters.planCode?.trim()) params.set('plan', filters.planCode.trim());
-    if (filters.userType) params.set('type', filters.userType);
-    params.set('sort', filters.sortUpdated ?? 'DESC');
-    const suffix = params.toString() ? `?${params.toString()}` : '';
-    return applyServerLabels((await this.request<{ users: Row[] }>(`/users${suffix}`)).users);
-  }
-
-  async userDetail(id: string | number): Promise<Record<string, unknown>> {
-    const [detailResponse, plansResponse] = await Promise.all([
-      this.request<{ detail: Record<string, unknown> }>(`/users/${id}`),
-      this.request<{ plans: AdminPlan[] }>('/plans'),
-    ]);
-    const detail = detailResponse.detail;
-    const user = asRow(detail.user);
-    const plan = plansResponse.plans.find((item) => item.code === String(user.plan_code ?? ''));
-    const effectiveRow = { ...user, plan_enabled: plan?.enabled ?? false };
-    return applyServerLabels({
-      ...detail,
-      user: {
-        ...effectiveRow,
-        subscription_effective_state: effectiveSubscriptionState(effectiveRow),
-      },
-    });
-  }
-
-  async updateUserSubscription(id: string | number, planCode: string, currentPeriodEnd?: string | null): Promise<void> {
-    await this.request(`/users/${id}/subscription`, {
-      method: 'PUT',
-      body: JSON.stringify({ planCode, currentPeriodEnd }),
-    });
-  }
-
-  async groups(query = ''): Promise<Row[]> {
-    const suffix = query.trim() ? `?q=${encodeURIComponent(query.trim())}` : '';
-    const rows = applyServerLabels((await this.request<{ groups: Row[] }>(`/groups${suffix}`)).groups);
-    return rows.map((row) => compactGroupRow(row));
-  }
-
-  async groupDetail(id: string | number): Promise<Record<string, unknown>> {
-    const detail = (await this.request<{ detail: Record<string, unknown> }>(`/groups/${id}`)).detail;
-    return applyServerLabels(detail);
-  }
-
-  async capabilityDefinitions(): Promise<AdminCapabilityDefinition[]> {
-    return (await this.request<{ capabilityDefinitions: AdminCapabilityDefinition[] }>('/capabilities')).capabilityDefinitions;
-  }
-
-  async plans(): Promise<AdminPlan[]> {
-    return (await this.request<{ plans: AdminPlan[] }>('/plans')).plans;
-  }
-
-  async savePlan(input: {
-    code: string;
-    planType: AdminPlanType;
-    displayName: string;
-    priceTwd: string;
-    rank: number;
-    enabled: boolean;
-    grantPoints: number;
-    capabilities: Record<string, boolean | number | string>;
-  }): Promise<void> {
-    await this.request(`/plans/${encodeURIComponent(input.code)}`, {
-      method: 'PUT',
-      body: JSON.stringify(input),
-    });
-  }
-
-  async deletePlan(code: string): Promise<void> {
-    await this.request(`/plans/${encodeURIComponent(code)}`, { method: 'DELETE' });
+  async accountLookup(query: string): Promise<Row[]> {
+    const value = query.trim();
+    if (!value) return [];
+    return normalizeAdminApiTimestamps((await this.request<{ accounts: Row[] }>(
+      `/accounts?q=${encodeURIComponent(value)}`,
+    )).accounts);
   }
 
   async aiRuntime(): Promise<AdminAiRuntimeConfig | null> {
@@ -257,24 +117,11 @@ export class AdminApi {
     audioUsdPerMillion: string | null;
     imageUsdPerMillion: string | null;
     usdTwdRate: string | null;
-  }): Promise<void> {
-    await this.request('/ai-runtime', { method: 'PUT', body: JSON.stringify(input) });
-  }
-
-  async feedback(): Promise<Row[]> {
-    return applyServerLabels((await this.request<{ feedback: Row[] }>('/feedback')).feedback);
-  }
-
-  async anomalies(): Promise<AdminAnomalies> {
-    return applyServerLabels((await this.request<{ anomalies: AdminAnomalies }>('/anomalies')).anomalies);
-  }
-
-  async updateAnomaly(id: string | number, status: 'OPEN' | 'RESOLVED' | 'IGNORED'): Promise<void> {
-    await this.request(`/anomalies/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
-  }
-
-  async audit(): Promise<Row[]> {
-    return applyServerLabels((await this.request<{ audit: Row[] }>('/audit')).audit;
+  }): Promise<AdminAiRuntimeConfig> {
+    return (await this.request<{ config: AdminAiRuntimeConfig }>('/ai-runtime', {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    })).config;
   }
 
   private async request<T>(path: string, init?: RequestInit, authenticated = true): Promise<T> {
@@ -283,40 +130,19 @@ export class AdminApi {
     if (authenticated && this.sessionToken) headers.set('Authorization', `Bearer ${this.sessionToken}`);
     const response = await fetch(`${this.baseUrl.replace(/\/$/, '')}/api/v1/admin${path}`, { ...init, headers });
     const text = await response.text();
-    let body: ({ ok?: boolean; error?: string } & T) | null = null;
-    try {
-      body = text ? JSON.parse(text) as { ok?: boolean; error?: string } & T : {} as { ok?: boolean; error?: string } & T;
-    } catch {
-      throw new Error(`ADMIN_API_INVALID_RESPONSE_${response.status}`);
-    }
-    const normalizedBody = normalizeAdminApiTimestamps(body) as { ok?: boolean; error?: string } & T;
-    if (!response.ok) throw new Error(normalizedBody.error || `ADMIN_API_FAILED_${response.status}`);
-    return normalizedBody;
+    let body: ({ ok?: boolean; error?: string } & T);
+    try { body = text ? JSON.parse(text) as { ok?: boolean; error?: string } & T : {} as { ok?: boolean; error?: string } & T; }
+    catch { throw new Error(`ADMIN_API_INVALID_RESPONSE_${response.status}`); }
+    const normalized = normalizeAdminApiTimestamps(body) as { ok?: boolean; error?: string } & T;
+    if (!response.ok) throw new Error(normalized.error || `ADMIN_API_FAILED_${response.status}`);
+    return normalized;
   }
-}
-
-export function effectiveSubscriptionState(row: Row, now = new Date()): string {
-  const persisted = String(row.subscription_status ?? '').toUpperCase();
-  if (!persisted) return 'NO_SUBSCRIPTION';
-  if (persisted !== 'ACTIVE') return persisted;
-  if (row.plan_enabled === false) return 'PLAN_DISABLED';
-
-  const effectiveAt = optionalDate(row.effective_at);
-  const periodStart = optionalDate(row.current_period_start);
-  const periodEnd = optionalDate(row.current_period_end);
-  const timestamp = now.getTime();
-
-  if (effectiveAt && timestamp < effectiveAt.getTime()) return 'NOT_YET_EFFECTIVE';
-  if (periodStart && timestamp < periodStart.getTime()) return 'PERIOD_NOT_STARTED';
-  if (periodEnd && timestamp >= periodEnd.getTime()) return 'PERIOD_EXPIRED';
-  return 'ACTIVE';
 }
 
 export function normalizeAdminApiTimestamps<T>(value: T): T {
   if (typeof value === 'string') return normalizeTimestampText(value) as T;
   if (Array.isArray(value)) return value.map((item) => normalizeAdminApiTimestamps(item)) as T;
   if (!value || typeof value !== 'object') return value;
-
   const result: Record<string, unknown> = {};
   for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
     result[key] = normalizeAdminApiTimestamps(item);
@@ -330,51 +156,4 @@ function normalizeTimestampText(value: string): string {
   const [, datePart, timePart, fractionPart, offsetHour, offsetMinute] = match;
   const milliseconds = fractionPart ? `.${fractionPart.slice(0, 3).padEnd(3, '0')}` : '';
   return `${datePart}T${timePart}${milliseconds}${offsetHour}:${offsetMinute ?? '00'}`;
-}
-
-function applyServerLabels<T>(value: T): T {
-  if (Array.isArray(value)) return value.map((item) => applyServerLabels(item)) as T;
-  if (!value || typeof value !== 'object') return value;
-
-  const source = value as Record<string, unknown>;
-  const result: Record<string, unknown> = {};
-  for (const [key, item] of Object.entries(source)) result[key] = applyServerLabels(item);
-
-  for (const [key, item] of Object.entries(source)) {
-    if (!key.endsWith('_label') || typeof item !== 'string') continue;
-    const baseKey = key.slice(0, -6);
-    if (!(baseKey in source)) continue;
-    result[`${baseKey}_code`] = source[baseKey];
-    result[baseKey] = item;
-  }
-  return result as T;
-}
-
-function compactGroupRow(row: Row): Row {
-  const next: Row = { ...row };
-  const groupName = String(row.line_group_name ?? '').trim();
-  const groupId = String(row.line_group_id ?? '').trim();
-  next.line_group_id = [groupName || '尚未同步群組名稱', groupId || '—'].join('\n');
-  delete next.line_group_name;
-
-  const responsibleName = String(row.ai_responsible_display_name ?? '').trim();
-  const responsibleId = String(row.ai_responsible_user_id ?? '').trim();
-  next.ai_responsible_display_name = responsibleId
-    ? [responsibleName || '未命名使用者', `編號 #${responsibleId}`].join('\n')
-    : '尚未設定';
-  delete next.ai_responsible_user_id;
-
-  const cost = Number(row.group_ai_cost_twd ?? 0);
-  next.group_ai_cost_twd = Number.isFinite(cost) ? `NT$ ${cost.toFixed(4)}` : row.group_ai_cost_twd;
-  return next;
-}
-
-function optionalDate(value: unknown): Date | null {
-  if (value === null || value === undefined || value === '') return null;
-  const date = new Date(String(value));
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function asRow(value: unknown): Row {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {};
 }
