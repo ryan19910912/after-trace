@@ -56,8 +56,13 @@ export class WorklogRecordReadService {
     sourceId: number,
     limit = 100,
   ): Promise<{ status: 'OK'; records: WorklogRecordListItem[] } | { status: 'FORBIDDEN' }> {
-    if (!(await this.repository.isActiveGroupMember(userId, sourceId))) return { status: 'FORBIDDEN' };
-    return { status: 'OK', records: await this.repository.listRecordsBySource(sourceId, safeLimit(limit)) };
+    if (!(await this.repository.isActiveGroupMember(userId, sourceId))) {
+      return { status: 'FORBIDDEN' };
+    }
+    return {
+      status: 'OK',
+      records: await this.repository.listRecordsBySource(sourceId, safeLimit(limit)),
+    };
   }
 }
 
