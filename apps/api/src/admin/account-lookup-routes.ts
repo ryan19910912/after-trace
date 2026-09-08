@@ -14,10 +14,7 @@ type Env = {
   Variables: { database: Database };
 };
 
-/**
- * Provider-neutral support lookup. This route intentionally does not expose or depend on
- * Google/LINE/Apple provider subjects, LINE OA friendship, or legacy GROUP AI responsibility.
- */
+/** Provider-neutral support lookup. */
 export function createAdminAccountLookupRoutes() {
   const app = new Hono<Env>();
 
@@ -87,7 +84,6 @@ export function createAdminAccountLookupRoutes() {
             AND member.is_active = TRUE
             AND source.type = 'GROUP'
             AND source.status = 'ACTIVE'
-            AND source.line_group_id IS NULL
             AND source.name IS NOT NULL
             AND length(btrim(source.name)) > 0)::text AS member_group_count,
         (SELECT COUNT(*) FROM worklog_records AS record WHERE record.author_user_id = account.id AND record.input_type = 'TEXT')::text AS text_count,
