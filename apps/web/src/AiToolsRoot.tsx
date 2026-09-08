@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { aiToolsDeepLinkFromSearch } from './ai-tools-deep-link';
+import { aiToolsDeepLinkFromSearch, aiToolsDeepLinkUrl } from './ai-tools-deep-link';
 import { LoginProviderButtons } from './LoginProviderButtons';
 import { WorklogApi, type WorklogInputType, type WorklogSurfaces } from './worklog-api';
 import './worklog.css';
@@ -27,6 +27,7 @@ type RewriteProposal = {
 export function AiToolsRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
   const worklogApi = useMemo(() => new WorklogApi(apiBaseUrl), [apiBaseUrl]);
   const deepLink = useMemo(() => aiToolsDeepLinkFromSearch(window.location.search), []);
+  const loginReturn = useMemo(() => deepLink ? aiToolsDeepLinkUrl(deepLink) : '/ai-tools', [deepLink]);
   const [session, setSession] = useState<string | null>(() => localStorage.getItem(SESSION_KEY));
   const [surfaces, setSurfaces] = useState<WorklogSurfaces | null>(null);
   const [sourceId, setSourceId] = useState<number | null>(null);
@@ -172,7 +173,7 @@ export function AiToolsRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
       <p className="eyebrow">AFTERTRACE AI</p><h1>AI 工具</h1>
       <p className="muted">登入後使用相關紀錄、時間區間摘要與明確確認的 AI 改寫。</p>
       {error ? <div className="error">{error}</div> : null}
-      <LoginProviderButtons apiBaseUrl={apiBaseUrl} returnTo="/ai-tools" />
+      <LoginProviderButtons apiBaseUrl={apiBaseUrl} returnTo={loginReturn} />
     </section></main>;
   }
 
