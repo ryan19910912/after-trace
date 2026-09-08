@@ -66,6 +66,23 @@ export function createNewebPayRoutes() {
     if ('error' in auth) return c.json({ ok: false, error: auth.error }, auth.status);
     const config = configOrNull(c.env);
     if (!config) return c.json({ ok: false, error: 'NEWEBPAY_NOT_CONFIGURED' }, 503);
+
+    const plan = await auth.database.execute(sql`
+      SELECT 1
+      FROM worklog_subscription_plans
+      WHERE code = 'AI_PRO'
+        AND plan_type = 'SUBSCRIPTION'
+        AND price_twd = 99
+        AND enabled = TRUE
+        AND ai_enabled = TRUE
+        AND monthly_ai_point_cap IS NOT NULL
+        AND monthly_ai_point_cap > 0
+        AND monthly_provider_cost_cap_twd IS NOT NULL
+        AND monthly_provider_cost_cap_twd > 0
+      LIMIT 1
+    `);
+    if (!plan.rows[0]) return c.json({ ok: false, error: 'AI_PRO_PLAN_NOT_AVAILABLE' }, 409);
+
     const body = await jsonBody(c);
     if (!body) return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
     const requestKey = typeof body.requestKey === 'string' ? body.requestKey.trim() : '';
