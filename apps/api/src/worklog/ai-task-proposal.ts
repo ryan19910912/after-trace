@@ -140,12 +140,9 @@ export class AiTaskProposalService {
 
     const normalized = normalizeProposal(response);
     const usage = usageFromProvider(config, response, recordId);
-    if (!normalized) {
-      await settleProviderSuccess(this.aiPoints, token, usage);
-      return { status: 'FAILED', reason: 'AI_TASK_PROPOSAL_OUTPUT_INVALID' };
-    }
-    const settled = await this.aiPoints.commitAiUsage(token, usage);
-    if (settled.status !== 'COMMITTED') return { status: 'FAILED', reason: 'AI_USAGE_SETTLEMENT_FAILED' };
+    const settled = await settleProviderSuccess(this.aiPoints, token, usage);
+    if (!settled) return { status: 'FAILED', reason: 'AI_USAGE_SETTLEMENT_FAILED' };
+    if (!normalized) return { status: 'FAILED', reason: 'AI_TASK_PROPOSAL_OUTPUT_INVALID' };
 
     return {
       status: 'PROPOSAL',
@@ -196,7 +193,14 @@ function blockedDecision(preliminary: AiEntitlementDecision, status: string, res
     perRequestAiPointCap: preliminary.perRequestAiPointCap,
   };
 }
-async function settleProviderSuccess(aiPoints: AiPointLedgerPort, token: string, usage: WorklogAiUsageCommit) { try { await aiPoints.commitAiUsage(token, usage); } catch { /* retained for diagnostics */ } }
+async function settleProviderSuccess(aiPoints: AiPointLedgerPort, token: string, usage: WorklogAiUsageCommit): Promise<boolean> {
+  try {
+    const result = await aiPoints.commitAiUsage(token, usage);
+    return result.status === 'COMMITTED';
+  } catch {
+    return false;
+  }
+}
 async function safeRelease(aiPoints: AiPointLedgerPort, token: string) { try { await aiPoints.releaseAi(token); } catch { /* expiry fallback */ } }
 function requiredText(value: string, max: number, error: string) { const normalized = value.trim(); if (!normalized || normalized.length > max) throw new Error(error); return normalized; }
 function positiveId(value: number, error: string) { if (!Number.isSafeInteger(value) || value <= 0) throw new Error(error); return value; }
