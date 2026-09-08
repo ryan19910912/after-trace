@@ -36,6 +36,9 @@ export class DrizzleAiEntitlementRepository implements AiEntitlementRepository {
               (source_row.type = 'PRIVATE' AND source_row.private_user_id = ${userId})
               OR (
                 source_row.type = 'GROUP'
+                AND source_row.line_group_id IS NULL
+                AND source_row.name IS NOT NULL
+                AND length(btrim(source_row.name)) > 0
                 AND EXISTS (
                   SELECT 1
                   FROM worklog_source_members AS member_row
