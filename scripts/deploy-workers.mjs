@@ -158,7 +158,13 @@ async function verifyApiDeployment(origin) {
   try {
     const response = await fetch(`${origin}/health/ready`); const body = await response.json();
     if (response.ok && body?.status === 'ready') { console.log('API readiness: ready'); return; }
-    const expectedBootstrapPending = response.status === 503 && ['AI_RUNTIME_CONFIG_NOT_INITIALIZED', 'FREE_PLAN_NOT_INITIALIZED'].includes(body?.error);
+    const bootstrapPendingErrors = new Set([
+      'AI_RUNTIME_CONFIG_NOT_INITIALIZED',
+      'FREE_PLAN_NOT_INITIALIZED',
+      'AI_PRO_PLAN_NOT_INITIALIZED',
+      'FREE_AI_TRIAL_CONFIG_NOT_INITIALIZED',
+    ]);
+    const expectedBootstrapPending = response.status === 503 && bootstrapPendingErrors.has(body?.error);
     if (expectedBootstrapPending) { console.warn(`API is live; first-environment bootstrap is still pending: ${body.error}`); return; }
     fail(`API /health/ready failed: HTTP ${response.status} ${JSON.stringify(body)}`);
   } catch (error) {
