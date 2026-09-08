@@ -128,7 +128,7 @@ export function TaskRoot({ apiBaseUrl }: Props) {
         <p className="muted">登入後可以建立待辦、設定提醒，並從通知中心查看提醒。</p>
         {error ? <div className="error">{error}</div> : null}
         <button onClick={() => {
-          localStorage.setItem(RETURN_KEY, '/tasks');
+          localStorage.setItem(RETURN_KEY, focusedTaskId ? `/tasks/${focusedTaskId}` : '/tasks');
           window.location.href = '/login';
         }}>登入 AFTERTRACE</button>
       </section>
