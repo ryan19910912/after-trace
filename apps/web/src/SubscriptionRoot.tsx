@@ -6,12 +6,14 @@ import './worklog.css';
 const SESSION_KEY = 'aftertrace.worklog.session';
 
 type NewebPayForm = { action: string; fields: { MerchantID_: string; PostData_: string }; merchantOrderNo: string };
+type PaymentRenewalState = 'ACTIVE' | 'TERMINATED' | 'PENDING' | 'FAILED' | 'NONE';
 
 export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
   const api = useMemo(() => new WorklogApi(apiBaseUrl), [apiBaseUrl]);
   const [session, setSession] = useState<string | null>(() => localStorage.getItem(SESSION_KEY));
   const [data, setData] = useState<SubscriptionPlans | null>(null);
   const [paymentAvailable, setPaymentAvailable] = useState(false);
+  const [renewalState, setRenewalState] = useState<PaymentRenewalState>('NONE');
   const [payerEmail, setPayerEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,10 +40,17 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
       }
       const availability = await paymentAvailability(apiBaseUrl).catch(() => false);
       setPaymentAvailable(availability);
-      if (token) setData(await api.subscriptionPlans(token));
+      if (token) {
+        const [plans, paymentState] = await Promise.all([
+          api.subscriptionPlans(token),
+          subscriptionRenewalState(apiBaseUrl, token),
+        ]);
+        setData(plans);
+        setRenewalState(paymentState);
+      }
     } catch (cause) {
       if (isSessionError(cause)) {
-        localStorage.removeItem(SESSION_KEY); setSession(null); setData(null);
+        localStorage.removeItem(SESSION_KEY); setSession(null); setData(null); setRenewalState('NONE');
         setError('登入已過期，請重新登入 AFTERTRACE。');
       } else setError(cause instanceof Error ? cause.message : '方案載入失敗');
     } finally { setBusy(false); }
@@ -63,7 +72,7 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
       submitProviderForm(form);
     } catch (cause) {
       if (isSessionError(cause)) {
-        localStorage.removeItem(SESSION_KEY); setSession(null); setData(null);
+        localStorage.removeItem(SESSION_KEY); setSession(null); setData(null); setRenewalState('NONE');
         setError('登入已過期，請重新登入 AFTERTRACE。');
       } else setError(paymentError(cause));
       setBusy(false);
@@ -71,7 +80,7 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
   }
 
   async function cancelRenewal() {
-    if (!session || data?.currentPlanCode !== 'AI_PRO' || !paymentAvailable || busy) return;
+    if (!session || data?.currentPlanCode !== 'AI_PRO' || renewalState !== 'ACTIVE' || !paymentAvailable || busy) return;
     if (!window.confirm('確定取消 AI Pro 自動續訂？已付款的本期仍可使用到目前週期結束。')) return;
     setBusy(true); setError(null); setNotice(null);
     try {
@@ -84,7 +93,12 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
       setNotice(periodEnd && !Number.isNaN(periodEnd.getTime())
         ? `已取消 AI Pro 自動續訂，目前方案可使用至 ${periodEnd.toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false })}。`
         : '已取消 AI Pro 自動續訂。');
-      setData(await api.subscriptionPlans(session));
+      const [plans, paymentState] = await Promise.all([
+        api.subscriptionPlans(session),
+        subscriptionRenewalState(apiBaseUrl, session),
+      ]);
+      setData(plans);
+      setRenewalState(paymentState);
     } catch (cause) { setError(paymentError(cause)); }
     finally { setBusy(false); }
   }
@@ -147,8 +161,16 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
 
     {aiProActive ? <section className="panel stack">
       <strong>AI Pro 自動續訂</strong>
-      <p className="muted">取消續訂只會停止下一期藍新扣款；目前已付款週期仍保留到期。</p>
-      <button className="ghost danger" disabled={busy || !paymentAvailable} onClick={() => void cancelRenewal()}>取消 AI Pro 自動續訂</button>
+      {renewalState === 'TERMINATED'
+        ? <div className="worklog-notice">已取消自動續訂。目前 AI Pro 仍可使用到這一期結束，不會再向藍新發出下一期扣款。</div>
+        : <p className="muted">取消續訂只會停止下一期藍新扣款；目前已付款週期仍保留到期。</p>}
+      {renewalState === 'ACTIVE'
+        ? <button className="ghost danger" disabled={busy || !paymentAvailable} onClick={() => void cancelRenewal()}>取消 AI Pro 自動續訂</button>
+        : renewalState === 'PENDING'
+          ? <div className="muted">藍新定期定額狀態仍在處理中。</div>
+          : renewalState === 'FAILED'
+            ? <div className="muted">藍新付款狀態需要確認；目前已付款週期權益不會因此被提前刪除。</div>
+            : null}
     </section> : null}
   </main>;
 }
@@ -156,6 +178,15 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
 async function paymentAvailability(apiBaseUrl: string) {
   const response = await fetch(`${apiBaseUrl.replace(/\/$/, '')}/api/v1/payments/newebpay/availability`);
   const body = await jsonBody(response); return response.ok && body.available === true;
+}
+async function subscriptionRenewalState(apiBaseUrl: string, sessionToken: string): Promise<PaymentRenewalState> {
+  const response = await fetch(`${apiBaseUrl.replace(/\/$/, '')}/api/v1/subscription/plans`, {
+    headers: { Authorization: `Bearer ${sessionToken}` },
+  });
+  const body = await jsonBody(response);
+  if (!response.ok) throw new Error(typeof body.error === 'string' ? body.error : `SUBSCRIPTION_STATE_FAILED_${response.status}`);
+  const value = typeof body.paymentRenewalState === 'string' ? body.paymentRenewalState.toUpperCase() : 'NONE';
+  return value === 'ACTIVE' || value === 'TERMINATED' || value === 'PENDING' || value === 'FAILED' ? value : 'NONE';
 }
 function paymentForm(value: unknown): NewebPayForm {
   if (!value || typeof value !== 'object') throw new Error('NEWEBPAY_FORM_INVALID');
