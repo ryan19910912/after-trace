@@ -20,7 +20,6 @@ import { worklogAiUsageEvents } from './schema-worklog-ai-usage';
 export const worklogAiGrantTypeEnum = pgEnum('worklog_ai_grant_type', [
   'FREE_INITIAL',
   'SUBSCRIPTION_PERIOD',
-  'TOP_UP',
   'ADMIN',
 ]);
 
@@ -112,52 +111,6 @@ export const worklogAiGrantScopes = pgTable(
     unique('worklog_ai_grant_scope_grant_id_uq').on(table.grantId, table.id),
     index('worklog_ai_grant_scope_source_enabled_idx').on(table.sourceId, table.enabled),
   ],
-);
-
-/** Legacy migration-only GROUP AI responsibility. Target product does not depend on it. */
-export const worklogSourceAiResponsibility = pgTable(
-  'worklog_source_ai_responsibility',
-  {
-    sourceId: bigint('source_id', { mode: 'number' })
-      .primaryKey()
-      .references(() => worklogSources.id, { onDelete: 'restrict' }),
-    responsibleUserId: bigint('responsible_user_id', { mode: 'number' })
-      .notNull()
-      .references(() => worklogUsers.id, { onDelete: 'restrict' }),
-    assignedByUserId: bigint('assigned_by_user_id', { mode: 'number' }).references(
-      () => worklogUsers.id,
-      { onDelete: 'restrict' },
-    ),
-    assignedAt: timestamp('assigned_at', { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [index('worklog_source_ai_responsibility_user_idx').on(table.responsibleUserId)],
-);
-
-/** Legacy migration-only responsibility history. */
-export const worklogSourceAiResponsibilityHistory = pgTable(
-  'worklog_source_ai_responsibility_history',
-  {
-    id: bigserial('id', { mode: 'number' }).primaryKey(),
-    sourceId: bigint('source_id', { mode: 'number' })
-      .notNull()
-      .references(() => worklogSources.id, { onDelete: 'restrict' }),
-    previousUserId: bigint('previous_user_id', { mode: 'number' }).references(
-      () => worklogUsers.id,
-      { onDelete: 'restrict' },
-    ),
-    nextUserId: bigint('next_user_id', { mode: 'number' }).references(
-      () => worklogUsers.id,
-      { onDelete: 'restrict' },
-    ),
-    actorUserId: bigint('actor_user_id', { mode: 'number' }).references(
-      () => worklogUsers.id,
-      { onDelete: 'restrict' },
-    ),
-    reason: varchar('reason', { length: 64 }).notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [index('worklog_source_ai_responsibility_history_source_idx').on(table.sourceId, table.createdAt)],
 );
 
 /**
