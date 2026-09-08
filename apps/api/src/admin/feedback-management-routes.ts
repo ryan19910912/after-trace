@@ -69,7 +69,7 @@ export function createAdminFeedbackManagementRoutes() {
         feedback.created_at
       FROM worklog_feedback AS feedback
       LEFT JOIN worklog_users AS profile ON profile.id = feedback.user_id
-      LEFT JOIN worklog_public_account_ids AS public_id ON public_id.user_id = feedback.user_id
+      LEFT JOIN worklog_user_public_accounts AS public_id ON public_id.user_id = feedback.user_id
       LEFT JOIN worklog_feedback_management AS management ON management.feedback_id = feedback.id
       WHERE (${status}::text IS NULL OR COALESCE(management.status, 'OPEN') = ${status})
         AND (${category}::text IS NULL OR COALESCE(management.category, 'OTHER') = ${category})
