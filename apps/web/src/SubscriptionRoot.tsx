@@ -99,8 +99,14 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
       ]);
       setData(plans);
       setRenewalState(paymentState);
-    } catch (cause) { setError(paymentError(cause)); }
-    finally { setBusy(false); }
+    } catch (cause) {
+      if (isSessionError(cause)) {
+        localStorage.removeItem(SESSION_KEY); setSession(null); setData(null); setRenewalState('NONE');
+        setError('登入已過期，請重新登入 AFTERTRACE。');
+      } else {
+        setError(paymentError(cause));
+      }
+    } finally { setBusy(false); }
   }
 
   if (!session) return <main className="shell fatal-shell"><section className="fatal-card">
