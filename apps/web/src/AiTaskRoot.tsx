@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { aiTaskDeepLinkFromSearch } from './ai-task-deep-link';
+import { aiTaskDeepLinkFromSearch, aiTaskDeepLinkUrl } from './ai-task-deep-link';
 import { LoginProviderButtons } from './LoginProviderButtons';
 import { TaskApi } from './task-api';
 import { WorklogApi, type WorklogSurfaces } from './worklog-api';
@@ -20,6 +20,8 @@ type Proposal = {
 export function AiTaskRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
   const worklogApi = useMemo(() => new WorklogApi(apiBaseUrl), [apiBaseUrl]);
   const taskApi = useMemo(() => new TaskApi(apiBaseUrl), [apiBaseUrl]);
+  const deepLink = useMemo(() => aiTaskDeepLinkFromSearch(window.location.search), []);
+  const loginReturn = useMemo(() => deepLink ? aiTaskDeepLinkUrl(deepLink) : '/ai-task', [deepLink]);
   const [session, setSession] = useState<string | null>(() => localStorage.getItem(SESSION_KEY));
   const [surfaces, setSurfaces] = useState<WorklogSurfaces | null>(null);
   const [sourceId, setSourceId] = useState<number | null>(null);
@@ -45,7 +47,6 @@ export function AiTaskRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
       if (!token) return;
       const next = await worklogApi.surfaces(token);
       setSurfaces(next);
-      const deepLink = aiTaskDeepLinkFromSearch(location.search);
       const deepLinkAuthorized = deepLink
         ? next.personal?.sourceId === deepLink.sourceId || next.groups.some((group) => group.sourceId === deepLink.sourceId)
         : false;
@@ -127,7 +128,7 @@ export function AiTaskRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
     <p className="eyebrow">AFTERTRACE AI</p><h1>AI 待辦提案</h1>
     <p className="muted">AI 只會提出待辦內容；你確認後才會真正建立 Task。</p>
     {error ? <div className="error">{error}</div> : null}
-    <LoginProviderButtons apiBaseUrl={apiBaseUrl} returnTo="/ai-task" />
+    <LoginProviderButtons apiBaseUrl={apiBaseUrl} returnTo={loginReturn} />
   </section></main>;
 
   return <main className="shell worklog-shell">
