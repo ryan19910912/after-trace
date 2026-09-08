@@ -66,13 +66,10 @@ if (component === 'all' || component === 'admin') {
 
 console.log('');
 console.log(`AFTERTRACE ${environment.toUpperCase()} deployment completed.`);
-if (component === 'all' || component === 'api') {
-  console.log(`API runtime bindings were uploaded from .env.${environment} using a temporary Wrangler secrets file and the temporary file was deleted after deployment.`);
-}
 
 function requireApiRuntimeBindings() {
   const names = [
-    'DATABASE_URL', 'LINE_CHANNEL_SECRET', 'LINE_CHANNEL_ACCESS_TOKEN', 'GEMINI_API_KEY',
+    'DATABASE_URL', 'GEMINI_API_KEY',
     'WEB_APP_URL', 'WEB_APP_ORIGIN', 'WEB_AUTH_SECRET',
     'LINE_LOGIN_CHANNEL_ID', 'LINE_LOGIN_CHANNEL_SECRET',
     'GOOGLE_LOGIN_CLIENT_ID', 'GOOGLE_LOGIN_CLIENT_SECRET',
@@ -86,11 +83,15 @@ function requireApiRuntimeBindings() {
     values[name] = value;
   }
 
-  const appleNames = ['APPLE_LOGIN_CLIENT_ID','APPLE_LOGIN_TEAM_ID','APPLE_LOGIN_KEY_ID','APPLE_LOGIN_PRIVATE_KEY_P8_BASE64'];
-  copyOptionalGroup(values, appleNames, 'Apple Login');
+  copyOptionalGroup(values, [
+    'APPLE_LOGIN_CLIENT_ID',
+    'APPLE_LOGIN_TEAM_ID',
+    'APPLE_LOGIN_KEY_ID',
+    'APPLE_LOGIN_PRIVATE_KEY_P8_BASE64',
+  ], 'Apple Login');
 
-  const newebPayRequired = ['NEWEBPAY_MERCHANT_ID','NEWEBPAY_HASH_KEY','NEWEBPAY_HASH_IV','NEWEBPAY_NOTIFY_URL','NEWEBPAY_RETURN_URL'];
-  const newebPayOptional = ['NEWEBPAY_MODE','NEWEBPAY_PERIOD_VERSION','NEWEBPAY_PERIOD_TIMES'];
+  const newebPayRequired = ['NEWEBPAY_MERCHANT_ID', 'NEWEBPAY_HASH_KEY', 'NEWEBPAY_HASH_IV', 'NEWEBPAY_NOTIFY_URL', 'NEWEBPAY_RETURN_URL'];
+  const newebPayOptional = ['NEWEBPAY_MODE', 'NEWEBPAY_PERIOD_VERSION', 'NEWEBPAY_PERIOD_TIMES'];
   const configuredNewebPay = newebPayRequired.filter((name) => Boolean(process.env[name]?.trim()));
   if (configuredNewebPay.length > 0 && configuredNewebPay.length !== newebPayRequired.length) {
     fail(`NewebPay is optional until merchant setup is supplied, but if enabled all of ${newebPayRequired.join(', ')} must be set in .env.${environment}.`);
@@ -104,10 +105,10 @@ function requireApiRuntimeBindings() {
     if (values.NEWEBPAY_HASH_KEY.length !== 32) fail(`NEWEBPAY_HASH_KEY must be exactly 32 characters in .env.${environment}.`);
     if (values.NEWEBPAY_HASH_IV.length !== 16) fail(`NEWEBPAY_HASH_IV must be exactly 16 characters in .env.${environment}.`);
     const mode = (values.NEWEBPAY_MODE ?? 'TEST').toUpperCase();
-    if (!['TEST','PROD'].includes(mode)) fail(`NEWEBPAY_MODE must be TEST or PROD in .env.${environment}.`);
+    if (!['TEST', 'PROD'].includes(mode)) fail(`NEWEBPAY_MODE must be TEST or PROD in .env.${environment}.`);
     values.NEWEBPAY_MODE = mode;
     const times = Number(values.NEWEBPAY_PERIOD_TIMES ?? '99');
-    if (!Number.isSafeInteger(times) || times < 2 || times > 99) fail(`NEWEBPAY_PERIOD_TIMES must be an integer from 2 to 99.`);
+    if (!Number.isSafeInteger(times) || times < 2 || times > 99) fail('NEWEBPAY_PERIOD_TIMES must be an integer from 2 to 99.');
   }
 
   if (values.WEB_AUTH_SECRET.length < 32) fail(`WEB_AUTH_SECRET must be at least 32 characters in .env.${environment}.`);
@@ -121,7 +122,9 @@ function copyOptionalGroup(values, names, label) {
   if (configured.length > 0 && configured.length !== names.length) {
     fail(`${label} is optional, but if enabled all of ${names.join(', ')} must be set in .env.${environment}.`);
   }
-  if (configured.length === names.length) for (const name of names) values[name] = process.env[name].trim();
+  if (configured.length === names.length) {
+    for (const name of names) values[name] = process.env[name].trim();
+  }
 }
 
 function requireOrigin(name) {
@@ -146,26 +149,33 @@ function assertEnvironmentHost(origin, expectedWorkerName) {
 }
 
 async function verifyApiDeployment(origin) {
-  console.log(''); console.log('==> Verify API Worker liveness');
-  let health;
+  console.log('');
+  console.log('==> Verify API Worker liveness');
   try {
-    const response = await fetch(`${origin}/health`); health = await response.json();
-    if (!response.ok || health?.status !== 'ok') fail(`API /health failed: HTTP ${response.status} ${JSON.stringify(health)}`);
-  } catch (error) { fail(`API /health request failed: ${error instanceof Error ? error.message : String(error)}`); }
-  console.log(`API liveness: ${health.status}`);
+    const response = await fetch(`${origin}/health`);
+    const body = await response.json();
+    if (!response.ok || body?.status !== 'ok') fail(`API /health failed: HTTP ${response.status} ${JSON.stringify(body)}`);
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('AFTERTRACE deploy failed:')) throw error;
+    fail(`API /health request failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
 
-  console.log(''); console.log('==> Verify API Worker readiness');
+  console.log('');
+  console.log('==> Verify API Worker readiness');
   try {
-    const response = await fetch(`${origin}/health/ready`); const body = await response.json();
-    if (response.ok && body?.status === 'ready') { console.log('API readiness: ready'); return; }
+    const response = await fetch(`${origin}/health/ready`);
+    const body = await response.json();
+    if (response.ok && body?.status === 'ready') return;
     const bootstrapPendingErrors = new Set([
       'AI_RUNTIME_CONFIG_NOT_INITIALIZED',
       'FREE_PLAN_NOT_INITIALIZED',
       'AI_PRO_PLAN_NOT_INITIALIZED',
       'FREE_AI_TRIAL_CONFIG_NOT_INITIALIZED',
     ]);
-    const expectedBootstrapPending = response.status === 503 && bootstrapPendingErrors.has(body?.error);
-    if (expectedBootstrapPending) { console.warn(`API is live; first-environment bootstrap is still pending: ${body.error}`); return; }
+    if (response.status === 503 && bootstrapPendingErrors.has(body?.error)) {
+      console.warn(`API is live; first-environment bootstrap is still pending: ${body.error}`);
+      return;
+    }
     fail(`API /health/ready failed: HTTP ${response.status} ${JSON.stringify(body)}`);
   } catch (error) {
     if (error instanceof Error && error.message.startsWith('AFTERTRACE deploy failed:')) throw error;
@@ -178,10 +188,18 @@ function runWrangler(label, configPath, args) {
 }
 
 function run(label, command, args) {
-  console.log(''); console.log(`==> ${label}`);
-  const result = spawnSync(command, args, { cwd: root, env: process.env, stdio: 'inherit', shell: process.platform === 'win32' });
+  console.log('');
+  console.log(`==> ${label}`);
+  const result = spawnSync(command, args, {
+    cwd: root,
+    env: process.env,
+    stdio: 'inherit',
+    shell: process.platform === 'win32',
+  });
   if (result.error) fail(`${label} could not start: ${result.error.message}`);
   if (result.status !== 0) fail(`${label} failed with exit code ${result.status ?? 'unknown'}`);
 }
 
-function fail(message) { throw new Error(`AFTERTRACE deploy failed: ${message}`); }
+function fail(message) {
+  throw new Error(`AFTERTRACE deploy failed: ${message}`);
+}
