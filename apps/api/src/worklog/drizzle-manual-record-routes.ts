@@ -24,7 +24,7 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
   async personalSourceId(userId: number): Promise<number | null> {
     const result = await this.database.execute(sql`
       SELECT source.id::text AS id
-      FROM worklog_sources source
+      FROM worklog_sources AS source
       WHERE source.type = 'PRIVATE'
         AND source.status = 'ACTIVE'
         AND source.private_user_id = ${userId}
@@ -37,12 +37,11 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
     const result = await this.database.execute(sql`
       SELECT EXISTS (
         SELECT 1
-        FROM worklog_sources source
-        INNER JOIN worklog_source_members member ON member.source_id = source.id
+        FROM worklog_sources AS source
+        INNER JOIN worklog_source_members AS member ON member.source_id = source.id
         WHERE source.id = ${sourceId}
           AND source.type = 'GROUP'
           AND source.status = 'ACTIVE'
-          AND source.line_group_id IS NULL
           AND source.name IS NOT NULL
           AND length(btrim(source.name)) > 0
           AND member.user_id = ${userId}
@@ -50,20 +49,6 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
       ) AS allowed
     `);
     return Boolean((result.rows[0] as { allowed?: boolean } | undefined)?.allowed);
-  }
-
-  async legacyEntity(sourceId: number, entityId: number): Promise<{ id: number; name: string } | null> {
-    const result = await this.database.execute(sql`
-      SELECT entity.id::text AS id, entity.name
-      FROM worklog_entities entity
-      WHERE entity.id = ${entityId}
-        AND entity.source_id = ${sourceId}
-        AND entity.status = 'ACTIVE'
-      LIMIT 1
-    `);
-    const row = result.rows[0] as { id?: string; name?: string } | undefined;
-    const id = databaseId(row?.id);
-    return id && row?.name ? { id, name: row.name } : null;
   }
 
   async listRecords(input: {
@@ -75,7 +60,6 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
     const result = await this.database.execute(sql`
       SELECT record.id::text AS id,
              record.source_id::text AS source_id,
-             record.entity_id::text AS entity_id,
              record.title,
              record.author_user_id::text AS author_user_id,
              author.display_name AS author_display_name,
@@ -88,8 +72,8 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
              record.deleted_at,
              record.created_at,
              record.updated_at
-      FROM worklog_records record
-      LEFT JOIN worklog_users author ON author.id = record.author_user_id
+      FROM worklog_records AS record
+      LEFT JOIN worklog_users AS author ON author.id = record.author_user_id
       WHERE record.source_id = ${sourceId}
         AND record.status = ${status}
         AND (
@@ -137,13 +121,11 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
     captureContext: ManualRecordView['captureContext'];
     occurredAt: Date | null;
     title: string | null;
-    entityId: number | null;
   }): Promise<ManualRecordView> {
     const captureContextJson = input.captureContext ? JSON.stringify(input.captureContext) : null;
     const result = await this.database.execute(sql`
       INSERT INTO worklog_records (
         source_id,
-        entity_id,
         author_user_id,
         input_type,
         raw_text,
@@ -158,7 +140,6 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
         updated_at
       ) VALUES (
         ${input.sourceId},
-        ${input.entityId},
         ${input.actorUserId},
         'TEXT',
         ${input.rawText},
@@ -200,7 +181,7 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
           AND version = ${input.expectedVersion}
         LIMIT 1
       ), updated AS (
-        UPDATE worklog_records record
+        UPDATE worklog_records AS record
         SET raw_text = ${input.rawText},
             occurred_at = ${input.occurredAt},
             status = ${input.status},
@@ -222,8 +203,6 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
           new_raw_text,
           previous_occurred_at,
           new_occurred_at,
-          previous_entity_id,
-          new_entity_id,
           previous_status,
           new_status,
           created_at
@@ -236,8 +215,6 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
                updated.raw_text,
                previous.occurred_at,
                updated.occurred_at,
-               previous.entity_id,
-               updated.entity_id,
                previous.status,
                updated.status,
                NOW()
@@ -264,15 +241,11 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
              revision.new_raw_text,
              revision.previous_occurred_at,
              revision.new_occurred_at,
-             revision.previous_entity_id::text AS previous_entity_id,
-             NULL::text AS previous_title,
-             revision.new_entity_id::text AS new_entity_id,
-             NULL::text AS new_title,
              revision.previous_status,
              revision.new_status,
              revision.created_at
-      FROM worklog_record_revisions revision
-      LEFT JOIN worklog_users editor ON editor.id = revision.editor_user_id
+      FROM worklog_record_revisions AS revision
+      LEFT JOIN worklog_users AS editor ON editor.id = revision.editor_user_id
       WHERE revision.record_id = ${recordId}
       ORDER BY revision.version DESC, revision.id DESC
       LIMIT 200
@@ -285,7 +258,6 @@ function recordSelectSql(recordId: number) {
   return sql`
     SELECT record.id::text AS id,
            record.source_id::text AS source_id,
-           record.entity_id::text AS entity_id,
            record.title,
            record.author_user_id::text AS author_user_id,
            author.display_name AS author_display_name,
@@ -298,8 +270,8 @@ function recordSelectSql(recordId: number) {
            record.deleted_at,
            record.created_at,
            record.updated_at
-    FROM worklog_records record
-    LEFT JOIN worklog_users author ON author.id = record.author_user_id
+    FROM worklog_records AS record
+    LEFT JOIN worklog_users AS author ON author.id = record.author_user_id
     WHERE record.id = ${recordId}
     LIMIT 1
   `;
@@ -309,7 +281,6 @@ function recordView(raw: Record<string, unknown>): ManualRecordView {
   return {
     id: Number(raw.id),
     sourceId: Number(raw.source_id),
-    entityId: nullableNumber(raw.entity_id),
     title: nullableString(raw.title),
     authorUserId: nullableNumber(raw.author_user_id),
     authorDisplayName: nullableString(raw.author_display_name),
@@ -349,10 +320,6 @@ function revisionView(raw: Record<string, unknown>): ManualRecordRevisionView {
     newRawText: String(raw.new_raw_text ?? ''),
     previousOccurredAt: dateString(raw.previous_occurred_at),
     newOccurredAt: dateString(raw.new_occurred_at),
-    previousEntityId: nullableNumber(raw.previous_entity_id),
-    previousTitle: nullableString(raw.previous_title),
-    newEntityId: nullableNumber(raw.new_entity_id),
-    newTitle: nullableString(raw.new_title),
     previousStatus: String(raw.previous_status) as ManualRecordRevisionView['previousStatus'],
     newStatus: String(raw.new_status) as ManualRecordRevisionView['newStatus'],
     createdAt: dateString(raw.created_at) ?? '',
