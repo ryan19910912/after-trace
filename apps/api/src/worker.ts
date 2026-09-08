@@ -45,9 +45,6 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    if (path === '/webhooks/line') return retired('LINE_WEBHOOK_RETIRED');
-    if (isRetiredLegacyPath(path)) return retired('LEGACY_AFTERTRACE_RUNTIME_RETIRED');
-
     if (path === '/api/v1/admin/accounts') {
       return routed(adminAccountLookupRoutes, request, env, executionContext, '/api/v1/admin/accounts', 'ADMIN_API');
     }
@@ -102,9 +99,6 @@ export default {
     if (isManualRecordPath(path)) {
       return routed(manualRecordRoutes, request, env, executionContext, '/api/v1/worklog', 'WORKLOG_WEB_API');
     }
-    if (path === '/api/v1/worklog' || path.startsWith('/api/v1/worklog/')) {
-      return retired('LEGACY_WORKLOG_ROUTE_RETIRED');
-    }
 
     return app.fetch(request, env, executionContext as never);
   },
@@ -128,14 +122,6 @@ function isManualRecordPath(path: string): boolean {
   return /^\/api\/v1\/worklog\/records\/\d+(?:\/restore|\/revisions)?$/.test(path);
 }
 
-function isRetiredLegacyPath(path: string): boolean {
-  if (path === '/api/v1/auth/groups' || path === '/api/v1/auth/memories' || path === '/api/v1/auth/entry/exchange') return true;
-  if (path === '/api/v1/worklog/funding' || path.startsWith('/api/v1/worklog/funding/')) return true;
-  if (path === '/api/v1/worklog/confirmations' || path.startsWith('/api/v1/worklog/confirmations/')) return true;
-  return ['/api/v1/management', '/api/v1/energy', '/api/v1/internal/commerce', '/api/v1/internal/proactive']
-    .some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
-}
-
 async function routed(
   routeApp: { fetch(request: Request, env?: unknown, executionCtx?: unknown): Response | Promise<Response> },
   request: Request,
@@ -149,10 +135,6 @@ async function routed(
   rewritten.pathname = sourceUrl.pathname.slice(prefix.length) || '/';
   return withApiErrorBoundary(boundary, request, () =>
     routeApp.fetch(new Request(rewritten, request), env as never, executionContext as never));
-}
-
-function retired(error: string): Response {
-  return Response.json({ ok: false, error }, { status: 410, headers: { 'Cache-Control': 'no-store' } });
 }
 
 async function shouldKickPushAfterAdminAnnouncement(request: Request, response: Response): Promise<boolean> {
