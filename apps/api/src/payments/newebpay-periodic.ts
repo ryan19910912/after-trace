@@ -1,5 +1,6 @@
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+const ALTER_STATUS_VERSION = '1.0';
 
 export type NewebPayPeriodicConfig = {
   merchantId: string;
@@ -87,7 +88,9 @@ export async function buildAlterStatusRequest(input: {
   const now = validDate(input.now ?? new Date());
   const inner = new URLSearchParams({
     RespondType: 'JSON',
-    Version: config.version,
+    // NewebPay Period checkout currently uses 1.5, while the AlterStatus endpoint
+    // has its own API contract/version. Do not reuse the checkout version here.
+    Version: ALTER_STATUS_VERSION,
     TimeStamp: String(Math.floor(now.getTime() / 1000)),
     MerOrderNo: orderNo(input.merchantOrderNo),
     PeriodNo: periodNoValue(input.periodNo),
@@ -142,7 +145,7 @@ export function callbackSuccess(value: NewebPayPeriodicResult): boolean {
 export function parseNewebPayTaipeiDate(value: string | null): Date | null {
   if (!value) return null;
   const normalized = value.trim();
-  let match = /^(\d{4})[-/]?(\d{2})[-/]?(\d{2})(?:[ T]?(\d{2}):?(\d{2})?:?(\d{2})?)?$/.exec(normalized);
+  const match = /^(\d{4})[-/]?(\d{2})[-/]?(\d{2})(?:[ T]?(\d{2}):?(\d{2})?:?(\d{2})?)?$/.exec(normalized);
   if (!match) return null;
   const year = Number(match[1]);
   const month = Number(match[2]);
