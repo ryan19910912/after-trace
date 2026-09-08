@@ -201,31 +201,32 @@ export class DrizzleWorklogRecordReadRepository implements WorklogRecordReadRepo
     return id ? Number(id) : null;
   }
 
-  /** Target PWA GROUP discovery is native membership; LINE id is migration trace only. */
+  /** Customer target GROUP discovery includes AFTERTRACE-native groups only. */
   async listActiveGroupSurfaces(userId: number): Promise<WorklogGroupSurface[]> {
     const result = await this.db.execute(sql`
       SELECT source.id::text AS source_id,
-             COALESCE(NULLIF(btrim(source.name), ''), source.line_group_id) AS name,
-             member.role,
-             source.line_group_id AS legacy_line_group_id
+             btrim(source.name) AS name,
+             member.role
       FROM worklog_source_members AS member
       INNER JOIN worklog_sources AS source ON source.id = member.source_id
       WHERE member.user_id = ${userId}
         AND member.is_active = TRUE
         AND source.type = 'GROUP'
         AND source.status = 'ACTIVE'
+        AND source.line_group_id IS NULL
+        AND source.name IS NOT NULL
+        AND length(btrim(source.name)) > 0
       ORDER BY source.updated_at DESC, source.id DESC
     `);
     return (result.rows as Array<{
       source_id: string;
-      name: string | null;
+      name: string;
       role: 'OWNER' | 'MEMBER';
-      legacy_line_group_id: string | null;
     }>).map((row) => ({
       sourceId: Number(row.source_id),
-      name: row.name ?? `群組 ${row.source_id}`,
+      name: row.name,
       role: row.role,
-      legacyLineGroupId: row.legacy_line_group_id,
+      legacyLineGroupId: null,
     }));
   }
 
@@ -240,6 +241,9 @@ export class DrizzleWorklogRecordReadRepository implements WorklogRecordReadRepo
           AND member.is_active = TRUE
           AND source.type = 'GROUP'
           AND source.status = 'ACTIVE'
+          AND source.line_group_id IS NULL
+          AND source.name IS NOT NULL
+          AND length(btrim(source.name)) > 0
       ) AS allowed
     `);
     return Boolean((result.rows[0] as { allowed?: boolean } | undefined)?.allowed);
@@ -250,7 +254,7 @@ export class DrizzleWorklogRecordReadRepository implements WorklogRecordReadRepo
       SELECT record.id::text AS id,
              record.source_id::text AS source_id,
              record.entity_id::text AS entity_id,
-             COALESCE(record.title, entity.name) AS title,
+             record.title,
              record.author_user_id::text AS author_user_id,
              record.input_type,
              record.raw_text,
@@ -261,7 +265,6 @@ export class DrizzleWorklogRecordReadRepository implements WorklogRecordReadRepo
              record.created_at,
              record.updated_at
       FROM worklog_records AS record
-      LEFT JOIN worklog_entities AS entity ON entity.id = record.entity_id
       WHERE record.source_id = ${sourceId}
         AND record.status = 'ACTIVE'
       ORDER BY COALESCE(record.occurred_at, record.created_at) DESC, record.id DESC
