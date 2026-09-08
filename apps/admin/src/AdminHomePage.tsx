@@ -54,7 +54,7 @@ export function AdminHomePage({ api }: { api: AdminApi }) {
 
   return <main className="shell">
     <header className="topbar">
-      <div><p className="eyebrow">AFTERTRACE</p><h1>V1 管理後台</h1><p className="muted">{username} · 目前商業模型固定 FREE + AI Pro NT$99/月。</p></div>
+      <div><p className="eyebrow">AFTERTRACE</p><h1>V1 管理後台</h1><p className="muted">{username} · 商業模型固定 FREE + AI Pro NT$99/月。</p></div>
       <button className="ghost" onClick={logout}>登出</button>
     </header>
 
@@ -73,13 +73,8 @@ export function AdminHomePage({ api }: { api: AdminApi }) {
 
       <article className="card">
         <h2>使用者溝通</h2>
-        <p className="muted">公告與意見回饋都走 AFTERTRACE durable domain；LINE OA 僅保留外部聯絡客服。</p>
+        <p className="muted">公告與意見回饋都走 AFTERTRACE durable domain；LINE OA 僅作外部聯絡客服。</p>
         <div className="header-actions"><a href="/announcements">公告管理</a><a href="/feedback-management">意見回饋管理</a></div>
-      </article>
-
-      <article className="card">
-        <h2>已退役產品面</h2>
-        <p className="muted">LINE GROUP funding owner、AI 額度負責人、ONE_TIME / TOP_UP 與舊 LINE 管理操作不再提供 Admin 導航入口。舊程式碼只暫留作 migration cleanup，不代表 V1 可用功能。</p>
       </article>
     </section>
   </main>;
