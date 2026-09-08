@@ -65,21 +65,8 @@ export type AiTimeRangeSummaryResult =
   | { status: 'FAILED'; reason: string };
 
 const MAX_RECORDS = 200;
-/**
- * V1 provider request safety boundary. Record count alone is not a sufficient bound because
- * manual Records may each contain large text. Keep provider input comfortably below a huge
- * multi-megabyte prompt while still supporting useful weekly/monthly summaries.
- */
 const MAX_PROVIDER_RECORD_CHARS = 120_000;
 
-/**
- * Provider-backed time-range summary.
- *
- * Source authorization/entitlement and operator capability are checked before Record retrieval.
- * PostgreSQL deterministically selects a bounded exact-Source/time-range Record set; only that
- * bounded set is sent to the provider. The summary is transient product output and never mutates
- * durable Records.
- */
 export class AiTimeRangeSummaryService {
   constructor(
     private readonly repository: AiTimeRangeSummaryRepository,
@@ -176,7 +163,9 @@ export class AiTimeRangeSummaryService {
     const summary = response.summary.trim();
     const usage = usageFromProvider(config, response);
     if (!summary || summary.length > 12_000) {
-      await settleProviderSuccess(this.aiPoints, token, usage);
+      if (!(await settleProviderSuccess(this.aiPoints, token, usage))) {
+        return { status: 'FAILED', reason: 'AI_USAGE_SETTLEMENT_FAILED' };
+      }
       return { status: 'FAILED', reason: 'AI_SUMMARY_OUTPUT_INVALID' };
     }
 
@@ -203,7 +192,6 @@ function boundedProviderRecords(fetched: AiTimeRangeSummaryRecord[]): {
   const records: AiTimeRangeSummaryRecord[] = [];
   let chars = 0;
   for (const record of candidates) {
-    // Reserve a small fixed envelope for id/type/timestamps/JSON formatting in the provider prompt.
     const nextChars = record.rawText.length + (record.title?.length ?? 0) + 128;
     if (records.length > 0 && chars + nextChars > MAX_PROVIDER_RECORD_CHARS) break;
     records.push(record);
@@ -249,8 +237,9 @@ function blockedDecision(preliminary: AiEntitlementDecision, reservationStatus: 
   };
 }
 
-async function settleProviderSuccess(aiPoints: AiPointLedgerPort, token: string, usage: WorklogAiUsageCommit) {
-  try { await aiPoints.commitAiUsage(token, usage); } catch { /* durable diagnostics retain settlement failure */ }
+async function settleProviderSuccess(aiPoints: AiPointLedgerPort, token: string, usage: WorklogAiUsageCommit): Promise<boolean> {
+  try { return (await aiPoints.commitAiUsage(token, usage)).status === 'COMMITTED'; }
+  catch { return false; }
 }
 async function safeRelease(aiPoints: AiPointLedgerPort, token: string) {
   try { await aiPoints.releaseAi(token); } catch { /* reservation expiry is fallback */ }
