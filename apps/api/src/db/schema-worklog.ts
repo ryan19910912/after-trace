@@ -37,43 +37,17 @@ export const worklogSubscriptionSourceEnum = pgEnum('worklog_subscription_source
   'PAYMENT',
   'ADMIN',
 ]);
-export const worklogPlanTypeEnum = pgEnum('worklog_plan_type', ['FREE', 'SUBSCRIPTION', 'ONE_TIME']);
-export const worklogFeedbackChannelEnum = pgEnum('worklog_feedback_channel', ['LINE_OA', 'PWA']);
-export const worklogAnomalySeverityEnum = pgEnum('worklog_anomaly_severity', [
-  'INFO',
-  'WARNING',
-  'ERROR',
-  'CRITICAL',
-]);
-export const worklogAnomalyStatusEnum = pgEnum('worklog_anomaly_status', [
-  'OPEN',
-  'RESOLVED',
-  'IGNORED',
-]);
+export const worklogPlanTypeEnum = pgEnum('worklog_plan_type', ['FREE', 'SUBSCRIPTION']);
+export const worklogFeedbackChannelEnum = pgEnum('worklog_feedback_channel', ['PWA']);
 
-export const worklogUsers = pgTable(
-  'worklog_users',
-  {
-    id: bigserial('id', { mode: 'number' }).primaryKey(),
-    // Nullable during migration so future Web/PWA accounts are not required to have LINE identity.
-    lineUserId: varchar('line_user_id', { length: 64 }).unique('worklog_user_line_user_uq'),
-    displayName: varchar('display_name', { length: 255 }),
-    isOaFriend: boolean('is_oa_friend').default(false).notNull(),
-    firstOaAddedAt: timestamp('first_oa_added_at', { withTimezone: true }),
-    oaFriendStateAt: timestamp('oa_friend_state_at', { withTimezone: true }),
-    lastInteractionAt: timestamp('last_interaction_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [index('worklog_user_oa_updated_idx').on(table.isOaFriend, table.updatedAt)],
-);
+export const worklogUsers = pgTable('worklog_users', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  displayName: varchar('display_name', { length: 255 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
 
-/**
- * Transitional storage container retained while bootstrap/auth still carry workspace_id.
- * Universal Record semantics, GROUP authorization and AI funding must not depend on the
- * workspace owner. The Source-centric rebuild can remove this storage parent in a later
- * schema batch without changing customer authorization semantics.
- */
+/** Internal storage container currently used by onboarding and audit linkage. */
 export const worklogWorkspaces = pgTable(
   'worklog_workspaces',
   {
@@ -88,13 +62,7 @@ export const worklogWorkspaces = pgTable(
   (table) => [uniqueIndex('worklog_workspace_owner_uq').on(table.ownerUserId)],
 );
 
-/**
- * Durable PRIVATE/GROUP data boundary.
- *
- * Target GROUP authorization is native AFTERTRACE membership. line_group_id remains only
- * as a legacy migration identity; a native GROUP instead carries a non-empty name and no
- * LINE group id.
- */
+/** Durable PRIVATE/GROUP authorization boundary. GROUP is always AFTERTRACE-native. */
 export const worklogSources = pgTable(
   'worklog_sources',
   {
@@ -112,7 +80,6 @@ export const worklogSources = pgTable(
       () => worklogUsers.id,
       { onDelete: 'restrict' },
     ),
-    lineGroupId: varchar('line_group_id', { length: 64 }).unique('worklog_source_line_group_uq'),
     inactiveAt: timestamp('inactive_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -125,12 +92,9 @@ export const worklogSources = pgTable(
     check(
       'worklog_source_identity_shape_ck',
       sql`(
-        (${table.type} = 'PRIVATE' AND ${table.privateUserId} IS NOT NULL AND ${table.lineGroupId} IS NULL)
+        (${table.type} = 'PRIVATE' AND ${table.privateUserId} IS NOT NULL AND ${table.name} IS NULL)
         OR
-        (${table.type} = 'GROUP' AND ${table.privateUserId} IS NULL AND (
-          ${table.lineGroupId} IS NOT NULL
-          OR (${table.name} IS NOT NULL AND length(btrim(${table.name})) > 0)
-        ))
+        (${table.type} = 'GROUP' AND ${table.privateUserId} IS NULL AND ${table.name} IS NOT NULL AND length(btrim(${table.name})) > 0)
       )`,
     ),
   ],
@@ -160,10 +124,6 @@ export const worklogSourceMembers = pgTable(
   ],
 );
 
-/**
- * Commercial offer template. Legacy grant_points remains for historical accounting while
- * the target paid-AI product moves to per-user subscription-period hard caps.
- */
 export const worklogSubscriptionPlans = pgTable(
   'worklog_subscription_plans',
   {
@@ -188,11 +148,11 @@ export const worklogSubscriptionPlans = pgTable(
   },
   (table) => [
     check(
-      'worklog_plan_free_identity_ck',
+      'worklog_plan_v1_identity_ck',
       sql`(
-        (${table.code} = 'FREE' AND ${table.planType} = 'FREE' AND ${table.priceTwd} = 0)
+        (${table.code} = 'FREE' AND ${table.planType} = 'FREE' AND ${table.priceTwd} = 0 AND ${table.aiEnabled} = FALSE)
         OR
-        (${table.code} <> 'FREE' AND ${table.planType} <> 'FREE')
+        (${table.code} = 'AI_PRO' AND ${table.planType} = 'SUBSCRIPTION' AND ${table.priceTwd} = 99 AND ${table.aiEnabled} = TRUE)
       )`,
     ),
     check('worklog_plan_grant_points_ck', sql`${table.grantPoints} >= 0`),
@@ -210,7 +170,7 @@ export const worklogSubscriptionPlans = pgTable(
         ${table.aiEnabled} = FALSE
         OR (
           ${table.planType} = 'SUBSCRIPTION'
-          AND ${table.priceTwd} > 0
+          AND ${table.priceTwd} = 99
           AND ${table.monthlyAiPointCap} IS NOT NULL
           AND ${table.monthlyProviderCostCapTwd} IS NOT NULL
         )
@@ -287,40 +247,12 @@ export const worklogFeedback = pgTable(
       .notNull()
       .references(() => worklogUsers.id, { onDelete: 'restrict' }),
     displayNameSnapshot: varchar('display_name_snapshot', { length: 255 }),
-    channel: worklogFeedbackChannelEnum('channel').notNull(),
+    channel: worklogFeedbackChannelEnum('channel').default('PWA').notNull(),
     text: text('text').notNull(),
     context: jsonb('context'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [index('worklog_feedback_created_idx').on(table.createdAt)],
-);
-
-export const worklogAnomalyEvents = pgTable(
-  'worklog_anomaly_events',
-  {
-    id: bigserial('id', { mode: 'number' }).primaryKey(),
-    category: varchar('category', { length: 128 }).notNull(),
-    severity: worklogAnomalySeverityEnum('severity').default('ERROR').notNull(),
-    status: worklogAnomalyStatusEnum('status').default('OPEN').notNull(),
-    errorCode: varchar('error_code', { length: 128 }),
-    summary: text('summary').notNull(),
-    userId: bigint('user_id', { mode: 'number' }).references(() => worklogUsers.id, {
-      onDelete: 'restrict',
-    }),
-    sourceId: bigint('source_id', { mode: 'number' }).references(() => worklogSources.id, {
-      onDelete: 'restrict',
-    }),
-    lineMessageId: varchar('line_message_id', { length: 64 }),
-    requestRef: varchar('request_ref', { length: 255 }),
-    metadata: jsonb('metadata'),
-    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => [
-    index('worklog_anomaly_status_severity_time_idx').on(table.status, table.severity, table.createdAt),
-    index('worklog_anomaly_user_idx').on(table.userId),
-  ],
 );
 
 export const worklogAuditLogs = pgTable(
