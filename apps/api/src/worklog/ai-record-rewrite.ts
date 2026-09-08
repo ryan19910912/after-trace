@@ -134,7 +134,9 @@ export class AiRecordRewriteService {
     const proposedText = response.proposedText.trim();
     const usage = usageFromProvider(config, response, recordId);
     if (!proposedText || proposedText.length > 20_000) {
-      await settleProviderSuccess(this.aiPoints, token, usage);
+      if (!(await settleProviderSuccess(this.aiPoints, token, usage))) {
+        return { status: 'FAILED', reason: 'AI_USAGE_SETTLEMENT_FAILED' };
+      }
       return { status: 'FAILED', reason: 'AI_REWRITE_OUTPUT_INVALID' };
     }
     const settled = await this.aiPoints.commitAiUsage(token, usage);
@@ -173,8 +175,9 @@ function blockedDecision(preliminary: AiEntitlementDecision, status: string, res
     : preliminary.source === 'FREE_TRIAL' ? 'TRIAL_EXHAUSTED' : 'MONTHLY_POINT_CAP_REACHED';
   return { source: 'BLOCKED', allowed: false, reason, remainingPoints: reason === 'PER_REQUEST_POINT_CAP_EXCEEDED' ? preliminary.remainingPoints : 0, periodEndsAt: preliminary.periodEndsAt, perRequestAiPointCap: preliminary.perRequestAiPointCap };
 }
-async function settleProviderSuccess(aiPoints: AiPointLedgerPort, token: string, usage: WorklogAiUsageCommit) {
-  try { await aiPoints.commitAiUsage(token, usage); } catch { /* durable diagnostics retain settlement failure */ }
+async function settleProviderSuccess(aiPoints: AiPointLedgerPort, token: string, usage: WorklogAiUsageCommit): Promise<boolean> {
+  try { return (await aiPoints.commitAiUsage(token, usage)).status === 'COMMITTED'; }
+  catch { return false; }
 }
 async function safeRelease(aiPoints: AiPointLedgerPort, token: string) {
   try { await aiPoints.releaseAi(token); } catch { /* reservation expiry is fallback */ }
