@@ -1,6 +1,6 @@
 export type WorklogSubscriptionStatus = 'ACTIVE' | 'PAST_DUE' | 'CANCELED' | 'EXPIRED';
 export type WorklogSubscriptionSource = 'FREE' | 'PAYMENT' | 'ADMIN';
-export type WorklogPlanType = 'FREE' | 'SUBSCRIPTION' | 'ONE_TIME';
+export type WorklogPlanType = 'FREE' | 'SUBSCRIPTION';
 
 export type WorklogSubscriptionPlanTemplate = {
   code: string;
@@ -74,8 +74,7 @@ export type WorklogSubscriptionPeriodAssignmentResult =
  *
  * A successful SUBSCRIPTION period freezes the plan template's grantPoints into one
  * immutable SUBSCRIPTION_PERIOD grant. FREE does not create a recurring grant here;
- * its one-time amount is provisioned from the current FREE plan by WorklogAiGrantService.
- * ONE_TIME products are purchase products and are never assignable through this service.
+ * its one-time trial is provisioned separately by WorklogAiGrantService.
  */
 export class WorklogSubscriptionPeriodService {
   constructor(private readonly repository: WorklogSubscriptionPeriodRepository) {}
@@ -94,7 +93,7 @@ export class WorklogSubscriptionPeriodService {
     const userId = positiveInteger(input.userId, 'userId');
     const planCode = normalizePlanCode(input.planCode);
     const plan = await this.repository.getPlan(planCode);
-    if (!plan?.enabled || plan.planType === 'ONE_TIME') return { status: 'PLAN_NOT_AVAILABLE' };
+    if (!plan?.enabled) return { status: 'PLAN_NOT_AVAILABLE' };
 
     const actor = input.actor?.trim() || null;
     if (input.source === 'ADMIN' && !actor) throw new Error('admin period assignment requires actor');
