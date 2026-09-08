@@ -40,7 +40,6 @@ const PRODUCT_TIME_ZONE = 'Asia/Taipei';
 
 const structuredOutputSchema = z.object({
   title: z.string().trim().min(1).max(255).nullable(),
-  title_requires_confirmation: z.boolean(),
   occurred_at: z.string().trim().min(1).max(64).nullable(),
   search_terms: z.array(z.string().trim().min(1).max(64)).max(12),
 }).strict();
@@ -51,24 +50,20 @@ const responseJsonSchema = {
   properties: {
     title: {
       anyOf: [{ type: 'string' }, { type: 'null' }],
-      description: 'Exactly one concise filing title for this Record, or null when the text does not provide enough grounded context to choose one safely.',
-    },
-    title_requires_confirmation: {
-      type: 'boolean',
-      description: 'True when more than one plausible filing title exists or choosing/creating the proposed title would require user confirmation.',
+      description: 'One concise grounded title for this Record, or null when the text does not provide enough context to choose one safely.',
     },
     occurred_at: {
       anyOf: [{ type: 'string' }, { type: 'null' }],
-      description: 'Calendar date as YYYY-MM-DD only when the Record text explicitly provides or implies a date; null means use the original source-message/create date.',
+      description: 'Calendar date as YYYY-MM-DD only when the Record text explicitly provides or implies a date; otherwise null.',
     },
     search_terms: {
       type: 'array',
       maxItems: 12,
       items: { type: 'string' },
-      description: 'Small grounded retrieval terms and common synonyms for this exact Record. Include useful concepts that may not appear literally, but never invent facts.',
+      description: 'Small grounded retrieval terms and common synonyms for this exact Record. Never invent facts.',
     },
   },
-  required: ['title', 'title_requires_confirmation', 'occurred_at', 'search_terms'],
+  required: ['title', 'occurred_at', 'search_terms'],
 } as const;
 
 export function buildGeminiWorklogTextRequestBody(
@@ -82,19 +77,16 @@ export function buildGeminiWorklogTextRequestBody(
     systemInstruction: {
       parts: [{
         text: [
-          'You interpret one newly persisted AFTERTRACE work Record.',
+          'You interpret one explicitly submitted AFTERTRACE work Record.',
           'The raw Record text is already durable and must never be summarized, rewritten, or replaced by your output.',
-          'Your job is intentionally narrow: propose exactly one filing title, resolve an event calendar date when grounded, and derive bounded retrieval terms.',
-          'Choose the title that best represents the Record filing context actually grounded in the text.',
-          'Do not create extra related entities for people or objects merely mentioned in the text.',
-          'If there is not enough grounded context to choose one title safely, return title=null and title_requires_confirmation=true.',
-          'If several titles are plausible, return the best grounded proposal but set title_requires_confirmation=true.',
+          'Your bounded job is to propose one grounded title, resolve an event calendar date when the user expressed one, and derive grounded retrieval terms.',
+          'If there is not enough grounded context for a useful title, return title=null.',
+          'Do not create Customer, Project, Person, Organization, payment, or other master-data objects from mentions in the text.',
           'If the text has no explicit or relative event-date expression, occurred_at must be null.',
-          `Resolve relative date expressions against the supplied original source timestamp using ${PRODUCT_TIME_ZONE}.`,
+          `Resolve relative date expressions against the supplied reference timestamp using ${PRODUCT_TIME_ZONE}.`,
           'occurred_at must be YYYY-MM-DD only. Never invent a time-of-day.',
           'search_terms must contain at most 12 short grounded retrieval terms or common synonyms that help retrieve the same fact.',
-          'For example, text meaning that money was received may include 收款 or 款項 even if the literal text only says 收; keep terms grounded and do not infer payment status not present in the Record.',
-          'Do not output summary, category, customer/project hints, database ids, or any fields outside the schema.',
+          'Do not output confirmation state, summary, category, database ids, or any fields outside the schema.',
         ].join(' '),
       }],
     },
