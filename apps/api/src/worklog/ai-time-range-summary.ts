@@ -66,6 +66,7 @@ export type AiTimeRangeSummaryResult =
 
 const MAX_RECORDS = 200;
 const MAX_PROVIDER_RECORD_CHARS = 120_000;
+const PROVIDER_RECORD_OVERHEAD_CHARS = 128;
 
 export class AiTimeRangeSummaryService {
   constructor(
@@ -191,13 +192,28 @@ function boundedProviderRecords(fetched: AiTimeRangeSummaryRecord[]): {
   const candidates = fetched.slice(0, MAX_RECORDS);
   const records: AiTimeRangeSummaryRecord[] = [];
   let chars = 0;
+  let truncated = false;
   for (const record of candidates) {
-    const nextChars = record.rawText.length + (record.title?.length ?? 0) + 128;
-    if (records.length > 0 && chars + nextChars > MAX_PROVIDER_RECORD_CHARS) break;
-    records.push(record);
-    chars += nextChars;
+    const title = record.title ?? '';
+    const fixedChars = title.length + PROVIDER_RECORD_OVERHEAD_CHARS;
+    const remaining = MAX_PROVIDER_RECORD_CHARS - chars;
+    if (remaining <= fixedChars) {
+      truncated = true;
+      break;
+    }
+    const maxRawTextChars = remaining - fixedChars;
+    const rawText = record.rawText.length > maxRawTextChars
+      ? record.rawText.slice(0, maxRawTextChars)
+      : record.rawText;
+    records.push(rawText === record.rawText ? record : { ...record, rawText });
+    chars += rawText.length + fixedChars;
+    if (rawText.length < record.rawText.length) {
+      truncated = true;
+      break;
+    }
   }
-  return { records, truncated: records.length < candidates.length };
+  if (records.length < candidates.length) truncated = true;
+  return { records, truncated };
 }
 
 function usageFromProvider(
