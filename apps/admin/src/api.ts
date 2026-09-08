@@ -164,6 +164,13 @@ export class AdminApi {
     )).report;
   }
 
+  async accounts(query: string): Promise<Row[]> {
+    const normalized = query.trim();
+    if (!normalized) return [];
+    const params = new URLSearchParams({ q: normalized });
+    return applyServerLabels((await this.request<{ accounts: Row[] }>(`/accounts?${params.toString()}`)).accounts);
+  }
+
   async users(filters: UserListFilters = {}): Promise<Row[]> {
     const params = new URLSearchParams();
     if (filters.query?.trim()) params.set('q', filters.query.trim());
@@ -267,7 +274,7 @@ export class AdminApi {
   }
 
   async audit(): Promise<Row[]> {
-    return applyServerLabels((await this.request<{ audit: Row[] }>('/audit')).audit);
+    return applyServerLabels((await this.request<{ audit: Row[] }>('/audit')).audit;
   }
 
   private async request<T>(path: string, init?: RequestInit, authenticated = true): Promise<T> {
