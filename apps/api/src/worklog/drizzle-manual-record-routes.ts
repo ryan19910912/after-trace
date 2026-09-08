@@ -42,6 +42,9 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
         WHERE source.id = ${sourceId}
           AND source.type = 'GROUP'
           AND source.status = 'ACTIVE'
+          AND source.line_group_id IS NULL
+          AND source.name IS NOT NULL
+          AND length(btrim(source.name)) > 0
           AND member.user_id = ${userId}
           AND member.is_active = TRUE
       ) AS allowed
