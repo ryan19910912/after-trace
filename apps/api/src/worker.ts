@@ -6,14 +6,7 @@ import { createAdminNotificationRoutes } from './admin/notification-routes';
 import { createAdminProfitabilityRoutes } from './admin/profitability-routes';
 import { createAdminRoutes } from './admin/routes';
 import { createAccountRoutes } from './auth/account-routes';
-import { createDatabase } from './db/client';
 import { createNewebPayRoutes } from './payments/newebpay-routes';
-import {
-  anomalyErrorCode,
-  anomalyErrorSummary,
-  DrizzleWorklogAnomalyRepository,
-  recordAnomalySafely,
-} from './worklog/anomalies';
 import { createAiEntitlementRoutes } from './worklog/ai-entitlement-routes';
 import { createAiTaskProposalRoutes } from './worklog/ai-task-proposal-routes';
 import { createAiTextCaptureRoutes } from './worklog/ai-text-capture-routes';
@@ -154,7 +147,7 @@ async function routed(
   const sourceUrl = new URL(request.url);
   const rewritten = new URL(request.url);
   rewritten.pathname = sourceUrl.pathname.slice(prefix.length) || '/';
-  return withApiAnomalyBoundary(boundary, request, env, () =>
+  return withApiErrorBoundary(boundary, request, () =>
     routeApp.fetch(new Request(rewritten, request), env as never, executionContext as never));
 }
 
@@ -178,37 +171,34 @@ function schedulePushDelivery(env: Bindings, executionContext: ExecutionContextL
   executionContext.waitUntil(deliverPendingPushBatch(env, 50).catch(() => null));
 }
 
-async function withApiAnomalyBoundary(
+async function withApiErrorBoundary(
   boundary: ApiBoundary,
   request: Request,
-  env: Bindings,
   run: () => Response | Promise<Response>,
 ): Promise<Response> {
   const url = new URL(request.url);
   try {
     const response = await run();
     if (response.status >= 500) {
-      await recordAnomalySafely(new DrizzleWorklogAnomalyRepository(createDatabase(env.DATABASE_URL)), {
-        category: boundary,
-        errorCode: `HTTP_${response.status}`,
-        summary: `${boundary} returned HTTP ${response.status}`,
+      console.error(JSON.stringify({
+        event: 'worklog_api_boundary_error_response',
+        boundary,
+        method: request.method,
+        pathname: url.pathname,
+        status: response.status,
         requestRef: request.headers.get('cf-ray'),
-        metadata: { method: request.method, pathname: url.pathname, status: response.status },
-      });
+      }));
     }
     return response;
   } catch (error) {
     console.error(JSON.stringify({
-      event: 'worklog_api_boundary_failed', boundary, method: request.method, pathname: url.pathname,
+      event: 'worklog_api_boundary_failed',
+      boundary,
+      method: request.method,
+      pathname: url.pathname,
+      requestRef: request.headers.get('cf-ray'),
       message: error instanceof Error ? error.message : 'unknown error',
     }));
-    await recordAnomalySafely(new DrizzleWorklogAnomalyRepository(createDatabase(env.DATABASE_URL)), {
-      category: boundary,
-      errorCode: anomalyErrorCode(error, 'UNHANDLED_API_ERROR'),
-      summary: anomalyErrorSummary(error, `${boundary} unhandled failure`),
-      requestRef: request.headers.get('cf-ray'),
-      metadata: { method: request.method, pathname: url.pathname, unhandled: true },
-    });
     return Response.json({ ok: false, error: 'INTERNAL_SERVER_ERROR' }, { status: 500 });
   }
 }
