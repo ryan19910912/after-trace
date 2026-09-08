@@ -1,10 +1,11 @@
 const FIXED_RETURN_PATHS = new Set(['/capture', '/ai-search', '/ai-tools', '/ai-task', '/subscription', '/feedback', '/tasks']);
+const TASK_RETURN_PATH = /^\/tasks\/[1-9]\d*$/;
 const EXTENSION_ID = /^[a-p]{32}$/;
 const CONNECT_NONCE = /^[A-Za-z0-9_-]{16,128}$/;
 
 export function safeLoginReturn(value: string | null): string | null {
   if (!value) return null;
-  if (FIXED_RETURN_PATHS.has(value)) return value;
+  if (FIXED_RETURN_PATHS.has(value) || TASK_RETURN_PATH.test(value)) return value;
 
   let url: URL;
   try {
