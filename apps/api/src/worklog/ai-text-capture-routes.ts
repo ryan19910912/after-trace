@@ -10,6 +10,7 @@ import {
   type AiFileInput,
   type AiImageInput,
   type AiMediaCaptureRepository,
+  type AiMediaProvider,
 } from './ai-media-capture';
 import {
   AiNaturalSearchService,
@@ -36,7 +37,6 @@ import {
 } from './ai-time-range-summary';
 import { AiTextCaptureService, type AiTextCaptureRepository } from './ai-text-capture';
 import { WorklogAiPointLedgerService, type WorklogAiPointLedgerRepository } from './ai-point-ledger';
-import type { WorklogAttachmentProvider } from './attachment-ingestion';
 import { DrizzleAiEntitlementRepository } from './drizzle-ai-entitlement';
 import { DrizzleAiMediaCaptureRepository } from './drizzle-ai-media-capture';
 import { DrizzleAiNaturalSearchRepository } from './drizzle-ai-natural-search';
@@ -77,7 +77,7 @@ export type AiTextCaptureRouteDependencies = {
   rewriteRepositoryFactory?: (database: Database) => AiRecordRewriteRepository;
   ledgerRepositoryFactory?: (database: Database) => WorklogAiPointLedgerRepository;
   providerFactory?: (env: AiTextCaptureBindings) => WorklogTextNormalizationProvider;
-  mediaProviderFactory?: (env: AiTextCaptureBindings) => WorklogAttachmentProvider;
+  mediaProviderFactory?: (env: AiTextCaptureBindings) => AiMediaProvider;
   searchProviderFactory?: (env: AiTextCaptureBindings) => AiNaturalSearchProvider;
   summaryProviderFactory?: (env: AiTextCaptureBindings) => AiTimeRangeSummaryProvider;
   rewriteProviderFactory?: (env: AiTextCaptureBindings) => AiRewriteProvider;
@@ -324,7 +324,7 @@ function mediaService(
   entitlementRepositoryFactory: (database: Database) => AiEntitlementRepository,
   mediaRepositoryFactory: (database: Database) => AiMediaCaptureRepository,
   ledgerRepositoryFactory: (database: Database) => WorklogAiPointLedgerRepository,
-  mediaProviderFactory: (env: AiTextCaptureBindings) => WorklogAttachmentProvider,
+  mediaProviderFactory: (env: AiTextCaptureBindings) => AiMediaProvider,
 ) {
   const database = c.get('database');
   const entitlement = new AiEntitlementService(entitlementRepositoryFactory(database));
