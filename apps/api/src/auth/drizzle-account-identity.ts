@@ -12,15 +12,7 @@ type AccountProfileRow = {
   public_account_id: string;
 };
 
-/**
- * Provider-neutral account provisioning.
- *
- * One SQL statement keeps provider identity, user and public account id atomic. The
- * provider+subject unique key is the concurrency authority: simultaneous first-login
- * callbacks may each tentatively create a user, but ON CONFLICT resolves both callbacks
- * to the one winning identity user and the losing tentative user is deleted inside the
- * same statement before commit. No account is merged from matching email/name metadata.
- */
+/** Provider-neutral account provisioning keyed only by provider + subject. */
 export class DrizzleAccountIdentityRepository implements AccountIdentityRepository {
   constructor(private readonly db: Database) {}
 
@@ -31,9 +23,7 @@ export class DrizzleAccountIdentityRepository implements AccountIdentityReposito
     const subject = input.subject.trim();
     const emailSnapshot = normalizeOptional(input.emailSnapshot);
     const displayNameSnapshot = normalizeOptional(input.displayNameSnapshot);
-    const legacyLineUserId = provider === 'LINE' ? normalizeOptional(input.legacyLineUserId) : null;
     if (!subject) throw new Error('AUTH_PROVIDER_SUBJECT_REQUIRED');
-    if (provider === 'LINE' && !legacyLineUserId) throw new Error('LINE_SUBJECT_REQUIRED');
 
     const result = await this.db.execute(sql`
       WITH existing_identity AS (
@@ -43,68 +33,32 @@ export class DrizzleAccountIdentityRepository implements AccountIdentityReposito
           AND identity_row.subject = ${subject}
         LIMIT 1
       ),
-      legacy_line_account AS (
-        SELECT account_row.id AS user_id
-        FROM worklog_users AS account_row
-        WHERE NOT EXISTS (SELECT 1 FROM existing_identity)
-          AND ${provider}::text = 'LINE'
-          AND ${legacyLineUserId}::text IS NOT NULL
-          AND account_row.line_user_id = ${legacyLineUserId}
-        LIMIT 1
-      ),
       created_account AS (
         INSERT INTO worklog_users (
-          line_user_id,
-          display_name,
-          last_interaction_at,
-          created_at,
-          updated_at
+          display_name, last_interaction_at, created_at, updated_at
         )
-        SELECT
-          NULL,
-          ${displayNameSnapshot},
-          ${input.at},
-          ${input.at},
-          ${input.at}
+        SELECT ${displayNameSnapshot}, ${input.at}, ${input.at}, ${input.at}
         WHERE NOT EXISTS (SELECT 1 FROM existing_identity)
-          AND NOT EXISTS (SELECT 1 FROM legacy_line_account)
         RETURNING id AS user_id
       ),
       candidate_account AS (
         SELECT user_id FROM existing_identity
-        UNION ALL
-        SELECT user_id FROM legacy_line_account
         UNION ALL
         SELECT user_id FROM created_account
         LIMIT 1
       ),
       ensured_identity AS (
         INSERT INTO worklog_auth_identities (
-          user_id,
-          provider,
-          subject,
-          email_snapshot,
-          display_name_snapshot,
-          created_at,
-          updated_at
+          user_id, provider, subject, email_snapshot, display_name_snapshot, created_at, updated_at
         )
-        SELECT
-          candidate_account.user_id,
-          ${provider}::worklog_auth_provider,
-          ${subject},
-          ${emailSnapshot},
-          ${displayNameSnapshot},
-          ${input.at},
-          ${input.at}
+        SELECT candidate_account.user_id,
+               ${provider}::worklog_auth_provider,
+               ${subject}, ${emailSnapshot}, ${displayNameSnapshot}, ${input.at}, ${input.at}
         FROM candidate_account
         ON CONFLICT (provider, subject) DO UPDATE
-        SET
-          email_snapshot = COALESCE(EXCLUDED.email_snapshot, worklog_auth_identities.email_snapshot),
-          display_name_snapshot = COALESCE(
-            EXCLUDED.display_name_snapshot,
-            worklog_auth_identities.display_name_snapshot
-          ),
-          updated_at = GREATEST(worklog_auth_identities.updated_at, EXCLUDED.updated_at)
+        SET email_snapshot = COALESCE(EXCLUDED.email_snapshot, worklog_auth_identities.email_snapshot),
+            display_name_snapshot = COALESCE(EXCLUDED.display_name_snapshot, worklog_auth_identities.display_name_snapshot),
+            updated_at = GREATEST(worklog_auth_identities.updated_at, EXCLUDED.updated_at)
         RETURNING user_id
       ),
       removed_losing_account AS (
@@ -116,44 +70,29 @@ export class DrizzleAccountIdentityRepository implements AccountIdentityReposito
       ),
       updated_account AS (
         UPDATE worklog_users AS account_row
-        SET
-          line_user_id = CASE
-            WHEN ${provider}::text = 'LINE' AND account_row.line_user_id IS NULL
-              THEN ${legacyLineUserId}
-            ELSE account_row.line_user_id
-          END,
-          display_name = COALESCE(${displayNameSnapshot}, account_row.display_name),
-          last_interaction_at = CASE
-            WHEN account_row.last_interaction_at IS NULL THEN ${input.at}
-            ELSE GREATEST(account_row.last_interaction_at, ${input.at})
-          END,
-          updated_at = GREATEST(account_row.updated_at, ${input.at})
+        SET display_name = COALESCE(${displayNameSnapshot}, account_row.display_name),
+            last_interaction_at = CASE
+              WHEN account_row.last_interaction_at IS NULL THEN ${input.at}
+              ELSE GREATEST(account_row.last_interaction_at, ${input.at})
+            END,
+            updated_at = GREATEST(account_row.updated_at, ${input.at})
         FROM ensured_identity
         WHERE account_row.id = ensured_identity.user_id
         RETURNING account_row.id, account_row.display_name
       ),
       ensured_public_account AS (
-        INSERT INTO worklog_user_public_accounts (
-          user_id,
-          public_account_id,
-          created_at
-        )
-        SELECT
-          updated_account.id,
-          ${input.publicAccountId},
-          ${input.at}
+        INSERT INTO worklog_user_public_accounts (user_id, public_account_id, created_at)
+        SELECT updated_account.id, ${input.publicAccountId}, ${input.at}
         FROM updated_account
         ON CONFLICT (user_id) DO UPDATE
         SET public_account_id = worklog_user_public_accounts.public_account_id
         RETURNING user_id, public_account_id
       )
-      SELECT
-        updated_account.id::text AS id,
-        updated_account.display_name,
-        ensured_public_account.public_account_id
+      SELECT updated_account.id::text AS id,
+             updated_account.display_name,
+             ensured_public_account.public_account_id
       FROM updated_account
-      INNER JOIN ensured_public_account
-        ON ensured_public_account.user_id = updated_account.id
+      INNER JOIN ensured_public_account ON ensured_public_account.user_id = updated_account.id
       LIMIT 1
     `);
 
@@ -164,13 +103,11 @@ export class DrizzleAccountIdentityRepository implements AccountIdentityReposito
 
   async profile(userId: number): Promise<AccountProfile | null> {
     const result = await this.db.execute(sql`
-      SELECT
-        account_row.id::text AS id,
-        account_row.display_name,
-        public_row.public_account_id
+      SELECT account_row.id::text AS id,
+             account_row.display_name,
+             public_row.public_account_id
       FROM worklog_users AS account_row
-      INNER JOIN worklog_user_public_accounts AS public_row
-        ON public_row.user_id = account_row.id
+      INNER JOIN worklog_user_public_accounts AS public_row ON public_row.user_id = account_row.id
       WHERE account_row.id = ${userId}
       LIMIT 1
     `);
@@ -187,9 +124,5 @@ function normalizeOptional(value: string | null | undefined): string | null {
 function mapAccountProfile(row: AccountProfileRow): AccountProfile {
   const userId = Number(row.id);
   if (!Number.isSafeInteger(userId) || userId <= 0) throw new Error('INVALID_ACCOUNT_USER_ID');
-  return {
-    userId,
-    displayName: row.display_name,
-    publicAccountId: row.public_account_id,
-  };
+  return { userId, displayName: row.display_name, publicAccountId: row.public_account_id };
 }
