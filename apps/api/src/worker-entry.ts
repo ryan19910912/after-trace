@@ -8,14 +8,21 @@ type ExecutionContextLike = { waitUntil(promise: Promise<unknown>): void };
  * Thin target-first Worker entry.
  *
  * `/health/ready` validates the accepted Web/PWA V1 target and intentionally does not
- * require retired LINE webhook/group/funding schema. All other traffic and the shared
- * scheduler remain delegated to the existing Worker while migration residue is removed
- * after executable dependency validation.
+ * require retired LINE webhook/group/funding schema. Retired LINE webhook product traffic
+ * is rejected here before it can reach the legacy runtime. All other traffic and the shared
+ * scheduler remain delegated while migration residue is removed after executable validation.
  */
 export default {
   async fetch(request: Request, env: Bindings, executionContext: ExecutionContextLike) {
-    if (new URL(request.url).pathname === '/health/ready') {
+    const pathname = new URL(request.url).pathname;
+    if (pathname === '/health/ready') {
       return targetReadinessResponse(env);
+    }
+    if (pathname === '/webhooks/line') {
+      return Response.json({ ok: false, error: 'LEGACY_LINE_WEBHOOK_DISABLED' }, {
+        status: 410,
+        headers: { 'Cache-Control': 'no-store' },
+      });
     }
     return worker.fetch(request, env, executionContext);
   },
