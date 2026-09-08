@@ -199,7 +199,7 @@ function grantSnapshot(row: GrantRow): WorklogAiGrantSnapshot {
 }
 
 function grantType(value: string): WorklogAiGrantType {
-  if (value !== 'FREE_INITIAL' && value !== 'SUBSCRIPTION_PERIOD' && value !== 'TOP_UP' && value !== 'ADMIN') {
+  if (value !== 'FREE_INITIAL' && value !== 'SUBSCRIPTION_PERIOD' && value !== 'ADMIN') {
     throw new Error('invalid AI grant type');
   }
   return value;
