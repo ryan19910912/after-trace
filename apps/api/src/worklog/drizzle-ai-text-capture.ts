@@ -39,7 +39,6 @@ export class DrizzleAiTextCaptureRepository implements AiTextCaptureRepository {
     const result = await this.db.execute(sql`
       INSERT INTO worklog_records (
         source_id,
-        entity_id,
         author_user_id,
         input_type,
         raw_text,
@@ -55,7 +54,6 @@ export class DrizzleAiTextCaptureRepository implements AiTextCaptureRepository {
         updated_at
       )
       SELECT source_row.id,
-             NULL,
              ${input.userId},
              'TEXT',
              ${input.rawText},
