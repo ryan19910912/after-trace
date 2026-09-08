@@ -1,21 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import type { CachedLineText } from './line-text-cache';
 import {
   WorklogRecordReadService,
-  WorklogRecordWriteService,
-  type StoredTextRecordIdentity,
   type WorklogGroupSurface,
   type WorklogRecordListItem,
   type WorklogRecordReadRepository,
-  type WorklogRecordWriteRepository,
-  type WorklogReplyEditTargetResolution,
 } from './records';
 
 function record(sourceId: number, id = 1): WorklogRecordListItem {
   return {
     id,
     sourceId,
-    entityId: null,
     title: null,
     authorUserId: 1,
     inputType: 'TEXT',
@@ -34,158 +28,85 @@ class FakeRepository implements WorklogRecordReadRepository {
   groupSurfaces = new Map<number, WorklogGroupSurface[]>();
   memberships = new Set<string>();
   records = new Map<number, WorklogRecordListItem[]>();
-  listCalls: number[] = [];
+  listCalls: Array<{ sourceId: number; limit: number }> = [];
 
   async getActivePersonalSourceId(userId: number) { return this.personalSources.get(userId) ?? null; }
   async listActiveGroupSurfaces(userId: number) { return this.groupSurfaces.get(userId) ?? []; }
   async isActiveGroupMember(userId: number, sourceId: number) { return this.memberships.has(`${userId}:${sourceId}`); }
-  async listRecordsBySource(sourceId: number) { this.listCalls.push(sourceId); return this.records.get(sourceId) ?? []; }
-}
-
-class FakeWriteRepository implements WorklogRecordWriteRepository {
-  result:
-    | { status: 'CREATED'; record: StoredTextRecordIdentity }
-    | { status: 'EXISTING'; record: StoredTextRecordIdentity }
-    | { status: 'SOURCE_NOT_FOUND' } = { status: 'SOURCE_NOT_FOUND' };
-  replyTarget: WorklogReplyEditTargetResolution = { status: 'NOT_FOUND' };
-  replyTargetCalls: Array<{ sourceId: number; quotedLineMessageId: string }> = [];
-  botReplyTargetCalls: Array<{ recordId: number; botLineMessageId: string }> = [];
-  cache = new Map<string, CachedLineText>();
-
-  async insertTextRecord() { return this.result; }
-  async rememberBotReplyTarget(recordId: number, botLineMessageId: string) {
-    this.botReplyTargetCalls.push({ recordId, botLineMessageId });
-  }
-  async resolveReplyEditTarget(sourceId: number, quotedLineMessageId: string) {
-    this.replyTargetCalls.push({ sourceId, quotedLineMessageId });
-    return this.replyTarget;
-  }
-  async upsert(input: CachedLineText) { this.cache.set(`${input.lineGroupId}:${input.lineMessageId}`, input); }
-  async pruneGroup() {}
-  async findActive(lineGroupId: string, lineMessageId: string, now: Date) {
-    const item = this.cache.get(`${lineGroupId}:${lineMessageId}`) ?? null;
-    return item && item.expiresAt > now ? item : null;
+  async listRecordsBySource(sourceId: number, limit: number) {
+    this.listCalls.push({ sourceId, limit });
+    return this.records.get(sourceId) ?? [];
   }
 }
-
-describe('WorklogRecordWriteService', () => {
-  it('reports an identical replay as already recorded', async () => {
-    const repository = new FakeWriteRepository();
-    repository.result = { status: 'EXISTING', record: { id: 9, sourceId: 20, authorUserId: 3, lineMessageId: 'line-message-1', quotedLineMessageId: null, rawText: '王先生二樓漏水已修復' } };
-    const service = new WorklogRecordWriteService(repository);
-    await expect(service.recordText({ sourceId: 20, authorUserId: 3, lineMessageId: 'line-message-1', text: '王先生二樓漏水已修復', sourceTimestamp: new Date('2026-09-02T00:00:00Z') })).resolves.toEqual({ status: 'ALREADY_RECORDED', recordId: 9 });
-  });
-
-  it('detects a LINE message id replay with different content/source as a conflict', async () => {
-    const repository = new FakeWriteRepository();
-    repository.result = { status: 'EXISTING', record: { id: 9, sourceId: 99, authorUserId: 3, lineMessageId: 'line-message-1', quotedLineMessageId: null, rawText: 'different' } };
-    const service = new WorklogRecordWriteService(repository);
-    await expect(service.recordText({ sourceId: 20, authorUserId: 3, lineMessageId: 'line-message-1', text: '王先生二樓漏水已修復' })).resolves.toEqual({ status: 'IDEMPOTENCY_CONFLICT', recordId: 9 });
-  });
-
-  it('includes quoted LINE id in Reply-TEXT idempotency identity', async () => {
-    const repository = new FakeWriteRepository();
-    repository.result = { status: 'EXISTING', record: { id: 10, sourceId: 20, authorUserId: 3, lineMessageId: 'command-1', quotedLineMessageId: 'quoted-1', rawText: '原始文字' } };
-    const service = new WorklogRecordWriteService(repository);
-    await expect(service.recordQuotedText({ sourceId: 20, authorUserId: 3, lineMessageId: 'command-1', quotedLineMessageId: 'quoted-1', text: '原始文字' })).resolves.toEqual({ status: 'ALREADY_RECORDED', recordId: 10 });
-  });
-
-  it('persists a trimmed bot acknowledgement id as a deterministic future Reply target', async () => {
-    const repository = new FakeWriteRepository();
-    const service = new WorklogRecordWriteService(repository);
-
-    await service.rememberBotReplyTarget(10, ' 468789577898262530 ');
-
-    expect(repository.botReplyTargetCalls).toEqual([
-      { recordId: 10, botLineMessageId: '468789577898262530' },
-    ]);
-  });
-
-  it('delegates a bounded same-source Reply edit target lookup', async () => {
-    const repository = new FakeWriteRepository();
-    repository.replyTarget = {
-      status: 'FOUND',
-      record: {
-        id: 10,
-        sourceId: 20,
-        authorUserId: 3,
-        entityId: 8,
-        rawText: '王先生二樓漏水已修復',
-        occurredAt: '2026-09-02T00:00:00.000Z',
-        version: 2,
-      },
-    };
-    const service = new WorklogRecordWriteService(repository);
-
-    await expect(service.resolveReplyEditTarget(20, ' quoted-1 ')).resolves.toEqual(repository.replyTarget);
-    expect(repository.replyTargetCalls).toEqual([{ sourceId: 20, quotedLineMessageId: 'quoted-1' }]);
-  });
-
-  it('enforces cache group isolation and expiry through the legacy write service adapter', async () => {
-    const repository = new FakeWriteRepository();
-    const service = new WorklogRecordWriteService(repository);
-    await service.remember({ lineMessageId: 'quoted-1', lineGroupId: 'group-a', lineUserId: 'user-1', text: '原始文字', lineTimestamp: new Date('2026-09-02T00:00:00Z') });
-    await expect(service.resolve('group-b', 'quoted-1', new Date('2026-09-03T00:00:00Z'))).resolves.toBeNull();
-    await expect(service.resolve('group-a', 'quoted-1', new Date('2026-09-03T00:00:00Z'))).resolves.toMatchObject({ text: '原始文字' });
-    await expect(service.resolve('group-a', 'quoted-1', new Date('2026-09-08T00:00:00Z'))).resolves.toBeNull();
-  });
-});
 
 describe('WorklogRecordReadService personal scope', () => {
-  it('exposes the authenticated personal source without any LINE/OA state', async () => {
-    const repository = new FakeRepository(); repository.personalSources.set(1, 10); repository.records.set(10, [record(10)]);
+  it('returns no Records when the authenticated user has no active PRIVATE Source', async () => {
+    const repository = new FakeRepository();
     const service = new WorklogRecordReadService(repository);
-    await expect(service.personalRecords(1)).resolves.toEqual([record(10)]); expect(repository.listCalls).toEqual([10]);
+
+    await expect(service.personalRecords(1)).resolves.toEqual([]);
+    expect(repository.listCalls).toEqual([]);
+  });
+
+  it('reads only the authenticated user PRIVATE Source', async () => {
+    const repository = new FakeRepository();
+    repository.personalSources.set(1, 10);
+    repository.records.set(10, [record(10)]);
+    const service = new WorklogRecordReadService(repository);
+
+    await expect(service.personalRecords(1)).resolves.toEqual([record(10)]);
+    expect(repository.listCalls).toEqual([{ sourceId: 10, limit: 100 }]);
   });
 });
 
 describe('WorklogRecordReadService group scope', () => {
-  it('refuses an arbitrary group source id before any record query runs', async () => {
-    const repository = new FakeRepository(); repository.records.set(99, [record(99)]);
+  it('refuses an arbitrary GROUP Source before querying Records', async () => {
+    const repository = new FakeRepository();
+    repository.records.set(99, [record(99)]);
     const service = new WorklogRecordReadService(repository);
-    await expect(service.groupRecords(1, 99)).resolves.toEqual({ status: 'FORBIDDEN' }); expect(repository.listCalls).toEqual([]);
+
+    await expect(service.groupRecords(1, 99)).resolves.toEqual({ status: 'FORBIDDEN' });
+    expect(repository.listCalls).toEqual([]);
   });
 
-  it('allows only an active member to read the exact group source', async () => {
-    const repository = new FakeRepository(); repository.memberships.add('1:20'); repository.records.set(20, [record(20)]); repository.records.set(21, [record(21)]);
+  it('allows only an active AFTERTRACE GROUP member to read the exact Source', async () => {
+    const repository = new FakeRepository();
+    repository.memberships.add('1:20');
+    repository.records.set(20, [record(20)]);
+    repository.records.set(21, [record(21)]);
     const service = new WorklogRecordReadService(repository);
+
     await expect(service.groupRecords(1, 20)).resolves.toEqual({ status: 'OK', records: [record(20)] });
-    await expect(service.groupRecords(1, 21)).resolves.toEqual({ status: 'FORBIDDEN' }); expect(repository.listCalls).toEqual([20]);
+    await expect(service.groupRecords(1, 21)).resolves.toEqual({ status: 'FORBIDDEN' });
+    expect(repository.listCalls).toEqual([{ sourceId: 20, limit: 100 }]);
   });
 });
 
-describe('WorklogRecordReadService PWA surfaces', () => {
-  it('returns native group names and roles without requiring a LINE group id', async () => {
+describe('WorklogRecordReadService product surfaces', () => {
+  it('returns provider-neutral personal and native GROUP surfaces', async () => {
     const repository = new FakeRepository();
     repository.personalSources.set(1, 10);
     repository.groupSurfaces.set(1, [
-      { sourceId: 20, name: '產品群', role: 'OWNER', legacyLineGroupId: null },
-      { sourceId: 21, name: '客戶群', role: 'MEMBER', legacyLineGroupId: null },
+      { sourceId: 20, name: '產品群', role: 'OWNER' },
+      { sourceId: 21, name: '客戶群', role: 'MEMBER' },
     ]);
     const service = new WorklogRecordReadService(repository);
 
     await expect(service.surfaces(1)).resolves.toEqual({
       personal: { sourceId: 10 },
       groups: [
-        { sourceId: 20, name: '產品群', role: 'OWNER', legacyLineGroupId: null },
-        { sourceId: 21, name: '客戶群', role: 'MEMBER', legacyLineGroupId: null },
+        { sourceId: 20, name: '產品群', role: 'OWNER' },
+        { sourceId: 21, name: '客戶群', role: 'MEMBER' },
       ],
     });
   });
 
-  it('keeps a nullable legacy LINE id only as migration trace on a group surface', async () => {
+  it('clamps list limits to the target bounded range', async () => {
     const repository = new FakeRepository();
-    repository.personalSources.set(2, 11);
-    repository.groupSurfaces.set(2, [
-      { sourceId: 30, name: '舊群組', role: 'MEMBER', legacyLineGroupId: 'line-group-c' },
-    ]);
+    repository.personalSources.set(1, 10);
     const service = new WorklogRecordReadService(repository);
 
-    await expect(service.surfaces(2)).resolves.toEqual({
-      personal: { sourceId: 11 },
-      groups: [
-        { sourceId: 30, name: '舊群組', role: 'MEMBER', legacyLineGroupId: 'line-group-c' },
-      ],
-    });
+    await service.personalRecords(1, 9999);
+    expect(repository.listCalls).toEqual([{ sourceId: 10, limit: 200 }]);
   });
 });
