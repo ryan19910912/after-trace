@@ -1,6 +1,6 @@
 import { FREE_INITIAL_GRANT_ORIGIN_KEY } from './ai-points';
 
-export type WorklogAiGrantType = 'FREE_INITIAL' | 'SUBSCRIPTION_PERIOD' | 'TOP_UP' | 'ADMIN';
+export type WorklogAiGrantType = 'FREE_INITIAL' | 'SUBSCRIPTION_PERIOD' | 'ADMIN';
 export type WorklogAiGrantStatus = 'ACTIVE' | 'EXHAUSTED' | 'REVOKED';
 
 export type WorklogAiGrantSnapshot = {
