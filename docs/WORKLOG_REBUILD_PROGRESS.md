@@ -27,7 +27,7 @@ Current prelaunch Dev and current Prod data are disposable. Clean target-schema/
 
 ## V1 functional scope — source-authored complete
 
-Current branch source-authors provider-neutral Google/LINE/Apple auth, public account id, native groups/invites, manual Record CRUD/search/revisions/delete/restore, Tasks/reminders, notifications/PUSH/Admin announcements, Feedback/Admin workflow, FREE AI trial, AI Pro entitlement/accounting/cost caps, text/image/audio/file/PDF AI, natural-language search, Related Records, summaries, rewrite, AI Task proposal, Record-level AI actions, Chrome Extension V1 capture, NewebPay periodic subscription transport, and target-first Admin surfaces.
+Current branch source-authors provider-neutral Google/LINE/Apple auth, public account id, native groups/invites, manual Record CRUD/search/revisions/delete/restore, Tasks/reminders, notifications/PUSH/Admin announcements, Feedback/Admin workflow, FREE AI trial, AI Pro entitlement/accounting/cost caps, text/image/audio/file/PDF AI, natural-language search, Related Records, summaries, rewrite, AI Task proposal, Record-level AI actions, Chrome Extension V1 capture including screenshot/image AI, NewebPay periodic subscription transport, and target-first Admin surfaces.
 
 ## Static validation defects found/fixed so far
 
@@ -46,18 +46,25 @@ Current branch source-authors provider-neutral Google/LINE/Apple auth, public ac
 13. Task creation authorized every Source only through `worklog_source_members`, incorrectly blocking PRIVATE owner Sources -> PRIVATE owner OR active GROUP member authorization, `2f133faa`.
 14. `/tasks/:id` notification deep-link was lost when session expired because login return only allowed `/tasks` -> bounded `/tasks/<positive-id>` return + TaskRoot preserves focused id, `8cee0772`, `3ec94c38`.
 15. Target readiness checked AI Pro type/price/AI/caps but not `enabled=true` -> `8a870682`.
-16. Bounded Task list ordered all statuses only by old reminder/due time, so historical completed/cancelled tasks could crowd active tasks out of the first 100 rows -> OPEN tasks now always rank first; closed history ranks by latest update, `c451c263`.
+16. Bounded Task list could let old completed/cancelled rows crowd active Tasks out of the first 100 -> OPEN tasks rank first; closed history ranks by latest update, `c451c263`.
+17. Extension screenshot AI helper did not enforce the locally-known bounded `sessionExpiresAt` before sending an otherwise guaranteed-failing request -> fail-fast expiry validation aligned with popup auth, `4aa7f03a`.
+18. AI Pro cancel-at-period-end left core entitlement correctly ACTIVE, but Subscription UI could not distinguish NewebPay `TERMINATED` from auto-renew ACTIVE and kept offering a second cancel action -> adapter renewal state exposed from `/subscription/plans` and UI now shows cancelled-renewal state, `85b7ae0c`, `3284962e`.
+19. Subscription cancel path did not clear/recover an expired Web session on 401 unlike bootstrap/checkout -> aligned session recovery, `9508268b`.
+20. AI Task provider-success + invalid proposal output could swallow a usage settlement failure and report only output invalid -> provider success now requires confirmed `COMMITTED` usage settlement before output validation result is returned; accounting failure wins, `abe26262`.
 
-## Additional static verification in latest pass
+## Additional static verification in latest passes
 
 - Manual Record allowlisted backend uses `verifyWebSessionToken + resolveWebSessionUserId`: **STATIC VERIFIED provider-neutral**.
 - Web session token accepts provider-neutral userId with empty migration-only LINE id: **STATIC VERIFIED**.
 - Task reminder claim + notification creation happen in one PostgreSQL statement; insert failure rolls back the claim: **STATIC VERIFIED transaction shape**.
-- Task notification `/tasks/:id` route is recognized by Web router and TaskRoot focuses the referenced Task: **STATIC VERIFIED**, subject to executable/browser smoke.
 - Notification-center and Service Worker deep-link helpers reject external/protocol-relative destinations and keep same-origin relative paths: **STATIC VERIFIED**.
 - Native GROUP create writes OWNER membership in the same SQL statement; invite join uses row locking and bounded use counts: **STATIC VERIFIED**.
-- Feedback provider-neutral write fields match current durable schema: **STATIC VERIFIED**.
+- Feedback provider-neutral write fields match current durable schema; Feedback workflow change + audit are one PostgreSQL statement: **STATIC VERIFIED**.
 - Record and Record Revision `occurred_at` fields are nullable in current target schema: **STATIC VERIFIED**.
+- AI entitlement prefers current AI Pro over FREE trial, authorizes PRIVATE owner / GROUP member, uses `[periodStart, periodEnd)` and exact current period Grant: **STATIC VERIFIED source shape**.
+- Public account id provisioning is atomic with provider identity and retries the exact public-account unique collision up to 8 times: **STATIC VERIFIED**.
+- Extension screenshot/image AI is genuinely implemented in `screenshot-ai.js`: visible PNG -> `/api/v1/ai/capture/image` -> shared Source authorization / AI entitlement / provider-cost accounting; earlier suspicion that screenshot was preview-only is withdrawn.
+- NewebPay adapter status values exposed to customer UI match schema constraint exactly: `PENDING | ACTIVE | TERMINATED | FAILED`: **STATIC VERIFIED**.
 
 ## GitHub Actions trial
 
@@ -124,6 +131,6 @@ When executable checkout becomes available:
 ## Remaining estimate
 
 - Functional scope: **0 focused feature-development hours**.
-- Validation/release-readiness after executable checkout: approximately **1.5–4 focused hours**.
+- Validation/release-readiness after executable checkout: approximately **1.25–3.5 focused hours**.
 
 `apps/api/verify-admin-schema.mjs` was not staged or committed.
