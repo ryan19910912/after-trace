@@ -74,7 +74,7 @@ export function iosHomeScreenPushHint(): string {
   return 'iPhone / iPad 請先將 AFTERTRACE 加入主畫面，再從主畫面的 PWA 點「開啟通知」。一般 Safari 分頁不視為相同的推播使用方式。';
 }
 
-export function applicationServerKey(value: string): Uint8Array {
+export function applicationServerKey(value: string): ArrayBuffer {
   const normalized = value.trim().replace(/-/g, '+').replace(/_/g, '/');
   if (!normalized) throw new Error('INVALID_PUSH_PUBLIC_KEY');
   const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
@@ -85,5 +85,5 @@ export function applicationServerKey(value: string): Uint8Array {
     throw new Error('INVALID_PUSH_PUBLIC_KEY');
   }
   if (!raw) throw new Error('INVALID_PUSH_PUBLIC_KEY');
-  return Uint8Array.from(raw, (character) => character.charCodeAt(0));
+  return Uint8Array.from(raw, (character) => character.charCodeAt(0)).buffer;
 }
