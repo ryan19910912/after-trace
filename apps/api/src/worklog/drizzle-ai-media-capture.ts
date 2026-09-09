@@ -1,7 +1,6 @@
 import { sql } from 'drizzle-orm';
 import type { Database } from '../db/client';
-import type { WorklogAttachmentInputType } from './attachment-ingestion';
-import type { AiMediaCaptureRepository } from './ai-media-capture';
+import type { AiMediaCaptureRepository, AiMediaInputType } from './ai-media-capture';
 import type { WorklogAiRuntimeConfigSnapshot } from './text-normalization';
 
 export class DrizzleAiMediaCaptureRepository implements AiMediaCaptureRepository {
@@ -123,7 +122,7 @@ export class DrizzleAiMediaCaptureRepository implements AiMediaCaptureRepository
   }
 }
 
-function inputType(value: unknown): WorklogAttachmentInputType {
+function inputType(value: unknown): AiMediaInputType {
   if (value === 'IMAGE' || value === 'AUDIO' || value === 'FILE') return value;
   throw new Error('invalid media input type');
 }
