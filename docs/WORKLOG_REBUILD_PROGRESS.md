@@ -77,6 +77,18 @@ This final cleanup pass included the following source changes, all committed wit
 
 Tests modified in this cleanup are **AUTHORED / NOT RUN**.
 
+## Latest validation-tooling batch — 2026-09-09
+
+No new product/domain work was added because legacy cleanup is already complete.
+
+This run found one stale release-tooling message in `scripts/regenerate-worklog-baseline.mjs`: after successful baseline generation it still instructed developers to keep existing environment databases and use a forward migration, which contradicted the current authoritative prelaunch policy allowing disposable Dev/current Prod databases to be cleanly rebuilt from the canonical target baseline.
+
+Fixed with `[skip ci]` commit:
+
+- `2efce4b9` — align baseline regeneration success guidance with the current disposable-prelaunch database policy.
+
+This is tooling/documentation alignment only; it does not change product behavior, schema, generated Drizzle artifacts, or migration state.
+
 ## Previously fixed static defects
 
 Earlier validation passes found and fixed important release defects including:
@@ -125,7 +137,13 @@ Actually attempted earlier:
 - direct networked `git ls-remote` — **FAIL**, host resolution unavailable;
 - one explicitly authorized temporary GitHub Actions attempt — **FAIL**, no workflow run was created; temporary trigger change was reverted.
 
-GitHub Actions were not used or modified in this cleanup run.
+Attempted again in the 2026-09-09 validation-tooling run:
+
+- searched `/mnt/data`, `/home/oai/share`, `/workspace`, and `/workspaces` for a usable checkout — **FAIL**, no `.git` checkout or AFTERTRACE working tree was present;
+- `git ls-remote https://github.com/ryan19910912/after-trace.git refs/heads/revive/line-worklog` — **FAIL**, execution environment DNS could not resolve `github.com`;
+- GitHub connector reads/writes remained available, but they do not provide an executable working tree for `pnpm`, Drizzle generation, PostgreSQL, browser, or provider smoke.
+
+GitHub Actions were not run, dispatched, rerun, enabled, or modified in this run.
 
 Therefore still **NOT RUN** for the current target-only tree:
 
@@ -148,7 +166,7 @@ No unexecuted item is claimed PASS or RUNTIME VERIFIED.
 
 ## Remaining blockers / risks
 
-1. No executable repository checkout is available in the current tool environment, so compile/test/build cannot be run here.
+1. No executable repository checkout is available in the current tool environment, and direct GitHub network access from the execution container cannot resolve `github.com`; compile/test/build and generated baseline work cannot be run here.
 2. Canonical Drizzle baseline + snapshot remain stale and must be regenerated from the now-clean target schema.
 3. Real NewebPay MerchantID/HashKey/HashIV/NotifyURL/ReturnURL are not supplied in repository defaults.
 4. NewebPay callback/AlterStatus still needs merchant TEST/sandbox verification.
@@ -163,7 +181,7 @@ When executable checkout becomes available:
 
 1. `pnpm install --frozen-lockfile` if needed;
 2. `pnpm release:preflight` and fix real compile/lint/test/build failures only;
-3. regenerate canonical `drizzle/0000` + metadata from current `schema-all.ts` and run the V1 baseline guard;
+3. regenerate canonical `drizzle/0000` + metadata from current `schema-all.ts` with `pnpm db:baseline:regenerate --confirm-prelaunch-reset` and run the V1 baseline guard;
 4. clean rebuild disposable PostgreSQL;
 5. focused DB smoke for account lookup, Feedback, Tasks PRIVATE/GROUP authorization, FREE trial/AI Pro grants, provider-cost concurrency, lifecycle replay/stale cancel and Related ranking;
 6. NewebPay TEST checkout -> callback retry/idempotency -> renewal -> cancel;
