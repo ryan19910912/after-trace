@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { createDatabase } from './db/client';
+import { createDatabase, type Database } from './db/client';
 import { webPushRuntimeConfigured } from './worklog/push-runtime';
 
 export type TargetReadinessBindings = {
@@ -28,8 +28,9 @@ export async function targetReadinessResponse(env: TargetReadinessBindings): Pro
     return Response.json({ service: 'after-trace-api', product: 'worklog', status: 'not_ready', error: 'RUNTIME_CONFIG_INCOMPLETE', missing }, { status: 503 });
   }
 
-  const database = createDatabase(env.DATABASE_URL);
+  let database: Database;
   try {
+    database = createDatabase(env.DATABASE_URL);
     await database.execute(sql`
       SELECT
         (SELECT COUNT(*) FROM worklog_users WHERE FALSE) AS users_probe,
