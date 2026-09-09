@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { AiMediaCaptureService, type AiMediaCaptureRepository } from './ai-media-capture';
+import {
+  AiMediaCaptureService,
+  type AiMediaCaptureRepository,
+  type AiMediaInputType,
+  type AiMediaProvider,
+} from './ai-media-capture';
 import type { AiPointLedgerPort } from './entitled-ai-point-ledger';
-import type { WorklogAttachmentInputType, WorklogAttachmentProvider } from './attachment-ingestion';
 
 const config = {
   provider: 'GOOGLE', model: 'gemini-test', inputUsdPerMillion: 1, outputUsdPerMillion: 2,
@@ -25,7 +29,7 @@ function repository(calls: string[], mediaEnabled = true): AiMediaCaptureReposit
   };
 }
 
-function provider(calls: string[], inputType: WorklogAttachmentInputType): WorklogAttachmentProvider {
+function provider(calls: string[], inputType: AiMediaInputType): AiMediaProvider {
   return {
     reservationPoints() { calls.push(`estimate:${inputType}`); return 25; },
     async analyze() {
