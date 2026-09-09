@@ -6,11 +6,11 @@ Before substantive work, read the latest documents in the exact order defined by
 
 Default rule: do not run/dispatch/rerun/enable/modify GitHub Actions unless the user explicitly authorizes it. Every normal development commit contains `[skip ci]`. Do not stage/commit the unrelated local `apps/api/verify-admin-schema.mjs` unless separately reviewed/approved.
 
-## Current checkpoint — 2026-09-09 target-only cleanup complete; executable validation in progress
+## Current checkpoint — 2026-09-09 source cleanup complete; local release preflight PASS
 
-AFTERTRACE is Web + PWA-first with a compact Chrome extension fast-capture surface. LINE remains only as provider-neutral LINE Login plus the external official LINE OA support link. Accepted V1 feature scope remains source-authored complete; no further product/legacy-cleanup work should be invented merely to continue development.
+AFTERTRACE remains Web + PWA-first with the compact Chrome extension fast-capture surface. LINE remains only as provider-neutral LINE Login plus the external official LINE OA support link. Accepted V1 feature scope is source-authored complete. Legacy cleanup is complete. Do not invent further product/domain changes merely to continue work.
 
-Current prelaunch Dev/current Prod data are disposable while no real customer data exists. Canonical target schema is `apps/api/src/db/schema-all.ts`.
+Current prelaunch Dev/current Prod data remain disposable while no real customer data exists. Canonical target schema is `apps/api/src/db/schema-all.ts`.
 
 ## Product/commercial contract
 
@@ -37,91 +37,118 @@ Actually executed and proven:
 - `pnpm db:baseline:guard` after regeneration — **PASS** (`AFTERTRACE V1 target baseline + Drizzle metadata guard passed.`).
 - Admin typecheck — **PASS**.
 - Web typecheck — **PASS**.
-- API typecheck — **PASS** after API repair batch.
+- API typecheck — **PASS**.
 - full `pnpm typecheck` — **PASS** across Admin/API/Web plus Extension static step.
 - Admin lint — **PASS**.
-- full preflight baseline guard — **PASS**.
-- full preflight TypeScript stage — **PASS**.
-- full preflight ESLint stage — **PASS**.
-- Admin Vitest — **PASS**: 6 files / 20 tests.
-- Web Vitest — **PASS**: 11 files / 41 tests.
-- API Vitest attempt — **FAIL**: 5 files failed, 54 passed; 7 tests failed, 254 passed.
-- Build / Drizzle export did not execute because Vitest stopped preflight.
+- full monorepo ESLint — **PASS**.
+- standalone API Vitest after repair batch — **PASS**: **59 files / 261 tests**.
+- `pnpm release:preflight` — **PASS** end-to-end locally.
 
-The user's locally regenerated baseline SQL/snapshot plus `pnpm-lock.yaml` were committed locally with `[skip ci]` and rebased repeatedly. The user has not yet explicitly reported pushing that local commit to origin; do not claim origin contains the regenerated artifacts until push is confirmed.
+The successful preflight specifically proved:
 
-## Validation repair commits already completed
+1. canonical baseline/migration guard — **PASS**;
+2. TypeScript typecheck — **PASS**;
+3. ESLint — **PASS**;
+4. Vitest — **PASS**;
+   - Admin: **6 files / 20 tests**;
+   - Web: **11 files / 41 tests**;
+   - API: **59 files / 261 tests**;
+5. Worker/Web/Admin production builds — **PASS**;
+   - API Wrangler `deploy --dry-run` completed successfully;
+   - Admin Vite production build completed successfully;
+   - Web Vite production build completed successfully;
+   - Extension static build step completed and still requires real unpacked-browser smoke;
+6. Drizzle schema export from `apps/api/src/db/schema-all.ts` — **PASS**.
 
-Earlier Admin/Web/API typecheck/lint repair commits include:
+Release preflight itself explicitly does **not** apply migrations, deploy Workers, or replace browser/provider/runtime smoke. Do not promote this to full runtime verification.
 
-- `28b3b2ed`, `3f7142e0`, `42ffa79e`, `5d8892dc` — Admin API/test synchronization.
-- `1180ddbc`, `8e5fc267`, `898375ca` — Web fetch/Web Push type fixes.
-- `dfb6ee7d`, `02a7a250`, `3e1347f0`, `0b868cef`, `c6282ce7`, `4573b351`, `202fd6bc`, `6b084b53`, `902ccd9f`, `8b63c55b`, `232d5f34`, `5d6d7fd8`, `d862bd31`, `f72dbf17` — API target-only typecheck repairs.
-- `5ef4fd3a` — remove explicit `any` from Admin commercial parser.
-- `a61693de`, `89bedfce` — Web lint unused-parameter fixes.
+### Readiness stderr note
 
-All were `[skip ci]`. GitHub Actions were not run or modified. `apps/api/verify-admin-schema.mjs` was not touched.
+During API tests, the loopback readiness test intentionally exercised an invalid/unavailable database string. The target readiness endpoint logged `WORKLOG_TARGET_READINESS_SCHEMA_PROBE_FAILED`, then the test suite still passed all 8 readiness tests because the repaired behavior correctly fails closed as HTTP 503 instead of leaking HTTP 500. This is expected test-path stderr, not a test failure.
 
-## Latest Vitest failure analysis and authored fixes
+## Validation repair commits completed
 
-The 2026-09-09 preflight reached Vitest and surfaced exactly 7 API test failures:
+Admin/Web/API validation repairs completed with `[skip ci]` commits, including:
 
-1. `commercial-config.test.ts` FREE-trial invalid quantity used `.rejects` even though validation throws synchronously.
-2. `commercial-config.test.ts` per-request cap validation had the same synchronous-throw assertion bug.
-3. `notifications.test.ts` no-channel validation used `.rejects` for synchronous validation.
-4. `notifications.test.ts` SPECIFIC_USERS validation used `.rejects` for synchronous validation.
-5. `ai-time-range-summary.test.ts` expected exactly 5 Records, but the bounded implementation intentionally admits 5 full Records plus one truncated final Record while staying under the provider character cap.
-6. `web-push-transport.test.ts` expected fetch body `Uint8Array`, while runtime now intentionally converts the strict DOM `BodyInit` boundary to `ArrayBuffer`.
-7. `index-readiness.test.ts` observed HTTP 500 because `createDatabase()` could throw before the readiness schema-probe try/catch. Readiness should fail closed as 503 instead of leaking an internal 500.
+- Admin API/test synchronization: `28b3b2ed`, `3f7142e0`, `42ffa79e`, `5d8892dc`.
+- Web fetch/Web Push typing: `1180ddbc`, `8e5fc267`, `898375ca`.
+- API target-only typecheck repairs: `dfb6ee7d`, `02a7a250`, `3e1347f0`, `0b868cef`, `c6282ce7`, `4573b351`, `202fd6bc`, `6b084b53`, `902ccd9f`, `8b63c55b`, `232d5f34`, `5d6d7fd8`, `d862bd31`, `f72dbf17`.
+- Admin lint repair: `5ef4fd3a`.
+- Web lint repairs: `a61693de`, `89bedfce`.
+- Vitest repairs: `5be3161b`, `0abddb52`, `e9010ff1`, `85647414`, `6364e15a`.
 
-Authored `[skip ci]` fixes:
+The latest Vitest repair batch is now **EXECUTED / PASS**, not merely authored.
 
-- `5be3161b` — use synchronous `.toThrow` assertions for CommercialConfig validation.
-- `0abddb52` — use synchronous `.toThrow` assertions for NotificationService validation.
-- `e9010ff1` — align bounded-summary test with the intentionally truncated sixth Record and assert the final Record is truncated.
-- `85647414` — assert the Web Push fetch body as `ArrayBuffer` and keep encrypted-body size verification.
-- `6364e15a` — include database client construction in readiness fail-closed handling so malformed/unavailable DB config returns 503 `WORKLOG_TARGET_SCHEMA_UNAVAILABLE` rather than HTTP 500.
+GitHub Actions were not run or modified. `apps/api/verify-admin-schema.mjs` was not touched.
 
-These latest Vitest fixes are **AUTHORED / NOT YET EXECUTED**. Do not claim them PASS until the user pulls and runs tests.
+## Canonical Drizzle baseline status
+
+Authoritative target schema remains `apps/api/src/db/schema-all.ts`.
+
+Local Windows checkout:
+
+- regenerated canonical baseline guard — **PASS**;
+- regenerated baseline SQL/snapshot + `pnpm-lock.yaml` were committed locally with `[skip ci]` and repeatedly rebased while validation fixes landed;
+- full local release preflight using those generated artifacts — **PASS**.
+
+Origin synchronization:
+
+- the user has not yet explicitly reported `git push` after the local regenerated-baseline commit/rebases;
+- therefore do **not** claim the regenerated canonical baseline is already present on `origin/revive/line-worklog` until push is confirmed.
+
+Generated SQL/snapshot must not be hand-edited to simulate success.
 
 ## Current executable status
 
-- dependency install — **PASS**.
-- canonical baseline guard on user's regenerated local artifacts — **PASS**.
-- monorepo TypeScript — **PASS**.
-- monorepo ESLint — **PASS**.
-- Admin tests — **PASS**.
-- Web tests — **PASS**.
-- API tests before latest 5 commits — **FAIL** (254 passed / 7 failed).
-- latest Vitest repair batch — **AUTHORED / NOT RUN**.
-- Worker/Web/Admin production builds — **NOT RUN** in a successful preflight sequence.
-- Drizzle schema export — **NOT RUN** in a successful preflight sequence.
-- clean PostgreSQL rebuild — **NOT RUN**.
-- lifecycle/provider-cost concurrency DB smoke — **NOT RUN**.
-- NewebPay TEST checkout/callback/renew/cancel — **NOT RUN**.
-- Google/LINE/Apple OAuth smoke — **NOT RUN**.
-- Gemini provider smoke — **NOT RUN**.
-- Chrome unpacked-extension smoke — **NOT RUN**.
-- Push/Cron runtime smoke — **NOT RUN**.
-- Dev E2E — **NOT RUN**.
+### PASS
+
+- dependency install;
+- canonical baseline guard;
+- monorepo TypeScript;
+- monorepo ESLint;
+- Admin Vitest;
+- Web Vitest;
+- API Vitest (59 files / 261 tests);
+- Worker/API dry-run build;
+- Admin production build;
+- Web production build;
+- Extension static build step;
+- Drizzle schema export;
+- complete local `pnpm release:preflight`.
+
+### NOT RUN / NOT RUNTIME VERIFIED
+
+- fresh disposable PostgreSQL rebuild from canonical baseline;
+- focused PostgreSQL DB smoke for account lookup, Feedback, PRIVATE/GROUP Task authorization, FREE trial/AI Pro Grant accounting, provider-cost concurrency, lifecycle replay/stale cancel and Related ranking;
+- NewebPay TEST checkout/callback retry/idempotency/renew/cancel flow;
+- Google OAuth runtime smoke;
+- LINE Login runtime smoke;
+- Apple Login runtime smoke;
+- Gemini real provider smoke;
+- Chrome unpacked-extension browser smoke;
+- Web Push runtime smoke;
+- shared Cloudflare Cron runtime smoke;
+- Dev end-to-end smoke;
+- actual Worker deployment.
 
 No unexecuted item is claimed PASS or RUNTIME VERIFIED.
 
 ## Exact next validation plan
 
-1. Pull/rebase the latest Vitest repair commits into the Windows checkout.
-2. Run `pnpm --filter @aftertrace/api test` first.
-3. If API tests pass, run `pnpm release:preflight` again; this should then continue into production builds and Drizzle schema export.
-4. Push the user's rebased regenerated-baseline/lockfile commit to `origin/revive/line-worklog` once working tree/history are clean.
-5. Apply canonical baseline to a fresh disposable PostgreSQL database and run focused DB smoke for account lookup, Feedback, Tasks PRIVATE/GROUP authorization, FREE trial/AI Pro Grants, provider-cost concurrency, lifecycle replay/stale cancel and Related ranking.
-6. Run NewebPay TEST checkout -> callback retry/idempotency -> renewal -> cancel.
-7. Run Google/LINE/Apple + Gemini + Chrome + Push/Cron Dev smoke.
-8. Only then consider the branch release-ready.
+1. Run `git status` / `git log --oneline --decorate -5` in the Windows checkout and confirm the locally regenerated baseline commit is still ahead of origin as expected.
+2. Push the validated local branch to `origin/revive/line-worklog` using normal `git push`; all commits already contain `[skip ci]` and GitHub Actions must remain unused.
+3. Apply the canonical baseline to a fresh disposable PostgreSQL database and prove a clean schema rebuild.
+4. Run focused DB smoke for account lookup, Feedback, PRIVATE/GROUP Tasks, FREE trial/AI Pro Grants, provider-cost concurrency, lifecycle replay/stale cancel and Related ranking.
+5. Run NewebPay TEST checkout -> callback retry/idempotency -> renewal -> cancel when real TEST credentials/callback URLs are available.
+6. Run Google/LINE/Apple + Gemini + Chrome unpacked extension + Push/Cron Dev smoke.
+7. Run Dev E2E.
+8. Only then consider the branch fully release-ready/runtime-verified.
 
 ## Remaining estimate
 
 - Functional feature development: **0 focused hours**.
 - Legacy cleanup: **0 focused hours**.
-- Remaining work is validation/release-readiness only and depends on failures discovered by execution.
+- Static/local release validation: **complete / PASS**.
+- Remaining work is database/provider/browser/runtime verification only and depends on external credentials/runtime availability.
 
 `apps/api/verify-admin-schema.mjs` was not staged or committed.
