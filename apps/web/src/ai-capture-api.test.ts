@@ -7,7 +7,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe('AiCaptureApi', () => {
   it('reads provider-neutral entitlement for one Source', async () => {
-    const fetchMock = vi.fn(async () => response({
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => response({
       ok: true,
       entitlement: {
         source: 'FREE_TRIAL',
@@ -28,7 +28,7 @@ describe('AiCaptureApi', () => {
   });
 
   it('persists AI text through the target AI capture endpoint', async () => {
-    const fetchMock = vi.fn(async () => response({
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => response({
       ok: true,
       status: 'CREATED',
       entitlementSource: 'AI_PRO',
@@ -55,7 +55,7 @@ describe('AiCaptureApi', () => {
   });
 
   it('surfaces durable hard-cap reasons from the backend', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => response({
+    vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => response({
       ok: false,
       error: 'MONTHLY_PROVIDER_COST_CAP_REACHED',
     }, 409)));
