@@ -17,7 +17,6 @@ function createdRecord(captureContext: ManualRecordView['captureContext']): Manu
   return {
     id: 81,
     sourceId: 10,
-    entityId: null,
     title: null,
     authorUserId: 7,
     authorDisplayName: 'Ryan',
@@ -47,7 +46,6 @@ describe('manual Record capture context route', () => {
     const create = vi.fn(async (input: Parameters<ManualRecordRouteRepository['create']>[0]) => createdRecord(input.captureContext));
     const repository = {
       personalSourceId: async () => 10,
-      legacyEntity: async () => null,
       create,
     } as unknown as ManualRecordRouteRepository;
 
@@ -99,7 +97,6 @@ describe('manual Record capture context route', () => {
     const create = vi.fn();
     const repository = {
       personalSourceId: async () => 10,
-      legacyEntity: async () => null,
       create,
     } as unknown as ManualRecordRouteRepository;
 
