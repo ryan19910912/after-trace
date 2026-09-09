@@ -4,7 +4,7 @@ import { applicationServerKey, iosHomeScreenPushHint } from './browser-push';
 describe('browser push helpers', () => {
   it('converts URL-safe VAPID public-key material into bytes', () => {
     const encoded = btoa('aftertrace-test-key').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-    expect(Array.from(applicationServerKey(encoded))).toEqual(Array.from(new TextEncoder().encode('aftertrace-test-key')));
+    expect(Array.from(new Uint8Array(applicationServerKey(encoded)))).toEqual(Array.from(new TextEncoder().encode('aftertrace-test-key')));
   });
 
   it('fails closed on empty VAPID public keys', () => {
