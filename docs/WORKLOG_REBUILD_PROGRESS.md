@@ -63,29 +63,56 @@ Executable validation then started on the user's Windows checkout at `D:\Project
 
 Actually executed by the user:
 
-- `pnpm install --frozen-lockfile` — **PASS** (`pnpm 10.15.0`, lockfile up to date).
+- `pnpm install --frozen-lockfile` — **PASS** (`pnpm 10.15.0`).
 - first `pnpm release:preflight` with local `http://127.0.0.1:8787` API URL — **FAIL** before validation because release preflight correctly requires an absolute HTTPS Worker origin.
 - rerun with `VITE_API_BASE_URL=https://after-trace-api-dev.a0955625660.workers.dev` — preflight entered validation and baseline guard **FAIL** because checked-in canonical Drizzle SQL/snapshot were stale legacy artifacts.
 - after local baseline regeneration, `pnpm db:baseline:guard` — **PASS**: `AFTERTRACE V1 target baseline + Drizzle metadata guard passed.`
 - next `pnpm release:preflight` — baseline guard **PASS**, then TypeScript stage **FAIL** in Admin.
+- after Admin repair commits, `pnpm --filter @aftertrace/admin typecheck` — **PASS**.
+- `pnpm --filter @aftertrace/web typecheck` after Web repair commits — **PASS**.
+- subsequent monorepo `pnpm typecheck` — Admin **PASS**, Web **PASS**, Extension static check **PASS**, API **FAIL** with a concrete second batch of TypeScript defects.
 
-The user did not provide the direct stdout from the baseline regeneration command itself, so record only the executed guard as PASS. The user's regenerated Drizzle files are local until separately committed/pushed; do not assume the GitHub branch currently contains those generated artifacts merely because the local guard passed.
+The user did not provide the direct stdout from the baseline regeneration command itself, so record only the executed guard as PASS. The regenerated baseline SQL/snapshot plus the workspace lockfile were committed locally with `[skip ci]` before rebasing; the local branch remained one commit ahead of `origin/revive/line-worklog`. The post-rebase local SHA was not provided, so do not invent it or claim the generated artifacts are already on GitHub until pushed.
 
-The Admin typecheck surfaced these real stale-integration defects:
+### Admin/Web TypeScript repair batch
 
-1. `AdminAccountsPage.tsx` called removed `api.accounts(...)` instead of target `accountLookup(...)`.
-2. announcement specific-user search called removed `api.users(...)` instead of target `accountLookup(...)`.
-3. `api.test.ts` imported/tested removed `effectiveSubscriptionState` helper.
-4. `commercial-api.test.ts` AI Pro fixture/request omitted current `aiTaskProposal` capability.
+Fixed with `[skip ci]` commits and then locally verified by the user:
 
-Fixed on branch with `[skip ci]` commits:
+- `28b3b2ed` — target Admin account lookup API.
+- `3f7142e0` — target account lookup for announcement user search.
+- `42ffa79e` — remove stale Admin subscription-helper tests.
+- `5d8892dc` — align Admin AI Pro fixture/request with `aiTaskProposal`.
+- `1180ddbc` — type fetch mocks in AI capture tests.
+- `8e5fc267` — use an `ArrayBuffer` Web Push application-server key.
+- `898375ca` — align browser push test with the `ArrayBuffer` key.
 
-- `28b3b2ed` — use target Admin account lookup API in account search page.
-- `3f7142e0` — use target account lookup for announcement user search.
-- `42ffa79e` — remove stale Admin subscription-helper tests rather than restoring removed code.
-- `5d8892dc` — align AI Pro Admin test fixture/request with `aiTaskProposal`.
+Execution status:
 
-These fixes are **AUTHORED / NOT YET EXECUTED** after the commits. The user must pull/sync them into the executable Windows checkout and rerun typecheck/preflight.
+- Admin typecheck — **PASS**.
+- Web typecheck — **PASS**.
+
+### API TypeScript repair batch
+
+The first API typecheck attempt surfaced stale result-union access, removed presentation/import helpers, legacy LINE/Entity/media type references, AI capability fixture drift, strict WebCrypto/Fetch buffer typing, a stale Gemini request-helper name, nullable fixture typing and Hono route-param typing.
+
+Fixed with `[skip ci]` commits:
+
+- `dfb6ee7d` — align AI media tests with target-native `AiMediaProvider` / `AiMediaInputType`.
+- `02a7a250` — remove retired attachment type dependency from Drizzle AI media repository.
+- `3e1347f0` — remove retired `legacyLineUserId` from provider-neutral account identity test.
+- `0b868cef` — remove retired `../line/content` type dependency from Gemini media tests.
+- `c6282ce7` — remove stale missing Admin presentation import and return the already-normalized profitability report.
+- `4573b351` — align commercial config tests with the `aiTaskProposal` capability.
+- `202fd6bc` — remove retired Entity fixture fields from manual Record capture-context tests.
+- `6b084b53` — explicitly narrow notification service result unions before reading `announcement`.
+- `902ccd9f` — explicitly narrow native group invite result unions before reading invite/token.
+- `8b63c55b` — use the exported `buildGeminiNaturalSearchRequest` helper consistently.
+- `232d5f34` — type time-range summary fixtures as target `AiTimeRangeSummaryRecord[]`, allowing nullable titles.
+- `5d6d7fd8` — align Web Push fetch/HKDF buffers with strict DOM/WebCrypto types without changing RFC 8291/8292 flow.
+- `d862bd31` — align Apple Login crypto test buffers with strict WebCrypto `BufferSource` types.
+- `f72dbf17` — accept Hono's optional route-param typing in the manual Record positive-id helper.
+
+These API fixes are **AUTHORED / NOT YET EXECUTED** after the latest commits. Do not claim API typecheck PASS until the user pulls them and executes it.
 
 No product feature was added, no retired behavior was restored, GitHub Actions were not used or modified, and `apps/api/verify-admin-schema.mjs` was not touched.
 
@@ -96,13 +123,14 @@ Authoritative target schema remains `apps/api/src/db/schema-all.ts`.
 Local Windows checkout status:
 
 - regenerated target baseline guard — **PASS**.
+- regenerated baseline SQL/snapshot + lockfile were committed locally and rebased; local branch remained one commit ahead of origin at the last reported `git status`.
 
 GitHub branch status:
 
-- generated Drizzle artifacts still require explicit synchronization from the user's local checkout unless they have already been committed/pushed separately.
+- do not claim the generated Drizzle artifacts are on origin until the user's local commit is explicitly pushed.
 - do not hand-edit generated SQL/snapshot to simulate success.
 
-After the generated artifacts are committed, apply the canonical baseline to a fresh disposable PostgreSQL database and verify clean rebuild.
+After the generated artifacts are pushed, apply the canonical baseline to a fresh disposable PostgreSQL database and verify clean rebuild.
 
 ## Executable verification status
 
@@ -110,8 +138,12 @@ Current known status:
 
 - dependency install — **PASS**.
 - canonical baseline guard on user's regenerated local artifacts — **PASS**.
-- Admin/monorepo TypeScript typecheck before latest fixes — **FAIL**.
-- latest four Admin fixes — **AUTHORED / NOT RUN**.
+- Admin TypeScript typecheck — **PASS**.
+- Web TypeScript typecheck — **PASS**.
+- Extension static typecheck step — **PASS** (`static extension package: no TypeScript yet`).
+- API TypeScript typecheck before latest API fixes — **FAIL**.
+- latest API repair batch — **AUTHORED / NOT RUN**.
+- full monorepo TypeScript typecheck — **FAIL** until API rerun proves otherwise.
 - ESLint — **NOT RUN** in successful preflight sequence yet.
 - Vitest — **NOT RUN** in successful preflight sequence yet.
 - Worker/Web/Admin builds — **NOT RUN** in successful preflight sequence yet.
@@ -129,10 +161,10 @@ No unexecuted item is claimed PASS or RUNTIME VERIFIED.
 
 ## Exact next validation plan
 
-1. Preserve/commit the user's locally regenerated `drizzle/0000_worklog_baseline.sql`, `drizzle/meta/0000_snapshot.json`, and matching journal if modified, using `[skip ci]`; do not include unrelated files.
-2. Sync/pull the four Admin validation-fix commits into the Windows checkout without losing the regenerated Drizzle artifacts.
-3. Run `pnpm --filter @aftertrace/admin typecheck`.
-4. If PASS, run `pnpm typecheck`.
+1. Pull/rebase the latest API repair commits into the executable Windows checkout without losing the one local regenerated-baseline commit.
+2. Run `pnpm --filter @aftertrace/api typecheck`.
+3. If API passes, run `pnpm typecheck` to prove the whole workspace.
+4. Push the user's rebased local canonical-baseline/lockfile commit to `origin/revive/line-worklog` once the working tree is clean and validation state is understood.
 5. Run `pnpm release:preflight` and fix only real lint/test/build/schema-export failures surfaced by execution.
 6. Apply canonical baseline to a fresh disposable PostgreSQL database and run focused DB smoke for account lookup, Feedback, Tasks PRIVATE/GROUP authorization, FREE trial/AI Pro Grants, provider-cost concurrency, lifecycle replay/stale cancel and Related ranking.
 7. Run NewebPay TEST checkout -> callback retry/idempotency -> renewal -> cancel.
