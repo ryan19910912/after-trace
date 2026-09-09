@@ -78,7 +78,7 @@ describe('WorklogApi target Web/PWA contract', () => {
   });
 
   it('sends an explicit null event date for content-only manual create', async () => {
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => jsonResponse({
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => jsonResponse({
       record: {
         id: 11,
         sourceId: 1,
