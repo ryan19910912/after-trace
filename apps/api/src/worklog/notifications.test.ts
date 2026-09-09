@@ -71,9 +71,9 @@ describe('NotificationService', () => {
     });
   });
 
-  it('requires at least one delivery channel for Admin announcements', async () => {
+  it('requires at least one delivery channel for Admin announcements', () => {
     const service = new NotificationService(repository());
-    await expect(service.createAnnouncement({
+    expect(() => service.createAnnouncement({
       title: '維護公告',
       body: '今晚維護',
       audience: 'ALL_USERS',
@@ -81,12 +81,12 @@ describe('NotificationService', () => {
       inAppEnabled: false,
       pushEnabled: false,
       createdByActor: 'admin',
-    })).rejects.toThrow('NOTIFICATION_CHANNEL_REQUIRED');
+    })).toThrow('NOTIFICATION_CHANNEL_REQUIRED');
   });
 
-  it('never silently broadens SPECIFIC_USERS to all users', async () => {
+  it('never silently broadens SPECIFIC_USERS to all users', () => {
     const service = new NotificationService(repository());
-    await expect(service.createAnnouncement({
+    expect(() => service.createAnnouncement({
       title: '指定公告',
       body: '只給指定帳號',
       audience: 'SPECIFIC_USERS',
@@ -94,7 +94,7 @@ describe('NotificationService', () => {
       inAppEnabled: true,
       pushEnabled: false,
       createdByActor: 'admin',
-    })).rejects.toThrow('SPECIFIC_USERS_REQUIRED');
+    })).toThrow('SPECIFIC_USERS_REQUIRED');
   });
 
   it('deduplicates explicit user ids before persistence', async () => {
