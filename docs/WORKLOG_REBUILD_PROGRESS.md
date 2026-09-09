@@ -6,9 +6,11 @@ Before substantive work, read the latest documents in the exact order defined by
 
 Default rule: do not run/dispatch/rerun/enable/modify GitHub Actions unless the user explicitly authorizes it. Every normal development commit contains `[skip ci]`. Do not stage/commit the unrelated local `apps/api/verify-admin-schema.mjs` unless separately reviewed/approved.
 
-## Current checkpoint — 2026-09-09 source cleanup complete; local release preflight PASS; canonical baseline pushed; PostgreSQL migration/integrity PASS
+## Current checkpoint — 2026-09-10 source cleanup complete; local release preflight PASS; canonical baseline pushed; PostgreSQL migration/integrity/readiness PASS
 
 AFTERTRACE remains Web + PWA-first with the compact Chrome extension fast-capture surface. LINE remains only as provider-neutral LINE Login plus the external official LINE OA support link. Accepted V1 feature scope is source-authored complete. Legacy cleanup is complete. Do not invent further product/domain changes merely to continue work.
+
+Apple Login remains source-supported but is intentionally not enabled for the current launch/runtime validation because the user is not enrolled in the paid Apple Developer Program. Google Login + LINE Login are the active launch authentication providers for now. Do not treat absent Apple credentials as a readiness failure.
 
 Current prelaunch Dev/current Prod data remain disposable while no real customer data exists. Canonical target schema is `apps/api/src/db/schema-all.ts`.
 
@@ -45,8 +47,10 @@ Actually executed and proven:
 - `pnpm release:preflight` — **PASS** end-to-end locally.
 - `pnpm db:migrate` against the user's existing configured PostgreSQL database — **PASS** (`AFTERTRACE database migrations applied successfully.`); a repeated execution also completed successfully, confirming migration idempotent replay at the Drizzle migrator level.
 - `pnpm db:integrity` against that database — **PASS**. Proven target constraints include PRIVATE Source ownership, GROUP Source shape, one PRIVATE Source per user, nullable manual `occurred_at`, and rejection of retired TOP_UP grant / ONE_TIME plan values.
+- local API `GET /health` — **PASS / HTTP 200**.
+- local API `GET /health/ready` initially failed on missing Google/Web Push bindings, then on missing AI/commercial seed rows; after the user configured Google OAuth, valid VAPID Web Push bindings, AI runtime config, FREE/AI_PRO plan rows and FREE initial-trial config, `GET /health/ready` — **PASS / HTTP 200**, body `{ "service":"after-trace-api","product":"worklog","status":"ready" }`.
 
-Important evidence boundary: the user did not provide output proving `DROP SCHEMA public CASCADE` (or equivalent destructive reset) occurred immediately before the successful migration. Therefore migration + integrity are proven PASS, but a literal clean-from-empty database rebuild is **not separately claimed** unless that reset is confirmed.
+Important evidence boundary: the user did not provide output proving `DROP SCHEMA public CASCADE` (or equivalent destructive reset) occurred immediately before the successful migration. Therefore migration + integrity + readiness are proven PASS, but a literal clean-from-empty database rebuild is **not separately claimed** unless that reset is confirmed.
 
 The successful preflight specifically proved:
 
@@ -66,9 +70,11 @@ The successful preflight specifically proved:
 
 Release preflight itself explicitly does **not** apply migrations, deploy Workers, or replace browser/provider/runtime smoke. Do not promote this to full runtime verification.
 
-### Readiness stderr note
+### Readiness/runtime configuration note
 
-During API tests, the loopback readiness test intentionally exercised an invalid/unavailable database string. The target readiness endpoint logged `WORKLOG_TARGET_READINESS_SCHEMA_PROBE_FAILED`, then the test suite still passed all 8 readiness tests because the repaired behavior correctly fails closed as HTTP 503 instead of leaking HTTP 500. This is expected test-path stderr, not a test failure.
+Current readiness-required runtime bindings/config are now proven present locally: provider-neutral Google + LINE Login configuration, valid Web Push VAPID configuration, target database/schema, AI runtime pricing/model configuration, FREE/AI_PRO plans, and FREE initial AI trial configuration.
+
+Apple Login remains intentionally disabled and is not a mandatory readiness requirement.
 
 ## Validation repair commits completed
 
@@ -81,7 +87,7 @@ Admin/Web/API validation repairs completed with `[skip ci]` commits, including:
 - Web lint repairs: `a61693de`, `89bedfce`.
 - Vitest repairs: `5be3161b`, `0abddb52`, `e9010ff1`, `85647414`, `6364e15a`.
 
-The latest Vitest repair batch is now **EXECUTED / PASS**, not merely authored.
+The latest Vitest repair batch is **EXECUTED / PASS**.
 
 GitHub Actions were not run or modified. `apps/api/verify-admin-schema.mjs` was not touched.
 
@@ -95,7 +101,7 @@ Local Windows checkout:
 - regenerated baseline SQL/snapshot + `pnpm-lock.yaml` were committed locally with `[skip ci]`;
 - after rebasing over the progress checkpoint, that local commit became `4e32854` (`[skip ci] regenerate canonical baseline and sync workspace lockfile`);
 - full local release preflight using those generated artifacts — **PASS**;
-- final `git status` after push — clean and up to date with `origin/revive/line-worklog` before the subsequent progress-only checkpoint commit.
+- final `git status` after push — clean and up to date with `origin/revive/line-worklog` before subsequent progress-only checkpoint commits.
 
 Origin synchronization:
 
@@ -123,42 +129,45 @@ Generated SQL/snapshot must not be hand-edited to simulate success.
 - complete local `pnpm release:preflight`;
 - canonical baseline/lockfile push to `origin/revive/line-worklog`;
 - PostgreSQL migration against current configured database;
-- PostgreSQL target integrity probes.
+- PostgreSQL target integrity probes;
+- local API liveness `/health`;
+- local API target readiness `/health/ready` after runtime/commercial/AI/Web Push configuration.
 
 ### NOT RUN / NOT RUNTIME VERIFIED
 
 - clean-from-empty PostgreSQL rebuild, unless the user separately confirms the schema/database was destructively reset before the successful migration;
-- `/health/ready` against the current rebuilt/migrated target runtime;
 - focused PostgreSQL DB smoke for account lookup, Feedback, PRIVATE/GROUP Task authorization, FREE trial/AI Pro Grant accounting, provider-cost concurrency, lifecycle replay/stale cancel and Related ranking;
 - NewebPay TEST checkout/callback retry/idempotency/renew/cancel flow;
-- Google OAuth runtime smoke;
-- LINE Login runtime smoke;
-- Apple Login runtime smoke;
+- Google OAuth real browser/runtime smoke;
+- LINE Login real browser/runtime smoke;
 - Gemini real provider smoke;
 - Chrome unpacked-extension browser smoke;
-- Web Push runtime smoke;
+- Web Push real browser/delivery smoke;
 - shared Cloudflare Cron runtime smoke;
 - Dev end-to-end smoke;
 - actual Worker deployment.
+
+Apple Login runtime smoke is intentionally out of current launch scope unless the user later joins Apple Developer Program and explicitly re-enables it.
 
 No unexecuted item is claimed PASS or RUNTIME VERIFIED.
 
 ## Exact next validation plan
 
-1. Verify API `/health/ready` against the current configured database/runtime. This proves target schema plus required runtime/commercial/AI/PUSH initialization, not merely table constraints.
-2. Run focused DB/runtime smoke for provider-neutral account lookup, Feedback, PRIVATE/GROUP Tasks, FREE trial/AI Pro Grants, provider-cost concurrency, lifecycle replay/stale cancel and Related ranking.
-3. If clean-from-empty rebuild evidence is required, destructively reset the disposable database and rerun `pnpm db:migrate` + `pnpm db:integrity`; otherwise do not claim that narrower property.
-4. Run NewebPay TEST checkout -> callback retry/idempotency -> renewal -> cancel when real TEST credentials/callback URLs are available.
-5. Run Google/LINE/Apple + Gemini + Chrome unpacked extension + Push/Cron Dev smoke.
+1. Run focused DB/runtime smoke for provider-neutral account lookup, Feedback, PRIVATE/GROUP Tasks, FREE trial/AI Pro Grants, provider-cost concurrency, lifecycle replay/stale cancel and Related ranking.
+2. Run Google Login + LINE Login real browser smoke against local/Dev callback configuration.
+3. Run Gemini real provider smoke.
+4. Run Chrome unpacked extension + Web Push + shared Cron Dev smoke.
+5. Run NewebPay TEST checkout -> callback retry/idempotency -> renewal -> cancel when real TEST credentials/callback URLs are available.
 6. Run Dev E2E.
-7. Only then consider the branch fully release-ready/runtime-verified.
+7. If clean-from-empty rebuild evidence is required, destructively reset the disposable database and rerun `pnpm db:migrate` + `pnpm db:integrity`; otherwise do not claim that narrower property.
+8. Only then consider the branch fully release-ready/runtime-verified.
 
 ## Remaining estimate
 
 - Functional feature development: **0 focused hours**.
 - Legacy cleanup: **0 focused hours**.
 - Static/local release validation: **complete / PASS**.
-- Database migration + integrity validation: **PASS**.
-- Remaining work is readiness, focused DB behavior and provider/browser/runtime verification.
+- Database migration + integrity + readiness validation: **PASS**.
+- Remaining work is focused DB behavior and provider/browser/runtime verification.
 
 `apps/api/verify-admin-schema.mjs` was not staged or committed.
