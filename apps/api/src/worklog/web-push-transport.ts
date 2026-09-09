@@ -44,7 +44,7 @@ export class WorkerWebPushTransport {
     const response = await this.fetcher(request.endpoint, {
       method: 'POST',
       headers: request.headers,
-      body: request.body,
+      body: asArrayBuffer(request.body),
     });
     return { ok: response.ok, status: response.status };
   }
@@ -158,8 +158,6 @@ async function encryptPayload(
     256,
   ));
 
-  // RFC 8291 section 3.3: first derive the input keying material from the ECDH secret
-  // and subscription auth secret, then derive the aes128gcm CEK + nonce from a fresh salt.
   const authPrk = await hmacSha256(authSecret, sharedSecret);
   const keyInfo = concat(
     new TextEncoder().encode('WebPush: info\u0000'),
@@ -244,7 +242,7 @@ async function hmacSha256(keyBytes: Uint8Array, data: Uint8Array): Promise<Uint8
 async function hkdfExpand(prk: Uint8Array, info: Uint8Array, length: number): Promise<Uint8Array> {
   if (!Number.isSafeInteger(length) || length <= 0 || length > 255 * 32) throw new Error('INVALID_HKDF_LENGTH');
   const output = new Uint8Array(length);
-  let previous = new Uint8Array(0);
+  let previous: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
   let offset = 0;
   for (let counter = 1; offset < length; counter += 1) {
     const block = await hmacSha256(prk, concat(previous, info, new Uint8Array([counter])));
@@ -258,8 +256,6 @@ async function hkdfExpand(prk: Uint8Array, info: Uint8Array, length: number): Pr
 
 function joseEcdsaSignature(signature: Uint8Array): Uint8Array {
   if (signature.byteLength === 64) return signature;
-  // Web Crypto implementations used by Workers return IEEE-P1363 r||s. Keep a DER fallback
-  // for local runtimes so authored unit tests do not depend on a runtime-specific encoding.
   if (signature.byteLength < 8 || signature[0] !== 0x30) throw new Error('INVALID_VAPID_SIGNATURE');
   let offset = 2;
   if (signature[1] & 0x80) {
