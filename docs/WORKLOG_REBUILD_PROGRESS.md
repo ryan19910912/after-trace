@@ -6,7 +6,7 @@ Before substantive work, read the latest documents in the exact order defined by
 
 Default rule: do not run/dispatch/rerun/enable/modify GitHub Actions unless the user explicitly authorizes it. Every normal development commit contains `[skip ci]`. Do not stage/commit the unrelated local `apps/api/verify-admin-schema.mjs` unless separately reviewed/approved.
 
-## Current checkpoint — 2026-09-09 source cleanup complete; local release preflight PASS
+## Current checkpoint — 2026-09-09 source cleanup complete; local release preflight PASS; canonical baseline pushed
 
 AFTERTRACE remains Web + PWA-first with the compact Chrome extension fast-capture surface. LINE remains only as provider-neutral LINE Login plus the external official LINE OA support link. Accepted V1 feature scope is source-authored complete. Legacy cleanup is complete. Do not invent further product/domain changes merely to continue work.
 
@@ -88,13 +88,15 @@ Authoritative target schema remains `apps/api/src/db/schema-all.ts`.
 Local Windows checkout:
 
 - regenerated canonical baseline guard — **PASS**;
-- regenerated baseline SQL/snapshot + `pnpm-lock.yaml` were committed locally with `[skip ci]` and repeatedly rebased while validation fixes landed;
-- full local release preflight using those generated artifacts — **PASS**.
+- regenerated baseline SQL/snapshot + `pnpm-lock.yaml` were committed locally with `[skip ci]`;
+- after rebasing over the progress checkpoint, that local commit became `4e32854` (`[skip ci] regenerate canonical baseline and sync workspace lockfile`);
+- full local release preflight using those generated artifacts — **PASS**;
+- final `git status` after push — clean and up to date with `origin/revive/line-worklog`.
 
 Origin synchronization:
 
-- the user has not yet explicitly reported `git push` after the local regenerated-baseline commit/rebases;
-- therefore do **not** claim the regenerated canonical baseline is already present on `origin/revive/line-worklog` until push is confirmed.
+- `4e32854` was successfully pushed to `origin/revive/line-worklog` on 2026-09-09;
+- therefore the validated regenerated baseline SQL/snapshot and workspace lockfile are now present on origin.
 
 Generated SQL/snapshot must not be hand-edited to simulate success.
 
@@ -114,7 +116,8 @@ Generated SQL/snapshot must not be hand-edited to simulate success.
 - Web production build;
 - Extension static build step;
 - Drizzle schema export;
-- complete local `pnpm release:preflight`.
+- complete local `pnpm release:preflight`;
+- canonical baseline/lockfile push to `origin/revive/line-worklog`.
 
 ### NOT RUN / NOT RUNTIME VERIFIED
 
@@ -135,14 +138,12 @@ No unexecuted item is claimed PASS or RUNTIME VERIFIED.
 
 ## Exact next validation plan
 
-1. Run `git status` / `git log --oneline --decorate -5` in the Windows checkout and confirm the locally regenerated baseline commit is still ahead of origin as expected.
-2. Push the validated local branch to `origin/revive/line-worklog` using normal `git push`; all commits already contain `[skip ci]` and GitHub Actions must remain unused.
-3. Apply the canonical baseline to a fresh disposable PostgreSQL database and prove a clean schema rebuild.
-4. Run focused DB smoke for account lookup, Feedback, PRIVATE/GROUP Tasks, FREE trial/AI Pro Grants, provider-cost concurrency, lifecycle replay/stale cancel and Related ranking.
-5. Run NewebPay TEST checkout -> callback retry/idempotency -> renewal -> cancel when real TEST credentials/callback URLs are available.
-6. Run Google/LINE/Apple + Gemini + Chrome unpacked extension + Push/Cron Dev smoke.
-7. Run Dev E2E.
-8. Only then consider the branch fully release-ready/runtime-verified.
+1. Apply the canonical baseline to a fresh disposable PostgreSQL database and prove a clean schema rebuild.
+2. Run focused DB smoke for account lookup, Feedback, PRIVATE/GROUP Tasks, FREE trial/AI Pro Grants, provider-cost concurrency, lifecycle replay/stale cancel and Related ranking.
+3. Run NewebPay TEST checkout -> callback retry/idempotency -> renewal -> cancel when real TEST credentials/callback URLs are available.
+4. Run Google/LINE/Apple + Gemini + Chrome unpacked extension + Push/Cron Dev smoke.
+5. Run Dev E2E.
+6. Only then consider the branch fully release-ready/runtime-verified.
 
 ## Remaining estimate
 
