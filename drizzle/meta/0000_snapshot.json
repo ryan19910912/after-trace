@@ -1,5 +1,5 @@
 {
-  "id": "c3e4b421-ce52-4407-88d4-ea0c170aaeae",
+  "id": "11cba9b6-b326-47e2-ab35-2e7ab056674c",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -80,179 +80,6 @@
       },
       "indexes": {},
       "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.worklog_anomaly_events": {
-      "name": "worklog_anomaly_events",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "bigserial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "category": {
-          "name": "category",
-          "type": "varchar(128)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "severity": {
-          "name": "severity",
-          "type": "worklog_anomaly_severity",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'ERROR'"
-        },
-        "status": {
-          "name": "status",
-          "type": "worklog_anomaly_status",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'OPEN'"
-        },
-        "error_code": {
-          "name": "error_code",
-          "type": "varchar(128)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "summary": {
-          "name": "summary",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "source_id": {
-          "name": "source_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "line_message_id": {
-          "name": "line_message_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "request_ref": {
-          "name": "request_ref",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "metadata": {
-          "name": "metadata",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "resolved_at": {
-          "name": "resolved_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "worklog_anomaly_status_severity_time_idx": {
-          "name": "worklog_anomaly_status_severity_time_idx",
-          "columns": [
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "severity",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "worklog_anomaly_user_idx": {
-          "name": "worklog_anomaly_user_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "worklog_anomaly_events_user_id_worklog_users_id_fk": {
-          "name": "worklog_anomaly_events_user_id_worklog_users_id_fk",
-          "tableFrom": "worklog_anomaly_events",
-          "tableTo": "worklog_users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "worklog_anomaly_events_source_id_worklog_sources_id_fk": {
-          "name": "worklog_anomaly_events_source_id_worklog_sources_id_fk",
-          "tableFrom": "worklog_anomaly_events",
-          "tableTo": "worklog_sources",
-          "columnsFrom": [
-            "source_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -430,7 +257,8 @@
           "type": "worklog_feedback_channel",
           "typeSchema": "public",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "'PWA'"
         },
         "text": {
           "name": "text",
@@ -512,6 +340,14 @@
           "primaryKey": false,
           "notNull": true
         },
+        "role": {
+          "name": "role",
+          "type": "worklog_source_member_role",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'MEMBER'"
+        },
         "is_active": {
           "name": "is_active",
           "type": "boolean",
@@ -575,6 +411,33 @@
           "columns": [
             {
               "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "is_active",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "worklog_source_member_source_role_idx": {
+          "name": "worklog_source_member_source_role_idx",
+          "columns": [
+            {
+              "expression": "source_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "role",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -663,9 +526,15 @@
           "primaryKey": false,
           "notNull": false
         },
-        "line_group_id": {
-          "name": "line_group_id",
-          "type": "varchar(64)",
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by_user_id": {
+          "name": "created_by_user_id",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": false
         },
@@ -726,6 +595,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "worklog_source_creator_idx": {
+          "name": "worklog_source_creator_idx",
+          "columns": [
+            {
+              "expression": "created_by_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -754,17 +638,23 @@
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
+        },
+        "worklog_sources_created_by_user_id_worklog_users_id_fk": {
+          "name": "worklog_sources_created_by_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_sources",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "created_by_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "worklog_source_line_group_uq": {
-          "name": "worklog_source_line_group_uq",
-          "nullsNotDistinct": false,
-          "columns": [
-            "line_group_id"
-          ]
-        },
         "worklog_source_private_user_id_uq": {
           "name": "worklog_source_private_user_id_uq",
           "nullsNotDistinct": false,
@@ -778,7 +668,7 @@
       "checkConstraints": {
         "worklog_source_identity_shape_ck": {
           "name": "worklog_source_identity_shape_ck",
-          "value": "(\n        (\"worklog_sources\".\"type\" = 'PRIVATE' AND \"worklog_sources\".\"private_user_id\" IS NOT NULL AND \"worklog_sources\".\"line_group_id\" IS NULL)\n        OR\n        (\"worklog_sources\".\"type\" = 'GROUP' AND \"worklog_sources\".\"private_user_id\" IS NULL AND \"worklog_sources\".\"line_group_id\" IS NOT NULL)\n      )"
+          "value": "(\n        (\"worklog_sources\".\"type\" = 'PRIVATE' AND \"worklog_sources\".\"private_user_id\" IS NOT NULL AND \"worklog_sources\".\"name\" IS NULL)\n        OR\n        (\"worklog_sources\".\"type\" = 'GROUP' AND \"worklog_sources\".\"private_user_id\" IS NULL AND \"worklog_sources\".\"name\" IS NOT NULL AND length(btrim(\"worklog_sources\".\"name\")) > 0)\n      )"
         }
       },
       "isRLSEnabled": false
@@ -965,6 +855,31 @@
           "notNull": true,
           "default": 0
         },
+        "ai_enabled": {
+          "name": "ai_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "monthly_ai_point_cap": {
+          "name": "monthly_ai_point_cap",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "monthly_provider_cost_cap_twd": {
+          "name": "monthly_provider_cost_cap_twd",
+          "type": "numeric(12, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "per_request_ai_point_cap": {
+          "name": "per_request_ai_point_cap",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "capabilities": {
           "name": "capabilities",
           "type": "jsonb",
@@ -1001,13 +916,21 @@
       },
       "policies": {},
       "checkConstraints": {
-        "worklog_plan_free_identity_ck": {
-          "name": "worklog_plan_free_identity_ck",
-          "value": "(\n        (\"worklog_subscription_plans\".\"code\" = 'FREE' AND \"worklog_subscription_plans\".\"plan_type\" = 'FREE' AND \"worklog_subscription_plans\".\"price_twd\" = 0)\n        OR\n        (\"worklog_subscription_plans\".\"code\" <> 'FREE' AND \"worklog_subscription_plans\".\"plan_type\" <> 'FREE')\n      )"
+        "worklog_plan_v1_identity_ck": {
+          "name": "worklog_plan_v1_identity_ck",
+          "value": "(\n        (\"worklog_subscription_plans\".\"code\" = 'FREE' AND \"worklog_subscription_plans\".\"plan_type\" = 'FREE' AND \"worklog_subscription_plans\".\"price_twd\" = 0 AND \"worklog_subscription_plans\".\"ai_enabled\" = FALSE)\n        OR\n        (\"worklog_subscription_plans\".\"code\" = 'AI_PRO' AND \"worklog_subscription_plans\".\"plan_type\" = 'SUBSCRIPTION' AND \"worklog_subscription_plans\".\"price_twd\" = 99 AND \"worklog_subscription_plans\".\"ai_enabled\" = TRUE)\n      )"
         },
         "worklog_plan_grant_points_ck": {
           "name": "worklog_plan_grant_points_ck",
           "value": "\"worklog_subscription_plans\".\"grant_points\" >= 0"
+        },
+        "worklog_plan_ai_cap_values_ck": {
+          "name": "worklog_plan_ai_cap_values_ck",
+          "value": "(\n        (\"worklog_subscription_plans\".\"monthly_ai_point_cap\" IS NULL OR \"worklog_subscription_plans\".\"monthly_ai_point_cap\" > 0)\n        AND (\"worklog_subscription_plans\".\"monthly_provider_cost_cap_twd\" IS NULL OR \"worklog_subscription_plans\".\"monthly_provider_cost_cap_twd\" > 0)\n        AND (\"worklog_subscription_plans\".\"per_request_ai_point_cap\" IS NULL OR \"worklog_subscription_plans\".\"per_request_ai_point_cap\" > 0)\n      )"
+        },
+        "worklog_plan_ai_enabled_shape_ck": {
+          "name": "worklog_plan_ai_enabled_shape_ck",
+          "value": "(\n        \"worklog_subscription_plans\".\"ai_enabled\" = FALSE\n        OR (\n          \"worklog_subscription_plans\".\"plan_type\" = 'SUBSCRIPTION'\n          AND \"worklog_subscription_plans\".\"price_twd\" = 99\n          AND \"worklog_subscription_plans\".\"monthly_ai_point_cap\" IS NOT NULL\n          AND \"worklog_subscription_plans\".\"monthly_provider_cost_cap_twd\" IS NOT NULL\n        )\n      )"
         }
       },
       "isRLSEnabled": false
@@ -1167,40 +1090,9 @@
           "primaryKey": true,
           "notNull": true
         },
-        "line_user_id": {
-          "name": "line_user_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true
-        },
         "display_name": {
           "name": "display_name",
           "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "is_oa_friend": {
-          "name": "is_oa_friend",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "first_oa_added_at": {
-          "name": "first_oa_added_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "oa_friend_state_at": {
-          "name": "oa_friend_state_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_interaction_at": {
-          "name": "last_interaction_at",
-          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },
@@ -1219,40 +1111,10 @@
           "default": "now()"
         }
       },
-      "indexes": {
-        "worklog_user_oa_updated_idx": {
-          "name": "worklog_user_oa_updated_idx",
-          "columns": [
-            {
-              "expression": "is_oa_friend",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "updated_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "worklog_user_line_user_uq": {
-          "name": "worklog_user_line_user_uq",
-          "nullsNotDistinct": false,
-          "columns": [
-            "line_user_id"
-          ]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -1332,520 +1194,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.worklog_ai_confirmations": {
-      "name": "worklog_ai_confirmations",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "bigserial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "source_id": {
-          "name": "source_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "record_id": {
-          "name": "record_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "requested_user_id": {
-          "name": "requested_user_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "confirmation_type": {
-          "name": "confirmation_type",
-          "type": "worklog_ai_confirmation_type",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "candidate_entity_id": {
-          "name": "candidate_entity_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "proposed_name": {
-          "name": "proposed_name",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "payload": {
-          "name": "payload",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "status": {
-          "name": "status",
-          "type": "worklog_ai_confirmation_status",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'PENDING'"
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "resolved_at": {
-          "name": "resolved_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "resolved_by_user_id": {
-          "name": "resolved_by_user_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "worklog_ai_confirmation_user_status_idx": {
-          "name": "worklog_ai_confirmation_user_status_idx",
-          "columns": [
-            {
-              "expression": "requested_user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "worklog_ai_confirmation_source_status_idx": {
-          "name": "worklog_ai_confirmation_source_status_idx",
-          "columns": [
-            {
-              "expression": "source_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "worklog_ai_confirmation_record_idx": {
-          "name": "worklog_ai_confirmation_record_idx",
-          "columns": [
-            {
-              "expression": "record_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "worklog_ai_confirmations_source_id_worklog_sources_id_fk": {
-          "name": "worklog_ai_confirmations_source_id_worklog_sources_id_fk",
-          "tableFrom": "worklog_ai_confirmations",
-          "tableTo": "worklog_sources",
-          "columnsFrom": [
-            "source_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "worklog_ai_confirmations_requested_user_id_worklog_users_id_fk": {
-          "name": "worklog_ai_confirmations_requested_user_id_worklog_users_id_fk",
-          "tableFrom": "worklog_ai_confirmations",
-          "tableTo": "worklog_users",
-          "columnsFrom": [
-            "requested_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "worklog_ai_confirmations_resolved_by_user_id_worklog_users_id_fk": {
-          "name": "worklog_ai_confirmations_resolved_by_user_id_worklog_users_id_fk",
-          "tableFrom": "worklog_ai_confirmations",
-          "tableTo": "worklog_users",
-          "columnsFrom": [
-            "resolved_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "worklog_ai_confirmation_source_record_fk": {
-          "name": "worklog_ai_confirmation_source_record_fk",
-          "tableFrom": "worklog_ai_confirmations",
-          "tableTo": "worklog_records",
-          "columnsFrom": [
-            "source_id",
-            "record_id"
-          ],
-          "columnsTo": [
-            "source_id",
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "worklog_ai_confirmation_source_entity_fk": {
-          "name": "worklog_ai_confirmation_source_entity_fk",
-          "tableFrom": "worklog_ai_confirmations",
-          "tableTo": "worklog_entities",
-          "columnsFrom": [
-            "source_id",
-            "candidate_entity_id"
-          ],
-          "columnsTo": [
-            "source_id",
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "worklog_ai_confirmation_source_id_uq": {
-          "name": "worklog_ai_confirmation_source_id_uq",
-          "nullsNotDistinct": false,
-          "columns": [
-            "source_id",
-            "id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.worklog_entities": {
-      "name": "worklog_entities",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "bigserial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "source_id": {
-          "name": "source_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "entity_type": {
-          "name": "entity_type",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "status": {
-          "name": "status",
-          "type": "worklog_entity_status",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'ACTIVE'"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "worklog_entity_source_name_uq": {
-          "name": "worklog_entity_source_name_uq",
-          "columns": [
-            {
-              "expression": "source_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "lower(\"name\")",
-              "asc": true,
-              "isExpression": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "worklog_entity_source_status_idx": {
-          "name": "worklog_entity_source_status_idx",
-          "columns": [
-            {
-              "expression": "source_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "worklog_entities_source_id_worklog_sources_id_fk": {
-          "name": "worklog_entities_source_id_worklog_sources_id_fk",
-          "tableFrom": "worklog_entities",
-          "tableTo": "worklog_sources",
-          "columnsFrom": [
-            "source_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "worklog_entity_source_id_uq": {
-          "name": "worklog_entity_source_id_uq",
-          "nullsNotDistinct": false,
-          "columns": [
-            "source_id",
-            "id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.worklog_entity_aliases": {
-      "name": "worklog_entity_aliases",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "bigserial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "source_id": {
-          "name": "source_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "entity_id": {
-          "name": "entity_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "alias": {
-          "name": "alias",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_by_user_id": {
-          "name": "created_by_user_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_via": {
-          "name": "created_via",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'PWA_MANUAL'"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "worklog_entity_alias_source_alias_uq": {
-          "name": "worklog_entity_alias_source_alias_uq",
-          "columns": [
-            {
-              "expression": "source_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "lower(\"alias\")",
-              "asc": true,
-              "isExpression": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "worklog_entity_alias_entity_idx": {
-          "name": "worklog_entity_alias_entity_idx",
-          "columns": [
-            {
-              "expression": "entity_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "worklog_entity_aliases_source_id_worklog_sources_id_fk": {
-          "name": "worklog_entity_aliases_source_id_worklog_sources_id_fk",
-          "tableFrom": "worklog_entity_aliases",
-          "tableTo": "worklog_sources",
-          "columnsFrom": [
-            "source_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "worklog_entity_aliases_created_by_user_id_worklog_users_id_fk": {
-          "name": "worklog_entity_aliases_created_by_user_id_worklog_users_id_fk",
-          "tableFrom": "worklog_entity_aliases",
-          "tableTo": "worklog_users",
-          "columnsFrom": [
-            "created_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "worklog_entity_alias_source_entity_fk": {
-          "name": "worklog_entity_alias_source_entity_fk",
-          "tableFrom": "worklog_entity_aliases",
-          "tableTo": "worklog_entities",
-          "columnsFrom": [
-            "source_id",
-            "entity_id"
-          ],
-          "columnsTo": [
-            "source_id",
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.worklog_record_revisions": {
       "name": "worklog_record_revisions",
       "schema": "",
@@ -1897,23 +1245,11 @@
           "name": "previous_occurred_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "new_occurred_at": {
           "name": "new_occurred_at",
           "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "previous_entity_id": {
-          "name": "previous_entity_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "new_entity_id": {
-          "name": "new_entity_id",
-          "type": "bigint",
           "primaryKey": false,
           "notNull": false
         },
@@ -2009,32 +1345,6 @@
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
-        },
-        "worklog_record_revisions_previous_entity_id_worklog_entities_id_fk": {
-          "name": "worklog_record_revisions_previous_entity_id_worklog_entities_id_fk",
-          "tableFrom": "worklog_record_revisions",
-          "tableTo": "worklog_entities",
-          "columnsFrom": [
-            "previous_entity_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "worklog_record_revisions_new_entity_id_worklog_entities_id_fk": {
-          "name": "worklog_record_revisions_new_entity_id_worklog_entities_id_fk",
-          "tableFrom": "worklog_record_revisions",
-          "tableTo": "worklog_entities",
-          "columnsFrom": [
-            "new_entity_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -2059,27 +1369,9 @@
           "primaryKey": false,
           "notNull": true
         },
-        "entity_id": {
-          "name": "entity_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
         "author_user_id": {
           "name": "author_user_id",
           "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "line_message_id": {
-          "name": "line_message_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "quoted_line_message_id": {
-          "name": "quoted_line_message_id",
-          "type": "varchar(64)",
           "primaryKey": false,
           "notNull": false
         },
@@ -2096,6 +1388,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "title": {
+          "name": "title",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
         "search_terms": {
           "name": "search_terms",
           "type": "jsonb",
@@ -2103,12 +1401,37 @@
           "notNull": true,
           "default": "'[]'::jsonb"
         },
+        "extracted_metadata": {
+          "name": "extracted_metadata",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "capture_context": {
+          "name": "capture_context",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ai_enrichment_status": {
+          "name": "ai_enrichment_status",
+          "type": "worklog_record_ai_enrichment_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'NONE'"
+        },
+        "ai_enriched_at": {
+          "name": "ai_enriched_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "occurred_at": {
           "name": "occurred_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
+          "notNull": false
         },
         "status": {
           "name": "status",
@@ -2180,33 +1503,6 @@
           "method": "btree",
           "with": {}
         },
-        "worklog_record_source_entity_status_idx": {
-          "name": "worklog_record_source_entity_status_idx",
-          "columns": [
-            {
-              "expression": "source_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "entity_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "worklog_record_author_type_idx": {
           "name": "worklog_record_author_type_idx",
           "columns": [
@@ -2228,11 +1524,17 @@
           "method": "btree",
           "with": {}
         },
-        "worklog_record_quoted_line_idx": {
-          "name": "worklog_record_quoted_line_idx",
+        "worklog_record_ai_enrichment_idx": {
+          "name": "worklog_record_ai_enrichment_idx",
           "columns": [
             {
-              "expression": "quoted_line_message_id",
+              "expression": "ai_enrichment_status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "ai_enriched_at",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -2283,32 +1585,10 @@
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
-        },
-        "worklog_record_source_entity_fk": {
-          "name": "worklog_record_source_entity_fk",
-          "tableFrom": "worklog_records",
-          "tableTo": "worklog_entities",
-          "columnsFrom": [
-            "source_id",
-            "entity_id"
-          ],
-          "columnsTo": [
-            "source_id",
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "worklog_record_line_message_uq": {
-          "name": "worklog_record_line_message_uq",
-          "nullsNotDistinct": false,
-          "columns": [
-            "line_message_id"
-          ]
-        },
         "worklog_record_source_id_uq": {
           "name": "worklog_record_source_id_uq",
           "nullsNotDistinct": false,
@@ -2320,6 +1600,1229 @@
       },
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.worklog_auth_identities": {
+      "name": "worklog_auth_identities",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "worklog_auth_provider",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "subject": {
+          "name": "subject",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email_snapshot": {
+          "name": "email_snapshot",
+          "type": "varchar(320)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "display_name_snapshot": {
+          "name": "display_name_snapshot",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "worklog_auth_identity_provider_subject_uq": {
+          "name": "worklog_auth_identity_provider_subject_uq",
+          "columns": [
+            {
+              "expression": "provider",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "subject",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "worklog_auth_identity_user_idx": {
+          "name": "worklog_auth_identity_user_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "worklog_auth_identities_user_id_worklog_users_id_fk": {
+          "name": "worklog_auth_identities_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_auth_identities",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.worklog_source_invites": {
+      "name": "worklog_source_invites",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "source_id": {
+          "name": "source_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token_hash": {
+          "name": "token_hash",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by_user_id": {
+          "name": "created_by_user_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revoked_at": {
+          "name": "revoked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "max_uses": {
+          "name": "max_uses",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "use_count": {
+          "name": "use_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "worklog_source_invite_token_hash_uq": {
+          "name": "worklog_source_invite_token_hash_uq",
+          "columns": [
+            {
+              "expression": "token_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "worklog_source_invite_source_active_idx": {
+          "name": "worklog_source_invite_source_active_idx",
+          "columns": [
+            {
+              "expression": "source_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "revoked_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "worklog_source_invites_source_id_worklog_sources_id_fk": {
+          "name": "worklog_source_invites_source_id_worklog_sources_id_fk",
+          "tableFrom": "worklog_source_invites",
+          "tableTo": "worklog_sources",
+          "columnsFrom": [
+            "source_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "worklog_source_invites_created_by_user_id_worklog_users_id_fk": {
+          "name": "worklog_source_invites_created_by_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_source_invites",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "created_by_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "worklog_source_invite_use_count_ck": {
+          "name": "worklog_source_invite_use_count_ck",
+          "value": "\"worklog_source_invites\".\"use_count\" >= 0"
+        },
+        "worklog_source_invite_max_uses_ck": {
+          "name": "worklog_source_invite_max_uses_ck",
+          "value": "\"worklog_source_invites\".\"max_uses\" IS NULL OR (\"worklog_source_invites\".\"max_uses\" > 0 AND \"worklog_source_invites\".\"use_count\" <= \"worklog_source_invites\".\"max_uses\")"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.worklog_user_public_accounts": {
+      "name": "worklog_user_public_accounts",
+      "schema": "",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "public_account_id": {
+          "name": "public_account_id",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "worklog_user_public_account_id_uq": {
+          "name": "worklog_user_public_account_id_uq",
+          "columns": [
+            {
+              "expression": "public_account_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "worklog_user_public_accounts_user_id_worklog_users_id_fk": {
+          "name": "worklog_user_public_accounts_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_user_public_accounts",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.worklog_notification_preferences": {
+      "name": "worklog_notification_preferences",
+      "schema": "",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "announcement_push_enabled": {
+          "name": "announcement_push_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "system_push_enabled": {
+          "name": "system_push_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "task_push_enabled": {
+          "name": "task_push_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "worklog_notification_preferences_user_id_worklog_users_id_fk": {
+          "name": "worklog_notification_preferences_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_notification_preferences",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.worklog_notification_recipients": {
+      "name": "worklog_notification_recipients",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "notification_id": {
+          "name": "notification_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "read_at": {
+          "name": "read_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "push_status": {
+          "name": "push_status",
+          "type": "worklog_notification_delivery_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'PENDING'"
+        },
+        "push_attempt_count": {
+          "name": "push_attempt_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "push_attempted_at": {
+          "name": "push_attempted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "push_next_attempt_at": {
+          "name": "push_next_attempt_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "push_sent_at": {
+          "name": "push_sent_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "push_failure_code": {
+          "name": "push_failure_code",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "worklog_notification_recipient_uq": {
+          "name": "worklog_notification_recipient_uq",
+          "columns": [
+            {
+              "expression": "notification_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "worklog_notification_recipient_user_read_idx": {
+          "name": "worklog_notification_recipient_user_read_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "read_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "worklog_notification_recipient_push_idx": {
+          "name": "worklog_notification_recipient_push_idx",
+          "columns": [
+            {
+              "expression": "push_status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "push_next_attempt_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "push_attempted_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "worklog_notification_recipients_notification_id_worklog_notifications_id_fk": {
+          "name": "worklog_notification_recipients_notification_id_worklog_notifications_id_fk",
+          "tableFrom": "worklog_notification_recipients",
+          "tableTo": "worklog_notifications",
+          "columnsFrom": [
+            "notification_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "worklog_notification_recipients_user_id_worklog_users_id_fk": {
+          "name": "worklog_notification_recipients_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_notification_recipients",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "worklog_notification_recipient_push_attempt_count_ck": {
+          "name": "worklog_notification_recipient_push_attempt_count_ck",
+          "value": "\"worklog_notification_recipients\".\"push_attempt_count\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.worklog_notifications": {
+      "name": "worklog_notifications",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "type": {
+          "name": "type",
+          "type": "worklog_notification_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "worklog_notification_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'DRAFT'"
+        },
+        "audience": {
+          "name": "audience",
+          "type": "worklog_notification_audience",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "title": {
+          "name": "title",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "in_app_enabled": {
+          "name": "in_app_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "push_enabled": {
+          "name": "push_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "system_event_key": {
+          "name": "system_event_key",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reference_type": {
+          "name": "reference_type",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reference_id": {
+          "name": "reference_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deep_link": {
+          "name": "deep_link",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by_actor": {
+          "name": "created_by_actor",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "scheduled_at": {
+          "name": "scheduled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dispatch_started_at": {
+          "name": "dispatch_started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sent_at": {
+          "name": "sent_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cancelled_at": {
+          "name": "cancelled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "worklog_notification_system_event_key_uq": {
+          "name": "worklog_notification_system_event_key_uq",
+          "columns": [
+            {
+              "expression": "system_event_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "worklog_notification_status_schedule_idx": {
+          "name": "worklog_notification_status_schedule_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "scheduled_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "worklog_notification_type_created_idx": {
+          "name": "worklog_notification_type_created_idx",
+          "columns": [
+            {
+              "expression": "type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "worklog_notification_channel_ck": {
+          "name": "worklog_notification_channel_ck",
+          "value": "\"worklog_notifications\".\"in_app_enabled\" = TRUE OR \"worklog_notifications\".\"push_enabled\" = TRUE"
+        },
+        "worklog_notification_schedule_ck": {
+          "name": "worklog_notification_schedule_ck",
+          "value": "\"worklog_notifications\".\"status\" <> 'SCHEDULED' OR \"worklog_notifications\".\"scheduled_at\" IS NOT NULL"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.worklog_push_subscriptions": {
+      "name": "worklog_push_subscriptions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "endpoint": {
+          "name": "endpoint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "p256dh": {
+          "name": "p256dh",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "auth": {
+          "name": "auth",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_agent": {
+          "name": "user_agent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "platform": {
+          "name": "platform",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revoked_at": {
+          "name": "revoked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_success_at": {
+          "name": "last_success_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "worklog_push_subscription_endpoint_uq": {
+          "name": "worklog_push_subscription_endpoint_uq",
+          "columns": [
+            {
+              "expression": "endpoint",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "worklog_push_subscription_user_active_idx": {
+          "name": "worklog_push_subscription_user_active_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "revoked_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "worklog_push_subscriptions_user_id_worklog_users_id_fk": {
+          "name": "worklog_push_subscriptions_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_push_subscriptions",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.worklog_tasks": {
+      "name": "worklog_tasks",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_id": {
+          "name": "source_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "record_id": {
+          "name": "record_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "title": {
+          "name": "title",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "worklog_task_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'OPEN'"
+        },
+        "due_at": {
+          "name": "due_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "remind_at": {
+          "name": "remind_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reminder_notified_at": {
+          "name": "reminder_notified_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cancelled_at": {
+          "name": "cancelled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "worklog_task_user_status_idx": {
+          "name": "worklog_task_user_status_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "worklog_task_due_reminder_idx": {
+          "name": "worklog_task_due_reminder_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "remind_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "reminder_notified_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "worklog_task_source_idx": {
+          "name": "worklog_task_source_idx",
+          "columns": [
+            {
+              "expression": "source_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "worklog_tasks_user_id_worklog_users_id_fk": {
+          "name": "worklog_tasks_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_tasks",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "worklog_tasks_source_id_worklog_sources_id_fk": {
+          "name": "worklog_tasks_source_id_worklog_sources_id_fk",
+          "tableFrom": "worklog_tasks",
+          "tableTo": "worklog_sources",
+          "columnsFrom": [
+            "source_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "worklog_tasks_record_id_worklog_records_id_fk": {
+          "name": "worklog_tasks_record_id_worklog_records_id_fk",
+          "tableFrom": "worklog_tasks",
+          "tableTo": "worklog_records",
+          "columnsFrom": [
+            "record_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "worklog_task_title_nonblank_ck": {
+          "name": "worklog_task_title_nonblank_ck",
+          "value": "length(btrim(\"worklog_tasks\".\"title\")) > 0"
+        },
+        "worklog_task_completed_state_ck": {
+          "name": "worklog_task_completed_state_ck",
+          "value": "\"worklog_tasks\".\"status\" <> 'COMPLETED' OR \"worklog_tasks\".\"completed_at\" IS NOT NULL"
+        },
+        "worklog_task_cancelled_state_ck": {
+          "name": "worklog_task_cancelled_state_ck",
+          "value": "\"worklog_tasks\".\"status\" <> 'CANCELLED' OR \"worklog_tasks\".\"cancelled_at\" IS NOT NULL"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.worklog_commercial_config": {
+      "name": "worklog_commercial_config",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "default": 1
+        },
+        "free_initial_ai_trial_points": {
+          "name": "free_initial_ai_trial_points",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "worklog_commercial_config_singleton_ck": {
+          "name": "worklog_commercial_config_singleton_ck",
+          "value": "\"worklog_commercial_config\".\"id\" = 1"
+        },
+        "worklog_commercial_config_free_trial_points_ck": {
+          "name": "worklog_commercial_config_free_trial_points_ck",
+          "value": "\"worklog_commercial_config\".\"free_initial_ai_trial_points\" > 0"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.worklog_ai_usage_events": {
@@ -2902,6 +3405,20 @@
           "primaryKey": false,
           "notNull": true
         },
+        "provider_cost_committed_twd": {
+          "name": "provider_cost_committed_twd",
+          "type": "numeric(18, 8)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "provider_cost_reserved_twd": {
+          "name": "provider_cost_reserved_twd",
+          "type": "numeric(18, 8)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
         "effective_at": {
           "name": "effective_at",
           "type": "timestamp with time zone",
@@ -3230,6 +3747,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "entitlement_grant_id": {
+          "name": "entitlement_grant_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
         "points_reserved": {
           "name": "points_reserved",
           "type": "integer",
@@ -3249,6 +3772,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": 0
+        },
+        "provider_cost_hold_twd": {
+          "name": "provider_cost_hold_twd",
+          "type": "numeric(18, 8)",
+          "primaryKey": false,
+          "notNull": false
         },
         "status": {
           "name": "status",
@@ -3327,6 +3856,27 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "worklog_ai_point_reservation_entitlement_grant_idx": {
+          "name": "worklog_ai_point_reservation_entitlement_grant_idx",
+          "columns": [
+            {
+              "expression": "entitlement_grant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -3362,6 +3912,19 @@
           "tableTo": "worklog_sources",
           "columnsFrom": [
             "source_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_ai_point_reservations_entitlement_grant_id_worklog_ai_grants_id_fk": {
+          "name": "worklog_ai_point_reservations_entitlement_grant_id_worklog_ai_grants_id_fk",
+          "tableFrom": "worklog_ai_point_reservations",
+          "tableTo": "worklog_ai_grants",
+          "columnsFrom": [
+            "entitlement_grant_id"
           ],
           "columnsTo": [
             "id"
@@ -3531,1490 +4094,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.worklog_source_ai_responsibility": {
-      "name": "worklog_source_ai_responsibility",
-      "schema": "",
-      "columns": {
-        "source_id": {
-          "name": "source_id",
-          "type": "bigint",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "responsible_user_id": {
-          "name": "responsible_user_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "assigned_by_user_id": {
-          "name": "assigned_by_user_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "assigned_at": {
-          "name": "assigned_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "worklog_source_ai_responsibility_user_idx": {
-          "name": "worklog_source_ai_responsibility_user_idx",
-          "columns": [
-            {
-              "expression": "responsible_user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "worklog_source_ai_responsibility_source_id_worklog_sources_id_fk": {
-          "name": "worklog_source_ai_responsibility_source_id_worklog_sources_id_fk",
-          "tableFrom": "worklog_source_ai_responsibility",
-          "tableTo": "worklog_sources",
-          "columnsFrom": [
-            "source_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "worklog_source_ai_responsibility_responsible_user_id_worklog_users_id_fk": {
-          "name": "worklog_source_ai_responsibility_responsible_user_id_worklog_users_id_fk",
-          "tableFrom": "worklog_source_ai_responsibility",
-          "tableTo": "worklog_users",
-          "columnsFrom": [
-            "responsible_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "worklog_source_ai_responsibility_assigned_by_user_id_worklog_users_id_fk": {
-          "name": "worklog_source_ai_responsibility_assigned_by_user_id_worklog_users_id_fk",
-          "tableFrom": "worklog_source_ai_responsibility",
-          "tableTo": "worklog_users",
-          "columnsFrom": [
-            "assigned_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.worklog_source_ai_responsibility_history": {
-      "name": "worklog_source_ai_responsibility_history",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "bigserial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "source_id": {
-          "name": "source_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "previous_user_id": {
-          "name": "previous_user_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "next_user_id": {
-          "name": "next_user_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "actor_user_id": {
-          "name": "actor_user_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "reason": {
-          "name": "reason",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "worklog_source_ai_responsibility_history_source_idx": {
-          "name": "worklog_source_ai_responsibility_history_source_idx",
-          "columns": [
-            {
-              "expression": "source_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "worklog_source_ai_responsibility_history_source_id_worklog_sources_id_fk": {
-          "name": "worklog_source_ai_responsibility_history_source_id_worklog_sources_id_fk",
-          "tableFrom": "worklog_source_ai_responsibility_history",
-          "tableTo": "worklog_sources",
-          "columnsFrom": [
-            "source_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "worklog_source_ai_responsibility_history_previous_user_id_worklog_users_id_fk": {
-          "name": "worklog_source_ai_responsibility_history_previous_user_id_worklog_users_id_fk",
-          "tableFrom": "worklog_source_ai_responsibility_history",
-          "tableTo": "worklog_users",
-          "columnsFrom": [
-            "previous_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "worklog_source_ai_responsibility_history_next_user_id_worklog_users_id_fk": {
-          "name": "worklog_source_ai_responsibility_history_next_user_id_worklog_users_id_fk",
-          "tableFrom": "worklog_source_ai_responsibility_history",
-          "tableTo": "worklog_users",
-          "columnsFrom": [
-            "next_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "worklog_source_ai_responsibility_history_actor_user_id_worklog_users_id_fk": {
-          "name": "worklog_source_ai_responsibility_history_actor_user_id_worklog_users_id_fk",
-          "tableFrom": "worklog_source_ai_responsibility_history",
-          "tableTo": "worklog_users",
-          "columnsFrom": [
-            "actor_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.web_auth_entry_nonces": {
-      "name": "web_auth_entry_nonces",
-      "schema": "",
-      "columns": {
-        "nonce": {
-          "name": "nonce",
-          "type": "varchar(128)",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "line_user_id": {
-          "name": "line_user_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "line_group_id": {
-          "name": "line_group_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "consumed_at": {
-          "name": "consumed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "web_auth_entry_nonce_expiry_idx": {
-          "name": "web_auth_entry_nonce_expiry_idx",
-          "columns": [
-            {
-              "expression": "expires_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "web_auth_entry_nonce_user_idx": {
-          "name": "web_auth_entry_nonce_user_idx",
-          "columns": [
-            {
-              "expression": "line_user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "web_auth_entry_nonces_line_user_id_worklog_users_line_user_id_fk": {
-          "name": "web_auth_entry_nonces_line_user_id_worklog_users_line_user_id_fk",
-          "tableFrom": "web_auth_entry_nonces",
-          "tableTo": "worklog_users",
-          "columnsFrom": [
-            "line_user_id"
-          ],
-          "columnsTo": [
-            "line_user_id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "web_auth_entry_nonces_line_group_id_worklog_sources_line_group_id_fk": {
-          "name": "web_auth_entry_nonces_line_group_id_worklog_sources_line_group_id_fk",
-          "tableFrom": "web_auth_entry_nonces",
-          "tableTo": "worklog_sources",
-          "columnsFrom": [
-            "line_group_id"
-          ],
-          "columnsTo": [
-            "line_group_id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.worklog_private_web_entry_nonces": {
-      "name": "worklog_private_web_entry_nonces",
-      "schema": "",
-      "columns": {
-        "nonce": {
-          "name": "nonce",
-          "type": "varchar(128)",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "line_user_id": {
-          "name": "line_user_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "source_id": {
-          "name": "source_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "consumed_at": {
-          "name": "consumed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "worklog_private_web_entry_expiry_idx": {
-          "name": "worklog_private_web_entry_expiry_idx",
-          "columns": [
-            {
-              "expression": "expires_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "worklog_private_web_entry_user_idx": {
-          "name": "worklog_private_web_entry_user_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "expires_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "worklog_private_web_entry_source_idx": {
-          "name": "worklog_private_web_entry_source_idx",
-          "columns": [
-            {
-              "expression": "source_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "expires_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "worklog_private_web_entry_nonces_line_user_id_worklog_users_line_user_id_fk": {
-          "name": "worklog_private_web_entry_nonces_line_user_id_worklog_users_line_user_id_fk",
-          "tableFrom": "worklog_private_web_entry_nonces",
-          "tableTo": "worklog_users",
-          "columnsFrom": [
-            "line_user_id"
-          ],
-          "columnsTo": [
-            "line_user_id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "worklog_private_web_entry_nonces_user_id_worklog_users_id_fk": {
-          "name": "worklog_private_web_entry_nonces_user_id_worklog_users_id_fk",
-          "tableFrom": "worklog_private_web_entry_nonces",
-          "tableTo": "worklog_users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "worklog_private_web_entry_user_source_fk": {
-          "name": "worklog_private_web_entry_user_source_fk",
-          "tableFrom": "worklog_private_web_entry_nonces",
-          "tableTo": "worklog_sources",
-          "columnsFrom": [
-            "user_id",
-            "source_id"
-          ],
-          "columnsTo": [
-            "private_user_id",
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.worklog_record_ai_normalizations": {
-      "name": "worklog_record_ai_normalizations",
-      "schema": "",
-      "columns": {
-        "record_id": {
-          "name": "record_id",
-          "type": "bigint",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "varchar(32)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'PENDING'"
-        },
-        "claim_token": {
-          "name": "claim_token",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "reservation_token": {
-          "name": "reservation_token",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "result_json": {
-          "name": "result_json",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "usage_commit_json": {
-          "name": "usage_commit_json",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "provider_response_id": {
-          "name": "provider_response_id",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "latency_ms": {
-          "name": "latency_ms",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_error_code": {
-          "name": "last_error_code",
-          "type": "varchar(128)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_error_detail": {
-          "name": "last_error_detail",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "started_at": {
-          "name": "started_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "provider_succeeded_at": {
-          "name": "provider_succeeded_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "usage_committed_at": {
-          "name": "usage_committed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "completed_at": {
-          "name": "completed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "worklog_record_ai_normalization_claim_uq": {
-          "name": "worklog_record_ai_normalization_claim_uq",
-          "columns": [
-            {
-              "expression": "claim_token",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "worklog_record_ai_normalization_status_idx": {
-          "name": "worklog_record_ai_normalization_status_idx",
-          "columns": [
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "updated_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "worklog_record_ai_normalization_reservation_idx": {
-          "name": "worklog_record_ai_normalization_reservation_idx",
-          "columns": [
-            {
-              "expression": "reservation_token",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "worklog_record_ai_normalizations_record_id_worklog_records_id_fk": {
-          "name": "worklog_record_ai_normalizations_record_id_worklog_records_id_fk",
-          "tableFrom": "worklog_record_ai_normalizations",
-          "tableTo": "worklog_records",
-          "columnsFrom": [
-            "record_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "worklog_record_ai_normalizations_reservation_token_worklog_ai_point_reservations_token_fk": {
-          "name": "worklog_record_ai_normalizations_reservation_token_worklog_ai_point_reservations_token_fk",
-          "tableFrom": "worklog_record_ai_normalizations",
-          "tableTo": "worklog_ai_point_reservations",
-          "columnsFrom": [
-            "reservation_token"
-          ],
-          "columnsTo": [
-            "token"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "worklog_record_ai_normalization_status_check": {
-          "name": "worklog_record_ai_normalization_status_check",
-          "value": "\"worklog_record_ai_normalizations\".\"status\" IN ('PENDING', 'PROCESSING', 'PROVIDER_SUCCEEDED', 'USAGE_COMMITTED', 'SUCCEEDED', 'FAILED')"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.worklog_line_text_cache": {
-      "name": "worklog_line_text_cache",
-      "schema": "",
-      "columns": {
-        "line_message_id": {
-          "name": "line_message_id",
-          "type": "varchar(64)",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "line_group_id": {
-          "name": "line_group_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "line_user_id": {
-          "name": "line_user_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "text": {
-          "name": "text",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "line_timestamp": {
-          "name": "line_timestamp",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "worklog_line_text_cache_group_message_uq": {
-          "name": "worklog_line_text_cache_group_message_uq",
-          "columns": [
-            {
-              "expression": "line_group_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "line_message_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "worklog_line_text_cache_group_time_idx": {
-          "name": "worklog_line_text_cache_group_time_idx",
-          "columns": [
-            {
-              "expression": "line_group_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "line_timestamp",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "worklog_line_text_cache_expires_idx": {
-          "name": "worklog_line_text_cache_expires_idx",
-          "columns": [
-            {
-              "expression": "expires_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.worklog_line_record_reply_targets": {
-      "name": "worklog_line_record_reply_targets",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "bigserial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "record_id": {
-          "name": "record_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "bot_line_message_id": {
-          "name": "bot_line_message_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "worklog_line_record_reply_target_message_uq": {
-          "name": "worklog_line_record_reply_target_message_uq",
-          "columns": [
-            {
-              "expression": "bot_line_message_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "worklog_line_record_reply_target_record_idx": {
-          "name": "worklog_line_record_reply_target_record_idx",
-          "columns": [
-            {
-              "expression": "record_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "worklog_line_record_reply_targets_record_id_worklog_records_id_fk": {
-          "name": "worklog_line_record_reply_targets_record_id_worklog_records_id_fk",
-          "tableFrom": "worklog_line_record_reply_targets",
-          "tableTo": "worklog_records",
-          "columnsFrom": [
-            "record_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.worklog_line_ai_edits": {
-      "name": "worklog_line_ai_edits",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "bigserial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "source_id": {
-          "name": "source_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "record_id": {
-          "name": "record_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "actor_user_id": {
-          "name": "actor_user_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "charged_user_id": {
-          "name": "charged_user_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "line_command_message_id": {
-          "name": "line_command_message_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "quoted_line_message_id": {
-          "name": "quoted_line_message_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "command_timestamp": {
-          "name": "command_timestamp",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "instruction": {
-          "name": "instruction",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "expected_record_version": {
-          "name": "expected_record_version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "varchar(32)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'PROCESSING'"
-        },
-        "claim_token": {
-          "name": "claim_token",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "reservation_token": {
-          "name": "reservation_token",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "result_json": {
-          "name": "result_json",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "usage_commit_json": {
-          "name": "usage_commit_json",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "provider_response_id": {
-          "name": "provider_response_id",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "latency_ms": {
-          "name": "latency_ms",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "confirmation_id": {
-          "name": "confirmation_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "applied_record_version": {
-          "name": "applied_record_version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "applied_entity_id": {
-          "name": "applied_entity_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_error_code": {
-          "name": "last_error_code",
-          "type": "varchar(128)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_error_detail": {
-          "name": "last_error_detail",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "started_at": {
-          "name": "started_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "provider_succeeded_at": {
-          "name": "provider_succeeded_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "usage_committed_at": {
-          "name": "usage_committed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "completed_at": {
-          "name": "completed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "worklog_line_ai_edit_command_uq": {
-          "name": "worklog_line_ai_edit_command_uq",
-          "columns": [
-            {
-              "expression": "line_command_message_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "worklog_line_ai_edit_claim_uq": {
-          "name": "worklog_line_ai_edit_claim_uq",
-          "columns": [
-            {
-              "expression": "claim_token",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "worklog_line_ai_edit_record_idx": {
-          "name": "worklog_line_ai_edit_record_idx",
-          "columns": [
-            {
-              "expression": "record_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "worklog_line_ai_edit_status_idx": {
-          "name": "worklog_line_ai_edit_status_idx",
-          "columns": [
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "updated_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "worklog_line_ai_edit_reservation_idx": {
-          "name": "worklog_line_ai_edit_reservation_idx",
-          "columns": [
-            {
-              "expression": "reservation_token",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "worklog_line_ai_edits_source_id_worklog_sources_id_fk": {
-          "name": "worklog_line_ai_edits_source_id_worklog_sources_id_fk",
-          "tableFrom": "worklog_line_ai_edits",
-          "tableTo": "worklog_sources",
-          "columnsFrom": [
-            "source_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "worklog_line_ai_edits_actor_user_id_worklog_users_id_fk": {
-          "name": "worklog_line_ai_edits_actor_user_id_worklog_users_id_fk",
-          "tableFrom": "worklog_line_ai_edits",
-          "tableTo": "worklog_users",
-          "columnsFrom": [
-            "actor_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "worklog_line_ai_edits_charged_user_id_worklog_users_id_fk": {
-          "name": "worklog_line_ai_edits_charged_user_id_worklog_users_id_fk",
-          "tableFrom": "worklog_line_ai_edits",
-          "tableTo": "worklog_users",
-          "columnsFrom": [
-            "charged_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "worklog_line_ai_edit_source_record_fk": {
-          "name": "worklog_line_ai_edit_source_record_fk",
-          "tableFrom": "worklog_line_ai_edits",
-          "tableTo": "worklog_records",
-          "columnsFrom": [
-            "source_id",
-            "record_id"
-          ],
-          "columnsTo": [
-            "source_id",
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "worklog_line_ai_edit_source_reservation_fk": {
-          "name": "worklog_line_ai_edit_source_reservation_fk",
-          "tableFrom": "worklog_line_ai_edits",
-          "tableTo": "worklog_ai_point_reservations",
-          "columnsFrom": [
-            "source_id",
-            "reservation_token"
-          ],
-          "columnsTo": [
-            "source_id",
-            "token"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "worklog_line_ai_edit_source_confirmation_fk": {
-          "name": "worklog_line_ai_edit_source_confirmation_fk",
-          "tableFrom": "worklog_line_ai_edits",
-          "tableTo": "worklog_ai_confirmations",
-          "columnsFrom": [
-            "source_id",
-            "confirmation_id"
-          ],
-          "columnsTo": [
-            "source_id",
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "worklog_line_ai_edit_source_entity_fk": {
-          "name": "worklog_line_ai_edit_source_entity_fk",
-          "tableFrom": "worklog_line_ai_edits",
-          "tableTo": "worklog_entities",
-          "columnsFrom": [
-            "source_id",
-            "applied_entity_id"
-          ],
-          "columnsTo": [
-            "source_id",
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "worklog_line_ai_edit_expected_version_check": {
-          "name": "worklog_line_ai_edit_expected_version_check",
-          "value": "\"worklog_line_ai_edits\".\"expected_record_version\" > 0"
-        },
-        "worklog_line_ai_edit_status_check": {
-          "name": "worklog_line_ai_edit_status_check",
-          "value": "\"worklog_line_ai_edits\".\"status\" IN ('PROCESSING', 'PROVIDER_SUCCEEDED', 'USAGE_COMMITTED', 'PENDING_CONFIRMATION', 'SUCCEEDED', 'RECORD_CHANGED', 'FAILED')"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.worklog_attachment_ingestions": {
-      "name": "worklog_attachment_ingestions",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "bigserial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "command_line_message_id": {
-          "name": "command_line_message_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "quoted_line_message_id": {
-          "name": "quoted_line_message_id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "source_id": {
-          "name": "source_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "actor_user_id": {
-          "name": "actor_user_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "varchar(32)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "reservation_token": {
-          "name": "reservation_token",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "record_id": {
-          "name": "record_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "usage_commit_json": {
-          "name": "usage_commit_json",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_error_code": {
-          "name": "last_error_code",
-          "type": "varchar(128)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "completed_at": {
-          "name": "completed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "worklog_attachment_ingestion_command_uq": {
-          "name": "worklog_attachment_ingestion_command_uq",
-          "columns": [
-            {
-              "expression": "command_line_message_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "worklog_attachment_ingestion_source_status_idx": {
-          "name": "worklog_attachment_ingestion_source_status_idx",
-          "columns": [
-            {
-              "expression": "source_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "worklog_attachment_ingestion_quoted_idx": {
-          "name": "worklog_attachment_ingestion_quoted_idx",
-          "columns": [
-            {
-              "expression": "quoted_line_message_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "worklog_attachment_ingestions_source_id_worklog_sources_id_fk": {
-          "name": "worklog_attachment_ingestions_source_id_worklog_sources_id_fk",
-          "tableFrom": "worklog_attachment_ingestions",
-          "tableTo": "worklog_sources",
-          "columnsFrom": [
-            "source_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "worklog_attachment_ingestions_actor_user_id_worklog_users_id_fk": {
-          "name": "worklog_attachment_ingestions_actor_user_id_worklog_users_id_fk",
-          "tableFrom": "worklog_attachment_ingestions",
-          "tableTo": "worklog_users",
-          "columnsFrom": [
-            "actor_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "worklog_attachment_ingestion_source_reservation_fk": {
-          "name": "worklog_attachment_ingestion_source_reservation_fk",
-          "tableFrom": "worklog_attachment_ingestions",
-          "tableTo": "worklog_ai_point_reservations",
-          "columnsFrom": [
-            "source_id",
-            "reservation_token"
-          ],
-          "columnsTo": [
-            "source_id",
-            "token"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "worklog_attachment_ingestion_source_record_fk": {
-          "name": "worklog_attachment_ingestion_source_record_fk",
-          "tableFrom": "worklog_attachment_ingestions",
-          "tableTo": "worklog_records",
-          "columnsFrom": [
-            "source_id",
-            "record_id"
-          ],
-          "columnsTo": [
-            "source_id",
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "worklog_attachment_ingestion_status_ck": {
-          "name": "worklog_attachment_ingestion_status_ck",
-          "value": "\"worklog_attachment_ingestions\".\"status\" IN ('PROCESSING', 'RECORD_CREATED', 'SUCCEEDED', 'FAILED')"
-        }
-      },
       "isRLSEnabled": false
     },
     "public.worklog_checkout_intents": {
@@ -5189,33 +4268,346 @@
       },
       "isRLSEnabled": false
     },
-    "public.worklog_source_line_profiles": {
-      "name": "worklog_source_line_profiles",
+    "public.worklog_subscription_lifecycle_events": {
+      "name": "worklog_subscription_lifecycle_events",
       "schema": "",
       "columns": {
-        "source_id": {
-          "name": "source_id",
+        "id": {
+          "name": "id",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "external_event_key": {
+          "name": "external_event_key",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "event_type": {
+          "name": "event_type",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "plan_code": {
+          "name": "plan_code",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "period_start": {
+          "name": "period_start",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "period_end": {
+          "name": "period_end",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "processing_result": {
+          "name": "processing_result",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "processed_at": {
+          "name": "processed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "worklog_subscription_lifecycle_provider_event_uq": {
+          "name": "worklog_subscription_lifecycle_provider_event_uq",
+          "columns": [
+            {
+              "expression": "provider",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "external_event_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "worklog_subscription_lifecycle_user_time_idx": {
+          "name": "worklog_subscription_lifecycle_user_time_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "occurred_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "worklog_subscription_lifecycle_type_time_idx": {
+          "name": "worklog_subscription_lifecycle_type_time_idx",
+          "columns": [
+            {
+              "expression": "event_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "occurred_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "worklog_subscription_lifecycle_events_user_id_worklog_users_id_fk": {
+          "name": "worklog_subscription_lifecycle_events_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_subscription_lifecycle_events",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "worklog_subscription_lifecycle_event_type_ck": {
+          "name": "worklog_subscription_lifecycle_event_type_ck",
+          "value": "\"worklog_subscription_lifecycle_events\".\"event_type\" IN ('ACTIVATE','RENEW','CANCEL')"
+        },
+        "worklog_subscription_lifecycle_plan_code_ck": {
+          "name": "worklog_subscription_lifecycle_plan_code_ck",
+          "value": "\"worklog_subscription_lifecycle_events\".\"plan_code\" = 'AI_PRO'"
+        },
+        "worklog_subscription_lifecycle_processing_result_ck": {
+          "name": "worklog_subscription_lifecycle_processing_result_ck",
+          "value": "\"worklog_subscription_lifecycle_events\".\"processing_result\" IN ('PENDING','APPLIED','IGNORED_STALE')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.worklog_feedback_management": {
+      "name": "worklog_feedback_management",
+      "schema": "",
+      "columns": {
+        "feedback_id": {
+          "name": "feedback_id",
           "type": "bigint",
           "primaryKey": true,
           "notNull": true
         },
-        "group_name": {
-          "name": "group_name",
-          "type": "text",
+        "category": {
+          "name": "category",
+          "type": "varchar(32)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "'OTHER'"
         },
-        "picture_url": {
-          "name": "picture_url",
-          "type": "text",
+        "status": {
+          "name": "status",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'OPEN'"
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "varchar(128)",
           "primaryKey": false,
           "notNull": false
         },
-        "synced_at": {
-          "name": "synced_at",
+        "updated_at": {
+          "name": "updated_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "worklog_feedback_management_status_time_idx": {
+          "name": "worklog_feedback_management_status_time_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "updated_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "worklog_feedback_management_feedback_id_worklog_feedback_id_fk": {
+          "name": "worklog_feedback_management_feedback_id_worklog_feedback_id_fk",
+          "tableFrom": "worklog_feedback_management",
+          "tableTo": "worklog_feedback",
+          "columnsFrom": [
+            "feedback_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "worklog_feedback_management_category_ck": {
+          "name": "worklog_feedback_management_category_ck",
+          "value": "\"worklog_feedback_management\".\"category\" IN ('BUG','FEATURE','UX','OTHER')"
+        },
+        "worklog_feedback_management_status_ck": {
+          "name": "worklog_feedback_management_status_ck",
+          "value": "\"worklog_feedback_management\".\"status\" IN ('OPEN','IN_PROGRESS','RESOLVED','IGNORED')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.worklog_newebpay_subscriptions": {
+      "name": "worklog_newebpay_subscriptions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigserial",
+          "primaryKey": true,
           "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "checkout_intent_id": {
+          "name": "checkout_intent_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "merchant_order_no": {
+          "name": "merchant_order_no",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "period_no": {
+          "name": "period_no",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'PENDING'"
+        },
+        "current_period_start": {
+          "name": "current_period_start",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "current_period_end": {
+          "name": "current_period_end",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_provider_event_key": {
+          "name": "last_provider_event_key",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
         },
         "created_at": {
           "name": "created_at",
@@ -5233,11 +4625,62 @@
         }
       },
       "indexes": {
-        "worklog_source_line_profile_synced_idx": {
-          "name": "worklog_source_line_profile_synced_idx",
+        "worklog_newebpay_subscription_user_uq": {
+          "name": "worklog_newebpay_subscription_user_uq",
           "columns": [
             {
-              "expression": "synced_at",
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "worklog_newebpay_subscription_order_uq": {
+          "name": "worklog_newebpay_subscription_order_uq",
+          "columns": [
+            {
+              "expression": "merchant_order_no",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "worklog_newebpay_subscription_period_uq": {
+          "name": "worklog_newebpay_subscription_period_uq",
+          "columns": [
+            {
+              "expression": "period_no",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "worklog_newebpay_subscription_status_time_idx": {
+          "name": "worklog_newebpay_subscription_status_time_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "updated_at",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -5250,52 +4693,50 @@
         }
       },
       "foreignKeys": {
-        "worklog_source_line_profiles_source_id_worklog_sources_id_fk": {
-          "name": "worklog_source_line_profiles_source_id_worklog_sources_id_fk",
-          "tableFrom": "worklog_source_line_profiles",
-          "tableTo": "worklog_sources",
+        "worklog_newebpay_subscriptions_user_id_worklog_users_id_fk": {
+          "name": "worklog_newebpay_subscriptions_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_newebpay_subscriptions",
+          "tableTo": "worklog_users",
           "columnsFrom": [
-            "source_id"
+            "user_id"
           ],
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_newebpay_subscriptions_checkout_intent_id_worklog_checkout_intents_id_fk": {
+          "name": "worklog_newebpay_subscriptions_checkout_intent_id_worklog_checkout_intents_id_fk",
+          "tableFrom": "worklog_newebpay_subscriptions",
+          "tableTo": "worklog_checkout_intents",
+          "columnsFrom": [
+            "checkout_intent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "worklog_newebpay_subscription_status_ck": {
+          "name": "worklog_newebpay_subscription_status_ck",
+          "value": "\"worklog_newebpay_subscriptions\".\"status\" IN ('PENDING','ACTIVE','TERMINATED','FAILED')"
+        }
+      },
       "isRLSEnabled": false
     }
   },
   "enums": {
-    "public.worklog_anomaly_severity": {
-      "name": "worklog_anomaly_severity",
-      "schema": "public",
-      "values": [
-        "INFO",
-        "WARNING",
-        "ERROR",
-        "CRITICAL"
-      ]
-    },
-    "public.worklog_anomaly_status": {
-      "name": "worklog_anomaly_status",
-      "schema": "public",
-      "values": [
-        "OPEN",
-        "RESOLVED",
-        "IGNORED"
-      ]
-    },
     "public.worklog_feedback_channel": {
       "name": "worklog_feedback_channel",
       "schema": "public",
       "values": [
-        "LINE_OA",
         "PWA"
       ]
     },
@@ -5304,8 +4745,7 @@
       "schema": "public",
       "values": [
         "FREE",
-        "SUBSCRIPTION",
-        "ONE_TIME"
+        "SUBSCRIPTION"
       ]
     },
     "public.worklog_record_input_type": {
@@ -5316,6 +4756,14 @@
         "AUDIO",
         "IMAGE",
         "FILE"
+      ]
+    },
+    "public.worklog_source_member_role": {
+      "name": "worklog_source_member_role",
+      "schema": "public",
+      "values": [
+        "OWNER",
+        "MEMBER"
       ]
     },
     "public.worklog_source_status": {
@@ -5353,31 +4801,12 @@
         "EXPIRED"
       ]
     },
-    "public.worklog_ai_confirmation_status": {
-      "name": "worklog_ai_confirmation_status",
+    "public.worklog_record_ai_enrichment_status": {
+      "name": "worklog_record_ai_enrichment_status",
       "schema": "public",
       "values": [
-        "PENDING",
-        "CONFIRMED",
-        "REJECTED",
-        "EXPIRED"
-      ]
-    },
-    "public.worklog_ai_confirmation_type": {
-      "name": "worklog_ai_confirmation_type",
-      "schema": "public",
-      "values": [
-        "ALIAS_MATCH",
-        "RECORD_TITLE",
-        "ENTITY_MATCH"
-      ]
-    },
-    "public.worklog_entity_status": {
-      "name": "worklog_entity_status",
-      "schema": "public",
-      "values": [
-        "ACTIVE",
-        "ARCHIVED"
+        "NONE",
+        "ENRICHED"
       ]
     },
     "public.worklog_record_revision_channel": {
@@ -5387,7 +4816,7 @@
         "PWA_MANUAL",
         "PWA_DELETE",
         "PWA_RESTORE",
-        "LINE_AI_EDIT",
+        "AI_REWRITE",
         "SYSTEM"
       ]
     },
@@ -5397,6 +4826,65 @@
       "values": [
         "ACTIVE",
         "DELETED"
+      ]
+    },
+    "public.worklog_auth_provider": {
+      "name": "worklog_auth_provider",
+      "schema": "public",
+      "values": [
+        "GOOGLE",
+        "LINE",
+        "APPLE"
+      ]
+    },
+    "public.worklog_notification_audience": {
+      "name": "worklog_notification_audience",
+      "schema": "public",
+      "values": [
+        "ALL_USERS",
+        "FREE_USERS",
+        "AI_SUBSCRIBERS",
+        "SPECIFIC_USERS"
+      ]
+    },
+    "public.worklog_notification_delivery_status": {
+      "name": "worklog_notification_delivery_status",
+      "schema": "public",
+      "values": [
+        "PENDING",
+        "SENT",
+        "FAILED",
+        "SKIPPED"
+      ]
+    },
+    "public.worklog_notification_status": {
+      "name": "worklog_notification_status",
+      "schema": "public",
+      "values": [
+        "DRAFT",
+        "SCHEDULED",
+        "SENDING",
+        "SENT",
+        "CANCELLED",
+        "FAILED"
+      ]
+    },
+    "public.worklog_notification_type": {
+      "name": "worklog_notification_type",
+      "schema": "public",
+      "values": [
+        "ANNOUNCEMENT",
+        "SYSTEM",
+        "TASK"
+      ]
+    },
+    "public.worklog_task_status": {
+      "name": "worklog_task_status",
+      "schema": "public",
+      "values": [
+        "OPEN",
+        "COMPLETED",
+        "CANCELLED"
       ]
     },
     "public.worklog_ai_grant_status": {
@@ -5414,7 +4902,6 @@
       "values": [
         "FREE_INITIAL",
         "SUBSCRIPTION_PERIOD",
-        "TOP_UP",
         "ADMIN"
       ]
     },
