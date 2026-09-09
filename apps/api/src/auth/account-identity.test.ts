@@ -76,7 +76,7 @@ describe('AccountIdentityService', () => {
     };
     const service = new AccountIdentityService(repository, () => candidates.shift()!);
 
-    await expect(service.provision({ provider: 'LINE', subject: 'Uabc', legacyLineUserId: 'Uabc' }))
+    await expect(service.provision({ provider: 'LINE', subject: 'Uabc' }))
       .resolves.toMatchObject({ publicAccountId: 'AT-3456789ABCDE' });
     expect(calls).toBe(2);
   });
