@@ -6,7 +6,7 @@ Before substantive work, read the latest documents in the exact order defined by
 
 Default rule: do not run/dispatch/rerun/enable/modify GitHub Actions unless the user explicitly authorizes it. Every normal development commit contains `[skip ci]`. Do not stage/commit the unrelated local `apps/api/verify-admin-schema.mjs` unless separately reviewed/approved.
 
-## Current checkpoint — 2026-09-09 source cleanup complete; local release preflight PASS; canonical baseline pushed
+## Current checkpoint — 2026-09-09 source cleanup complete; local release preflight PASS; canonical baseline pushed; PostgreSQL migration/integrity PASS
 
 AFTERTRACE remains Web + PWA-first with the compact Chrome extension fast-capture surface. LINE remains only as provider-neutral LINE Login plus the external official LINE OA support link. Accepted V1 feature scope is source-authored complete. Legacy cleanup is complete. Do not invent further product/domain changes merely to continue work.
 
@@ -43,6 +43,10 @@ Actually executed and proven:
 - full monorepo ESLint — **PASS**.
 - standalone API Vitest after repair batch — **PASS**: **59 files / 261 tests**.
 - `pnpm release:preflight` — **PASS** end-to-end locally.
+- `pnpm db:migrate` against the user's existing configured PostgreSQL database — **PASS** (`AFTERTRACE database migrations applied successfully.`); a repeated execution also completed successfully, confirming migration idempotent replay at the Drizzle migrator level.
+- `pnpm db:integrity` against that database — **PASS**. Proven target constraints include PRIVATE Source ownership, GROUP Source shape, one PRIVATE Source per user, nullable manual `occurred_at`, and rejection of retired TOP_UP grant / ONE_TIME plan values.
+
+Important evidence boundary: the user did not provide output proving `DROP SCHEMA public CASCADE` (or equivalent destructive reset) occurred immediately before the successful migration. Therefore migration + integrity are proven PASS, but a literal clean-from-empty database rebuild is **not separately claimed** unless that reset is confirmed.
 
 The successful preflight specifically proved:
 
@@ -91,12 +95,12 @@ Local Windows checkout:
 - regenerated baseline SQL/snapshot + `pnpm-lock.yaml` were committed locally with `[skip ci]`;
 - after rebasing over the progress checkpoint, that local commit became `4e32854` (`[skip ci] regenerate canonical baseline and sync workspace lockfile`);
 - full local release preflight using those generated artifacts — **PASS**;
-- final `git status` after push — clean and up to date with `origin/revive/line-worklog`.
+- final `git status` after push — clean and up to date with `origin/revive/line-worklog` before the subsequent progress-only checkpoint commit.
 
 Origin synchronization:
 
 - `4e32854` was successfully pushed to `origin/revive/line-worklog` on 2026-09-09;
-- therefore the validated regenerated baseline SQL/snapshot and workspace lockfile are now present on origin.
+- therefore the validated regenerated baseline SQL/snapshot and workspace lockfile are present on origin.
 
 Generated SQL/snapshot must not be hand-edited to simulate success.
 
@@ -117,11 +121,14 @@ Generated SQL/snapshot must not be hand-edited to simulate success.
 - Extension static build step;
 - Drizzle schema export;
 - complete local `pnpm release:preflight`;
-- canonical baseline/lockfile push to `origin/revive/line-worklog`.
+- canonical baseline/lockfile push to `origin/revive/line-worklog`;
+- PostgreSQL migration against current configured database;
+- PostgreSQL target integrity probes.
 
 ### NOT RUN / NOT RUNTIME VERIFIED
 
-- fresh disposable PostgreSQL rebuild from canonical baseline;
+- clean-from-empty PostgreSQL rebuild, unless the user separately confirms the schema/database was destructively reset before the successful migration;
+- `/health/ready` against the current rebuilt/migrated target runtime;
 - focused PostgreSQL DB smoke for account lookup, Feedback, PRIVATE/GROUP Task authorization, FREE trial/AI Pro Grant accounting, provider-cost concurrency, lifecycle replay/stale cancel and Related ranking;
 - NewebPay TEST checkout/callback retry/idempotency/renew/cancel flow;
 - Google OAuth runtime smoke;
@@ -138,18 +145,20 @@ No unexecuted item is claimed PASS or RUNTIME VERIFIED.
 
 ## Exact next validation plan
 
-1. Apply the canonical baseline to a fresh disposable PostgreSQL database and prove a clean schema rebuild.
-2. Run focused DB smoke for account lookup, Feedback, PRIVATE/GROUP Tasks, FREE trial/AI Pro Grants, provider-cost concurrency, lifecycle replay/stale cancel and Related ranking.
-3. Run NewebPay TEST checkout -> callback retry/idempotency -> renewal -> cancel when real TEST credentials/callback URLs are available.
-4. Run Google/LINE/Apple + Gemini + Chrome unpacked extension + Push/Cron Dev smoke.
-5. Run Dev E2E.
-6. Only then consider the branch fully release-ready/runtime-verified.
+1. Verify API `/health/ready` against the current configured database/runtime. This proves target schema plus required runtime/commercial/AI/PUSH initialization, not merely table constraints.
+2. Run focused DB/runtime smoke for provider-neutral account lookup, Feedback, PRIVATE/GROUP Tasks, FREE trial/AI Pro Grants, provider-cost concurrency, lifecycle replay/stale cancel and Related ranking.
+3. If clean-from-empty rebuild evidence is required, destructively reset the disposable database and rerun `pnpm db:migrate` + `pnpm db:integrity`; otherwise do not claim that narrower property.
+4. Run NewebPay TEST checkout -> callback retry/idempotency -> renewal -> cancel when real TEST credentials/callback URLs are available.
+5. Run Google/LINE/Apple + Gemini + Chrome unpacked extension + Push/Cron Dev smoke.
+6. Run Dev E2E.
+7. Only then consider the branch fully release-ready/runtime-verified.
 
 ## Remaining estimate
 
 - Functional feature development: **0 focused hours**.
 - Legacy cleanup: **0 focused hours**.
 - Static/local release validation: **complete / PASS**.
-- Remaining work is database/provider/browser/runtime verification only and depends on external credentials/runtime availability.
+- Database migration + integrity validation: **PASS**.
+- Remaining work is readiness, focused DB behavior and provider/browser/runtime verification.
 
 `apps/api/verify-admin-schema.mjs` was not staged or committed.
