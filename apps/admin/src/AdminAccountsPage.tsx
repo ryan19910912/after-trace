@@ -18,7 +18,7 @@ export function AdminAccountsPage({ api }: { api: AdminApi }) {
     if (!value || busy) return;
     setBusy(true); setError(null);
     try {
-      setRows(await api.accounts(value));
+      setRows(await api.accountLookup(value));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '帳號查詢失敗');
     } finally { setBusy(false); }
