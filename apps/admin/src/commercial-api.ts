@@ -74,8 +74,19 @@ export class AdminCommercialApi {
   }
 }
 
-async function parseBody(response: Response): Promise<Record<string, any>> {
+type AdminCommercialResponseBody = {
+  error?: string;
+  config?: unknown;
+};
+
+async function parseBody(response: Response): Promise<AdminCommercialResponseBody> {
   const text = await response.text();
-  try { return text ? JSON.parse(text) as Record<string, any> : {}; }
-  catch { throw new Error(`ADMIN_COMMERCIAL_API_INVALID_RESPONSE_${response.status}`); }
+  try {
+    const parsed = text ? JSON.parse(text) as unknown : {};
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as AdminCommercialResponseBody
+      : {};
+  } catch {
+    throw new Error(`ADMIN_COMMERCIAL_API_INVALID_RESPONSE_${response.status}`);
+  }
 }
