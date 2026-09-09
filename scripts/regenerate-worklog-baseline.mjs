@@ -75,7 +75,7 @@ try {
   );
 
   console.log('Prelaunch baseline regenerated and guard passed.');
-  console.log('Existing environment databases must use the forward-compatibility migration; do not rebuild them merely because 0000 changed.');
+  console.log('While Dev/current prelaunch Prod data remain disposable under policy, those databases may be cleanly rebuilt from this canonical baseline before executable validation/deployment.');
 } finally {
   if (existsSync(backupDir)) rmSync(backupDir, { recursive: true, force: true });
 }
