@@ -33,7 +33,7 @@ describe('TaskApi Web/PWA contract', () => {
   });
 
   it('uses the authenticated shared AFTERTRACE session and durable task API', async () => {
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => jsonResponse({
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => jsonResponse({
       task: taskPayload({ id: 11, title: '準備報價' }),
     }, 201));
     vi.stubGlobal('fetch', fetchMock);
