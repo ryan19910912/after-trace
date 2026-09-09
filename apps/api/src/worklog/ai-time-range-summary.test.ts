@@ -134,13 +134,14 @@ describe('AiTimeRangeSummaryService', () => {
       async summarize(input) {
         calls.push(`provider:${input.records.length}`);
         expect(input.records.reduce((sum, record) => sum + record.rawText.length, 0)).toBeLessThanOrEqual(120_000);
+        expect(input.records.at(-1)?.rawText.length).toBeLessThan(20_000);
         return { summary: '大型資料集仍以 bounded provider input 摘要。', inputTokens: 100, outputTokens: 20, providerResponseId: 'resp-summary-large', latencyMs: 10 };
       },
     });
 
     const result = await service.summarize({ userId: 7, sourceId: 12, ...range });
-    expect(result).toMatchObject({ status: 'SUMMARY', recordCount: 5, truncated: true });
-    expect(calls).toContain('estimate:5');
-    expect(calls).toContain('provider:5');
+    expect(result).toMatchObject({ status: 'SUMMARY', recordCount: 6, truncated: true });
+    expect(calls).toContain('estimate:6');
+    expect(calls).toContain('provider:6');
   });
 });
