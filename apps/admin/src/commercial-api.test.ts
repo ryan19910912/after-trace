@@ -67,6 +67,7 @@ describe('AdminCommercialApi', () => {
         aiRelatedRecords: true,
         aiTimeRangeSummary: true,
         aiRecordRewrite: false,
+        aiTaskProposal: true,
         monthlyAiPointCap: 100000,
         monthlyProviderCostCapTwd: '30',
         perRequestAiPointCap: 5000,
@@ -83,6 +84,7 @@ describe('AdminCommercialApi', () => {
       aiRelatedRecords: true,
       aiTimeRangeSummary: true,
       aiRecordRewrite: false,
+      aiTaskProposal: true,
       monthlyAiPointCap: 100000,
       monthlyProviderCostCapTwd: '30',
       perRequestAiPointCap: 5000,
@@ -93,6 +95,7 @@ describe('AdminCommercialApi', () => {
     expect(config.aiRelatedRecords).toBe(true);
     expect(config.aiTimeRangeSummary).toBe(true);
     expect(config.aiRecordRewrite).toBe(false);
+    expect(config.aiTaskProposal).toBe(true);
     const [, init] = fetchMock.mock.calls[0];
     expect(JSON.parse(String(init?.body))).toEqual({
       enabled: true,
@@ -101,6 +104,7 @@ describe('AdminCommercialApi', () => {
       aiRelatedRecords: true,
       aiTimeRangeSummary: true,
       aiRecordRewrite: false,
+      aiTaskProposal: true,
       monthlyAiPointCap: 100000,
       monthlyProviderCostCapTwd: '30',
       perRequestAiPointCap: 5000,
