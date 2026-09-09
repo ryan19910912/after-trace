@@ -58,10 +58,10 @@ describe('CommercialConfigService', () => {
     expect(result.freeInitialAiTrialPoints).toBe(800);
   });
 
-  it('rejects zero instead of silently creating a zero-value trial', async () => {
+  it('rejects zero instead of silently creating a zero-value trial', () => {
     const service = new CommercialConfigService(new FakeRepository());
-    await expect(service.setFreeAiTrialPoints(0, 'operator'))
-      .rejects.toThrow('INVALID_FREE_INITIAL_AI_TRIAL_POINTS');
+    expect(() => service.setFreeAiTrialPoints(0, 'operator'))
+      .toThrow('INVALID_FREE_INITIAL_AI_TRIAL_POINTS');
   });
 
   it('does not express the trial config as a TWD value', async () => {
@@ -121,13 +121,13 @@ describe('CommercialConfigService', () => {
     });
   });
 
-  it('rejects an AI Pro per-request cap larger than its monthly cap', async () => {
+  it('rejects an AI Pro per-request cap larger than its monthly cap', () => {
     const service = new CommercialConfigService(new FakeRepository());
-    await expect(service.setAiProConfig({
+    expect(() => service.setAiProConfig({
       enabled: true,
       monthlyAiPointCap: 100,
       monthlyProviderCostCapTwd: '30',
       perRequestAiPointCap: 101,
-    }, 'operator')).rejects.toThrow('INVALID_AI_PRO_PER_REQUEST_CAP');
+    }, 'operator')).toThrow('INVALID_AI_PRO_PER_REQUEST_CAP');
   });
 });
