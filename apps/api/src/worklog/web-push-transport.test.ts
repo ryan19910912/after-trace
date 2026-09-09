@@ -45,7 +45,8 @@ describe('Worker Web Push transport', () => {
 
     expect(result).toEqual({ ok: true, status: 201 });
     expect(captured?.method).toBe('POST');
-    expect(captured?.body).toBeInstanceOf(Uint8Array);
+    expect(captured?.body).toBeInstanceOf(ArrayBuffer);
+    expect((captured?.body as ArrayBuffer | undefined)?.byteLength ?? 0).toBeGreaterThan(100);
   });
 
   it('rejects malformed VAPID and browser subscription keys before network I/O', async () => {
