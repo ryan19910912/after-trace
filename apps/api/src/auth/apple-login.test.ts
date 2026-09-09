@@ -30,12 +30,13 @@ describe('Apple Login crypto contract', () => {
       aud: 'https://appleid.apple.com',
       sub: 'com.aftertrace.web',
     });
-    expect(base64UrlDecode(signaturePart)).toHaveLength(64);
+    const signature = base64UrlDecode(signaturePart);
+    expect(signature).toHaveLength(64);
     await expect(crypto.subtle.verify(
       { name: 'ECDSA', hash: 'SHA-256' },
       pair.publicKey,
-      base64UrlDecode(signaturePart),
-      encoder.encode(`${headerPart}.${payloadPart}`),
+      asArrayBuffer(signature),
+      asArrayBuffer(encoder.encode(`${headerPart}.${payloadPart}`)),
     )).resolves.toBe(true);
   });
 
@@ -131,7 +132,7 @@ async function signRs256(privateKey: CryptoKey, payload: Record<string, unknown>
   const signature = new Uint8Array(await crypto.subtle.sign(
     'RSASSA-PKCS1-v1_5',
     privateKey,
-    encoder.encode(input),
+    asArrayBuffer(encoder.encode(input)),
   ));
   return `${input}.${base64Url(signature)}`;
 }
@@ -154,4 +155,8 @@ function base64UrlDecode(value: string): Uint8Array {
   const padded = value.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (value.length % 4)) % 4);
   const binary = atob(padded);
   return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+}
+
+function asArrayBuffer(value: Uint8Array): ArrayBuffer {
+  return value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength) as ArrayBuffer;
 }
