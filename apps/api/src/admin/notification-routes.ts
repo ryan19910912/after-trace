@@ -125,7 +125,7 @@ export function createAdminNotificationRoutes(dependencies: AdminNotificationRou
     }
     if (parsed.mode !== 'SEND_NOW') return c.json({ ok: true, announcement: created.announcement }, 201);
     const dispatched = await service.dispatchAnnouncement(created.announcement.id);
-    if (dispatched.status !== 'SENT') {
+    if (!('announcement' in dispatched)) {
       return c.json({ ok: false, error: 'ANNOUNCEMENT_DISPATCH_FAILED' }, 409);
     }
     return c.json({ ok: true, announcement: dispatched.announcement }, 201);
@@ -137,6 +137,7 @@ export function createAdminNotificationRoutes(dependencies: AdminNotificationRou
     const result = await serviceFor(c, repositoryFactory).dispatchAnnouncement(id);
     if (result.status === 'NOT_FOUND') return c.json({ ok: false, error: 'ANNOUNCEMENT_NOT_FOUND' }, 404);
     if (result.status === 'NOT_DISPATCHABLE') return c.json({ ok: false, error: 'ANNOUNCEMENT_NOT_DISPATCHABLE' }, 409);
+    if (!('announcement' in result)) return c.json({ ok: false, error: 'ANNOUNCEMENT_DISPATCH_FAILED' }, 409);
     return c.json({ ok: true, announcement: result.announcement });
   });
 
@@ -146,6 +147,7 @@ export function createAdminNotificationRoutes(dependencies: AdminNotificationRou
     const result = await serviceFor(c, repositoryFactory).cancelAnnouncement(id, c.get('adminUsername'));
     if (result.status === 'NOT_FOUND') return c.json({ ok: false, error: 'ANNOUNCEMENT_NOT_FOUND' }, 404);
     if (result.status === 'NOT_CANCELLABLE') return c.json({ ok: false, error: 'ANNOUNCEMENT_NOT_CANCELLABLE' }, 409);
+    if (!('announcement' in result)) return c.json({ ok: false, error: 'ANNOUNCEMENT_CANCEL_FAILED' }, 409);
     return c.json({ ok: true, announcement: result.announcement });
   });
 
@@ -165,8 +167,6 @@ function validateAnnouncement(
   database: Database,
 ): void {
   const service = new NotificationService(repositoryFactory(database));
-  // createAnnouncement contains the durable shared validation. The preview endpoint must not persist,
-  // so repeat only the product-safe shape checks here through local helpers.
   void service;
   if (!input.title.trim() || input.title.trim().length > 255) throw new Error('INVALID_NOTIFICATION_TITLE');
   if (!input.body.trim() || input.body.trim().length > 10_000) throw new Error('INVALID_NOTIFICATION_BODY');
