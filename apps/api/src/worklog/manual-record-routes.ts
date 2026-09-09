@@ -259,7 +259,7 @@ function recordFilters(params: Record<string, string>): ManualRecordFilters | { 
 function authSecret(env: ManualRecordRoutesBindings): string | null { const value = env.WEB_AUTH_SECRET?.trim(); return value && value.length >= 32 ? value : null; }
 function bearerToken(header: string | undefined): string | null { const match = header ? /^Bearer\s+(.+)$/i.exec(header.trim()) : null; const value = match?.[1]?.trim() ?? ''; return value && value.length <= 8192 ? value : null; }
 async function objectBody(c: { req: { json(): Promise<unknown> } }): Promise<Record<string, unknown> | null> { try { const value = await c.req.json(); return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null; } catch { return null; } }
-function positiveId(value: string): number | null { const parsed = Number(value); return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null; }
+function positiveId(value: string | undefined): number | null { const parsed = Number(value); return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null; }
 function positiveInteger(value: unknown): number | null { return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null; }
 function requiredText(value: unknown, max: number): string | null { if (typeof value !== 'string') return null; const normalized = value.trim(); return normalized && normalized.length <= max ? normalized : null; }
 function optionalText(value: unknown, max: number): string | null | 'INVALID' { if (value == null || value === '') return null; if (typeof value !== 'string') return 'INVALID'; const normalized = value.trim(); return normalized && normalized.length <= max ? normalized : 'INVALID'; }
