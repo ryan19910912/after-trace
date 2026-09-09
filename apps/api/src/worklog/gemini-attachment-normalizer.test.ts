@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { LineMessageContent } from '../line/content';
+import type { AiMediaProviderContent } from './ai-media-capture';
 import { GeminiWorklogAttachmentNormalizer } from './gemini-attachment-normalizer';
 import type { WorklogAiRuntimeConfigSnapshot } from './text-normalization';
 
@@ -13,8 +13,7 @@ const config: WorklogAiRuntimeConfigSnapshot = {
   usdTwdRate: 32,
 };
 
-const image: LineMessageContent = {
-  lineMessageId: 'image-1',
+const image: AiMediaProviderContent = {
   mimeType: 'image/jpeg',
   byteLength: 3,
   dataBase64: 'YWJj',
