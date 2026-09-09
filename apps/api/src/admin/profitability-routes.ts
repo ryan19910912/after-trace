@@ -9,7 +9,6 @@ import {
   DrizzleAdminProfitabilityRepository,
   parseAdminProfitabilityPeriod,
 } from './profitability';
-import { presentAdminPayload } from './presentation';
 
 export type AdminProfitabilityBindings = AdminAccessEnv & {
   DATABASE_URL: string;
@@ -71,7 +70,7 @@ export function createAdminProfitabilityRoutes() {
     const repository = new DrizzleAdminProfitabilityRepository(createDatabase(c.env.DATABASE_URL));
     return c.json({
       ok: true,
-      report: presentAdminPayload(await repository.report(period, new Date())),
+      report: await repository.report(period, new Date()),
     });
   });
 
