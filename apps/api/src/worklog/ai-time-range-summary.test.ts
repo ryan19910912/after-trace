@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { AiTimeRangeSummaryService, type AiTimeRangeSummaryRepository } from './ai-time-range-summary';
+import {
+  AiTimeRangeSummaryService,
+  type AiTimeRangeSummaryRecord,
+  type AiTimeRangeSummaryRepository,
+} from './ai-time-range-summary';
 import type { AiPointLedgerPort } from './entitled-ai-point-ledger';
 
 const config = {
@@ -7,8 +11,8 @@ const config = {
   audioUsdPerMillion: null, imageUsdPerMillion: null, usdTwdRate: 32,
 };
 
-function repository(calls: string[], records = [{
-  id: 1, inputType: 'TEXT' as const, title: '晴空案', rawText: '完成第一階段驗收',
+function repository(calls: string[], records: AiTimeRangeSummaryRecord[] = [{
+  id: 1, inputType: 'TEXT', title: '晴空案', rawText: '完成第一階段驗收',
   occurredAt: '2026-09-01T02:00:00.000Z', createdAt: '2026-09-01T02:01:00.000Z',
 }]): AiTimeRangeSummaryRepository {
   return {
@@ -112,9 +116,9 @@ describe('AiTimeRangeSummaryService', () => {
 
   it('bounds provider text size even when fewer than 200 Records contain large manual content', async () => {
     const calls: string[] = [];
-    const largeRecords = Array.from({ length: 10 }, (_, index) => ({
+    const largeRecords: AiTimeRangeSummaryRecord[] = Array.from({ length: 10 }, (_, index) => ({
       id: index + 1,
-      inputType: 'TEXT' as const,
+      inputType: 'TEXT',
       title: null,
       rawText: 'x'.repeat(20_000),
       occurredAt: `2026-09-0${Math.min(index + 1, 9)}T02:00:00.000Z`,
