@@ -118,7 +118,7 @@ export class AdminAnnouncementApi {
 export async function searchAnnouncementUsers(api: AdminApi, query: string): Promise<AdminAnnouncementUserOption[]> {
   const normalized = query.trim();
   if (!normalized) return [];
-  const rows = await api.users({ query: normalized, sortUpdated: 'DESC' });
+  const rows = await api.accountLookup(normalized);
   return rows.flatMap((row) => toUserOption(row));
 }
 
