@@ -6,14 +6,14 @@ Before substantive work, read the latest documents in the exact order defined by
 
 Default rule: do not run/dispatch/rerun/enable/modify GitHub Actions unless the user explicitly authorizes it. Every normal development commit contains `[skip ci]`. Do not stage/commit the unrelated local `apps/api/verify-admin-schema.mjs` unless separately reviewed/approved.
 
-## Current checkpoint — 2026-09-09 target-only legacy source cleanup complete; canonical baseline + executable validation remain
+## Current checkpoint — 2026-09-09 target-only cleanup complete; executable validation in progress
 
 AFTERTRACE is Web + PWA-first with a compact Chrome extension fast-capture surface. LINE is retired from the Record/GROUP/AI product surface and remains only as:
 
 - provider-neutral LINE Login;
 - the external official LINE OA support contact link.
 
-User completion rule remains: compile/tests/runtime/deployment do not count toward functional completion. Under that rule, accepted V1 feature scope remains **100% source-authored**. Validation/release-readiness is separate and is not yet PASS/RUNTIME VERIFIED.
+Accepted V1 feature scope remains **100% source-authored**. Legacy cleanup is complete. Current work is release validation only: canonical Drizzle artifacts, compile/lint/test/build, database smoke and real provider/runtime smoke.
 
 Current prelaunch Dev and current Prod data are disposable. Clean target-schema/canonical-baseline rebuilds remain allowed while no real customer data exists.
 
@@ -32,11 +32,9 @@ Current prelaunch Dev and current Prod data are disposable. Clean target-schema/
 
 Current branch source-authors provider-neutral Google/LINE/Apple auth, public account id, native groups/invites, manual Record CRUD/search/revisions/delete/restore, Tasks/reminders, notifications/PUSH/Admin announcements, Feedback/Admin workflow, FREE AI trial, AI Pro entitlement/accounting/cost caps, text/image/audio/file/PDF AI, natural-language search, Related Records, summaries, rewrite, AI Task proposal, Record-level AI actions, Chrome Extension V1 capture including screenshot/image AI, NewebPay periodic subscription transport, and target-first Admin surfaces.
 
-## Target-only legacy cleanup — COMPLETE at source/schema/test/document level
+## Target-only legacy cleanup — COMPLETE
 
-Physical cleanup is now complete for the retired product generation covered by the development policy.
-
-Removed from active source/schema/test surfaces:
+Removed from active source/schema/test/document surfaces:
 
 - LINE Messaging webhook/runtime and `apps/api/src/line` runtime tree;
 - 小跡 command / LINE GROUP bot behavior;
@@ -51,147 +49,100 @@ Removed from active source/schema/test surfaces:
 - GROUP AI responsible-user/funding-owner schema/runtime;
 - `ONE_TIME` / `TOP_UP` commercial product shape;
 - retired LINE/CRM validation notes and obsolete tests;
-- compatibility attachment shim that existed only to expose a legacy type name.
+- final legacy attachment compatibility shim.
 
-Target runtime paths now route only accepted V1 product surfaces. Retired route tombstones were removed; unsupported retired paths simply fall through to normal not-found behavior rather than keeping a legacy route contract alive.
+Allowed LINE-related code remains provider-neutral LINE Login plus the external OA support link/config only.
 
-`apps/api/src/db/schema-all.ts` now exports target schema modules only. The branch tree contains no retired LINE schema/runtime filenames from the removed product generation. Allowed LINE-related code is provider-neutral LINE Login and the external OA support link/config only.
+## Latest validation batches — 2026-09-09
 
-## Latest cleanup batch
+Earlier release-tooling alignment:
 
-This final cleanup pass included the following source changes, all committed with `[skip ci]`:
+- `2efce4b9` — `[skip ci]` align baseline regeneration success guidance with the current disposable-prelaunch database policy.
 
-- `f65f53f2` — remove retired legacy route tombstones from the Worker router;
-- `1c011d03` — delete retired LINE normalization tests;
-- `12874d47` — reduce text AI contract to target title/date/search-term interpretation only;
-- `ae547948` — remove retired title-confirmation output from Gemini text capture;
-- `1687fa5d` — align Gemini text tests to the target enrichment contract;
-- `d8a08815` — replace retired LINE Record tests with PRIVATE/native-GROUP read tests;
-- `78c1050f` — remove LINE Messaging readiness fixtures and keep provider-neutral Login readiness;
-- `8f6d1bbe` — remove stale LINE-era local validation notes;
-- `89b2b13f` — align AI text capture test provider output with the target contract;
-- `494e0e83` — sync the Entity Model to physical target-only schema rules;
-- `d958e1ec` — sync Deployment docs to remove temporary LINE Messaging requirements;
-- `946abafc` — point AI media routes directly at the target-native `AiMediaProvider` contract;
-- `003ed852` — delete the final retired attachment compatibility shim.
+Executable validation then started on the user's Windows checkout at `D:\Project\after-trace`.
 
-Tests modified in this cleanup are **AUTHORED / NOT RUN**.
+Actually executed by the user:
 
-## Latest validation-tooling batch — 2026-09-09
+- `pnpm install --frozen-lockfile` — **PASS** (`pnpm 10.15.0`, lockfile up to date).
+- first `pnpm release:preflight` with local `http://127.0.0.1:8787` API URL — **FAIL** before validation because release preflight correctly requires an absolute HTTPS Worker origin.
+- rerun with `VITE_API_BASE_URL=https://after-trace-api-dev.a0955625660.workers.dev` — preflight entered validation and baseline guard **FAIL** because checked-in canonical Drizzle SQL/snapshot were stale legacy artifacts.
+- after local baseline regeneration, `pnpm db:baseline:guard` — **PASS**: `AFTERTRACE V1 target baseline + Drizzle metadata guard passed.`
+- next `pnpm release:preflight` — baseline guard **PASS**, then TypeScript stage **FAIL** in Admin.
 
-No new product/domain work was added because legacy cleanup is already complete.
+The user did not provide the direct stdout from the baseline regeneration command itself, so record only the executed guard as PASS. The user's regenerated Drizzle files are local until separately committed/pushed; do not assume the GitHub branch currently contains those generated artifacts merely because the local guard passed.
 
-This run found one stale release-tooling message in `scripts/regenerate-worklog-baseline.mjs`: after successful baseline generation it still instructed developers to keep existing environment databases and use a forward migration, which contradicted the current authoritative prelaunch policy allowing disposable Dev/current Prod databases to be cleanly rebuilt from the canonical target baseline.
+The Admin typecheck surfaced these real stale-integration defects:
 
-Fixed with `[skip ci]` commit:
+1. `AdminAccountsPage.tsx` called removed `api.accounts(...)` instead of target `accountLookup(...)`.
+2. announcement specific-user search called removed `api.users(...)` instead of target `accountLookup(...)`.
+3. `api.test.ts` imported/tested removed `effectiveSubscriptionState` helper.
+4. `commercial-api.test.ts` AI Pro fixture/request omitted current `aiTaskProposal` capability.
 
-- `2efce4b9` — align baseline regeneration success guidance with the current disposable-prelaunch database policy.
+Fixed on branch with `[skip ci]` commits:
 
-This is tooling/documentation alignment only; it does not change product behavior, schema, generated Drizzle artifacts, or migration state.
+- `28b3b2ed` — use target Admin account lookup API in account search page.
+- `3f7142e0` — use target account lookup for announcement user search.
+- `42ffa79e` — remove stale Admin subscription-helper tests rather than restoring removed code.
+- `5d8892dc` — align AI Pro Admin test fixture/request with `aiTaskProposal`.
 
-## Previously fixed static defects
+These fixes are **AUTHORED / NOT YET EXECUTED** after the commits. The user must pull/sync them into the executable Windows checkout and rerun typecheck/preflight.
 
-Earlier validation passes found and fixed important release defects including:
+No product feature was added, no retired behavior was restored, GitHub Actions were not used or modified, and `apps/api/verify-admin-schema.mjs` was not touched.
 
-1. Feedback Admin public-account join.
-2. AI Task hard-cap SYSTEM notification parity.
-3. NewebPay callback stable idempotency facts.
-4. Root API auth/PUSH/NewebPay bindings.
-5. NewebPay AlterStatus version separation.
-6. Provider-neutral Admin account lookup.
-7. Target `/health/ready` schema/config checks.
-8. Provider-neutral in-product Feedback session resolution.
-9. Deploy verification for valid AI Pro/FREE-trial bootstrap-pending states.
-10. Target-first canonical baseline guard.
-11. PRIVATE Source task authorization.
-12. Task deep-link login return preservation.
-13. AI Pro `enabled=true` readiness check.
-14. Active Task list ranking before closed history.
-15. Extension screenshot session-expiry fail-fast behavior.
-16. NewebPay cancel-at-period-end renewal-state UI.
-17. Subscription cancel 401 session recovery.
-18. AI Task provider-success settlement precedence over malformed proposal output.
+## Canonical Drizzle baseline status
 
-These remain source/static findings unless separately recorded as executed PASS.
+Authoritative target schema remains `apps/api/src/db/schema-all.ts`.
 
-## Canonical Drizzle baseline — STATIC FAIL / known stale generated artifacts
+Local Windows checkout status:
 
-`drizzle/0000_worklog_baseline.sql` and `drizzle/meta/0000_snapshot.json` still represent the older schema generation and are intentionally **not** hand-edited.
+- regenerated target baseline guard — **PASS**.
 
-Current authoritative target schema is `apps/api/src/db/schema-all.ts`.
+GitHub branch status:
 
-Required next action when an executable checkout is available:
+- generated Drizzle artifacts still require explicit synchronization from the user's local checkout unless they have already been committed/pushed separately.
+- do not hand-edit generated SQL/snapshot to simulate success.
 
-1. generate a fresh canonical `drizzle/0000_worklog_baseline.sql` from current `schema-all.ts` using the repository regeneration flow;
-2. regenerate matching Drizzle snapshot/journal metadata together;
-3. run `scripts/check-worklog-baseline.mjs`;
-4. apply the baseline to a fresh disposable PostgreSQL database.
-
-Until that is done, canonical-baseline status is **FAIL / STALE**, not release-ready.
+After the generated artifacts are committed, apply the canonical baseline to a fresh disposable PostgreSQL database and verify clean rebuild.
 
 ## Executable verification status
 
-Actually attempted earlier:
+Current known status:
 
-- local checkout discovery under available execution storage — **FAIL**, no usable `.git` checkout;
-- direct networked `git ls-remote` — **FAIL**, host resolution unavailable;
-- one explicitly authorized temporary GitHub Actions attempt — **FAIL**, no workflow run was created; temporary trigger change was reverted.
-
-Attempted again in the 2026-09-09 validation-tooling run:
-
-- searched `/mnt/data`, `/home/oai/share`, `/workspace`, and `/workspaces` for a usable checkout — **FAIL**, no `.git` checkout or AFTERTRACE working tree was present;
-- `git ls-remote https://github.com/ryan19910912/after-trace.git refs/heads/revive/line-worklog` — **FAIL**, execution environment DNS could not resolve `github.com`;
-- GitHub connector reads/writes remained available, but they do not provide an executable working tree for `pnpm`, Drizzle generation, PostgreSQL, browser, or provider smoke.
-
-GitHub Actions were not run, dispatched, rerun, enabled, or modified in this run.
-
-Therefore still **NOT RUN** for the current target-only tree:
-
-- API/Web/Admin TypeScript typecheck;
-- ESLint;
-- focused/full Vitest;
-- Worker/Web/Admin builds;
-- Drizzle schema export/regeneration;
-- regenerated baseline guard;
-- clean PostgreSQL rebuild;
-- lifecycle/provider-cost concurrency DB smoke;
-- NewebPay TEST checkout/callback/renew/cancel flow;
-- Google/LINE/Apple OAuth smoke;
-- Gemini provider smoke;
-- Chrome unpacked-extension smoke;
-- Push/Cron runtime smoke;
-- Dev E2E.
+- dependency install — **PASS**.
+- canonical baseline guard on user's regenerated local artifacts — **PASS**.
+- Admin/monorepo TypeScript typecheck before latest fixes — **FAIL**.
+- latest four Admin fixes — **AUTHORED / NOT RUN**.
+- ESLint — **NOT RUN** in successful preflight sequence yet.
+- Vitest — **NOT RUN** in successful preflight sequence yet.
+- Worker/Web/Admin builds — **NOT RUN** in successful preflight sequence yet.
+- Drizzle schema export — **NOT RUN** in successful preflight sequence yet.
+- clean PostgreSQL rebuild — **NOT RUN**.
+- lifecycle/provider-cost concurrency DB smoke — **NOT RUN**.
+- NewebPay TEST checkout/callback/renew/cancel — **NOT RUN**.
+- Google/LINE/Apple OAuth smoke — **NOT RUN**.
+- Gemini provider smoke — **NOT RUN**.
+- Chrome unpacked-extension smoke — **NOT RUN**.
+- Push/Cron runtime smoke — **NOT RUN**.
+- Dev E2E — **NOT RUN**.
 
 No unexecuted item is claimed PASS or RUNTIME VERIFIED.
 
-## Remaining blockers / risks
-
-1. No executable repository checkout is available in the current tool environment, and direct GitHub network access from the execution container cannot resolve `github.com`; compile/test/build and generated baseline work cannot be run here.
-2. Canonical Drizzle baseline + snapshot remain stale and must be regenerated from the now-clean target schema.
-3. Real NewebPay MerchantID/HashKey/HashIV/NotifyURL/ReturnURL are not supplied in repository defaults.
-4. NewebPay callback/AlterStatus still needs merchant TEST/sandbox verification.
-5. PostgreSQL lifecycle/provider-cost concurrency needs executable DB verification.
-6. OAuth/Gemini/Chrome/Push/Cron require real provider/browser/runtime smoke.
-
-There is **no remaining known legacy LINE Messaging/Entity/Confirmation/GROUP-funding/ONE_TIME/TOP_UP source cleanup batch** to perform. Future work should not make more product-domain changes merely to continue cleanup; it should move to executable validation and canonical baseline regeneration.
-
 ## Exact next validation plan
 
-When executable checkout becomes available:
-
-1. `pnpm install --frozen-lockfile` if needed;
-2. `pnpm release:preflight` and fix real compile/lint/test/build failures only;
-3. regenerate canonical `drizzle/0000` + metadata from current `schema-all.ts` with `pnpm db:baseline:regenerate --confirm-prelaunch-reset` and run the V1 baseline guard;
-4. clean rebuild disposable PostgreSQL;
-5. focused DB smoke for account lookup, Feedback, Tasks PRIVATE/GROUP authorization, FREE trial/AI Pro grants, provider-cost concurrency, lifecycle replay/stale cancel and Related ranking;
-6. NewebPay TEST checkout -> callback retry/idempotency -> renewal -> cancel;
-7. Google/LINE/Apple + Gemini + Chrome + Push/Cron Dev smoke;
-8. only then consider the branch release-ready.
+1. Preserve/commit the user's locally regenerated `drizzle/0000_worklog_baseline.sql`, `drizzle/meta/0000_snapshot.json`, and matching journal if modified, using `[skip ci]`; do not include unrelated files.
+2. Sync/pull the four Admin validation-fix commits into the Windows checkout without losing the regenerated Drizzle artifacts.
+3. Run `pnpm --filter @aftertrace/admin typecheck`.
+4. If PASS, run `pnpm typecheck`.
+5. Run `pnpm release:preflight` and fix only real lint/test/build/schema-export failures surfaced by execution.
+6. Apply canonical baseline to a fresh disposable PostgreSQL database and run focused DB smoke for account lookup, Feedback, Tasks PRIVATE/GROUP authorization, FREE trial/AI Pro Grants, provider-cost concurrency, lifecycle replay/stale cancel and Related ranking.
+7. Run NewebPay TEST checkout -> callback retry/idempotency -> renewal -> cancel.
+8. Run Google/LINE/Apple + Gemini + Chrome + Push/Cron Dev smoke.
+9. Only then consider the branch release-ready.
 
 ## Remaining estimate
 
 - Functional feature development: **0 focused hours**.
 - Legacy product source/schema/test cleanup: **0 focused hours**.
-- Validation/release-readiness after executable checkout: approximately **1.25–3.5 focused hours**, depending on failures discovered.
+- Remaining validation/release-readiness depends on actual failures discovered during local execution.
 
 `apps/api/verify-admin-schema.mjs` was not staged or committed.
