@@ -145,6 +145,9 @@ export function createNativeGroupRoutes(dependencies: NativeGroupRouteDependenci
         return c.json({ ok: false, error: result.status }, 403);
       }
       if (result.status === 'TOKEN_CONFLICT') return c.json({ ok: false, error: result.status }, 409);
+      if (!('invite' in result) || !('token' in result)) {
+        return c.json({ ok: false, error: 'INVITE_CREATE_FAILED' }, 409);
+      }
       return c.json({
         ok: true,
         invite: result.invite,
