@@ -78,7 +78,7 @@ export class GeminiNaturalSearchInterpreter implements AiNaturalSearchProvider {
 
   reservationPoints(input: AiNaturalSearchProviderInput, config: WorklogAiRuntimeConfigSnapshot): number {
     this.assertConfig(config);
-    const requestBytes = new TextEncoder().encode(JSON.stringify(buildRequest(input, this.maxOutputTokens))).byteLength;
+    const requestBytes = new TextEncoder().encode(JSON.stringify(buildGeminiNaturalSearchRequest(input, this.maxOutputTokens))).byteLength;
     const upperBoundUnits = requestBytes + this.maxOutputTokens + this.maxOutputTokens;
     if (!Number.isSafeInteger(upperBoundUnits) || upperBoundUnits <= 0) {
       throw new AiNaturalSearchProviderError('AI_RESERVATION_ESTIMATE_INVALID', 'search reservation estimate invalid');
@@ -96,7 +96,7 @@ export class GeminiNaturalSearchInterpreter implements AiNaturalSearchProvider {
     config: WorklogAiRuntimeConfigSnapshot,
   ): Promise<AiNaturalSearchProviderResponse> {
     this.assertConfig(config);
-    const request = buildRequest(input, this.maxOutputTokens);
+    const request = buildGeminiNaturalSearchRequest(input, this.maxOutputTokens);
     const startedAt = Date.now();
     let response: Response;
     try {
