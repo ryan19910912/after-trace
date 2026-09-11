@@ -35,9 +35,9 @@ export class DrizzleAccountIdentityRepository implements AccountIdentityReposito
       ),
       created_account AS (
         INSERT INTO worklog_users (
-          display_name, last_interaction_at, created_at, updated_at
+          display_name, created_at, updated_at
         )
-        SELECT ${displayNameSnapshot}, ${input.at}, ${input.at}, ${input.at}
+        SELECT ${displayNameSnapshot}, ${input.at}, ${input.at}
         WHERE NOT EXISTS (SELECT 1 FROM existing_identity)
         RETURNING id AS user_id
       ),
@@ -71,10 +71,6 @@ export class DrizzleAccountIdentityRepository implements AccountIdentityReposito
       updated_account AS (
         UPDATE worklog_users AS account_row
         SET display_name = COALESCE(${displayNameSnapshot}, account_row.display_name),
-            last_interaction_at = CASE
-              WHEN account_row.last_interaction_at IS NULL THEN ${input.at}
-              ELSE GREATEST(account_row.last_interaction_at, ${input.at})
-            END,
             updated_at = GREATEST(account_row.updated_at, ${input.at})
         FROM ensured_identity
         WHERE account_row.id = ensured_identity.user_id
