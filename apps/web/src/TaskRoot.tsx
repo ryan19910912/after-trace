@@ -22,6 +22,8 @@ export function TaskRoot({ apiBaseUrl }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const focusedTaskId = useMemo(() => taskIdFromPath(window.location.pathname), []);
+  const openTasks = tasks.filter((task) => task.status === 'OPEN');
+  const closedTasks = tasks.filter((task) => task.status !== 'OPEN');
 
   useEffect(() => {
     const callback = callbackSessionToken();
@@ -137,7 +139,7 @@ export function TaskRoot({ apiBaseUrl }: Props) {
 
   return <main className="shell task-shell">
     <div className="topbar">
-      <div><p className="eyebrow">AFTERTRACE</p><h1>待辦與提醒</h1></div>
+      <div><p className="eyebrow">AFTERTRACE</p><h1>待辦</h1><p className="muted">把接下來要做的事放在這裡，需要時設定提醒。</p></div>
       <div className="filter-actions">
         <button className="ghost" onClick={() => { window.location.href = '/'; }}>工作紀錄</button>
         <button className="ghost" onClick={() => { window.location.href = '/subscription'; }}>方案</button>
@@ -152,7 +154,7 @@ export function TaskRoot({ apiBaseUrl }: Props) {
       <div className="task-section-head">
         <div>
           <h2>我的待辦</h2>
-          <p className="muted">提醒時間到後會建立「待辦通知」；已開啟推播時也會另外嘗試推播。</p>
+          <p className="muted">{openTasks.length ? `還有 ${openTasks.length} 件待辦進行中。` : '目前沒有進行中的待辦。'}</p>
         </div>
         <button onClick={() => setCreateOpen((value) => !value)}>{createOpen ? '收起' : '＋新增待辦'}</button>
       </div>
@@ -166,11 +168,16 @@ export function TaskRoot({ apiBaseUrl }: Props) {
       /> : null}
     </section>
 
-    <section className="panel">
+    <section className="task-section">
+      <div className="task-list-heading"><h2>進行中</h2>{openTasks.length ? <span>{openTasks.length} 件</span> : null}</div>
       {loading && tasks.length === 0 ? <div className="empty">載入中…</div> : null}
-      {!loading && tasks.length === 0 ? <div className="empty">目前沒有待辦。</div> : null}
+      {!loading && openTasks.length === 0 ? <div className="empty task-empty">
+        <strong>目前沒有待辦</strong>
+        <span>有事情要記得處理時，建立一筆待辦就好。</span>
+        <button onClick={() => setCreateOpen(true)}>＋ 建立待辦</button>
+      </div> : null}
       <div className="task-list">
-        {tasks.map((task) => <TaskCard
+        {openTasks.map((task) => <TaskCard
           key={task.id}
           task={task}
           focused={task.id === focusedTaskId}
@@ -181,6 +188,21 @@ export function TaskRoot({ apiBaseUrl }: Props) {
         />)}
       </div>
     </section>
+
+    {closedTasks.length ? <section className="task-section task-section-closed">
+      <div className="task-list-heading"><h2>已結束</h2><span>{closedTasks.length} 件</span></div>
+      <div className="task-list">
+        {closedTasks.map((task) => <TaskCard
+          key={task.id}
+          task={task}
+          focused={task.id === focusedTaskId}
+          busy={loading}
+          onEdit={() => startEdit(task)}
+          onComplete={() => void mutateTask(task, 'COMPLETE')}
+          onCancel={() => void mutateTask(task, 'CANCEL')}
+        />)}
+      </div>
+    </section> : null}
 
     {editing && editDraft ? <section className="panel task-edit-panel">
       <TaskEditor
@@ -218,6 +240,7 @@ function TaskEditor({
       <label>到期時間（選填）<input type="datetime-local" value={draft.dueAt} onChange={(event) => onChange({ ...draft, dueAt: event.target.value })} /></label>
       <label>提醒時間（選填）<input type="datetime-local" value={draft.remindAt} onChange={(event) => onChange({ ...draft, remindAt: event.target.value })} /></label>
     </div>
+    <p className="muted">設定提醒後，到時間會出現在通知中心；已開啟推播時也會嘗試推播。</p>
     <div className="filter-actions">
       <button disabled={busy || !draft.title.trim()} onClick={onSave}>儲存</button>
       <button className="ghost" disabled={busy} onClick={onCancel}>取消</button>
@@ -253,11 +276,11 @@ function TaskCard({
       <div><dt>到期</dt><dd>{formatOptionalTime(task.dueAt)}</dd></div>
       <div><dt>提醒</dt><dd>{formatOptionalTime(task.remindAt)}</dd></div>
     </dl>
-    {task.reminderNotifiedAt ? <p className="muted">提醒已建立：{formatTime(task.reminderNotifiedAt)}</p> : null}
-    {task.status === 'OPEN' ? <div className="filter-actions">
-      <button onClick={onComplete} disabled={busy}>完成</button>
+    {task.reminderNotifiedAt ? <p className="muted">已提醒：{formatTime(task.reminderNotifiedAt)}</p> : null}
+    {task.status === 'OPEN' ? <div className="filter-actions task-card-actions">
+      <button onClick={onComplete} disabled={busy}>✓ 完成</button>
       <button className="ghost" onClick={onEdit} disabled={busy}>編輯</button>
-      <button className="ghost" onClick={onCancel} disabled={busy}>取消待辦</button>
+      <button className="ghost" onClick={onCancel} disabled={busy}>取消</button>
     </div> : null}
   </article>;
 }
