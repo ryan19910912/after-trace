@@ -54,19 +54,19 @@ export function FeedbackRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
     <section className="fatal-card">
       <p className="eyebrow">AFTERTRACE</p>
       <h1>意見回饋</h1>
-      <p className="muted">登入後可把問題、建議或覺得不好用的地方直接送給我們。</p>
+      <p className="muted">登入後可以把使用上的問題、建議或想新增的功能告訴我們。</p>
       {error ? <div className="error">{error}</div> : null}
       <LoginProviderButtons apiBaseUrl={apiBaseUrl} returnTo="/feedback" />
     </section>
   </main>;
 
-  return <main className="shell worklog-shell">
-    <div className="topbar"><div><p className="eyebrow">AFTERTRACE</p><h1>意見回饋</h1></div><button className="ghost" onClick={() => { location.href = '/'; }}>回紀錄</button></div>
+  return <main className="shell worklog-shell feedback-root-shell">
+    <div className="topbar"><div><p className="eyebrow">AFTERTRACE</p><h1>意見回饋</h1></div></div>
     {error ? <div className="error">{error}</div> : null}
     {done ? <div className="worklog-notice">已收到你的回饋，謝謝。</div> : null}
     <section className="panel feedback-panel">
-      <h2>哪裡可以更好？</h2>
-      <p className="muted">例如：字太小、操作不好找、搜尋結果不符合預期、希望增加什麼功能。</p>
+      <h2>有什麼想讓 AFTERTRACE 更順手？</h2>
+      <p className="muted">不論是字太小、操作不好找、搜尋結果不符合預期，或希望增加新功能，都可以直接告訴我們。</p>
       <textarea rows={8} maxLength={5000} value={text} onChange={(event) => setText(event.target.value)} placeholder="直接寫下你的想法…" />
       <button disabled={busy || !text.trim()} onClick={() => void submit()}>{busy ? '送出中…' : '送出回饋'}</button>
     </section>
