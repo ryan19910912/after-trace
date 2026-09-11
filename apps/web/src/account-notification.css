@@ -10,7 +10,7 @@
 .account-chrome-inner {
   display: flex;
   justify-content: flex-end;
-  width: min(1180px, 100%);
+  width: min(1120px, 100%);
   margin: 0 auto;
   padding: 9px 28px;
 }
