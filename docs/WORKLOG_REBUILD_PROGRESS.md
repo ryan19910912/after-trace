@@ -51,7 +51,7 @@ PASS before the latest UI-only commit batches:
 - local `/health` HTTP 200;
 - local `/health/ready` HTTP 200 after Google/LINE/Web Push bindings and AI/commercial seed rows were initialized.
 
-The latest visual-only commits have NOT YET been revalidated locally. Do not claim they passed until the user runs the Web validation commands again.
+The latest visual/UI commits have NOT YET been revalidated locally. Do not claim they passed until the user runs the Web validation commands again.
 
 ## Google Login runtime smoke — PASS
 
@@ -96,6 +96,7 @@ Latest commits:
 
 - `b62fe1a` — refine Worklog hierarchy: lighter setup surfaces, softer filters, GROUP setup visually secondary to daily work, Record list redesigned as a restrained chronological stream with timeline rail/dots, reduced card depth and denser mobile treatment.
 - `5cac0d8` — soften the shared visual system: smaller desktop title scale, lighter shared panel/card shadows, quieter secondary buttons, cleaner fields, reduced border weight and app-like mobile bottom navigation with a compact active indicator.
+- `45039d8` — simplify Record date filtering to day-level inputs. Filter start resolves to local-day 00:00:00.000 and filter end resolves to local-day 23:59:59.999 so the selected ending day is included in full; Record `occurred_at` editing remains date-time capable.
 
 Current visual principles:
 
@@ -114,7 +115,7 @@ Current visual principles:
 
 ## Validation status for latest UI batch
 
-AUTHORED / NOT YET EXECUTED after `b62fe1a` + `5cac0d8`:
+AUTHORED / NOT YET EXECUTED after `b62fe1a` + `5cac0d8` + `45039d8`:
 
 - `pnpm --filter @aftertrace/web typecheck`
 - `pnpm --filter @aftertrace/web lint`
@@ -143,7 +144,7 @@ NOT RUN / NOT RUNTIME VERIFIED:
 1. Pull `revive/line-worklog`.
 2. Run focused Web typecheck/lint/test/build.
 3. Start local Web/API and capture representative desktop + mobile browser screenshots of Worklog first, then Tasks/AI Search/Subscription.
-4. Review real rendering for spacing, density, horizontal overflow, timeline readability, account chrome and mobile bottom-nav safe area. If rendering still feels visually weak, continue structural layout changes rather than cosmetic border tweaks.
+4. Review real rendering for spacing, density, horizontal overflow, timeline readability, account chrome, date-filter usability and mobile bottom-nav safe area. If rendering still feels visually weak, continue structural layout changes rather than cosmetic border tweaks.
 5. Continue LINE Login, Gemini, Web Push/Cron, Chrome extension and NewebPay runtime smoke after UI is accepted.
 
 `apps/api/verify-admin-schema.mjs` was not staged or committed. GitHub Actions were not run or modified.
