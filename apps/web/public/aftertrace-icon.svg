@@ -1,7 +1,52 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="AFTERTRACE">
-  <rect width="512" height="512" rx="112" fill="#172131"/>
-  <path d="M104 348c61-3 88-61 126-121 35-56 76-103 164-103" fill="none" stroke="#f7f9fc" stroke-width="34" stroke-linecap="round"/>
-  <circle cx="104" cy="348" r="31" fill="#f7f9fc"/>
-  <circle cx="238" cy="216" r="27" fill="#172131" stroke="#f7f9fc" stroke-width="17"/>
-  <circle cx="394" cy="124" r="29" fill="#172131" stroke="#f7f9fc" stroke-width="17"/>
+  <defs>
+    <linearGradient id="bg" x1="70" y1="42" x2="440" y2="470" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#162a49"/>
+      <stop offset="0.55" stop-color="#0d1a2e"/>
+      <stop offset="1" stop-color="#09111f"/>
+    </linearGradient>
+    <linearGradient id="traceBlue" x1="122" y1="370" x2="392" y2="150" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2f7ff4"/>
+      <stop offset="0.45" stop-color="#67c9ff"/>
+      <stop offset="1" stop-color="#2778f5"/>
+    </linearGradient>
+    <linearGradient id="tBlue" x1="304" y1="176" x2="356" y2="389" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#67c9ff"/>
+      <stop offset="0.45" stop-color="#3aa4ff"/>
+      <stop offset="1" stop-color="#1769ff"/>
+    </linearGradient>
+    <linearGradient id="white" x1="170" y1="118" x2="282" y2="380" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e8edf5"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000" flood-opacity="0.34"/>
+    </filter>
+    <filter id="blueGlow" x="-35%" y="-35%" width="170%" height="170%">
+      <feDropShadow dx="0" dy="0" stdDeviation="8" flood-color="#3fa7ff" flood-opacity="0.36"/>
+    </filter>
+  </defs>
+
+  <rect x="10" y="10" width="492" height="492" rx="112" fill="url(#bg)"/>
+  <rect x="11" y="11" width="490" height="490" rx="111" fill="none" stroke="#2f4f7f" stroke-width="2" opacity="0.75"/>
+
+  <g filter="url(#shadow)">
+    <path d="M112 364 231 142c10-19 25-30 43-30 20 0 35 11 45 30l50 94h-58l-37-70-111 208c-8 14-25 20-39 12-14-8-19-24-12-38Z" fill="url(#white)"/>
+  </g>
+
+  <g filter="url(#blueGlow)">
+    <path d="M308 220h132c17 0 31 14 31 31s-14 31-31 31h-77v130c0 17-14 31-31 31s-31-14-31-31V282h-41c8-28 25-48 48-62Z" fill="url(#tBlue)"/>
+  </g>
+
+  <path d="M125 359c41 0 61-20 77-54l36-75c13-27 28-41 54-41h148" fill="none" stroke="#08111d" stroke-width="31" stroke-linecap="round" stroke-linejoin="round" opacity="0.96"/>
+  <path d="M125 359c41 0 61-20 77-54l36-75c13-27 28-41 54-41h148" fill="none" stroke="url(#traceBlue)" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <g filter="url(#blueGlow)">
+    <circle cx="125" cy="359" r="27" fill="#eff5fb"/>
+    <circle cx="125" cy="359" r="18" fill="#2f7ff4"/>
+    <circle cx="253" cy="209" r="25" fill="#eff5fb"/>
+    <circle cx="253" cy="209" r="14" fill="#3198ff"/>
+    <circle cx="440" cy="189" r="29" fill="#eff5fb"/>
+    <circle cx="440" cy="189" r="19" fill="#2f7ff4"/>
+  </g>
 </svg>
