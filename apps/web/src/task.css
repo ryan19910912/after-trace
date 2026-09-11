@@ -41,6 +41,8 @@
   .task-toolbar { align-items:stretch; flex-direction:column; }
   .task-view-switch { width:100%; }
   .task-view-switch button { flex:1; justify-content:center; }
+  .task-view-switch button.active,.task-view-switch button[aria-selected="true"] { background:#2f6fad!important; color:#fff!important; box-shadow:inset 0 0 0 1px #77b4f4,0 5px 16px rgba(30,78,126,.28)!important; }
+  .task-view-switch button.active span,.task-view-switch button[aria-selected="true"] span { background:#163a60!important; color:#fff!important; }
   .task-create-button { width:100%; }
   .task-section-head, .task-card-head { align-items:stretch; flex-direction:column; }
   .task-time-grid, .task-times { grid-template-columns:1fr; }
