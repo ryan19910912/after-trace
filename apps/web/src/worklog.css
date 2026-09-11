@@ -2,6 +2,8 @@
 .worklog-main-tabs { display:flex; gap:8px; margin:18px 0 26px; overflow:auto; }
 .worklog-main-tabs button { border:1px solid #2f3540; background:#15181d; border-radius:12px; padding:10px 16px; white-space:nowrap; color:#aeb7c4; }
 .worklog-main-tabs button.active { font-weight:700; border-color:#526074; background:#252c36; color:#fff; }
+.worklog-main-tabs .feedback-tab { margin-left:auto; background:transparent; color:#8f98a7; }
+.worklog-main-tabs .feedback-tab.active { background:#1c222b; color:#fff; }
 .worklog-scope-panel { padding: 0; }
 .worklog-scope-row { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; }
 .worklog-scope { white-space: nowrap; border: 1px solid #343b46; border-radius: 999px; padding: 9px 15px; background: #15181d; color:#aeb7c4; }
@@ -44,6 +46,13 @@
 .record-editor button { justify-self:start; }
 .immutable-note { grid-column:1/-1; margin:0; font-size:.82rem; }
 .load-more { display:block; margin:18px auto 0; }
+.record-empty,
+.group-empty { display:grid; justify-items:center; gap:8px; }
+.record-empty strong,
+.group-empty strong { color:#fff; font-size:17px; }
+.record-empty span,
+.group-empty span { color:#98a1ae; }
+.record-empty button { margin-top:6px; }
 .management-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
 .entity-editor { display:grid; gap:8px; margin:14px 0; padding:12px; border:1px solid rgba(127,127,127,.18); border-radius:12px; }
 .entity-editor textarea { resize:vertical; }
@@ -96,6 +105,7 @@ button.danger { color:#ffb6b6; border-color:rgba(168,50,50,.45); }
 }
 @media (max-width: 760px) {
   .worklog-main-tabs { margin-top:14px; }
+  .worklog-main-tabs .feedback-tab { margin-left:0; }
   .worklog-main-tabs + .stack { grid-template-columns:1fr; }
   .worklog-main-tabs + .stack > section:last-child { grid-column:auto; }
   .worklog-main-tabs + .stack > section:nth-child(1),
