@@ -211,6 +211,11 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
     setRecordPage(null);
   }
 
+  function switchRecordView(deleted: boolean) {
+    if (deleted) setCreateOpen(false);
+    setShowDeleted(deleted);
+  }
+
   async function createRecord() {
     if (!session || !scope || !createDraft.rawText.trim() || !optionalLocalDateValid(createDraft.occurredAt)) return;
     setLoading(true);
@@ -401,13 +406,14 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
 
     {page === 'RECORDS' ? <>
       <ScopePicker surfaces={surfaces} scope={scope} onChange={setScope} />
-      <section className="panel">
-        <div className="filter-actions">
-          <button onClick={() => setCreateOpen((value) => !value)}>＋新增紀錄</button>
-          <button className={showDeleted ? 'active' : 'ghost'} onClick={() => setShowDeleted((value) => !value)}>{showDeleted ? '返回目前紀錄' : '回收桶'}</button>
+      <section className="record-toolbar">
+        <div className="record-view-switch" role="tablist" aria-label="紀錄檢視">
+          <button role="tab" aria-selected={!showDeleted} className={!showDeleted ? 'active' : ''} onClick={() => switchRecordView(false)}>目前紀錄</button>
+          <button role="tab" aria-selected={showDeleted} className={showDeleted ? 'active' : ''} onClick={() => switchRecordView(true)}>回收桶</button>
         </div>
-        {createOpen && !showDeleted ? <RecordEditor heading="新增紀錄" draft={createDraft} onChange={setCreateDraft} onCancel={() => setCreateOpen(false)} onSave={() => void createRecord()} busy={loading} /> : null}
+        {!showDeleted ? <button className="record-create-button" onClick={() => setCreateOpen((value) => !value)}>{createOpen ? '收起' : '＋新增紀錄'}</button> : null}
       </section>
+      {createOpen && !showDeleted ? <section className="panel record-create-panel"><RecordEditor heading="新增紀錄" draft={createDraft} onChange={setCreateDraft} onCancel={() => setCreateOpen(false)} onSave={() => void createRecord()} busy={loading} /></section> : null}
       <RecordFiltersPanel draft={filterDraft} onChange={setFilterDraft} onApply={applyFilters} onClear={clearFilters} />
       <section className="panel">
         {loading && records.length === 0 ? <div className="empty">載入中…</div> : null}
@@ -477,7 +483,7 @@ function RecordFiltersPanel({ draft, onChange, onApply, onClear }: { draft: Filt
       <label>從<input type="date" value={draft.from} onChange={(event) => onChange({ ...draft, from: event.target.value })} /></label>
       <label>到<input type="date" value={draft.to} onChange={(event) => onChange({ ...draft, to: event.target.value })} /></label>
     </div>
-    <div className="filter-actions"><button onClick={onApply}>套用篩選</button><button className="ghost" onClick={onClear}>清除</button></div>
+    <div className="filter-actions record-filter-actions"><button onClick={onApply}>套用篩選</button><button className="ghost" onClick={onClear}>清除</button></div>
   </section>;
 }
 
@@ -578,9 +584,9 @@ function GroupsPanel({ surfaces, groupName, joinToken, sharedInvite, busy, onGro
 function FeedbackPanel({ busy, onSubmit }: { busy: boolean; onSubmit: (text: string) => Promise<void> }) {
   const [text, setText] = useState('');
   return <section className="panel feedback-panel">
-    <p className="eyebrow">意見回饋</p><h2>哪裡不好用？</h2>
-    <p className="muted">告訴我們遇到的問題或希望改善的地方。送出時會附上基本頁面與瀏覽器資訊，不會附上你的工作紀錄內容。</p>
-    <textarea rows={7} value={text} onChange={(event) => setText(event.target.value)} placeholder="例如：群組不好找、搜尋結果不符合預期…" />
+    <p className="eyebrow">意見回饋</p><h2>有什麼想讓 AFTERTRACE 更順手？</h2>
+    <p className="muted">不論是操作不好找、搜尋結果不符合預期，或希望增加新功能，都可以直接告訴我們。送出時只會附上基本頁面與瀏覽器資訊，不會附上你的工作紀錄內容。</p>
+    <textarea rows={7} value={text} onChange={(event) => setText(event.target.value)} placeholder="例如：希望某個操作更快、某個功能更容易找到…" />
     <button disabled={busy || !text.trim()} onClick={() => void onSubmit(text.trim()).then(() => setText('')).catch(() => undefined)}>送出意見</button>
   </section>;
 }
