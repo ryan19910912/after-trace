@@ -474,8 +474,8 @@ function RecordFiltersPanel({ draft, onChange, onApply, onClear }: { draft: Filt
   return <section className="panel record-filter-card">
     <div className="record-filter-grid">
       <label>搜尋<input value={draft.query} onChange={(event) => onChange({ ...draft, query: event.target.value })} placeholder="搜尋紀錄內容" /></label>
-      <label>從<input type="datetime-local" value={draft.from} onChange={(event) => onChange({ ...draft, from: event.target.value })} /></label>
-      <label>到<input type="datetime-local" value={draft.to} onChange={(event) => onChange({ ...draft, to: event.target.value })} /></label>
+      <label>從<input type="date" value={draft.from} onChange={(event) => onChange({ ...draft, from: event.target.value })} /></label>
+      <label>到<input type="date" value={draft.to} onChange={(event) => onChange({ ...draft, to: event.target.value })} /></label>
     </div>
     <div className="filter-actions"><button onClick={onApply}>套用篩選</button><button className="ghost" onClick={onClear}>清除</button></div>
   </section>;
@@ -592,8 +592,8 @@ function recordScope(value: Scope): RecordScope {
 function apiFilters(value: FilterDraft, offset: number): RecordFilters {
   return {
     query: value.query,
-    from: value.from && optionalLocalDateValid(value.from) ? new Date(value.from).toISOString() : undefined,
-    to: value.to && optionalLocalDateValid(value.to) ? new Date(value.to).toISOString() : undefined,
+    from: value.from && optionalLocalDateValid(value.from) ? localDayBoundaryIso(value.from, 'start') : undefined,
+    to: value.to && optionalLocalDateValid(value.to) ? localDayBoundaryIso(value.to, 'end') : undefined,
     limit: 50,
     offset,
   };
@@ -603,15 +603,23 @@ function filtersFromUrl(): FilterDraft {
   const params = new URL(window.location.href).searchParams;
   return {
     query: params.get('q')?.trim() ?? '',
-    from: urlDateToLocal(params.get('from')),
-    to: urlDateToLocal(params.get('to')),
+    from: urlDateToDay(params.get('from')),
+    to: urlDateToDay(params.get('to')),
   };
 }
 
-function urlDateToLocal(value: string | null): string {
+function urlDateToDay(value: string | null): string {
   if (!value) return '';
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '' : datetimeLocalValue(date.toISOString());
+  if (Number.isNaN(date.getTime())) return '';
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 10);
+}
+
+function localDayBoundaryIso(value: string, boundary: 'start' | 'end'): string {
+  const date = new Date(`${value}T00:00:00`);
+  if (boundary === 'end') date.setHours(23, 59, 59, 999);
+  return date.toISOString();
 }
 
 function scopeFromEntry(entry: WebEntryContext | null, surfaces: WorklogSurfaces): Scope | null {
