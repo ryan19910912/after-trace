@@ -96,17 +96,20 @@ Initial authored `[skip ci]` UI commits:
 - `a18fb982` — simplify account/notification chrome; hide duplicated AI/Task top shortcuts on mobile, compact account id, improve notification panel hierarchy.
 - `7c607fab` — rewrite Help as short task-oriented onboarding steps for non-technical users.
 
-Iterative self-review commits after inspecting the rendered screenshots and then re-reviewing the resulting source:
+Iterative self-review commits after inspecting rendered screenshots and repeatedly re-reviewing source rather than stopping at an arbitrary round count:
 
 - `39ec5a3a` — simplify AI Search wording, reduce technical explanation, add one-tap example queries and a narrower search surface.
-- `134526c4` — restructure Tasks around the user's current work: open/closed grouping, stronger empty-state CTA and shorter customer wording.
+- `134526c4` — restructure Tasks around current work: open/closed grouping, stronger empty-state CTA and shorter customer wording.
 - `5c066249` — refine Task hierarchy/touch layout and reduce oversized empty surfaces.
 - `7297dc4f` — remove customer-facing internal AI accounting language (`entitlement`, provider-cost/hard-cap wording) from Subscription UI.
 - `ab7c2b90` — reduce global desktop title/width density after reviewing the first rendered UI pass.
-- `23fc1a35` — make GROUP daily destinations visually primary, move the existing group list before create/join setup actions through layout ordering, narrow AI Search/Subscription surfaces, and add quick-search chip layout.
+- `23fc1a35` — make GROUP daily destinations visually primary, move the group list before create/join setup actions through layout ordering, narrow AI Search/Subscription surfaces, and add quick-search chip layout.
 - `ca19fd95` — correct an upsell-order regression found during self-review by showing available FREE AI trial state before paid upgrade content and clarify the payment-email prerequisite.
+- `1e78e354` — improve Worklog empty states with direct create/clear-filter actions; replace GROUP/internal-system vocabulary (`membership`, raw token/database explanation) with worker-facing copy; reduce feedback wording complexity.
+- `8691b8c8` — polish Worklog hierarchy, make feedback visually secondary, and add dedicated record/group empty-state styling.
+- `0838b4b9` — align authenticated account/notification chrome width with the final 1120px desktop content system.
 
-Current UX review rule for this branch: do not stop after an arbitrary “second round.” Repeat `edit -> code-level UI/UX review -> edit` until no obvious hierarchy, wording, target-audience, responsive or workflow defect remains. Browser screenshots are final render verification, not the primary mechanism for discovering obvious UX defects.
+Current UX review rule for this branch: repeat `edit -> code-level UI/UX review -> edit` until no obvious hierarchy, wording, target-audience, responsive or workflow defect remains. Browser screenshots are final render verification, not the primary mechanism for discovering obvious UX defects.
 
 Design priorities now represented in source:
 
@@ -115,13 +118,15 @@ Design priorities now represented in source:
 - mobile touch targets and fixed navigation remain prioritized;
 - AI Search provides example questions instead of requiring users to invent prompt syntax;
 - Tasks emphasize active work and actionable empty states;
-- GROUP destinations are surfaced before create/join setup controls;
+- Worklog empty states distinguish no-data, filtered-no-result and empty-trash states and provide the next action;
+- GROUP destinations are surfaced before create/join setup controls and customer copy avoids internal membership/token/database terminology;
+- feedback is visually secondary to Records/Groups;
 - customer Subscription copy no longer exposes provider cost, internal entitlement vocabulary or hard-cap implementation details;
 - FREE trial availability is presented before paid upsell for eligible FREE users;
 - Help remains task-oriented rather than implementation/documentation-oriented;
-- notification center and account header retain the required public account id / copy affordance while remaining compact.
+- notification center/account header retain required public account id / copy affordance while staying compact and aligned with the page grid.
 
-The latest UI changes have **not yet been locally typechecked/linted/tested/built after these iterative commits**. Do not claim PASS until the user pulls and executes validation.
+The latest UI changes have **not yet been locally typechecked/linted/tested/built after these iterative commits**. Do not claim PASS until executable validation is run in the user's Windows checkout.
 
 ## Canonical Drizzle baseline
 
@@ -149,7 +154,7 @@ NOT RUN / NOT RUNTIME VERIFIED:
 1. Pull the latest iterative UI commits.
 2. Run `pnpm --filter @aftertrace/web typecheck`, `pnpm --filter @aftertrace/web lint`, and `pnpm --filter @aftertrace/web test`.
 3. Run `pnpm --filter @aftertrace/web build` or full `pnpm release:preflight` if focused Web validation passes.
-4. Render-check desktop and mobile widths. Only concrete browser-render discrepancies should trigger another visual iteration; code-level obvious UX issues should already have been reviewed before handoff.
+4. Render-check representative desktop and mobile widths. Only concrete browser-render discrepancies should trigger another visual iteration; obvious source-level UX issues were reviewed before handoff.
 5. Continue LINE Login, Gemini, Web Push/Cron, Chrome extension and NewebPay runtime smoke.
 
 `apps/api/verify-admin-schema.mjs` was not staged or committed. GitHub Actions were not run or modified.
