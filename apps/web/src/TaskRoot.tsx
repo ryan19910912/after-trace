@@ -7,6 +7,7 @@ const RETURN_KEY = 'aftertrace.worklog.returnTo';
 
 type Props = { apiBaseUrl: string };
 type TaskDraft = { title: string; body: string; dueAt: string; remindAt: string };
+type TaskView = 'OPEN' | 'CLOSED';
 
 const EMPTY_DRAFT: TaskDraft = { title: '', body: '', dueAt: '', remindAt: '' };
 
@@ -14,16 +15,18 @@ export function TaskRoot({ apiBaseUrl }: Props) {
   const api = useMemo(() => new TaskApi(apiBaseUrl), [apiBaseUrl]);
   const [session, setSession] = useState<string | null>(() => currentSessionToken());
   const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [view, setView] = useState<TaskView>('OPEN');
   const [createOpen, setCreateOpen] = useState(false);
   const [createDraft, setCreateDraft] = useState<TaskDraft>({ ...EMPTY_DRAFT });
   const [editing, setEditing] = useState<TaskItem | null>(null);
   const [editDraft, setEditDraft] = useState<TaskDraft | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const focusedTaskId = useMemo(() => taskIdFromPath(window.location.pathname), []);
   const openTasks = tasks.filter((task) => task.status === 'OPEN');
   const closedTasks = tasks.filter((task) => task.status !== 'OPEN');
+  const visibleTasks = view === 'OPEN' ? openTasks : closedTasks;
 
   useEffect(() => {
     const callback = callbackSessionToken();
@@ -54,7 +57,7 @@ export function TaskRoot({ apiBaseUrl }: Props) {
     setLoading(true); setError(null);
     try {
       await api.create(session, draftRequest(createDraft));
-      setCreateDraft({ ...EMPTY_DRAFT }); setCreateOpen(false); setNotice('待辦已建立。'); await loadTasks(session);
+      setCreateDraft({ ...EMPTY_DRAFT }); setCreateOpen(false); setView('OPEN'); setNotice('待辦已建立。'); await loadTasks(session);
     } catch (cause) { if (clearSessionIfExpired(cause)) setSession(null); setError(message(cause, '待辦建立失敗')); }
     finally { setLoading(false); }
   }
@@ -93,15 +96,13 @@ export function TaskRoot({ apiBaseUrl }: Props) {
   return <main className="shell task-shell">
     <div className="topbar"><div><p className="eyebrow">AFTERTRACE</p><h1>待辦</h1><p className="muted">把接下來要做的事放在這裡，需要時設定提醒。</p></div></div>
     {error ? <div className="error">{error}</div> : null}{notice ? <div className="worklog-notice">{notice}</div> : null}
-    <section className="panel task-create-panel"><div className="task-section-head"><div><h2>我的待辦</h2><p className="muted">{openTasks.length ? `還有 ${openTasks.length} 件待辦進行中。` : '目前沒有進行中的待辦。'}</p></div><button onClick={() => setCreateOpen((value) => !value)}>{createOpen ? '收起' : '＋新增待辦'}</button></div>
-      {createOpen ? <TaskEditor heading="新增待辦" draft={createDraft} busy={loading} onChange={setCreateDraft} onSave={() => void createTask()} onCancel={() => { setCreateOpen(false); setCreateDraft({ ...EMPTY_DRAFT }); }} /> : null}
-    </section>
-    <section className="task-section"><div className="task-list-heading"><h2>進行中</h2>{openTasks.length ? <span>{openTasks.length} 件</span> : null}</div>
+    <div className="task-toolbar"><div className="task-view-switch" role="tablist" aria-label="待辦狀態"><button role="tab" aria-selected={view === 'OPEN'} className={view === 'OPEN' ? 'active' : ''} onClick={() => setView('OPEN')}>進行中 <span>{openTasks.length}</span></button><button role="tab" aria-selected={view === 'CLOSED'} className={view === 'CLOSED' ? 'active' : ''} onClick={() => setView('CLOSED')}>已結束 <span>{closedTasks.length}</span></button></div><button className="task-create-button" onClick={() => setCreateOpen((value) => !value)}>{createOpen ? '收起' : '＋新增待辦'}</button></div>
+    {createOpen ? <section className="panel task-create-panel"><TaskEditor heading="新增待辦" draft={createDraft} busy={loading} onChange={setCreateDraft} onSave={() => void createTask()} onCancel={() => { setCreateOpen(false); setCreateDraft({ ...EMPTY_DRAFT }); }} /></section> : null}
+    <section className="task-section">
       {loading && tasks.length === 0 ? <div className="empty">載入中…</div> : null}
-      {!loading && openTasks.length === 0 ? <div className="empty task-empty"><strong>目前沒有待辦</strong><span>有事情要記得處理時，建立一筆待辦就好。</span><button onClick={() => setCreateOpen(true)}>＋ 建立待辦</button></div> : null}
-      <div className="task-list">{openTasks.map((task) => <TaskCard key={task.id} task={task} focused={task.id === focusedTaskId} busy={loading} onEdit={() => startEdit(task)} onComplete={() => void mutateTask(task, 'COMPLETE')} onCancel={() => void mutateTask(task, 'CANCEL')} />)}</div>
+      {!loading && visibleTasks.length === 0 ? <div className="empty task-empty"><strong>{view === 'OPEN' ? '目前沒有待辦' : '目前沒有已結束的待辦'}</strong><span>{view === 'OPEN' ? '有事情要記得處理時，建立一筆待辦就好。' : '完成或取消的待辦會出現在這裡。'}</span>{view === 'OPEN' ? <button onClick={() => setCreateOpen(true)}>＋ 建立待辦</button> : null}</div> : null}
+      <div className="task-list">{visibleTasks.map((task) => <TaskCard key={task.id} task={task} focused={task.id === focusedTaskId} busy={loading} onEdit={() => startEdit(task)} onComplete={() => void mutateTask(task, 'COMPLETE')} onCancel={() => void mutateTask(task, 'CANCEL')} />)}</div>
     </section>
-    {closedTasks.length ? <section className="task-section task-section-closed"><div className="task-list-heading"><h2>已結束</h2><span>{closedTasks.length} 件</span></div><div className="task-list">{closedTasks.map((task) => <TaskCard key={task.id} task={task} focused={task.id === focusedTaskId} busy={loading} onEdit={() => startEdit(task)} onComplete={() => void mutateTask(task, 'COMPLETE')} onCancel={() => void mutateTask(task, 'CANCEL')} />)}</div></section> : null}
     {editing && editDraft ? <section className="panel task-edit-panel"><TaskEditor heading={`編輯待辦 #${editing.id}`} draft={editDraft} busy={loading} onChange={setEditDraft} onSave={() => void saveEdit()} onCancel={() => { setEditing(null); setEditDraft(null); }} /></section> : null}
   </main>;
 }
