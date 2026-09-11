@@ -1,9 +1,11 @@
-.task-shell { display:grid; gap:20px; max-width:900px; }
-.task-create-panel, .task-edit-panel { display:grid; gap:16px; padding:20px; border:1px solid var(--border); border-radius:18px; background:rgba(17,24,33,.94); box-shadow:var(--shadow); }
-.task-section { display:grid; gap:12px; }
-.task-section-closed { margin-top:6px; }
+.task-shell { display:grid; align-content:start; gap:14px; max-width:900px; }
+.task-shell > .topbar { margin-bottom:6px; }
+.task-create-panel, .task-edit-panel { display:grid; gap:14px; padding:18px; border:1px solid var(--border); border-radius:18px; background:rgba(17,24,33,.94); box-shadow:var(--shadow); }
+.task-section { display:grid; gap:10px; }
+.task-section-closed { margin-top:4px; }
 .task-section-head, .task-card-head, .task-list-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
 .task-section-head h2, .task-editor h3, .task-list-heading h2 { margin:0 0 6px; }
+.task-section-head .muted { margin:0; }
 .task-list-heading { align-items:center; padding-inline:2px; }
 .task-list-heading h2 { font-size:18px; }
 .task-list-heading span { color:#7f90a4; font-size:12px; }
@@ -27,7 +29,8 @@
 .task-time-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
 .task-card-actions { margin-top:2px; }
 @media (max-width:720px) {
-  .task-shell { gap:16px; }
+  .task-shell { gap:12px; }
+  .task-shell > .topbar { margin-bottom:2px; }
   .task-section-head, .task-card-head { align-items:stretch; flex-direction:column; }
   .task-section-head > button { width:100%; }
   .task-time-grid, .task-times { grid-template-columns:1fr; }
