@@ -6,7 +6,7 @@ Before substantive work, read the latest documents in the exact order defined by
 
 Default rule: do not run/dispatch/rerun/enable/modify GitHub Actions unless the user explicitly authorizes it. Every normal development commit contains `[skip ci]`. Do not stage/commit the unrelated local `apps/api/verify-admin-schema.mjs` unless separately reviewed/approved.
 
-## Current checkpoint — 2026-09-11 source cleanup complete; static validation PASS; PostgreSQL readiness PASS; Google Login runtime PASS; field-worker UI refinement authored
+## Current checkpoint — 2026-09-11 source cleanup complete; static validation PASS; PostgreSQL readiness PASS; Google Login runtime PASS; field-worker UI refinement iterated/authored
 
 AFTERTRACE remains Web + PWA-first with a compact Chrome extension fast-capture surface. LINE remains only as provider-neutral LINE Login plus the external official LINE OA support link. Apple Login source remains available but is intentionally disabled for the current launch because the user is not enrolled in the paid Apple Developer Program. Current active launch login providers are Google + LINE.
 
@@ -85,9 +85,9 @@ Apple Login is intentionally blank/disabled and is not a readiness requirement.
 
 ## Field-worker UI/UX refinement — AUTHORED / NOT YET EXECUTED
 
-Target audience clarified: field workers, small workshops and small companies. The UI direction is now mobile-first, task-first and lower-cognitive-load rather than developer/admin-oriented.
+Target audience clarified: field workers, small workshops and small companies. The UI direction is mobile-first, task-first and lower-cognitive-load rather than developer/admin-oriented.
 
-Authored `[skip ci]` UI commits:
+Initial authored `[skip ci]` UI commits:
 
 - `dabded7b` — add `MobileBottomNav` for primary mobile navigation.
 - `b2c75073` — mount mobile-first navigation on authenticated product surfaces.
@@ -96,19 +96,32 @@ Authored `[skip ci]` UI commits:
 - `a18fb982` — simplify account/notification chrome; hide duplicated AI/Task top shortcuts on mobile, compact account id, improve notification panel hierarchy.
 - `7c607fab` — rewrite Help as short task-oriented onboarding steps for non-technical users.
 
-Design priorities implemented in this pass:
+Iterative self-review commits after inspecting the rendered screenshots and then re-reviewing the resulting source:
 
-- Primary daily jobs are Records / Tasks / AI Search / Plan on mobile bottom navigation.
-- Desktop keeps the existing authenticated top chrome but with less visual weight.
-- Main titles are less oversized; body hierarchy is more compact.
-- Inputs/buttons use larger touch targets suitable for field/mobile usage.
-- Primary controls have stronger visual hierarchy; secondary/ghost controls are quieter.
-- Search/filter panel is grouped as one task surface rather than scattered controls.
-- Record action buttons become touch-friendly responsive grids on mobile.
-- Help content is task-oriented rather than implementation/documentation-oriented.
-- Notification center and account header are visually simplified.
+- `39ec5a3a` — simplify AI Search wording, reduce technical explanation, add one-tap example queries and a narrower search surface.
+- `134526c4` — restructure Tasks around the user's current work: open/closed grouping, stronger empty-state CTA and shorter customer wording.
+- `5c066249` — refine Task hierarchy/touch layout and reduce oversized empty surfaces.
+- `7297dc4f` — remove customer-facing internal AI accounting language (`entitlement`, provider-cost/hard-cap wording) from Subscription UI.
+- `ab7c2b90` — reduce global desktop title/width density after reviewing the first rendered UI pass.
+- `23fc1a35` — make GROUP daily destinations visually primary, move the existing group list before create/join setup actions through layout ordering, narrow AI Search/Subscription surfaces, and add quick-search chip layout.
+- `ca19fd95` — correct an upsell-order regression found during self-review by showing available FREE AI trial state before paid upgrade content and clarify the payment-email prerequisite.
 
-These UI changes have **not yet been locally typechecked/linted/tested/built after the latest commits**. Do not claim PASS until the user pulls and runs validation.
+Current UX review rule for this branch: do not stop after an arbitrary “second round.” Repeat `edit -> code-level UI/UX review -> edit` until no obvious hierarchy, wording, target-audience, responsive or workflow defect remains. Browser screenshots are final render verification, not the primary mechanism for discovering obvious UX defects.
+
+Design priorities now represented in source:
+
+- daily work actions dominate over setup/support/commercial actions;
+- desktop density is narrower and less presentation-like;
+- mobile touch targets and fixed navigation remain prioritized;
+- AI Search provides example questions instead of requiring users to invent prompt syntax;
+- Tasks emphasize active work and actionable empty states;
+- GROUP destinations are surfaced before create/join setup controls;
+- customer Subscription copy no longer exposes provider cost, internal entitlement vocabulary or hard-cap implementation details;
+- FREE trial availability is presented before paid upsell for eligible FREE users;
+- Help remains task-oriented rather than implementation/documentation-oriented;
+- notification center and account header retain the required public account id / copy affordance while remaining compact.
+
+The latest UI changes have **not yet been locally typechecked/linted/tested/built after these iterative commits**. Do not claim PASS until the user pulls and executes validation.
 
 ## Canonical Drizzle baseline
 
@@ -133,10 +146,10 @@ NOT RUN / NOT RUNTIME VERIFIED:
 
 ## Exact next steps
 
-1. Pull the latest UI commits.
+1. Pull the latest iterative UI commits.
 2. Run `pnpm --filter @aftertrace/web typecheck`, `pnpm --filter @aftertrace/web lint`, and `pnpm --filter @aftertrace/web test`.
 3. Run `pnpm --filter @aftertrace/web build` or full `pnpm release:preflight` if focused Web validation passes.
-4. Visually inspect desktop and mobile widths and iterate only on concrete usability defects.
+4. Render-check desktop and mobile widths. Only concrete browser-render discrepancies should trigger another visual iteration; code-level obvious UX issues should already have been reviewed before handoff.
 5. Continue LINE Login, Gemini, Web Push/Cron, Chrome extension and NewebPay runtime smoke.
 
 `apps/api/verify-admin-schema.mjs` was not staged or committed. GitHub Actions were not run or modified.
