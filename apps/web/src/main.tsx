@@ -71,12 +71,10 @@ function bootstrap() {
 
   const authenticatedSurface = !['/login', '/extension/connect'].includes(window.location.pathname);
   ReactDOM.createRoot(document.getElementById('root')!).render(
-    <React.StrictMode>
-      <AuthenticatedAppChrome apiBaseUrl={apiBaseUrl}>
-        {content}
-        {authenticatedSurface ? <MobileBottomNav /> : null}
-      </AuthenticatedAppChrome>
-    </React.StrictMode>,
+    <AuthenticatedAppChrome apiBaseUrl={apiBaseUrl}>
+      {content}
+      {authenticatedSurface ? <MobileBottomNav /> : null}
+    </AuthenticatedAppChrome>,
   );
 }
 
