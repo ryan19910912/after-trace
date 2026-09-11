@@ -58,7 +58,7 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
 
   async function choose(plan: SubscriptionPlan) {
     if (!session || plan.current || plan.code !== 'AI_PRO' || !paymentAvailable) return;
-    if (!validEmail(payerEmail)) { setError('請輸入有效的付款 Email；藍新首筆信用卡驗證會使用這項資料。'); return; }
+    if (!validEmail(payerEmail)) { setError('請輸入有效的付款 Email。'); return; }
     setBusy(true); setError(null); setNotice(null);
     try {
       const response = await fetch(`${apiBaseUrl.replace(/\/$/, '')}/api/v1/payments/newebpay/checkout`, {
@@ -110,8 +110,8 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
   }
 
   if (!session) return <main className="shell fatal-shell"><section className="fatal-card">
-    <p className="eyebrow">AFTERTRACE</p><h1>方案與訂閱</h1>
-    <p className="muted">登入後可查看 FREE 試用與 AI Pro 狀態。</p>
+    <p className="eyebrow">AFTERTRACE</p><h1>方案</h1>
+    <p className="muted">登入後可查看免費版與 AI Pro。</p>
     {error ? <div className="error">{error}</div> : null}
     <LoginProviderButtons apiBaseUrl={apiBaseUrl} returnTo="/subscription" />
   </section></main>;
@@ -119,63 +119,71 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
   const trial = data?.freeAiTrial;
   const aiProActive = data?.currentPlanCode === 'AI_PRO';
 
-  return <main className="shell worklog-shell">
-    <div className="topbar"><div><p className="eyebrow">AFTERTRACE</p><h1>方案與訂閱</h1><p className="muted">目前方案：{data?.currentPlanCode ?? '載入中'}</p></div><button className="ghost" onClick={() => { location.href = '/'; }}>回紀錄</button></div>
+  return <main className="shell worklog-shell subscription-shell">
+    <div className="topbar">
+      <div>
+        <p className="eyebrow">AFTERTRACE</p>
+        <h1>方案</h1>
+        <p className="muted">目前使用：{aiProActive ? 'AI Pro' : '免費版'}</p>
+      </div>
+      <button className="ghost" onClick={() => { location.href = '/'; }}>回紀錄</button>
+    </div>
     {error ? <div className="error">{error}</div> : null}
     {notice ? <div className="worklog-notice">{notice}</div> : null}
-
-    <section className="panel stack">
-      <div><p className="eyebrow">FREE AI TRIAL</p><h2>免費體驗 AI Pro</h2></div>
-      {trial?.status === 'AVAILABLE'
-        ? <p>目前尚有 <strong>{trial.remainingPoints.toLocaleString('zh-TW')}</strong> 點一次性 AI 試用額度。</p>
-        : trial?.status === 'EXHAUSTED'
-          ? <p>你的免費 AI Pro 試用已使用完畢；FREE 手動功能仍可繼續使用。</p>
-          : <p>AI 試用尚未發放；FREE 手動功能仍可正常使用。</p>}
-      <p className="muted">試用點數不是 TWD 現金額度，不會每月刷新；每個符合資格的 AFTERTRACE 帳號只發放一次。</p>
-    </section>
-
-    <section className="panel stack">
-      <div><p className="eyebrow">AI FAIR USE</p><h2>AI entitlement 屬於你本人</h2></div>
-      <p className="muted">FREE 保留完整手動紀錄、搜尋、日期篩選、群組、待辦與通知；provider-backed AI 可在一次性試用尚有額度時使用。</p>
-      <p className="muted">AI Pro 為 NT$99/月。日常使用不限次數，但仍受每月方案資源上限與 Provider Cost 安全上限限制；達到上限後，新的 AI 工作會等下一個週期恢復。</p>
-    </section>
-
-    {!aiProActive ? <section className="panel stack">
-      <div><p className="eyebrow">NEWEBPAY</p><h2>升級 AI Pro</h2></div>
-      <label>付款 Email<input type="email" autoComplete="email" value={payerEmail} onChange={(event) => setPayerEmail(event.target.value)} placeholder="name@example.com" /></label>
-      <p className="muted">付款會直接前往藍新金流的信用卡定期定額頁面。AFTERTRACE 不接收或保存你的信用卡號。</p>
-      {!paymentAvailable ? <div className="worklog-notice">藍新商店設定尚未完成；設定補齊後這裡會自動開放。</div> : null}
-    </section> : null}
 
     <section className="subscription-grid">
       {data?.plans.map((plan) => {
         const paid = plan.code === 'AI_PRO';
         const disabled = busy || plan.current || !paid || !paymentAvailable || !validEmail(payerEmail);
-        const buttonLabel = plan.current ? '目前方案' : !paid ? '免費方案' : !paymentAvailable ? '藍新尚未設定' : '使用藍新升級 AI Pro';
+        const buttonLabel = plan.current ? '目前方案' : !paid ? '免費方案' : !paymentAvailable ? '暫時無法升級' : '升級 AI Pro';
         return <article className={plan.current ? 'panel subscription-card current' : 'panel subscription-card'} key={plan.code}>
-          <div><p className="eyebrow">{plan.code}</p><h2>{plan.display_name}</h2></div>
-          <strong className="subscription-price">{!paid ? '免費' : 'NT$ 99 / 月'}</strong>
-          {!paid ? <p>完整手動產品，並附一次性 AI Pro 試用；試用耗盡後手動功能不受影響。</p> : <p>在你有權限的個人或群組紀錄中，都使用你自己的 AI Pro entitlement。</p>}
-          <small>✓ 手動新增、編輯、搜尋、刪除與還原不消耗 provider AI</small>
-          {paid ? <small>✓ AI 使用受公平使用、月度資源與 Provider Cost hard cap 保護</small> : <small>✓ 不會自動把歷史免費紀錄送去 AI 回填</small>}
-          {paid && plan.monthly_ai_point_cap ? <small>✓ 目前方案月度 AI 資源上限已由營運端設定</small> : null}
+          <div><p className="eyebrow">{paid ? 'AI PRO' : 'FREE'}</p><h2>{paid ? 'AI Pro' : '免費版'}</h2></div>
+          <strong className="subscription-price">{!paid ? 'NT$0' : 'NT$99 / 月'}</strong>
+          {!paid
+            ? <p>日常工作紀錄需要的基本功能都可以免費使用。</p>
+            : <p>需要更快整理、搜尋與理解工作紀錄時，再使用 AI 幫忙。</p>}
+          <small>✓ 工作紀錄、新增、編輯與搜尋</small>
+          <small>✓ 群組、待辦與通知</small>
+          {!paid ? <small>✓ 一次免費 AI Pro 體驗額度</small> : <>
+            <small>✓ AI 自然語言搜尋</small>
+            <small>✓ 圖片、語音與檔案整理</small>
+            <small>✓ 摘要、改寫與待辦建議</small>
+            <small>✓ 日常使用不限次數；仍受公平使用與每月方案資源上限限制</small>
+          </>}
           {capabilitySummary(plan.capabilities).map((item) => <small key={item}>✓ {item}</small>)}
           <button disabled={disabled} onClick={() => void choose(plan)}>{buttonLabel}</button>
         </article>;
       })}
     </section>
 
-    {aiProActive ? <section className="panel stack">
+    {!aiProActive ? <section className="panel stack subscription-checkout">
+      <div><p className="eyebrow">升級 AI PRO</p><h2>準備升級</h2></div>
+      <label>付款 Email<input type="email" autoComplete="email" value={payerEmail} onChange={(event) => setPayerEmail(event.target.value)} placeholder="name@example.com" /></label>
+      <p className="muted">輸入 Email 後即可從上方 AI Pro 卡片升級。付款會前往藍新金流頁面，AFTERTRACE 不接收或保存你的信用卡號。</p>
+      {!paymentAvailable ? <div className="worklog-notice">目前尚未開放線上升級；免費版與 AI 體驗不受影響。</div> : null}
+    </section> : null}
+
+    <section className="panel stack subscription-trial">
+      <div><p className="eyebrow">免費 AI 體驗</p><h2>先試用，再決定要不要升級</h2></div>
+      {trial?.status === 'AVAILABLE'
+        ? <p>目前尚有 <strong>{trial.remainingPoints.toLocaleString('zh-TW')}</strong> 點 AI 體驗額度。</p>
+        : trial?.status === 'EXHAUSTED'
+          ? <p>你的免費 AI 體驗已使用完畢；工作紀錄、搜尋、群組與待辦仍可繼續免費使用。</p>
+          : <p>免費 AI 體驗尚未發放；其他免費功能仍可正常使用。</p>}
+      <p className="muted">體驗額度只發放一次，不會每月刷新。</p>
+    </section>
+
+    {aiProActive ? <section className="panel stack subscription-renewal">
       <strong>AI Pro 自動續訂</strong>
       {renewalState === 'TERMINATED'
-        ? <div className="worklog-notice">已取消自動續訂。目前 AI Pro 仍可使用到這一期結束，不會再向藍新發出下一期扣款。</div>
-        : <p className="muted">取消續訂只會停止下一期藍新扣款；目前已付款週期仍保留到期。</p>}
+        ? <div className="worklog-notice">已取消自動續訂。目前 AI Pro 仍可使用到這一期結束。</div>
+        : <p className="muted">取消續訂只會停止下一期扣款，目前已付款週期仍可使用到期。</p>}
       {renewalState === 'ACTIVE'
         ? <button className="ghost danger" disabled={busy || !paymentAvailable} onClick={() => void cancelRenewal()}>取消 AI Pro 自動續訂</button>
         : renewalState === 'PENDING'
-          ? <div className="muted">藍新定期定額狀態仍在處理中。</div>
+          ? <div className="muted">付款狀態仍在處理中。</div>
           : renewalState === 'FAILED'
-            ? <div className="muted">藍新付款狀態需要確認；目前已付款週期權益不會因此被提前刪除。</div>
+            ? <div className="muted">付款狀態需要確認，目前已付款週期不會被提前取消。</div>
             : null}
     </section> : null}
   </main>;
@@ -211,4 +219,4 @@ function checkoutRequestKey() { return `web_${crypto.randomUUID().replaceAll('-'
 function capabilitySummary(value: Record<string, unknown>) { const result: string[]=[]; if (value.export===true) result.push('資料匯出'); return result; }
 function isSessionError(cause: unknown) { const text=cause instanceof Error?cause.message:String(cause??''); return /INVALID_WEB_SESSION|WEB_SESSION_REQUIRED/.test(text); }
 async function jsonBody(response: Response): Promise<Record<string, unknown>> { const text=await response.text(); if (!text) return {}; try { return JSON.parse(text) as Record<string,unknown>; } catch { throw new Error(`INVALID_PAYMENT_RESPONSE_${response.status}`); } }
-function paymentError(cause: unknown) { const code=cause instanceof Error?cause.message:String(cause??''); if (code==='NEWEBPAY_NOT_CONFIGURED') return '藍新商店設定尚未完成。'; if (code==='AI_PRO_ALREADY_ACTIVE') return 'AI Pro 已經啟用，不需要重複購買。'; if (code==='NEWEBPAY_CANCEL_REJECTED') return '藍新目前無法取消這筆定期定額，請稍後再試。'; return cause instanceof Error&&cause.message?cause.message:'付款流程處理失敗'; }
+function paymentError(cause: unknown) { const code=cause instanceof Error?cause.message:String(cause??''); if (code==='NEWEBPAY_NOT_CONFIGURED') return '目前尚未開放線上升級。'; if (code==='AI_PRO_ALREADY_ACTIVE') return 'AI Pro 已經啟用，不需要重複購買。'; if (code==='NEWEBPAY_CANCEL_REJECTED') return '目前無法取消這筆定期訂閱，請稍後再試。'; return cause instanceof Error&&cause.message?cause.message:'付款流程處理失敗'; }
