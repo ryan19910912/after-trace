@@ -379,6 +379,8 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
     </main>;
   }
 
+  const hasFilters = Boolean(filters.query || filters.from || filters.to);
+
   return <main className="shell worklog-shell">
     <div className="topbar">
       <div><p className="eyebrow">AFTERTRACE</p><h1>工作紀錄</h1></div>
@@ -394,7 +396,7 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
     <nav className="worklog-main-tabs">
       <button className={page === 'RECORDS' ? 'active' : ''} onClick={() => setPage('RECORDS')}>紀錄</button>
       <button className={page === 'GROUPS' ? 'active' : ''} onClick={() => setPage('GROUPS')}>群組</button>
-      <button className={page === 'FEEDBACK' ? 'active' : ''} onClick={() => setPage('FEEDBACK')}>意見回饋</button>
+      <button className={page === 'FEEDBACK' ? 'active feedback-tab' : 'feedback-tab'} onClick={() => setPage('FEEDBACK')}>回饋</button>
     </nav>
 
     {page === 'RECORDS' ? <>
@@ -409,7 +411,11 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
       <RecordFiltersPanel draft={filterDraft} onChange={setFilterDraft} onApply={applyFilters} onClear={clearFilters} />
       <section className="panel">
         {loading && records.length === 0 ? <div className="empty">載入中…</div> : null}
-        {!loading && scope && records.length === 0 ? <div className="empty">目前沒有符合條件的紀錄。</div> : null}
+        {!loading && scope && records.length === 0 ? <div className="empty record-empty">
+          <strong>{showDeleted ? '回收桶是空的' : hasFilters ? '找不到符合條件的紀錄' : '還沒有任何紀錄'}</strong>
+          <span>{showDeleted ? '刪除的紀錄會出現在這裡。' : hasFilters ? '試著清除篩選，或換一個關鍵字。' : '把今天做過的事記下來，之後需要時就找得到。'}</span>
+          {!showDeleted ? <button onClick={hasFilters ? clearFilters : () => setCreateOpen(true)}>{hasFilters ? '清除篩選' : '＋ 建立第一筆紀錄'}</button> : null}
+        </div> : null}
         {!scope ? <div className="empty">目前沒有可使用的紀錄空間。</div> : null}
         <div className="worklog-record-list">
           {records.map((record) => <RecordCard key={record.id} record={record} deleted={showDeleted} onEdit={() => startEdit(record)} onHistory={() => void openHistory(record)} onDelete={() => void deleteRecord(record)} onRestore={() => void restoreRecord(record)} />)}
@@ -538,20 +544,20 @@ function GroupsPanel({ surfaces, groupName, joinToken, sharedInvite, busy, onGro
 }) {
   return <div className="stack">
     <section className="panel stack">
-      <div><p className="eyebrow">GROUPS</p><h2>建立群組</h2></div>
-      <p className="muted">群組直接建立在 AFTERTRACE。成員權限由 AFTERTRACE membership 控制，不依賴 LINE 群組。</p>
+      <div><p className="eyebrow">建立</p><h2>建立群組</h2></div>
+      <p className="muted">建立工作群組後，就能和同事一起查看與新增這個群組的紀錄。</p>
       <div className="filter-actions"><input value={groupName} onChange={(event) => onGroupNameChange(event.target.value)} maxLength={255} placeholder="例如：晴空案團隊" /><button disabled={busy || !groupName.trim()} onClick={onCreateGroup}>建立群組</button></div>
     </section>
 
     <section className="panel stack">
-      <div><p className="eyebrow">INVITE</p><h2>加入群組</h2></div>
-      <p className="muted">貼上邀請連結或邀請碼。登入後才會真正建立 membership。</p>
+      <div><p className="eyebrow">加入</p><h2>加入群組</h2></div>
+      <p className="muted">有同事傳邀請連結或邀請碼給你時，貼在這裡即可加入。</p>
       <div className="filter-actions"><input value={joinToken} onChange={(event) => onJoinTokenChange(event.target.value)} placeholder="邀請連結或邀請碼" /><button disabled={busy || !normalizeInviteToken(joinToken)} onClick={onJoinGroup}>加入</button></div>
     </section>
 
     {sharedInvite ? <section className="panel stack">
-      <div><p className="eyebrow">SHARE</p><h2>{sharedInvite.groupName} 邀請</h2></div>
-      <p className="muted">這是單次邀請。原始 token 不會保存在資料庫，離開這個畫面後無法重新顯示同一組 token。</p>
+      <div><p className="eyebrow">邀請同事</p><h2>{sharedInvite.groupName} 邀請</h2></div>
+      <p className="muted">這是一次性邀請連結。離開這個畫面後，不會再次顯示同一組邀請碼。</p>
       <input readOnly value={inviteShareUrl(sharedInvite.inviteToken)} />
       <div className="filter-actions">
         <button className="ghost" disabled={sharedInvite.revoked} onClick={() => void copyText(inviteShareUrl(sharedInvite.inviteToken))}>複製邀請連結</button>
@@ -560,11 +566,11 @@ function GroupsPanel({ surfaces, groupName, joinToken, sharedInvite, busy, onGro
     </section> : null}
 
     <section className="panel stack">
-      <div><p className="eyebrow">MY GROUPS</p><h2>我的群組</h2></div>
+      <div><p className="eyebrow">我的群組</p><h2>工作群組</h2></div>
       {surfaces?.groups.length ? surfaces.groups.map((group) => <article className="worklog-record-card" key={group.sourceId}>
         <div className="worklog-record-meta"><strong>{group.name}</strong><span>{group.role === 'OWNER' ? '擁有者' : '成員'}</span></div>
-        <div className="filter-actions"><button onClick={() => onOpenGroup(group)}>開啟紀錄</button>{group.role === 'OWNER' ? <button className="ghost" disabled={busy} onClick={() => onCreateInvite(group)}>建立單次邀請</button> : null}</div>
-      </article>) : <p className="muted">目前還沒有加入任何群組。</p>}
+        <div className="filter-actions"><button onClick={() => onOpenGroup(group)}>查看紀錄</button>{group.role === 'OWNER' ? <button className="ghost" disabled={busy} onClick={() => onCreateInvite(group)}>邀請同事</button> : null}</div>
+      </article>) : <div className="empty group-empty"><strong>還沒有工作群組</strong><span>有需要一起記錄的同事時，再建立群組即可。</span></div>}
     </section>
   </div>;
 }
@@ -572,8 +578,8 @@ function GroupsPanel({ surfaces, groupName, joinToken, sharedInvite, busy, onGro
 function FeedbackPanel({ busy, onSubmit }: { busy: boolean; onSubmit: (text: string) => Promise<void> }) {
   const [text, setText] = useState('');
   return <section className="panel feedback-panel">
-    <p className="eyebrow">FEEDBACK</p><h2>告訴我們哪裡不好用</h2>
-    <p className="muted">送出時會附上目前頁面、畫面尺寸、瀏覽器與目前紀錄範圍，方便排查；不會附上你的原始工作紀錄內容。</p>
+    <p className="eyebrow">意見回饋</p><h2>哪裡不好用？</h2>
+    <p className="muted">告訴我們遇到的問題或希望改善的地方。送出時會附上基本頁面與瀏覽器資訊，不會附上你的工作紀錄內容。</p>
     <textarea rows={7} value={text} onChange={(event) => setText(event.target.value)} placeholder="例如：群組不好找、搜尋結果不符合預期…" />
     <button disabled={busy || !text.trim()} onClick={() => void onSubmit(text.trim()).then(() => setText('')).catch(() => undefined)}>送出意見</button>
   </section>;
