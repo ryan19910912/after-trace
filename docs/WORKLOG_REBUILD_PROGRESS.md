@@ -6,11 +6,9 @@ Before substantive work, read the latest documents in the exact order defined by
 
 Default rule: do not run/dispatch/rerun/enable/modify GitHub Actions unless the user explicitly authorizes it. Every normal development commit contains `[skip ci]`. Do not stage/commit the unrelated local `apps/api/verify-admin-schema.mjs` unless separately reviewed/approved.
 
-## Current checkpoint — 2026-09-10 source cleanup complete; local release preflight PASS; canonical baseline pushed; PostgreSQL migration/integrity/readiness PASS
+## Current checkpoint — 2026-09-11 source cleanup complete; static validation PASS; PostgreSQL readiness PASS; Google Login runtime PASS; field-worker UI refinement authored
 
-AFTERTRACE remains Web + PWA-first with the compact Chrome extension fast-capture surface. LINE remains only as provider-neutral LINE Login plus the external official LINE OA support link. Accepted V1 feature scope is source-authored complete. Legacy cleanup is complete. Do not invent further product/domain changes merely to continue work.
-
-Apple Login remains source-supported but is intentionally not enabled for the current launch/runtime validation because the user is not enrolled in the paid Apple Developer Program. Google Login + LINE Login are the active launch authentication providers for now. Do not treat absent Apple credentials as a readiness failure.
+AFTERTRACE remains Web + PWA-first with a compact Chrome extension fast-capture surface. LINE remains only as provider-neutral LINE Login plus the external official LINE OA support link. Apple Login source remains available but is intentionally disabled for the current launch because the user is not enrolled in the paid Apple Developer Program. Current active launch login providers are Google + LINE.
 
 Current prelaunch Dev/current Prod data remain disposable while no real customer data exists. Canonical target schema is `apps/api/src/db/schema-all.ts`.
 
@@ -28,146 +26,117 @@ Current prelaunch Dev/current Prod data remain disposable while no real customer
 
 Physically removed from target source/schema/tests/docs: LINE Messaging webhook/runtime, 小跡/GROUP bot, LINE Reply/cache/attachment runtime, bot-entry nonce/group identity state, Entity/Alias/Confirmation workflow, legacy Record entity/message ids, GROUP AI funding/responsibility, ONE_TIME/TOP_UP, and obsolete compatibility tests/docs. Do not restore them.
 
-## Executable validation performed on Windows checkout
+## Executable validation proven
 
 User checkout: `D:\Project\after-trace`.
 
-Actually executed and proven:
+PASS:
 
-- `pnpm install --frozen-lockfile` — **PASS**.
-- canonical Drizzle regeneration was performed locally; direct regeneration stdout was not supplied.
-- `pnpm db:baseline:guard` after regeneration — **PASS** (`AFTERTRACE V1 target baseline + Drizzle metadata guard passed.`).
-- Admin typecheck — **PASS**.
-- Web typecheck — **PASS**.
-- API typecheck — **PASS**.
-- full `pnpm typecheck` — **PASS** across Admin/API/Web plus Extension static step.
-- Admin lint — **PASS**.
-- full monorepo ESLint — **PASS**.
-- standalone API Vitest after repair batch — **PASS**: **59 files / 261 tests**.
-- `pnpm release:preflight` — **PASS** end-to-end locally.
-- `pnpm db:migrate` against the user's existing configured PostgreSQL database — **PASS** (`AFTERTRACE database migrations applied successfully.`); a repeated execution also completed successfully, confirming migration idempotent replay at the Drizzle migrator level.
-- `pnpm db:integrity` against that database — **PASS**. Proven target constraints include PRIVATE Source ownership, GROUP Source shape, one PRIVATE Source per user, nullable manual `occurred_at`, and rejection of retired TOP_UP grant / ONE_TIME plan values.
-- local API `GET /health` — **PASS / HTTP 200**.
-- local API `GET /health/ready` initially failed on missing Google/Web Push bindings, then on missing AI/commercial seed rows; after the user configured Google OAuth, valid VAPID Web Push bindings, AI runtime config, FREE/AI_PRO plan rows and FREE initial-trial config, `GET /health/ready` — **PASS / HTTP 200**, body `{ "service":"after-trace-api","product":"worklog","status":"ready" }`.
-
-Important evidence boundary: the user did not provide output proving `DROP SCHEMA public CASCADE` (or equivalent destructive reset) occurred immediately before the successful migration. Therefore migration + integrity + readiness are proven PASS, but a literal clean-from-empty database rebuild is **not separately claimed** unless that reset is confirmed.
-
-The successful preflight specifically proved:
-
-1. canonical baseline/migration guard — **PASS**;
-2. TypeScript typecheck — **PASS**;
-3. ESLint — **PASS**;
-4. Vitest — **PASS**;
-   - Admin: **6 files / 20 tests**;
-   - Web: **11 files / 41 tests**;
-   - API: **59 files / 261 tests**;
-5. Worker/Web/Admin production builds — **PASS**;
-   - API Wrangler `deploy --dry-run` completed successfully;
-   - Admin Vite production build completed successfully;
-   - Web Vite production build completed successfully;
-   - Extension static build step completed and still requires real unpacked-browser smoke;
-6. Drizzle schema export from `apps/api/src/db/schema-all.ts` — **PASS**.
-
-Release preflight itself explicitly does **not** apply migrations, deploy Workers, or replace browser/provider/runtime smoke. Do not promote this to full runtime verification.
-
-### Readiness/runtime configuration note
-
-Current readiness-required runtime bindings/config are now proven present locally: provider-neutral Google + LINE Login configuration, valid Web Push VAPID configuration, target database/schema, AI runtime pricing/model configuration, FREE/AI_PRO plans, and FREE initial AI trial configuration.
-
-Apple Login remains intentionally disabled and is not a mandatory readiness requirement.
-
-## Validation repair commits completed
-
-Admin/Web/API validation repairs completed with `[skip ci]` commits, including:
-
-- Admin API/test synchronization: `28b3b2ed`, `3f7142e0`, `42ffa79e`, `5d8892dc`.
-- Web fetch/Web Push typing: `1180ddbc`, `8e5fc267`, `898375ca`.
-- API target-only typecheck repairs: `dfb6ee7d`, `02a7a250`, `3e1347f0`, `0b868cef`, `c6282ce7`, `4573b351`, `202fd6bc`, `6b084b53`, `902ccd9f`, `8b63c55b`, `232d5f34`, `5d6d7fd8`, `d862bd31`, `f72dbf17`.
-- Admin lint repair: `5ef4fd3a`.
-- Web lint repairs: `a61693de`, `89bedfce`.
-- Vitest repairs: `5be3161b`, `0abddb52`, `e9010ff1`, `85647414`, `6364e15a`.
-
-The latest Vitest repair batch is **EXECUTED / PASS**.
-
-GitHub Actions were not run or modified. `apps/api/verify-admin-schema.mjs` was not touched.
-
-## Canonical Drizzle baseline status
-
-Authoritative target schema remains `apps/api/src/db/schema-all.ts`.
-
-Local Windows checkout:
-
-- regenerated canonical baseline guard — **PASS**;
-- regenerated baseline SQL/snapshot + `pnpm-lock.yaml` were committed locally with `[skip ci]`;
-- after rebasing over the progress checkpoint, that local commit became `4e32854` (`[skip ci] regenerate canonical baseline and sync workspace lockfile`);
-- full local release preflight using those generated artifacts — **PASS**;
-- final `git status` after push — clean and up to date with `origin/revive/line-worklog` before subsequent progress-only checkpoint commits.
-
-Origin synchronization:
-
-- `4e32854` was successfully pushed to `origin/revive/line-worklog` on 2026-09-09;
-- therefore the validated regenerated baseline SQL/snapshot and workspace lockfile are present on origin.
-
-Generated SQL/snapshot must not be hand-edited to simulate success.
-
-## Current executable status
-
-### PASS
-
-- dependency install;
-- canonical baseline guard;
-- monorepo TypeScript;
-- monorepo ESLint;
-- Admin Vitest;
-- Web Vitest;
-- API Vitest (59 files / 261 tests);
-- Worker/API dry-run build;
-- Admin production build;
-- Web production build;
+- `pnpm install --frozen-lockfile`;
+- regenerated canonical baseline guard;
+- full monorepo TypeScript;
+- full monorepo ESLint;
+- Admin Vitest: 6 files / 20 tests;
+- Web Vitest: 11 files / 41 tests;
+- API Vitest: 59 files / 261 tests;
+- Worker/API Wrangler dry-run build;
+- Admin Vite production build;
+- Web Vite production build;
 - Extension static build step;
 - Drizzle schema export;
 - complete local `pnpm release:preflight`;
-- canonical baseline/lockfile push to `origin/revive/line-worklog`;
-- PostgreSQL migration against current configured database;
-- PostgreSQL target integrity probes;
-- local API liveness `/health`;
-- local API target readiness `/health/ready` after runtime/commercial/AI/Web Push configuration.
+- canonical baseline/lockfile push to origin;
+- `pnpm db:migrate` against the configured PostgreSQL database, including repeated idempotent migrator execution;
+- `pnpm db:integrity` target integrity probes;
+- local `/health` HTTP 200;
+- local `/health/ready` HTTP 200 after Google/LINE/Web Push bindings and AI/commercial seed rows were initialized.
 
-### NOT RUN / NOT RUNTIME VERIFIED
+Evidence boundary: the user did not provide proof of a destructive empty-schema reset immediately before migration, so literal clean-from-empty rebuild remains unclaimed.
 
-- clean-from-empty PostgreSQL rebuild, unless the user separately confirms the schema/database was destructively reset before the successful migration;
-- focused PostgreSQL DB smoke for account lookup, Feedback, PRIVATE/GROUP Task authorization, FREE trial/AI Pro Grant accounting, provider-cost concurrency, lifecycle replay/stale cancel and Related ranking;
-- NewebPay TEST checkout/callback retry/idempotency/renew/cancel flow;
-- Google OAuth real browser/runtime smoke;
+## Google Login runtime smoke — PASS
+
+Real browser Google OAuth was exercised locally. The first callback reached the provider profile successfully but exposed two real account-provisioning defects:
+
+1. `worklog_users.last_interaction_at` was still referenced by runtime SQL even though target schema had removed it.
+   - fixed by `b1c1d32e` `[skip ci] align account provisioning with target user schema`.
+2. first-login provisioning used sibling data-modifying CTE statements that attempted to UPDATE the newly INSERTed user in the same PostgreSQL statement snapshot, causing `ACCOUNT_IDENTITY_PROVISION_FAILED`.
+   - fixed by `87c87743` `[skip ci] fix first-login account provisioning visibility` using a two-stage flow: atomic identity/public-account resolution followed by profile update/readback.
+
+After the second fix, the user successfully logged in with Google and reached the authenticated Worklog UI. The resulting account/public id was visibly present, and onboarding had issued the one-time FREE AI Pro trial notification/500-point trial state. Therefore Google OAuth real browser/runtime smoke is now **PASS**.
+
+LINE Login real browser smoke is still pending.
+
+## Current runtime configuration
+
+Readiness-required local config is proven present:
+
+- target PostgreSQL schema;
+- Google Login config;
+- LINE Login config;
+- valid Web Push VAPID config;
+- Gemini API binding;
+- AI runtime config singleton;
+- FREE plan;
+- AI_PRO plan;
+- FREE initial AI trial config;
+- Admin runtime config.
+
+Apple Login is intentionally blank/disabled and is not a readiness requirement.
+
+## Field-worker UI/UX refinement — AUTHORED / NOT YET EXECUTED
+
+Target audience clarified: field workers, small workshops and small companies. The UI direction is now mobile-first, task-first and lower-cognitive-load rather than developer/admin-oriented.
+
+Authored `[skip ci]` UI commits:
+
+- `dabded7b` — add `MobileBottomNav` for primary mobile navigation.
+- `b2c75073` — mount mobile-first navigation on authenticated product surfaces.
+- `51f828fc` — refine global visual system: smaller hierarchy, stronger controls, larger touch targets, reduced border noise, 1180px content width, mobile safe-area bottom nav.
+- `a4e3ae87` — simplify Worklog/task/subscription visual surfaces; improve search/filter layout, record cards, responsive actions, subscription cards and help cards.
+- `a18fb982` — simplify account/notification chrome; hide duplicated AI/Task top shortcuts on mobile, compact account id, improve notification panel hierarchy.
+- `7c607fab` — rewrite Help as short task-oriented onboarding steps for non-technical users.
+
+Design priorities implemented in this pass:
+
+- Primary daily jobs are Records / Tasks / AI Search / Plan on mobile bottom navigation.
+- Desktop keeps the existing authenticated top chrome but with less visual weight.
+- Main titles are less oversized; body hierarchy is more compact.
+- Inputs/buttons use larger touch targets suitable for field/mobile usage.
+- Primary controls have stronger visual hierarchy; secondary/ghost controls are quieter.
+- Search/filter panel is grouped as one task surface rather than scattered controls.
+- Record action buttons become touch-friendly responsive grids on mobile.
+- Help content is task-oriented rather than implementation/documentation-oriented.
+- Notification center and account header are visually simplified.
+
+These UI changes have **not yet been locally typechecked/linted/tested/built after the latest commits**. Do not claim PASS until the user pulls and runs validation.
+
+## Canonical Drizzle baseline
+
+Validated regenerated baseline SQL/snapshot and `pnpm-lock.yaml` were pushed to `origin/revive/line-worklog` in commit `4e32854`.
+
+Generated SQL/snapshot must not be hand-edited to simulate success.
+
+## Remaining runtime verification
+
+NOT RUN / NOT RUNTIME VERIFIED:
+
+- clean-from-empty PostgreSQL rebuild unless separately proven;
 - LINE Login real browser/runtime smoke;
+- focused DB smoke for account lookup, Feedback, PRIVATE/GROUP Task authorization, FREE trial/AI Pro Grant accounting, provider-cost concurrency, lifecycle replay/stale cancel and Related ranking;
 - Gemini real provider smoke;
 - Chrome unpacked-extension browser smoke;
 - Web Push real browser/delivery smoke;
 - shared Cloudflare Cron runtime smoke;
+- NewebPay TEST checkout/callback retry/idempotency/renew/cancel flow;
 - Dev end-to-end smoke;
 - actual Worker deployment.
 
-Apple Login runtime smoke is intentionally out of current launch scope unless the user later joins Apple Developer Program and explicitly re-enables it.
+## Exact next steps
 
-No unexecuted item is claimed PASS or RUNTIME VERIFIED.
+1. Pull the latest UI commits.
+2. Run `pnpm --filter @aftertrace/web typecheck`, `pnpm --filter @aftertrace/web lint`, and `pnpm --filter @aftertrace/web test`.
+3. Run `pnpm --filter @aftertrace/web build` or full `pnpm release:preflight` if focused Web validation passes.
+4. Visually inspect desktop and mobile widths and iterate only on concrete usability defects.
+5. Continue LINE Login, Gemini, Web Push/Cron, Chrome extension and NewebPay runtime smoke.
 
-## Exact next validation plan
-
-1. Run focused DB/runtime smoke for provider-neutral account lookup, Feedback, PRIVATE/GROUP Tasks, FREE trial/AI Pro Grants, provider-cost concurrency, lifecycle replay/stale cancel and Related ranking.
-2. Run Google Login + LINE Login real browser smoke against local/Dev callback configuration.
-3. Run Gemini real provider smoke.
-4. Run Chrome unpacked extension + Web Push + shared Cron Dev smoke.
-5. Run NewebPay TEST checkout -> callback retry/idempotency -> renewal -> cancel when real TEST credentials/callback URLs are available.
-6. Run Dev E2E.
-7. If clean-from-empty rebuild evidence is required, destructively reset the disposable database and rerun `pnpm db:migrate` + `pnpm db:integrity`; otherwise do not claim that narrower property.
-8. Only then consider the branch fully release-ready/runtime-verified.
-
-## Remaining estimate
-
-- Functional feature development: **0 focused hours**.
-- Legacy cleanup: **0 focused hours**.
-- Static/local release validation: **complete / PASS**.
-- Database migration + integrity + readiness validation: **PASS**.
-- Remaining work is focused DB behavior and provider/browser/runtime verification.
-
-`apps/api/verify-admin-schema.mjs` was not staged or committed.
+`apps/api/verify-admin-schema.mjs` was not staged or committed. GitHub Actions were not run or modified.
