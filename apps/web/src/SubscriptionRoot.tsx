@@ -58,7 +58,7 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
 
   async function choose(plan: SubscriptionPlan) {
     if (!session || plan.current || plan.code !== 'AI_PRO' || !paymentAvailable) return;
-    if (!validEmail(payerEmail)) { setError('請輸入有效的付款 Email。'); return; }
+    if (!validEmail(payerEmail)) { setError('請先輸入有效的付款 Email。'); return; }
     setBusy(true); setError(null); setNotice(null);
     try {
       const response = await fetch(`${apiBaseUrl.replace(/\/$/, '')}/api/v1/payments/newebpay/checkout`, {
@@ -131,11 +131,22 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
     {error ? <div className="error">{error}</div> : null}
     {notice ? <div className="worklog-notice">{notice}</div> : null}
 
+    {!aiProActive ? <section className="panel stack subscription-trial">
+      <div><p className="eyebrow">免費 AI 體驗</p><h2>先試用，再決定要不要升級</h2></div>
+      {trial?.status === 'AVAILABLE'
+        ? <p>你目前還有 <strong>{trial.remainingPoints.toLocaleString('zh-TW')}</strong> 點 AI 體驗額度，可以直接使用 AI 搜尋、整理與改寫。</p>
+        : trial?.status === 'EXHAUSTED'
+          ? <p>你的免費 AI 體驗已使用完畢；工作紀錄、搜尋、群組與待辦仍可繼續免費使用。</p>
+          : <p>免費 AI 體驗尚未發放；其他免費功能仍可正常使用。</p>}
+      <p className="muted">體驗額度只發放一次，不會每月刷新。</p>
+    </section> : null}
+
     <section className="subscription-grid">
       {data?.plans.map((plan) => {
         const paid = plan.code === 'AI_PRO';
-        const disabled = busy || plan.current || !paid || !paymentAvailable || !validEmail(payerEmail);
-        const buttonLabel = plan.current ? '目前方案' : !paid ? '免費方案' : !paymentAvailable ? '暫時無法升級' : '升級 AI Pro';
+        const emailReady = validEmail(payerEmail);
+        const disabled = busy || plan.current || !paid || !paymentAvailable || !emailReady;
+        const buttonLabel = plan.current ? '目前方案' : !paid ? '免費方案' : !paymentAvailable ? '暫時無法升級' : emailReady ? '升級 AI Pro' : '先填付款 Email';
         return <article className={plan.current ? 'panel subscription-card current' : 'panel subscription-card'} key={plan.code}>
           <div><p className="eyebrow">{paid ? 'AI PRO' : 'FREE'}</p><h2>{paid ? 'AI Pro' : '免費版'}</h2></div>
           <strong className="subscription-price">{!paid ? 'NT$0' : 'NT$99 / 月'}</strong>
@@ -157,21 +168,11 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
     </section>
 
     {!aiProActive ? <section className="panel stack subscription-checkout">
-      <div><p className="eyebrow">升級 AI PRO</p><h2>準備升級</h2></div>
+      <div><p className="eyebrow">升級 AI PRO</p><h2>付款資料</h2></div>
       <label>付款 Email<input type="email" autoComplete="email" value={payerEmail} onChange={(event) => setPayerEmail(event.target.value)} placeholder="name@example.com" /></label>
-      <p className="muted">輸入 Email 後即可從上方 AI Pro 卡片升級。付款會前往藍新金流頁面，AFTERTRACE 不接收或保存你的信用卡號。</p>
+      <p className="muted">輸入 Email 後，上方 AI Pro 的升級按鈕就會開放。付款會前往藍新金流頁面，AFTERTRACE 不接收或保存你的信用卡號。</p>
       {!paymentAvailable ? <div className="worklog-notice">目前尚未開放線上升級；免費版與 AI 體驗不受影響。</div> : null}
     </section> : null}
-
-    <section className="panel stack subscription-trial">
-      <div><p className="eyebrow">免費 AI 體驗</p><h2>先試用，再決定要不要升級</h2></div>
-      {trial?.status === 'AVAILABLE'
-        ? <p>目前尚有 <strong>{trial.remainingPoints.toLocaleString('zh-TW')}</strong> 點 AI 體驗額度。</p>
-        : trial?.status === 'EXHAUSTED'
-          ? <p>你的免費 AI 體驗已使用完畢；工作紀錄、搜尋、群組與待辦仍可繼續免費使用。</p>
-          : <p>免費 AI 體驗尚未發放；其他免費功能仍可正常使用。</p>}
-      <p className="muted">體驗額度只發放一次，不會每月刷新。</p>
-    </section>
 
     {aiProActive ? <section className="panel stack subscription-renewal">
       <strong>AI Pro 自動續訂</strong>
