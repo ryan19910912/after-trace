@@ -1,4 +1,4 @@
-.worklog-shell { max-width: 1180px; }
+.worklog-shell { max-width: 1120px; }
 .worklog-main-tabs { display:flex; gap:8px; margin:18px 0 26px; overflow:auto; }
 .worklog-main-tabs button { border:1px solid #2f3540; background:#15181d; border-radius:12px; padding:10px 16px; white-space:nowrap; color:#aeb7c4; }
 .worklog-main-tabs button.active { font-weight:700; border-color:#526074; background:#252c36; color:#fff; }
@@ -16,6 +16,13 @@
 .worklog-member strong, .worklog-member small { display: block; }
 .worklog-member small { opacity: .7; margin-top: 3px; }
 .worklog-member label { display: flex; gap: 6px; align-items: center; white-space: nowrap; }
+
+/* Groups: daily destination first; create/join are secondary setup actions. */
+.worklog-main-tabs + .stack { max-width: 980px; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items:start; }
+.worklog-main-tabs + .stack > section { padding:18px; border:1px solid #272e37; border-radius:16px; background:#14171c; }
+.worklog-main-tabs + .stack > section:last-child { order:-10; grid-column:1/-1; }
+.worklog-main-tabs + .stack > section:nth-child(1),
+.worklog-main-tabs + .stack > section:nth-child(2) { min-height: 210px; }
 
 .record-filter-card { display:grid; gap:12px; margin-top:8px; padding:16px; border:1px solid #242a32; border-radius:16px; background:#13161b; }
 .record-filter-grid { display:grid; grid-template-columns:minmax(260px,2fr) minmax(180px,1fr) minmax(180px,1fr); gap:10px; }
@@ -57,14 +64,26 @@ button.danger { color:#ffb6b6; border-color:rgba(168,50,50,.45); }
 .feedback-panel textarea { display:block; margin:14px 0; resize:vertical; min-height:180px; }
 .feedback-panel h2 { margin-bottom:8px; }
 
+.ai-search-shell { max-width: 940px; }
+.ai-search-panel,
+.ai-search-results { padding:20px; border:1px solid #272e37; border-radius:18px; background:#14171c; }
+.quick-searches { display:grid; gap:8px; }
+.quick-searches > div { display:flex; flex-wrap:wrap; gap:8px; }
+.quick-search-chip { min-height:36px; padding:7px 11px; border-radius:999px; background:#1b2028; color:#c8d0db; font-size:12px; font-weight:600; }
+
+.subscription-shell { max-width: 980px; }
 .subscription-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin:20px 0; }
-.subscription-card { display:flex; flex-direction:column; gap:12px; min-height:310px; padding:22px; border:1px solid #29313b; border-radius:18px; background:#14171c; }
+.subscription-card { display:flex; flex-direction:column; gap:12px; min-height:330px; padding:22px; border:1px solid #29313b; border-radius:18px; background:#14171c; }
 .subscription-card.current { border-color:#66758a; box-shadow:inset 0 0 0 1px #66758a; }
 .subscription-card h2 { margin:2px 0; }
 .subscription-card p { margin:4px 0; color:#c8ced7; }
 .subscription-card small { display:block; color:#aab2bf; line-height:1.55; }
 .subscription-card button { margin-top:auto; width:100%; }
 .subscription-price { font-size:1.55rem; }
+.subscription-checkout,
+.subscription-trial,
+.subscription-renewal { margin-top:16px; padding:20px; border:1px solid #272e37; border-radius:18px; background:#14171c; }
+.subscription-checkout { max-width:720px; }
 
 .help-stack { display:grid; gap:14px; max-width:860px; }
 .help-stack article { padding:18px 20px; border:1px solid #272e37; border-radius:16px; background:#14171c; }
@@ -77,6 +96,10 @@ button.danger { color:#ffb6b6; border-color:rgba(168,50,50,.45); }
 }
 @media (max-width: 760px) {
   .worklog-main-tabs { margin-top:14px; }
+  .worklog-main-tabs + .stack { grid-template-columns:1fr; }
+  .worklog-main-tabs + .stack > section:last-child { grid-column:auto; }
+  .worklog-main-tabs + .stack > section:nth-child(1),
+  .worklog-main-tabs + .stack > section:nth-child(2) { min-height:0; }
   .record-filter-card { padding:14px; }
   .record-filter-grid, .record-editor, .finance-form { grid-template-columns: 1fr; }
   .record-editor label:first-child, .immutable-note { grid-column:auto; }
@@ -92,6 +115,7 @@ button.danger { color:#ffb6b6; border-color:rgba(168,50,50,.45); }
   .subscription-grid { grid-template-columns:1fr; }
   .subscription-card { min-height:0; }
   .feedback-panel { padding:16px; }
+  .ai-search-panel, .ai-search-results { padding:16px; }
 }
 
 @media (max-width: 520px) {
@@ -99,4 +123,6 @@ button.danger { color:#ffb6b6; border-color:rgba(168,50,50,.45); }
   .filter-actions > button { flex:1 1 auto; }
   .worklog-main-tabs button { flex:1; }
   .worklog-scope-row { margin-inline:-2px; }
+  .quick-searches > div { display:grid; grid-template-columns:1fr 1fr; }
+  .quick-search-chip { width:100%; }
 }
