@@ -1,35 +1,35 @@
 .account-chrome {
   position: sticky;
   top: 0;
-  z-index: 30;
+  z-index: 40;
   border-bottom: 1px solid rgb(255 255 255 / 7%);
-  background: rgb(16 17 20 / 94%);
-  backdrop-filter: blur(14px);
+  background: rgb(15 17 21 / 94%);
+  backdrop-filter: blur(16px);
 }
 
 .account-chrome-inner {
   display: flex;
   justify-content: flex-end;
-  width: min(980px, 100%);
+  width: min(1180px, 100%);
   margin: 0 auto;
-  padding: 8px 18px;
+  padding: 9px 28px;
 }
 
 .account-chrome-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 10px;
+  gap: 9px;
   min-width: 0;
 }
 
 .account-task-shortcut {
   flex: 0 0 auto;
-  min-height: 36px;
-  padding: 7px 11px;
-  border-color: #343943;
-  border-radius: 10px;
-  background: #17191d;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-color: #323945;
+  border-radius: 11px;
+  background: #15181d;
   color: #e7eaf0;
   font-size: 12px;
   font-weight: 700;
@@ -44,7 +44,7 @@
   height: 42px;
   padding: 0;
   border-radius: 999px;
-  background: #1b1e23;
+  background: #181c22;
 }
 .notification-bell > span:first-child { font-size: 18px; line-height: 1; }
 .notification-badge {
@@ -56,7 +56,7 @@
   height: 20px;
   place-items: center;
   padding: 0 5px;
-  border: 2px solid #101114;
+  border: 2px solid #0f1115;
   border-radius: 999px;
   background: #f2f4f7;
   color: #111318;
@@ -71,7 +71,7 @@
   min-width: 0;
 }
 .account-display-name {
-  max-width: 180px;
+  max-width: 170px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -85,8 +85,8 @@
   gap: 7px;
   min-width: 0;
   padding: 7px 10px;
-  border-color: #343943;
-  background: #17191d;
+  border-color: #303742;
+  background: #15181d;
   text-align: left;
 }
 .account-id-copy span:first-child { flex: 0 0 auto; color: #8f96a1; font-size: 10px; }
@@ -95,15 +95,15 @@
 
 .notification-center {
   position: absolute;
-  top: calc(100% + 9px);
+  top: calc(100% + 10px);
   right: 0;
-  width: min(430px, calc(100vw - 28px));
+  width: min(420px, calc(100vw - 28px));
   max-height: min(620px, calc(100vh - 76px));
   overflow: auto;
-  border: 1px solid #323740;
-  border-radius: 16px;
-  background: #17191d;
-  box-shadow: 0 18px 50px rgb(0 0 0 / 42%);
+  border: 1px solid #323a45;
+  border-radius: 18px;
+  background: #15181d;
+  box-shadow: 0 20px 60px rgb(0 0 0 / 44%);
 }
 .notification-center-head {
   position: sticky;
@@ -113,21 +113,21 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px;
-  border-bottom: 1px solid #292d34;
-  background: rgb(23 25 29 / 97%);
+  padding: 16px;
+  border-bottom: 1px solid #292f38;
+  background: rgb(21 24 29 / 97%);
 }
 .notification-center-head > div:first-child { display: grid; gap: 2px; }
-.notification-center-head strong { color: #fff; }
+.notification-center-head strong { color: #fff; font-size:16px; }
 .notification-center-head span { color: #8f96a1; font-size: 11px; }
 .notification-center-head-actions { display: flex; gap: 6px; }
-button.compact { padding: 6px 9px; border-radius: 8px; font-size: 11px; }
+button.compact { min-height:34px; padding: 6px 10px; border-radius: 9px; font-size: 11px; }
 .notification-inline-error { margin: 12px; padding: 10px; border: 1px solid #733d3d; border-radius: 10px; color: #ffc6c6; background: #341d1d; font-size: 12px; }
-.notification-empty { padding: 28px 16px; color: #8f96a1; text-align: center; font-size: 13px; }
+.notification-empty { padding: 32px 16px; color: #8f96a1; text-align: center; font-size: 13px; }
 .notification-list { display: grid; }
-.notification-item { display: grid; gap: 7px; padding: 14px; border-bottom: 1px solid #272b31; }
+.notification-item { display: grid; gap: 8px; padding: 16px; border-bottom: 1px solid #272d35; cursor: default; }
 .notification-item:last-child { border-bottom: 0; }
-.notification-item.unread { background: #1d2127; box-shadow: inset 3px 0 0 #f2f4f7; }
+.notification-item.unread { background: #1b2027; box-shadow: inset 3px 0 0 #798ba3; }
 .notification-item-meta { display: flex; justify-content: space-between; gap: 10px; color: #939aa5; font-size: 10px; }
 .notification-item > strong { color: #fff; font-size: 14px; }
 .notification-item > p { margin: 0; color: #c8cdd5; font-size: 12px; line-height: 1.6; white-space: pre-wrap; }
@@ -137,9 +137,9 @@ button.compact { padding: 6px 9px; border-radius: 8px; font-size: 11px; }
 .push-settings {
   display: grid;
   gap: 10px;
-  padding: 12px 14px;
-  border-bottom: 1px solid #292d34;
-  background: #15171a;
+  padding: 14px 16px;
+  border-bottom: 1px solid #292f38;
+  background: #13161a;
 }
 .push-settings-head {
   display: flex;
@@ -160,32 +160,31 @@ button.compact { padding: 6px 9px; border-radius: 8px; font-size: 11px; }
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 7px 9px;
-  border: 1px solid #292d34;
-  border-radius: 9px;
+  padding: 8px 10px;
+  border: 1px solid #292f38;
+  border-radius: 10px;
   color: #c8cdd5;
   font-size: 11px;
   cursor: pointer;
 }
-.push-preference-row input { width: 16px; height: 16px; margin: 0; }
+.push-preference-row input { width: 16px; height: 16px; min-height:0; margin: 0; }
 
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .account-chrome-inner { padding: 8px 14px; }
   .account-chrome-actions { width: 100%; }
-  .account-task-shortcut { padding-inline: 9px; }
+  .account-task-shortcut { display:none; }
   .account-summary { flex: 1; justify-content: flex-end; min-width: 0; }
-  .account-display-name { max-width: 92px; }
-  .account-id-copy { flex: 1; justify-content: flex-end; gap: 5px; max-width: 196px; padding-inline: 8px; }
-  .account-id-copy strong { max-width: 86px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .notification-center { position: fixed; top: 60px; right: 14px; left: 14px; width: auto; max-height: calc(100vh - 74px); }
+  .account-display-name { max-width: 110px; }
+  .account-id-copy { max-width: 170px; justify-content: flex-end; gap: 5px; padding-inline: 8px; }
+  .account-id-copy span:first-child, .copy-feedback { display:none; }
+  .account-id-copy strong { max-width: 105px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .notification-center { position: fixed; top: 62px; right: 14px; left: 14px; width: auto; max-height: calc(100vh - 150px); }
 }
 
 @media (max-width: 420px) {
   .account-chrome-actions { gap: 7px; }
-  .account-task-shortcut { padding-inline: 7px; font-size: 11px; }
-  .account-display-name { max-width: 70px; }
-  .account-id-copy { max-width: 176px; padding-inline: 6px; }
-  .account-id-copy strong { max-width: 68px; }
-  .account-id-copy span:first-child, .copy-feedback { font-size: 9px; }
+  .account-display-name { max-width: 82px; }
+  .account-id-copy { max-width: 128px; padding-inline: 7px; }
+  .account-id-copy strong { max-width: 90px; }
   .push-settings-head { align-items: flex-start; }
 }
