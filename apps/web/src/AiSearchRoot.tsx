@@ -4,6 +4,12 @@ import { WorklogApi, type WorklogInputType, type WorklogSurfaces } from './workl
 import './worklog.css';
 
 const SESSION_KEY = 'aftertrace.worklog.session';
+const QUICK_SEARCHES = [
+  '昨天做了什麼？',
+  '這週有哪些工作紀錄？',
+  '找出收款相關紀錄',
+  '找出最近的維修紀錄',
+] as const;
 
 type SearchRecord = {
   id: number;
@@ -118,20 +124,20 @@ export function AiSearchRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
     return <main className="shell fatal-shell">
       <section className="fatal-card">
         <p className="eyebrow">AFTERTRACE AI</p>
-        <h1>AI 自然語言搜尋</h1>
-        <p className="muted">登入後可用一句話找你有權限的個人或群組紀錄。</p>
+        <h1>AI 搜尋</h1>
+        <p className="muted">用一句話找你有權限的個人或群組紀錄。</p>
         {error ? <div className="error">{error}</div> : null}
         <LoginProviderButtons apiBaseUrl={apiBaseUrl} returnTo="/ai-search" />
       </section>
     </main>;
   }
 
-  return <main className="shell worklog-shell">
+  return <main className="shell worklog-shell ai-search-shell">
     <div className="topbar">
       <div>
         <p className="eyebrow">AFTERTRACE AI</p>
-        <h1>AI 自然語言搜尋</h1>
-        <p className="muted">AI 只解讀你的查詢；真正的紀錄搜尋仍由 AFTERTRACE PostgreSQL 執行。</p>
+        <h1>AI 搜尋</h1>
+        <p className="muted">直接描述你想找的事情，AFTERTRACE 會從你有權限的紀錄中搜尋。</p>
       </div>
       <div className="filter-actions">
         <button className="ghost" onClick={() => { location.href = '/'; }}>回紀錄</button>
@@ -141,8 +147,8 @@ export function AiSearchRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
 
     {error ? <div className="error">{error}</div> : null}
 
-    <section className="panel stack">
-      <label>搜尋範圍
+    <section className="panel stack ai-search-panel">
+      <label>要搜尋哪裡？
         <select
           value={sourceId ?? ''}
           disabled={busy || !surfaces}
@@ -158,27 +164,39 @@ export function AiSearchRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
           maxLength={1000}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="例如：找昨天晴空案跟收款有關的紀錄"
+          placeholder="例如：昨天晴空案收款的紀錄"
         />
       </label>
-      <p className="muted">這是 provider-backed AI 功能，會使用你的 AI Pro 或尚未用完的一次性 AI 試用點數。一般手動搜尋仍然免費。</p>
+      <div className="quick-searches" aria-label="常用搜尋範例">
+        <span className="muted">不知道怎麼問？試試：</span>
+        <div>
+          {QUICK_SEARCHES.map((example) => <button
+            key={example}
+            type="button"
+            className="quick-search-chip"
+            disabled={busy}
+            onClick={() => { setQuery(example); setResult(null); }}
+          >{example}</button>)}
+        </div>
+      </div>
+      <p className="muted">AI 搜尋會使用 AI Pro 或尚未用完的免費 AI 體驗額度；一般關鍵字與日期搜尋仍然免費。</p>
       <div className="filter-actions">
-        <button disabled={busy || !sourceId || !query.trim()} onClick={() => void search()}>{busy ? '搜尋中…' : '用 AI 搜尋'}</button>
+        <button disabled={busy || !sourceId || !query.trim()} onClick={() => void search()}>{busy ? '搜尋中…' : '開始搜尋'}</button>
         <button className="ghost" disabled={busy} onClick={() => { setQuery(''); setResult(null); setError(null); }}>清除</button>
       </div>
     </section>
 
-    {result ? <section className="panel stack">
-      <div className="topbar">
+    {result ? <section className="panel stack ai-search-results">
+      <div className="topbar compact-topbar">
         <div>
-          <p className="eyebrow">SEARCH RESULT</p>
+          <p className="eyebrow">搜尋結果</p>
           <h2>{result.records.length} 筆紀錄</h2>
         </div>
-        <span className="muted">{result.entitlementSource === 'FREE_TRIAL' ? '使用 AI 試用' : '使用 AI Pro'}</span>
+        <span className="muted">{result.entitlementSource === 'FREE_TRIAL' ? '使用免費 AI 體驗' : '使用 AI Pro'}</span>
       </div>
       <SearchInterpretation result={result} />
       {result.records.length === 0
-        ? <div className="empty">沒有找到符合 AI 解讀條件的紀錄。你可以換個說法，或回紀錄頁使用免費關鍵字／日期篩選。</div>
+        ? <div className="empty">沒有找到符合條件的紀錄。可以換個說法，或回紀錄頁使用免費關鍵字／日期篩選。</div>
         : <div className="worklog-record-list">
           {result.records.map((record) => <SearchRecordCard key={record.id} record={record} />)}
         </div>}
@@ -189,7 +207,7 @@ export function AiSearchRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
 function SearchInterpretation({ result }: { result: SearchResult }) {
   const { terms, from, to } = result.interpretation;
   return <div className="worklog-record-meta">
-    {terms.length ? <span>搜尋詞：{terms.join('、')}</span> : null}
+    {terms.length ? <span>關鍵字：{terms.join('、')}</span> : null}
     {from ? <span>從：{formatDateTime(from)}</span> : null}
     {to ? <span>到：{formatDateTime(to)}</span> : null}
   </div>;
@@ -204,7 +222,6 @@ function SearchRecordCard({ record }: { record: SearchRecord }) {
       <time>{record.occurredAt ? '發生時間' : '建立時間'}：{formatDateTime(date)}</time>
     </div>
     <strong>{record.rawText}</strong>
-    <p className="muted">AI 搜尋結果為只讀；要編輯、刪除或查看歷史，請回紀錄頁操作。</p>
   </article>;
 }
 
@@ -260,9 +277,9 @@ function formatDateTime(value: string): string {
 
 function searchErrorMessage(cause: unknown): string {
   const code = cause instanceof Error ? cause.message : String(cause ?? '');
-  if (/TRIAL_EXHAUSTED|AI_NOT_ENTITLED/.test(code)) return 'AI 試用已用完或目前沒有 AI entitlement；FREE 手動搜尋仍可正常使用。可到方案頁查看 AI Pro。';
-  if (/MONTHLY_POINT_CAP|MONTHLY_PROVIDER_COST_CAP/.test(code)) return '本期 AI 使用已達方案安全上限；FREE 手動搜尋仍可正常使用，AI 會在下一個方案週期恢復。';
-  if (code === 'AI_NATURAL_SEARCH_DISABLED') return 'AI 自然語言搜尋目前由營運端關閉；一般手動搜尋仍可正常使用。';
+  if (/TRIAL_EXHAUSTED|AI_NOT_ENTITLED/.test(code)) return '免費 AI 體驗已用完，或目前沒有 AI Pro。一般搜尋仍可免費使用。';
+  if (/MONTHLY_POINT_CAP|MONTHLY_PROVIDER_COST_CAP/.test(code)) return '本期 AI 使用已達方案上限；一般搜尋仍可正常使用，AI 會在下一個方案週期恢復。';
+  if (code === 'AI_NATURAL_SEARCH_DISABLED') return 'AI 搜尋目前暫停使用；一般搜尋仍可正常使用。';
   if (code === 'SOURCE_NOT_AUTHORIZED') return '你目前沒有這個紀錄範圍的存取權限。';
   return message(cause, 'AI 搜尋失敗');
 }
