@@ -6,7 +6,7 @@ Before substantive work, read the latest documents in the exact order defined by
 
 Default rule: do not run/dispatch/rerun/enable/modify GitHub Actions unless the user explicitly authorizes it. Every normal development commit contains `[skip ci]`. Do not stage/commit the unrelated local `apps/api/verify-admin-schema.mjs` unless separately reviewed/approved.
 
-## Current checkpoint — 2026-09-11 source cleanup complete; static validation PASS before latest UI work; PostgreSQL readiness PASS; Google Login runtime PASS; field-worker UI visual hierarchy refined
+## Current checkpoint — 2026-09-12 latest Web/PWA UI refinement authored; validation still pending
 
 AFTERTRACE remains Web + PWA-first with a compact Chrome extension fast-capture surface. LINE remains only as provider-neutral LINE Login plus the external official LINE OA support link. Apple Login source remains available but is intentionally disabled for the current launch because the user is not enrolled in the paid Apple Developer Program. Current active launch login providers are Google + LINE.
 
@@ -90,18 +90,28 @@ Second visual-system redesign checkpoint:
 
 ### Latest source-level visual refinement
 
-After another self-review, the remaining weakness was that the deep-blue redesign still behaved visually like a SaaS/admin dashboard: too many equally weighted bordered surfaces, relatively heavy shadows and Record cards reading as a card wall rather than a chronological work stream.
+After browser screenshot review, the latest refinement now includes:
 
-Latest commits:
+- Worklog Record view changed to a real `目前紀錄 / 回收桶` segmented switch; `＋新增紀錄` is smaller and only appears in the current-record view.
+- Record filter controls are denser and shorter while retaining day-level date filtering.
+- Task page grid no longer stretches its rows across the viewport; `align-content:start` keeps `待辦` and `我的待辦` close together.
+- AI Pro copy now says `使用 AI 快速紀錄、整理、搜尋與理解工作紀錄。` and usage wording is simplified to `使用次數受限於方案 AI 用量上限`.
+- Subscription page now waits for required plan/payment/renewal bootstrap calls before showing main content, preventing partially loaded layout flashes; bootstrap failure has a dedicated error state instead of an endless spinner.
+- Feedback wording is softer and more invitational (`有什麼想讓 AFTERTRACE 更順手？`) in both the dedicated Feedback page and Worklog feedback panel.
 
-- `b62fe1a` — refine Worklog hierarchy: lighter setup surfaces, softer filters, GROUP setup visually secondary to daily work, Record list redesigned as a restrained chronological stream with timeline rail/dots, reduced card depth and denser mobile treatment.
-- `5cac0d8` — soften the shared visual system: smaller desktop title scale, lighter shared panel/card shadows, quieter secondary buttons, cleaner fields, reduced border weight and app-like mobile bottom navigation with a compact active indicator.
-- `45039d8` — simplify Record date filtering to day-level inputs. Filter start resolves to local-day 00:00:00.000 and filter end resolves to local-day 23:59:59.999 so the selected ending day is included in full; Record `occurred_at` editing remains date-time capable.
+Latest commits in this batch:
+
+- `d0e0531` — polish subscription copy and initial loading gate.
+- `502cc26` — tighten task page spacing and prevent grid-row stretching.
+- `7cf6ee6` — soften dedicated feedback wording.
+- `3226604` — add Record segmented switch and smaller create control.
+- `6049bae` — compact Record filters and add subscription loading visuals.
+- `7f6eefc` — handle subscription bootstrap failure and avoid callback-login flash.
 
 Current visual principles:
 
 - dark mode remains, but avoid pure-black empty expanses;
-- one restrained blue accent is used for primary action/current state instead of gray-on-gray everywhere;
+- restrained functional accents communicate current state and important actions;
 - content width is constrained around 1080px desktop, with AI/Tasks/Subscription narrower where appropriate;
 - panels/cards are reserved for meaningful grouping instead of putting every control inside an equally heavy container;
 - Worklog Records should read as a chronological work stream, not an admin dashboard card grid;
@@ -111,11 +121,12 @@ Current visual principles:
 - customer-facing copy avoids internal backend/domain terminology;
 - empty states always explain what to do next;
 - FREE trial is shown before paid upsell when available;
-- user/account id remains visible and copyable, but does not dominate the header.
+- user/account id remains visible and copyable, but does not dominate the header;
+- authenticated pages should avoid showing visibly incomplete API-derived layouts while their required bootstrap data is still loading.
 
 ## Validation status for latest UI batch
 
-AUTHORED / NOT YET EXECUTED after `b62fe1a` + `5cac0d8` + `45039d8`:
+AUTHORED / NOT YET EXECUTED after the latest UI refinement commits:
 
 - `pnpm --filter @aftertrace/web typecheck`
 - `pnpm --filter @aftertrace/web lint`
@@ -143,8 +154,8 @@ NOT RUN / NOT RUNTIME VERIFIED:
 
 1. Pull `revive/line-worklog`.
 2. Run focused Web typecheck/lint/test/build.
-3. Start local Web/API and capture representative desktop + mobile browser screenshots of Worklog first, then Tasks/AI Search/Subscription.
-4. Review real rendering for spacing, density, horizontal overflow, timeline readability, account chrome, date-filter usability and mobile bottom-nav safe area. If rendering still feels visually weak, continue structural layout changes rather than cosmetic border tweaks.
+3. Start local Web/API and capture representative desktop + mobile browser screenshots of Worklog, Tasks, Subscription and Feedback.
+4. Review real rendering for spacing, density, segmented Record switch, Task page vertical rhythm, subscription loading behavior, account chrome and mobile bottom-nav safe area.
 5. Continue LINE Login, Gemini, Web Push/Cron, Chrome extension and NewebPay runtime smoke after UI is accepted.
 
 `apps/api/verify-admin-schema.mjs` was not staged or committed. GitHub Actions were not run or modified.
