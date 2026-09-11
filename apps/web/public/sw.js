@@ -25,8 +25,8 @@ async function showAftertracePush(event) {
   await self.registration.showNotification(payload.title, {
     body: payload.body,
     tag: payload.tag || `aftertrace-${payload.notificationId || 'notification'}`,
-    icon: '/icons/icon-192.png',
-    badge: '/icons/icon-192.png',
+    icon: '/aftertrace-icon.svg',
+    badge: '/aftertrace-icon.svg',
     data: { deepLink },
   });
 }
