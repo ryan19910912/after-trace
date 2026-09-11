@@ -25,9 +25,25 @@ function Fatal({ message }: { message: string }) {
   return <main className="shell fatal-shell"><section className="fatal-card"><p className="eyebrow">AFTERTRACE</p><h1>無法開啟 AFTERTRACE</h1><p>{message}</p></section></main>;
 }
 
+function pageTitle(pathname: string): string {
+  if (pathname === '/login') return '登入｜AFTERTRACE';
+  if (pathname === '/extension/connect') return '連接瀏覽器擴充功能｜AFTERTRACE';
+  if (pathname === '/capture') return '快速紀錄｜AFTERTRACE';
+  if (pathname === '/ai-search') return 'AI 搜尋｜AFTERTRACE';
+  if (pathname === '/ai-tools') return 'AI 整理｜AFTERTRACE';
+  if (pathname === '/ai-task') return 'AI 待辦｜AFTERTRACE';
+  if (pathname === '/subscription') return '方案｜AFTERTRACE';
+  if (pathname === '/feedback') return '意見回饋｜AFTERTRACE';
+  if (pathname === '/help') return '使用說明｜AFTERTRACE';
+  if (pathname === '/tasks' || pathname.startsWith('/tasks/')) return '待辦｜AFTERTRACE';
+  return '工作紀錄｜AFTERTRACE';
+}
+
 function bootstrap() {
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
   if (!apiBaseUrl) throw new Error('系統設定不完整，請稍後再試。');
+
+  document.title = pageTitle(window.location.pathname);
 
   // Provider callbacks return to WEB_APP_URL root. Preserve only bounded customer
   // destinations, including the explicit extension handoff request.
