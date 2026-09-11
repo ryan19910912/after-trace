@@ -1,20 +1,31 @@
 .task-shell {
   display: grid;
-  gap: 18px;
+  gap: 20px;
+  max-width: 980px;
 }
 
 .task-create-panel,
 .task-edit-panel {
   display: grid;
   gap: 16px;
-  padding: 16px;
-  border: 1px solid #292d34;
+  padding: 18px;
+  border: 1px solid #292f38;
   border-radius: 16px;
-  background: #17191d;
+  background: #15181d;
+}
+
+.task-section {
+  display: grid;
+  gap: 12px;
+}
+
+.task-section-closed {
+  margin-top: 6px;
 }
 
 .task-section-head,
-.task-card-head {
+.task-card-head,
+.task-list-heading {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -22,31 +33,51 @@
 }
 
 .task-section-head h2,
-.task-editor h3 {
+.task-editor h3,
+.task-list-heading h2 {
   margin: 0 0 6px;
 }
+
+.task-list-heading {
+  align-items: center;
+  padding-inline: 2px;
+}
+
+.task-list-heading h2 { font-size: 18px; }
+.task-list-heading span { color: #8f98a7; font-size: 12px; }
 
 .task-list {
   display: grid;
   gap: 12px;
 }
 
+.task-empty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+}
+.task-empty strong { color: #fff; font-size: 17px; }
+.task-empty span { color: #98a1ae; }
+.task-empty button { margin-top: 6px; }
+
 .task-card {
   display: grid;
   gap: 12px;
   padding: 16px;
-  border: 1px solid #292d34;
+  border: 1px solid #292f38;
   border-radius: 14px;
-  background: #17191d;
+  background: #15181d;
 }
 
+.task-card:hover { border-color: #3a4451; }
+
 .task-card.focused {
-  outline: 2px solid #f2f4f7;
+  outline: 2px solid #6e7d91;
   outline-offset: 2px;
 }
 
 .task-card.closed {
-  opacity: 0.72;
+  opacity: 0.68;
 }
 
 .task-card-head > div {
@@ -81,6 +112,9 @@
 .task-times div {
   display: grid;
   gap: 3px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #12151a;
 }
 
 .task-times dt {
@@ -98,15 +132,26 @@
   gap: 12px;
 }
 
+.task-card-actions { margin-top: 2px; }
+
 @media (max-width: 720px) {
+  .task-shell { gap: 16px; }
   .task-section-head,
   .task-card-head {
     align-items: stretch;
     flex-direction: column;
   }
 
+  .task-section-head > button { width: 100%; }
+
   .task-time-grid,
   .task-times {
     grid-template-columns: 1fr;
   }
+
+  .task-card-actions {
+    display: grid;
+    grid-template-columns: 1.25fr 1fr 1fr;
+  }
+  .task-card-actions button { width: 100%; }
 }
