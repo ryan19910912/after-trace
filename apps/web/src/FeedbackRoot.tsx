@@ -65,7 +65,7 @@ export function FeedbackRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
     {error ? <div className="error">{error}</div> : null}
     {done ? <div className="worklog-notice">已收到你的回饋，謝謝。</div> : null}
     <section className="panel feedback-panel">
-      <h2>有什麼想讓 AFTERTRACE 更順手？</h2>
+      <h2>您的意見，是促進我們進步的動力！</h2>
       <p className="muted">不論是字太小、操作不好找、搜尋結果不符合預期，或希望增加新功能，都可以直接告訴我們。</p>
       <textarea rows={8} maxLength={5000} value={text} onChange={(event) => setText(event.target.value)} placeholder="直接寫下你的想法…" />
       <button disabled={busy || !text.trim()} onClick={() => void submit()}>{busy ? '送出中…' : '送出回饋'}</button>
