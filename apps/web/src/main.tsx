@@ -9,6 +9,7 @@ import { ExtensionConnectRoot } from './ExtensionConnectRoot';
 import { FeedbackRoot } from './FeedbackRoot';
 import { HelpRoot } from './HelpRoot';
 import { LoginRoot } from './LoginRoot';
+import { MobileBottomNav } from './MobileBottomNav';
 import { safeLoginReturn } from './login-return';
 import { SubscriptionRoot } from './SubscriptionRoot';
 import { TaskRoot } from './TaskRoot';
@@ -51,9 +52,14 @@ function bootstrap() {
   else if (window.location.pathname === '/help') content = <HelpRoot />;
   else if (window.location.pathname === '/tasks' || window.location.pathname.startsWith('/tasks/')) content = <TaskRoot apiBaseUrl={apiBaseUrl} />;
   else content = <WorklogRoot apiBaseUrl={apiBaseUrl} />;
+
+  const authenticatedSurface = !['/login', '/extension/connect'].includes(window.location.pathname);
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
-      <AuthenticatedAppChrome apiBaseUrl={apiBaseUrl}>{content}</AuthenticatedAppChrome>
+      <AuthenticatedAppChrome apiBaseUrl={apiBaseUrl}>
+        {content}
+        {authenticatedSurface ? <MobileBottomNav /> : null}
+      </AuthenticatedAppChrome>
     </React.StrictMode>,
   );
 }
