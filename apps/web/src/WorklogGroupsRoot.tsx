@@ -133,7 +133,6 @@ export function WorklogGroupsRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
     <nav className="worklog-main-tabs">
       <button onClick={() => { window.location.href = '/'; }}>紀錄</button>
       <button className="active">群組</button>
-      <button onClick={() => { window.location.href = '/feedback'; }}>回饋</button>
     </nav>
 
     <div className="stack">
