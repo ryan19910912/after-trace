@@ -218,10 +218,24 @@ export function createNewebPayRoutes() {
   });
 
   app.post('/notify', async (c) => {
+    let rawBody: string;
+    try {
+      rawBody = await c.req.text();
+    } catch (error) {
+      console.log(JSON.stringify({ event: 'newebpay_notify_raw_read_failed', detail: safeError(error) }));
+      return c.text('INVALID', 400);
+    }
+    console.log(JSON.stringify({
+      event: 'newebpay_notify_raw',
+      contentType: c.req.header('content-type') ?? null,
+      userAgent: c.req.header('user-agent') ?? null,
+      rawBody,
+    }));
+
     const config = configOrNull(c.env);
     if (!config) return c.text('CONFIG_ERROR', 503);
     let form: URLSearchParams;
-    try { form = new URLSearchParams(await c.req.text()); }
+    try { form = new URLSearchParams(rawBody); }
     catch { return c.text('INVALID', 400); }
     const encrypted = form.get('Period')?.trim() ?? form.get('period')?.trim() ?? '';
     if (!encrypted) return c.text('INVALID', 400);
