@@ -129,9 +129,29 @@ export function createNewebPayRoutes() {
         AND checkout_intent.expires_at > NOW()
       LIMIT 1
     `);
-    const pending = pendingResult.rows[0] as { request_key?: unknown; provider_checkout_id?: unknown } | undefined;
+    let pending = pendingResult.rows[0] as { request_key?: unknown; provider_checkout_id?: unknown } | undefined;
     if (pending && pending.request_key !== requestKey) {
-      return c.json({ ok: false, error: 'NEWEBPAY_CHECKOUT_ALREADY_PENDING' }, 409);
+      await auth.database.execute(sql`
+        WITH superseded_intents AS (
+          UPDATE worklog_checkout_intents AS checkout_intent
+          SET status = 'FAILED', updated_at = NOW()
+          FROM worklog_newebpay_subscriptions AS adapter_row
+          WHERE adapter_row.user_id = ${auth.userId}
+            AND adapter_row.status = 'PENDING'
+            AND checkout_intent.id = adapter_row.checkout_intent_id
+            AND checkout_intent.user_id = ${auth.userId}
+            AND checkout_intent.provider = 'NEWEBPAY'
+            AND checkout_intent.status = 'READY'
+            AND checkout_intent.request_key <> ${requestKey}
+          RETURNING checkout_intent.id
+        )
+        UPDATE worklog_newebpay_subscriptions AS adapter_row
+        SET status = 'FAILED', updated_at = NOW()
+        WHERE adapter_row.user_id = ${auth.userId}
+          AND adapter_row.status = 'PENDING'
+          AND adapter_row.checkout_intent_id IN (SELECT id FROM superseded_intents)
+      `);
+      pending = undefined;
     }
 
     const merchantOrderNo = await merchantOrderNumber(requestKey);
