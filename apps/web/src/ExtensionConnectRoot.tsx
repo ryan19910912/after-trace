@@ -24,6 +24,7 @@ type ExtensionSessionResponse = {
 
 export function ExtensionConnectRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
   const connectTarget = useMemo(() => extensionConnectTarget(window.location), []);
+  const storeUrl = safeChromeStoreUrl(import.meta.env.VITE_CHROME_EXTENSION_STORE_URL?.trim());
   const [session, setSession] = useState<string | null>(() => localStorage.getItem(SESSION_KEY));
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
@@ -69,10 +70,10 @@ export function ExtensionConnectRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
   return <main className="shell fatal-shell">
     <section className="fatal-card login-card">
       <p className="eyebrow">AFTERTRACE</p>
-      <h1>{connectTarget ? '連接 Chrome 擴充功能' : '瀏覽器擴充元件'}</h1>
-      {connectTarget ? <p className="muted">這個動作會建立一個較短效的 AFTERTRACE 擴充功能工作階段，不會把 Google、LINE 或 Apple 的登入憑證交給擴充功能，也不會使用 extension-only 帳號。</p> : <>
-        <p className="muted">安裝 AFTERTRACE 擴充元件後，可以在瀏覽網頁時快速留下目前網址、文字與工作內容，不必先切回 AFTERTRACE。</p>
-        <div className="worklog-notice">目前這個頁面先作為擴充元件入口。安裝完成後，請從擴充元件內按「連接 AFTERTRACE」，系統會自動帶你回到這裡完成綁定。</div>
+      <h1>{connectTarget ? '連接 Chrome 擴充功能' : 'Chrome 擴充元件'}</h1>
+      {connectTarget ? <p className="muted">這個動作會建立一個較短效的 AFTERTRACE 擴充功能工作階段，不會把 Google、LINE 或 Apple 的登入憑證交給擴充功能。</p> : <>
+        <p className="muted">安裝 AFTERTRACE 擴充元件後，可以在瀏覽網頁時快速留下目前網址、文字、截圖與工作內容，不必先切回 AFTERTRACE。</p>
+        {storeUrl ? <div className="stack"><a className="line-support-link" href={storeUrl} target="_blank" rel="noreferrer"><strong>安裝 Chrome 擴充元件</strong></a><p className="muted">安裝完成後，請從擴充元件內按「連接 AFTERTRACE」，再回到這裡完成帳號連接。</p></div> : <div className="worklog-notice">擴充元件功能已經實作，但目前專案尚未設定 Chrome Web Store 上架連結，所以還不能讓一般使用者一鍵安裝。完成 Chrome Web Store 上架後，只要設定 VITE_CHROME_EXTENSION_STORE_URL，這裡就會直接顯示安裝按鈕。</div>}
       </>}
 
       {error ? <div className="error">{error}</div> : null}
@@ -162,4 +163,14 @@ export async function sendExtensionSession(input: {
       resolve();
     });
   });
+}
+
+function safeChromeStoreUrl(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && /(^|\.)chromewebstore\.google\.com$/i.test(url.hostname) ? url.toString() : null;
+  } catch {
+    return null;
+  }
 }
