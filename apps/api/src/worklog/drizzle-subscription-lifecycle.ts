@@ -92,8 +92,8 @@ export class DrizzleSubscriptionLifecycleRepository implements SubscriptionLifec
           'PAYMENT',
           ${`payment:${event.provider}`},
           jsonb_build_object(
-            'externalEventKey', ${event.externalEventKey},
-            'eventType', ${event.type},
+            'externalEventKey', ${event.externalEventKey}::text,
+            'eventType', ${event.type}::text,
             'periodStart', ${periodStart}::timestamptz,
             'periodEnd', ${periodEnd}::timestamptz
           ),
@@ -120,8 +120,8 @@ export class DrizzleSubscriptionLifecycleRepository implements SubscriptionLifec
           ${grantOrigin},
           jsonb_build_object(
             'planCode', 'AI_PRO',
-            'provider', ${event.provider},
-            'externalEventKey', ${event.externalEventKey},
+            'provider', ${event.provider}::text,
+            'externalEventKey', ${event.externalEventKey}::text,
             'periodStart', ${periodStart}::timestamptz,
             'periodEnd', ${periodEnd}::timestamptz
           ),
@@ -230,7 +230,7 @@ export class DrizzleSubscriptionLifecycleRepository implements SubscriptionLifec
           'PAYMENT',
           ${`payment:${event.provider}`},
           jsonb_build_object(
-            'externalEventKey', ${event.externalEventKey},
+            'externalEventKey', ${event.externalEventKey}::text,
             'eventType', 'CANCEL',
             'periodStart', subscription_update.current_period_start,
             'periodEnd', subscription_update.current_period_end
