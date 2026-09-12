@@ -3,17 +3,32 @@
   "short_name": "AFTERTRACE",
   "description": "快速留下工作發生過的事，需要時找得到。",
   "lang": "zh-Hant",
-  "start_url": "/capture",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#0b1016",
-  "theme_color": "#0b1016",
+  "background_color": "#06111f",
+  "theme_color": "#06111f",
   "icons": [
     {
       "src": "/aftertrace-icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "快速紀錄",
+      "short_name": "紀錄",
+      "description": "開啟 AFTERTRACE 紀錄列表並快速輸入文字或語音。",
+      "url": "/",
+      "icons": [
+        {
+          "src": "/aftertrace-icon.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
+        }
+      ]
     }
   ]
 }
