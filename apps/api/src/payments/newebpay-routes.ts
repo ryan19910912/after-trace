@@ -141,9 +141,9 @@ export function createNewebPayRoutes() {
 
     const inserted = await auth.database.execute(sql`
       INSERT INTO worklog_checkout_intents (
-        user_id, plan_code, request_key, status, provider, provider_checkout_id, checkout_url, expires_at, created_at, updated_at
+        user_id, plan_code, payer_email, request_key, status, provider, provider_checkout_id, checkout_url, expires_at, created_at, updated_at
       ) VALUES (
-        ${auth.userId}, 'AI_PRO', ${requestKey}, 'READY', 'NEWEBPAY', ${merchantOrderNo}, ${checkout.action},
+        ${auth.userId}, 'AI_PRO', ${payerEmail || null}, ${requestKey}, 'READY', 'NEWEBPAY', ${merchantOrderNo}, ${checkout.action},
         NOW() + INTERVAL '30 minutes', NOW(), NOW()
       )
       ON CONFLICT (request_key) DO NOTHING

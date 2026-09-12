@@ -12,6 +12,7 @@ export const worklogCheckoutIntents = pgTable(
     planCode: varchar('plan_code', { length: 64 })
       .notNull()
       .references(() => worklogSubscriptionPlans.code, { onDelete: 'restrict' }),
+    payerEmail: varchar('payer_email', { length: 320 }),
     requestKey: varchar('request_key', { length: 64 }).notNull(),
     status: varchar('status', { length: 32 }).default('PENDING_PROVIDER').notNull(),
     provider: varchar('provider', { length: 64 }),
