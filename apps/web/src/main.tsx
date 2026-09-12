@@ -35,7 +35,7 @@ function pageTitle(pathname: string): string {
   if (pathname === '/mobile-shortcut') return '手機桌面捷徑｜AFTERTRACE';
   if (pathname === '/about') return '關於我們｜AFTERTRACE';
   if (pathname === '/capture') return '快速紀錄｜AFTERTRACE';
-  if (pathname === '/ai-search') return 'AI 搜尋｜AFTERTRACE';
+  if (pathname === '/ai-search') return '搜尋｜AFTERTRACE';
   if (pathname === '/ai-tools') return 'AI 整理｜AFTERTRACE';
   if (pathname === '/ai-task') return 'AI 待辦｜AFTERTRACE';
   if (pathname === '/subscription') return '方案｜AFTERTRACE';
@@ -43,7 +43,7 @@ function pageTitle(pathname: string): string {
   if (pathname === '/help') return '使用說明｜AFTERTRACE';
   if (pathname === '/tasks' || pathname.startsWith('/tasks/')) return '待辦｜AFTERTRACE';
   if (pathname === '/worklog') return '群組｜AFTERTRACE';
-  return '紀錄列表｜AFTERTRACE';
+  return '紀錄｜AFTERTRACE';
 }
 
 function bootstrap() {
