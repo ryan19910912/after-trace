@@ -52,7 +52,8 @@ export async function targetReadinessResponse(env: TargetReadinessBindings): Pro
         (SELECT COUNT(*) FROM worklog_subscription_lifecycle_events WHERE FALSE) AS lifecycle_probe,
         (SELECT COUNT(*) FROM worklog_feedback WHERE FALSE) AS feedback_probe,
         (SELECT COUNT(*) FROM worklog_feedback_management WHERE FALSE) AS feedback_management_probe,
-        (SELECT COUNT(*) FROM worklog_newebpay_subscriptions WHERE FALSE) AS newebpay_probe
+        (SELECT COUNT(*) FROM worklog_newebpay_subscriptions WHERE FALSE) AS newebpay_probe,
+        (SELECT COUNT(*) FROM worklog_newebpay_subscription_history WHERE FALSE) AS newebpay_history_probe
     `);
   } catch (error) {
     console.error('WORKLOG_TARGET_READINESS_SCHEMA_PROBE_FAILED', error);
