@@ -12,6 +12,7 @@ import { PricingCalculatorPage } from './PricingCalculatorPage';
 import { ProfitabilityPage } from './ProfitabilityPage';
 import { installTaipeiDateDisplayPolicy } from './time-display';
 import './styles.css';
+import './admin-modern.css';
 
 installTaipeiDateDisplayPolicy();
 
