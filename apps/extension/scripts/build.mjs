@@ -24,6 +24,7 @@ await mkdir(outDir, { recursive: true });
 for (const file of ['background.js', 'popup.html', 'popup.js', 'screenshot-ai.js']) {
   await cp(path.join(root, file), path.join(outDir, file));
 }
+await cp(path.join(root, 'icons'), path.join(outDir, 'icons'), { recursive: true });
 
 const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
 await writeFile(path.join(outDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
