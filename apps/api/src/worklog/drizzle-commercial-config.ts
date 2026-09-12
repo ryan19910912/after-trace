@@ -34,7 +34,7 @@ export class DrizzleCommercialConfigRepository implements CommercialConfigReposi
   constructor(private readonly db: Database) {}
 
   async getFreeAiTrialConfig(): Promise<FreeAiTrialConfigSnapshot | null> {
-    const result = await this.db.execute(sql`${configSelect()} WHERE config.id = 1 LIMIT 1`);
+    const result = await this.db.execute(configSelect());
     const row = result.rows[0] as ConfigRow | undefined;
     return row ? mapConfig(row) : null;
   }
@@ -161,7 +161,9 @@ function configSelect() {
       COALESCE(SUM(ai_grant.remaining_points), 0)::bigint AS remaining_points
     FROM worklog_commercial_config AS config
     LEFT JOIN worklog_ai_grants AS ai_grant ON ai_grant.type = 'FREE_INITIAL'
+    WHERE config.id = 1
     GROUP BY config.id
+    LIMIT 1
   `;
 }
 
