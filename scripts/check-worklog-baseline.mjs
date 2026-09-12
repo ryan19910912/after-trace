@@ -21,9 +21,16 @@ else failures.push('missing drizzle/meta/0000_snapshot.json');
 if (!existsSync(historyMigrationPath)) failures.push('missing drizzle/0001_newebpay_subscription_history.sql');
 else {
   const historyMigration = readFileSync(historyMigrationPath, 'utf8');
-  for (const marker of ['worklog_newebpay_subscription_history', 'worklog_newebpay_history_order_uq', 'worklog_newebpay_history_status_ck']) {
+  for (const marker of [
+    'worklog_newebpay_subscription_history',
+    'worklog_newebpay_history_order_uq',
+    'CHECK ("status" IN',
+    'COMMENT ON TABLE "worklog_newebpay_subscription_history"',
+    'COMMENT ON COLUMN "worklog_newebpay_subscription_history"."merchant_order_no"',
+  ]) {
     if (!historyMigration.includes(marker)) failures.push(`NewebPay history migration missing: ${marker}`);
   }
+  if (historyMigration.includes('CONSTRAINT ')) failures.push('NewebPay history migration must not use named CONSTRAINT clauses');
 }
 const journalText = existsSync(journalPath) ? readFileSync(journalPath, 'utf8') : null;
 if (journalText === null) failures.push('missing drizzle/meta/_journal.json');
