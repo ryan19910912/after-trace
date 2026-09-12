@@ -22,6 +22,7 @@ import {
 export type NewebPayBindings = {
   DATABASE_URL: string;
   WEB_AUTH_SECRET?: string;
+  WEB_APP_URL?: string;
   WEB_APP_ORIGIN?: string;
   NEWEBPAY_MERCHANT_ID?: string;
   NEWEBPAY_HASH_KEY?: string;
@@ -40,7 +41,7 @@ export function createNewebPayRoutes() {
 
   app.use('*', async (c, next) => {
     c.header('Cache-Control', 'no-store');
-    if (c.req.path === '/notify') { await next(); return; }
+    if (c.req.path === '/notify' || c.req.path === '/return') { await next(); return; }
     const origin = c.req.header('origin');
     const allowed = c.env.WEB_APP_ORIGIN?.trim();
     if (origin && (!allowed || origin !== allowed)) return c.json({ ok: false, error: 'ORIGIN_NOT_ALLOWED' }, 403);
@@ -60,6 +61,9 @@ export function createNewebPayRoutes() {
   });
 
   app.get('/availability', (c) => c.json({ ok: true, provider: 'NEWEBPAY', available: Boolean(configOrNull(c.env)) }));
+
+  app.post('/return', (c) => paymentReturnRedirect(c.env));
+  app.get('/return', (c) => paymentReturnRedirect(c.env));
 
   app.post('/checkout', async (c) => {
     const auth = await authenticatedContext(c.env, c.req.header('authorization'));
@@ -350,6 +354,17 @@ export function createNewebPayRoutes() {
   });
 
   return app;
+}
+
+function paymentReturnRedirect(env: NewebPayBindings): Response {
+  const raw = env.WEB_APP_URL?.trim() || env.WEB_APP_ORIGIN?.trim();
+  if (!raw) return Response.json({ ok: false, error: 'WEB_APP_URL_NOT_CONFIGURED' }, { status: 503 });
+  try {
+    const origin = new URL(raw).origin;
+    return Response.redirect(`${origin}/subscription?payment=returned`, 303);
+  } catch {
+    return Response.json({ ok: false, error: 'WEB_APP_URL_INVALID' }, { status: 503 });
+  }
 }
 
 function configOrNull(env: NewebPayBindings): NewebPayPeriodicConfig | null {
