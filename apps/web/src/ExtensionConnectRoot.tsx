@@ -14,7 +14,6 @@ type ChromeRuntime = {
 };
 
 type ChromeBridge = { runtime?: ChromeRuntime };
-
 type ConnectResponse = { ok?: unknown; error?: unknown };
 type ExtensionSessionResponse = {
   ok?: unknown;
@@ -70,10 +69,12 @@ export function ExtensionConnectRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
   return <main className="shell fatal-shell">
     <section className="fatal-card login-card">
       <p className="eyebrow">AFTERTRACE</p>
-      <h1>連接 Chrome 擴充功能</h1>
-      <p className="muted">這個動作會建立一個較短效的 AFTERTRACE 擴充功能工作階段，不會把 Google、LINE 或 Apple 的登入憑證交給擴充功能，也不會使用 extension-only 帳號。</p>
+      <h1>{connectTarget ? '連接 Chrome 擴充功能' : '瀏覽器擴充元件'}</h1>
+      {connectTarget ? <p className="muted">這個動作會建立一個較短效的 AFTERTRACE 擴充功能工作階段，不會把 Google、LINE 或 Apple 的登入憑證交給擴充功能，也不會使用 extension-only 帳號。</p> : <>
+        <p className="muted">安裝 AFTERTRACE 擴充元件後，可以在瀏覽網頁時快速留下目前網址、文字與工作內容，不必先切回 AFTERTRACE。</p>
+        <div className="worklog-notice">目前這個頁面先作為擴充元件入口。安裝完成後，請從擴充元件內按「連接 AFTERTRACE」，系統會自動帶你回到這裡完成綁定。</div>
+      </>}
 
-      {!connectTarget ? <div className="error">這個擴充功能連接請求無效，請回到 AFTERTRACE 擴充功能重新按一次「連接」。</div> : null}
       {error ? <div className="error">{error}</div> : null}
       {done ? <div className="worklog-notice">已連接。現在可以回到擴充功能選擇紀錄空間並快速記錄。</div> : null}
 
