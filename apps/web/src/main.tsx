@@ -50,6 +50,13 @@ function bootstrap() {
   const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
   if (!apiBaseUrl) throw new Error('系統設定不完整，請稍後再試。');
 
+  const currentUrl = new URL(window.location.href);
+  if (currentUrl.pathname === '/' && currentUrl.searchParams.get('invite')) {
+    currentUrl.pathname = '/worklog';
+    window.location.replace(`${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`);
+    return;
+  }
+
   document.title = pageTitle(window.location.pathname);
 
   if (window.location.pathname === '/' && window.location.hash.includes('session=')) {
