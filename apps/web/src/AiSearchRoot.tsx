@@ -153,10 +153,14 @@ export function AiSearchRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
     setGeneralPageIndex(0);
   }
 
-  if (!session) return <main className="shell fatal-shell"><section className="fatal-card"><p className="eyebrow">AFTERTRACE</p><h1>搜尋</h1><p className="muted">一般搜尋免費；需要自然語言理解時再切到 AI 搜尋。</p>{error ? <div className="error">{error}</div> : null}<LoginProviderButtons apiBaseUrl={apiBaseUrl} returnTo="/ai-search" /></section></main>;
+  if (!session) return <main className="shell fatal-shell"><section className="fatal-card"><p className="eyebrow">AFTERTRACE</p><h1>搜尋</h1><p className="muted">一般搜尋可以用關鍵字與日期快速找紀錄；需要理解一句話時再使用 AI 搜尋。</p>{error ? <div className="error">{error}</div> : null}<LoginProviderButtons apiBaseUrl={apiBaseUrl} returnTo="/ai-search" /></section></main>;
+
+  const searchDescription = tab === 'GENERAL'
+    ? '用關鍵字、日期與搜尋範圍，快速找到你曾經記下的工作紀錄。'
+    : '直接用一句話描述你想找的事情，AI 會理解你的需求並從紀錄中找出相關內容。';
 
   return <main className="shell worklog-shell ai-search-shell search-hub-shell">
-    <div className="topbar"><div><p className="eyebrow">AFTERTRACE</p><h1>搜尋</h1><p className="muted">精確條件用一般搜尋；想直接用一句話描述時再使用 AI 搜尋。</p></div></div>
+    <div className="topbar"><div><p className="eyebrow">AFTERTRACE</p><h1>搜尋</h1><p className="muted">{searchDescription}</p></div></div>
     {error ? <div className="error">{error}</div> : null}
 
     <nav className="search-mode-tabs" aria-label="搜尋模式">
