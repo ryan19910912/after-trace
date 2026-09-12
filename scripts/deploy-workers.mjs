@@ -51,6 +51,7 @@ if (component === 'all' || component === 'api') {
   } finally {
     try { unlinkSync(secretsFile); } catch {}
   }
+  await waitForApiPropagation();
   await verifyApiDeployment(apiOrigin);
 }
 
@@ -146,6 +147,12 @@ function assertEnvironmentHost(origin, expectedWorkerName) {
   if (!url.hostname.endsWith('.workers.dev')) return;
   const actualWorkerName = url.hostname.split('.')[0];
   if (actualWorkerName !== expectedWorkerName) fail(`Environment mismatch: ${origin} points to ${actualWorkerName}, expected ${expectedWorkerName}.`);
+}
+
+async function waitForApiPropagation() {
+  console.log('');
+  console.log('==> Wait 3 seconds for API Worker propagation');
+  await new Promise((resolve) => setTimeout(resolve, 3000));
 }
 
 async function verifyApiDeployment(origin) {
