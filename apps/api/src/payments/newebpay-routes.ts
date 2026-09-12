@@ -225,20 +225,21 @@ export function createNewebPayRoutes() {
       console.log(JSON.stringify({ event: 'newebpay_notify_raw_read_failed', detail: safeError(error) }));
       return c.text('INVALID', 400);
     }
+    const contentType = c.req.header('content-type') ?? '';
     console.log(JSON.stringify({
       event: 'newebpay_notify_raw',
-      contentType: c.req.header('content-type') ?? null,
+      contentType,
       userAgent: c.req.header('user-agent') ?? null,
       rawBody,
     }));
 
     const config = configOrNull(c.env);
     if (!config) return c.text('CONFIG_ERROR', 503);
-    let form: URLSearchParams;
-    try { form = new URLSearchParams(rawBody); }
-    catch { return c.text('INVALID', 400); }
-    const encrypted = form.get('Period')?.trim() ?? form.get('period')?.trim() ?? '';
-    if (!encrypted) return c.text('INVALID', 400);
+    const encrypted = periodPayloadFromRaw(rawBody, contentType);
+    if (!encrypted) {
+      console.log(JSON.stringify({ event: 'newebpay_notify_missing_period_payload', contentType }));
+      return c.text('INVALID', 400);
+    }
     let callback;
     try { callback = await parsePeriodicCallback({ encryptedPeriod: encrypted, config }); }
     catch (error) {
@@ -492,6 +493,24 @@ function safeError(error: unknown) {
     return { name: error.name, message: error.message.slice(0, 1000) };
   }
   return { name: typeof error, message: String(error).slice(0, 1000) };
+}
+function periodPayloadFromRaw(rawBody: string, contentType: string): string {
+  if (/^multipart\/form-data\b/i.test(contentType)) {
+    const boundaryMatch = /boundary=(?:"([^"]+)"|([^;\s]+))/i.exec(contentType);
+    const boundary = boundaryMatch?.[1] ?? boundaryMatch?.[2] ?? '';
+    if (!boundary) return '';
+    for (const part of rawBody.split(`--${boundary}`)) {
+      if (!/name="(?:Period|period)"/i.test(part)) continue;
+      const separator = part.includes('\r\n\r\n') ? '\r\n\r\n' : '\n\n';
+      const bodyIndex = part.indexOf(separator);
+      if (bodyIndex < 0) continue;
+      const value = part.slice(bodyIndex + separator.length).replace(/\r?\n--?\s*$/, '').trim();
+      if (/^[0-9a-f]+$/i.test(value)) return value;
+    }
+    return '';
+  }
+  const form = new URLSearchParams(rawBody);
+  return form.get('Period')?.trim() ?? form.get('period')?.trim() ?? '';
 }
 function dateValue(value: unknown) { if (value == null) return null; const date=value instanceof Date?value:new Date(String(value)); return Number.isNaN(date.getTime())?null:date; }
 function boundedMetadata(value: Record<string, unknown>) { const encoded=JSON.stringify(value); return encoded.length<=8000?value:{ truncated:true }; }
