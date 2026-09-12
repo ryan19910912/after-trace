@@ -227,11 +227,17 @@ export function createNewebPayRoutes() {
     if (!encrypted) return c.text('INVALID', 400);
     let callback;
     try { callback = await parsePeriodicCallback({ encryptedPeriod: encrypted, config }); }
-    catch { return c.text('INVALID', 400); }
+    catch (error) {
+      console.log(JSON.stringify({ event: 'newebpay_notify_parse_failed', detail: safeError(error) }));
+      return c.text('INVALID', 400);
+    }
 
     const result = callback.result;
     const merchantOrderNo = providerString(result, 'MerchantOrderNo', 'MerOrderNo');
-    if (!merchantOrderNo) return c.text('INVALID', 400);
+    if (!merchantOrderNo) {
+      console.log(JSON.stringify({ event: 'newebpay_notify_missing_order_no', status: callback.status, resultKeys: Object.keys(result).sort() }));
+      return c.text('INVALID', 400);
+    }
     const database = createDatabase(c.env.DATABASE_URL);
     const adapterResult = await database.execute(sql`
       SELECT n.user_id::text AS user_id, n.status, n.period_no,
@@ -242,11 +248,21 @@ export function createNewebPayRoutes() {
       LIMIT 1
     `);
     const adapter = adapterResult.rows[0] as Record<string, unknown> | undefined;
-    if (!adapter) return c.text('OK');
+    if (!adapter) {
+      console.log(JSON.stringify({ event: 'newebpay_notify_adapter_not_found', merchantOrderNo, status: callback.status }));
+      return c.text('OK');
+    }
     const userId = Number(adapter.user_id);
     if (!Number.isSafeInteger(userId) || userId <= 0) return c.text('OK');
 
     if (!callbackSuccess(callback)) {
+      console.log(JSON.stringify({
+        event: 'newebpay_notify_provider_failed',
+        merchantOrderNo,
+        status: callback.status,
+        message: callback.message,
+        respondCode: providerString(result, 'RespondCode'),
+      }));
       await database.execute(sql`
         UPDATE worklog_checkout_intents SET status = CASE WHEN status = 'COMPLETED' THEN status ELSE 'FAILED' END, updated_at = NOW()
         WHERE id = ${Number(adapter.checkout_intent_id)}
@@ -258,19 +274,24 @@ export function createNewebPayRoutes() {
     }
 
     const periodNo = providerString(result, 'PeriodNo');
-    if (!periodNo) return c.text('OK');
+    if (!periodNo) {
+      console.log(JSON.stringify({ event: 'newebpay_notify_missing_period_no', merchantOrderNo, status: callback.status, resultKeys: Object.keys(result).sort() }));
+      return c.text('OK');
+    }
     const authDateRaw = providerString(result, 'AuthDate', 'AuthTime');
     const periodStart = parseNewebPayTaipeiDate(authDateRaw);
     const tradeNo = providerString(result, 'TradeNo', 'OrderNo', 'AuthCode');
     const alreadyTimes = providerString(result, 'AlreadyTimes', 'AuthTimes');
     if (!periodStart || (!tradeNo && !alreadyTimes)) {
-      console.error(JSON.stringify({
+      console.log(JSON.stringify({
         event: 'newebpay_callback_missing_stable_facts',
         merchantOrderNo,
         periodNo,
-        hasAuthDate: Boolean(authDateRaw),
+        authDateRaw,
+        hasParsedPeriodStart: Boolean(periodStart),
         hasTradeNo: Boolean(tradeNo),
         hasAlreadyTimes: Boolean(alreadyTimes),
+        resultKeys: Object.keys(result).sort(),
       }));
       return c.text('RETRY', 500);
     }
@@ -279,6 +300,19 @@ export function createNewebPayRoutes() {
     const periodEnd = nextAuth && nextAuth.getTime() > periodStart.getTime() ? nextAuth : nextMonthlyPeriod(periodStart);
     const externalEventKey = `period:${periodNo}:${tradeNo ?? `attempt:${alreadyTimes}`}`.slice(0, 255);
     const isActivation = !adapter.current_period_start;
+
+    console.log(JSON.stringify({
+      event: 'newebpay_notify_ready_for_lifecycle',
+      merchantOrderNo,
+      periodNo,
+      userId,
+      adapterStatus: adapter.status,
+      isActivation,
+      periodStart: periodStart.toISOString(),
+      periodEnd: periodEnd.toISOString(),
+      hasTradeNo: Boolean(tradeNo),
+      alreadyTimes,
+    }));
 
     const lifecycle = new SubscriptionLifecycleService(
       new DrizzleSubscriptionLifecycleRepository(database),
@@ -293,9 +327,24 @@ export function createNewebPayRoutes() {
         metadata: boundedMetadata({ merchantOrderNo, periodNo, tradeNo, alreadyTimes, status: callback.status }),
       });
     } catch (error) {
-      console.error(JSON.stringify({ event: 'newebpay_lifecycle_failed', error: errorCode(error, 'SUBSCRIPTION_LIFECYCLE_FAILED') }));
+      console.log(JSON.stringify({
+        event: 'newebpay_lifecycle_failed',
+        merchantOrderNo,
+        periodNo,
+        userId,
+        error: errorCode(error, 'SUBSCRIPTION_LIFECYCLE_FAILED'),
+        detail: safeError(error),
+      }));
       return c.text('RETRY', 500);
     }
+
+    console.log(JSON.stringify({
+      event: 'newebpay_lifecycle_result',
+      merchantOrderNo,
+      periodNo,
+      userId,
+      lifecycleStatus: lifecycleResult.status,
+    }));
 
     const currentAdapterStart = dateValue(adapter.current_period_start);
     const staleAgainstAdapter = Boolean(currentAdapterStart && periodStart.getTime() < currentAdapterStart.getTime());
@@ -424,5 +473,11 @@ async function authenticatedContext(env: NewebPayBindings, header: string | unde
 async function merchantOrderNumber(requestKey: string) { const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(requestKey))); return `AT${[...bytes].map((b)=>b.toString(16).padStart(2,'0')).join('').slice(0,28)}`; }
 async function jsonBody(c: { req: { json(): Promise<unknown> } }) { try { const value=await c.req.json(); return value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:null; } catch { return null; } }
 function errorCode(error: unknown, fallback: string) { return error instanceof Error && /^[A-Z0-9_]+$/.test(error.message) ? error.message : fallback; }
+function safeError(error: unknown) {
+  if (error instanceof Error) {
+    return { name: error.name, message: error.message.slice(0, 1000) };
+  }
+  return { name: typeof error, message: String(error).slice(0, 1000) };
+}
 function dateValue(value: unknown) { if (value == null) return null; const date=value instanceof Date?value:new Date(String(value)); return Number.isNaN(date.getTime())?null:date; }
 function boundedMetadata(value: Record<string, unknown>) { const encoded=JSON.stringify(value); return encoded.length<=8000?value:{ truncated:true }; }
