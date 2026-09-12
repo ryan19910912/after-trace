@@ -6,6 +6,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const drizzleDir = resolve(root, 'drizzle');
 const metaDir = resolve(drizzleDir, 'meta');
 const baselinePath = resolve(drizzleDir, '0000_worklog_baseline.sql');
+const historyMigrationPath = resolve(drizzleDir, '0001_newebpay_subscription_history.sql');
 const snapshotPath = resolve(metaDir, '0000_snapshot.json');
 const journalPath = resolve(metaDir, '_journal.json');
 const failures = [];
@@ -17,6 +18,13 @@ if (existsSync(baselinePath)) sources.push(['baseline SQL', readFileSync(baselin
 else failures.push('missing drizzle/0000_worklog_baseline.sql');
 if (existsSync(snapshotPath)) sources.push(['Drizzle snapshot', readFileSync(snapshotPath, 'utf8')]);
 else failures.push('missing drizzle/meta/0000_snapshot.json');
+if (!existsSync(historyMigrationPath)) failures.push('missing drizzle/0001_newebpay_subscription_history.sql');
+else {
+  const historyMigration = readFileSync(historyMigrationPath, 'utf8');
+  for (const marker of ['worklog_newebpay_subscription_history', 'worklog_newebpay_history_order_uq', 'worklog_newebpay_history_status_ck']) {
+    if (!historyMigration.includes(marker)) failures.push(`NewebPay history migration missing: ${marker}`);
+  }
+}
 const journalText = existsSync(journalPath) ? readFileSync(journalPath, 'utf8') : null;
 if (journalText === null) failures.push('missing drizzle/meta/_journal.json');
 
@@ -100,34 +108,36 @@ if (journalText !== null) {
 }
 if (journal) {
   if (journal.dialect !== 'postgresql') failures.push('Drizzle journal dialect must be postgresql');
-  if (!Array.isArray(journal.entries) || journal.entries.length !== 1) {
-    failures.push('prelaunch Drizzle journal must contain exactly one regenerated baseline entry');
+  if (!Array.isArray(journal.entries) || journal.entries.length !== 2) {
+    failures.push('Drizzle journal must contain baseline plus the NewebPay history migration');
   } else {
-    const entry = journal.entries[0];
-    if (entry?.idx !== 0 || entry?.tag !== '0000_worklog_baseline') {
+    const [baseline, history] = journal.entries;
+    if (baseline?.idx !== 0 || baseline?.tag !== '0000_worklog_baseline') {
       failures.push('Drizzle journal baseline entry must be idx=0 and tag=0000_worklog_baseline');
+    }
+    if (history?.idx !== 1 || history?.tag !== '0001_newebpay_subscription_history') {
+      failures.push('Drizzle journal NewebPay history entry must be idx=1 and tag=0001_newebpay_subscription_history');
     }
   }
 }
 
 if (failures.length > 0) {
-  console.error('AFTERTRACE migration baseline is stale/inconsistent and deployment must stop.');
+  console.error('AFTERTRACE migration artifacts are stale/inconsistent and deployment must stop.');
   for (const failure of failures) console.error(`- ${failure}`);
-  console.error('Regenerate drizzle/0000_worklog_baseline.sql + meta snapshot/journal together from apps/api/src/db/schema-all.ts, then apply them to a fresh disposable PostgreSQL database before deployment.');
   process.exit(1);
 }
 
-console.log('AFTERTRACE V1 target baseline + Drizzle metadata guard passed.');
+console.log('AFTERTRACE V1 baseline + NewebPay history migration guard passed.');
 
 function checkArtifactShape() {
   if (!existsSync(drizzleDir)) { failures.push('missing drizzle directory'); return; }
   const rootEntries = readdirSync(drizzleDir).sort();
-  const expectedRoot = ['0000_worklog_baseline.sql', 'meta'];
-  if (!sameEntries(rootEntries, expectedRoot)) failures.push(`prelaunch drizzle directory must contain exactly ${expectedRoot.join(', ')}; found ${rootEntries.join(', ') || '(empty)'}`);
+  const expectedRoot = ['0000_worklog_baseline.sql', '0001_newebpay_subscription_history.sql', 'meta'];
+  if (!sameEntries(rootEntries, expectedRoot)) failures.push(`drizzle directory must contain exactly ${expectedRoot.join(', ')}; found ${rootEntries.join(', ') || '(empty)'}`);
   if (!existsSync(metaDir)) { failures.push('missing drizzle/meta directory'); return; }
   const metaEntries = readdirSync(metaDir).sort();
   const expectedMeta = ['0000_snapshot.json', '_journal.json'];
-  if (!sameEntries(metaEntries, expectedMeta)) failures.push(`prelaunch drizzle/meta must contain exactly ${expectedMeta.join(', ')}; found ${metaEntries.join(', ') || '(empty)'}`);
+  if (!sameEntries(metaEntries, expectedMeta)) failures.push(`drizzle/meta must contain exactly ${expectedMeta.join(', ')}; found ${metaEntries.join(', ') || '(empty)'}`);
 }
 
 function sameEntries(actual, expected) {
