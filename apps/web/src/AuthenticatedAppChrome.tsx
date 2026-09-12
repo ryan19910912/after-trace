@@ -280,7 +280,12 @@ function NotificationCenterPanel({ api, sessionToken, center, error, busyNotific
 function currentSessionToken() {
   if (typeof window === 'undefined') return null;
   const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-  return hash.get('session')?.trim() || window.localStorage.getItem(SESSION_KEY)?.trim() || null;
+  const callbackSession = hash.get('session')?.trim() || null;
+  if (callbackSession) {
+    window.localStorage.setItem(SESSION_KEY, callbackSession);
+    return callbackSession;
+  }
+  return window.localStorage.getItem(SESSION_KEY)?.trim() || null;
 }
 
 async function copyText(value: string) {
@@ -308,9 +313,9 @@ function formatNotificationTime(value: string) {
 
 function isSessionError(cause: unknown) {
   const text = cause instanceof Error ? cause.message : String(cause ?? '');
-  return text === 'INVALID_WEB_SESSION' || text === 'WEB_SESSION_REQUIRED';
+  return /INVALID_WEB_SESSION|WEB_SESSION_REQUIRED/.test(text);
 }
 
 function message(cause: unknown, fallback: string) {
-  return cause instanceof Error ? cause.message : fallback;
+  return cause instanceof Error && cause.message ? cause.message : fallback;
 }
