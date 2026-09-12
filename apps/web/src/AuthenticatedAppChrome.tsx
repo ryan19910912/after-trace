@@ -77,9 +77,10 @@ export function AuthenticatedAppChrome({ apiBaseUrl, children }: Props) {
   useEffect(() => {
     if (!accountOpen && !helpOpen) return;
     const close = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (accountOpen && accountAnchorRef.current && !accountAnchorRef.current.contains(target)) setAccountOpen(false);
-      if (helpOpen && helpAnchorRef.current && !helpAnchorRef.current.contains(target)) setHelpOpen(false);
+      const target = event.target;
+      const element = target instanceof Element ? target : null;
+      if (accountOpen && !element?.closest('.account-menu-anchor')) setAccountOpen(false);
+      if (helpOpen && !element?.closest('.help-menu-anchor')) setHelpOpen(false);
     };
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
