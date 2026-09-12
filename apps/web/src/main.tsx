@@ -18,6 +18,7 @@ import { TaskRoot } from './TaskRoot';
 import { installTaipeiDateDisplayPolicy } from './time-display';
 import { WorklogRoot } from './WorklogRoot';
 import './styles.css';
+import './quick-record.css';
 
 const RETURN_KEY = 'aftertrace.worklog.returnTo';
 
@@ -40,7 +41,7 @@ function pageTitle(pathname: string): string {
   if (pathname === '/feedback') return '意見回饋｜AFTERTRACE';
   if (pathname === '/help') return '使用說明｜AFTERTRACE';
   if (pathname === '/tasks' || pathname.startsWith('/tasks/')) return '待辦｜AFTERTRACE';
-  return '工作紀錄｜AFTERTRACE';
+  return '紀錄列表｜AFTERTRACE';
 }
 
 function bootstrap() {
