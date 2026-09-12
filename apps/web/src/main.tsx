@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { AboutRoot } from './AboutRoot';
 import { AiSearchRoot } from './AiSearchRoot';
 import { AiTaskRoot } from './AiTaskRoot';
 import { AiToolsRoot } from './AiToolsRoot';
@@ -10,6 +11,7 @@ import { FeedbackRoot } from './FeedbackRoot';
 import { HelpRoot } from './HelpRoot';
 import { LoginRoot } from './LoginRoot';
 import { MobileBottomNav } from './MobileBottomNav';
+import { MobileShortcutRoot } from './MobileShortcutRoot';
 import { safeLoginReturn } from './login-return';
 import { SubscriptionRoot } from './SubscriptionRoot';
 import { TaskRoot } from './TaskRoot';
@@ -27,7 +29,9 @@ function Fatal({ message }: { message: string }) {
 
 function pageTitle(pathname: string): string {
   if (pathname === '/login') return '登入｜AFTERTRACE';
-  if (pathname === '/extension/connect') return '連接瀏覽器擴充功能｜AFTERTRACE';
+  if (pathname === '/extension/connect') return 'Chrome 擴充元件｜AFTERTRACE';
+  if (pathname === '/mobile-shortcut') return '手機桌面捷徑｜AFTERTRACE';
+  if (pathname === '/about') return '關於我們｜AFTERTRACE';
   if (pathname === '/capture') return '快速紀錄｜AFTERTRACE';
   if (pathname === '/ai-search') return 'AI 搜尋｜AFTERTRACE';
   if (pathname === '/ai-tools') return 'AI 整理｜AFTERTRACE';
@@ -45,8 +49,6 @@ function bootstrap() {
 
   document.title = pageTitle(window.location.pathname);
 
-  // Provider callbacks return to WEB_APP_URL root. Preserve only bounded customer
-  // destinations, including the explicit extension handoff request.
   if (window.location.pathname === '/' && window.location.hash.includes('session=')) {
     const returnTo = safeLoginReturn(localStorage.getItem(RETURN_KEY));
     if (returnTo) {
@@ -59,6 +61,8 @@ function bootstrap() {
   let content: React.ReactNode;
   if (window.location.pathname === '/login') content = <LoginRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/extension/connect') content = <ExtensionConnectRoot apiBaseUrl={apiBaseUrl} />;
+  else if (window.location.pathname === '/mobile-shortcut') content = <MobileShortcutRoot />;
+  else if (window.location.pathname === '/about') content = <AboutRoot />;
   else if (window.location.pathname === '/capture') content = <CaptureRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/ai-search') content = <AiSearchRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/ai-tools') content = <AiToolsRoot apiBaseUrl={apiBaseUrl} />;
