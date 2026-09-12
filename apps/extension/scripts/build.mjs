@@ -27,6 +27,31 @@ for (const file of ['background.js', 'popup.html', 'popup.js', 'screenshot-ai.js
 
 const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
 await writeFile(path.join(outDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-await writeFile(path.join(outDir, 'config.js'), `globalThis.AFTERTRACE_EXTENSION_CONFIG = ${JSON.stringify({ mode, webAppUrl, apiBaseUrl })};\n`, 'utf8');
+
+const popupPath = path.join(outDir, 'popup.js');
+let popup = await readFile(popupPath, 'utf8');
+popup = popup.replace(
+  /const DEFAULT_WEB_APP_URL = '[^']+';\s*const WEB_APP_ORIGINS = new Set\(\[[\s\S]*?\]\);/,
+  `const DEFAULT_WEB_APP_URL = '${webAppUrl}';\nconst WEB_APP_ORIGINS = new Set(['${webAppUrl}']);`,
+);
+await writeFile(popupPath, popup, 'utf8');
+
+const backgroundPath = path.join(outDir, 'background.js');
+let background = await readFile(backgroundPath, 'utf8');
+background = background.replace(
+  /const WEB_TO_API = new Map\(\[[\s\S]*?\]\);/,
+  `const WEB_TO_API = new Map([[\n  ['${webAppUrl}', '${apiBaseUrl}'],\n]]);`,
+);
+await writeFile(backgroundPath, background, 'utf8');
+
+const popupHtmlPath = path.join(outDir, 'popup.html');
+let popupHtml = await readFile(popupHtmlPath, 'utf8');
+popupHtml = popupHtml.replace(
+  /href="https:\/\/after-trace-web-(?:dev|prod)\.a0955625660\.workers\.dev\/"/,
+  `href="${webAppUrl}/"`,
+);
+await writeFile(popupHtmlPath, popupHtml, 'utf8');
 
 console.log(`Built AFTERTRACE extension (${mode}) -> ${outDir}`);
+console.log(`Web: ${webAppUrl}`);
+console.log(`API: ${apiBaseUrl}`);
