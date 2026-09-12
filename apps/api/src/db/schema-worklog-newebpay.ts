@@ -1,5 +1,4 @@
-import { sql } from 'drizzle-orm';
-import { bigint, bigserial, check, index, integer, jsonb, pgTable, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
+import { bigint, bigserial, index, integer, jsonb, pgTable, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
 import { worklogCheckoutIntents } from './schema-worklog-checkout';
 import { worklogUsers } from './schema-worklog';
 
@@ -25,7 +24,6 @@ export const worklogNewebpaySubscriptions = pgTable(
     uniqueIndex('worklog_newebpay_subscription_order_uq').on(table.merchantOrderNo),
     uniqueIndex('worklog_newebpay_subscription_period_uq').on(table.periodNo),
     index('worklog_newebpay_subscription_status_time_idx').on(table.status, table.updatedAt),
-    check('worklog_newebpay_subscription_status_ck', sql`${table.status} IN ('PENDING','ACTIVE','TERMINATED','FAILED')`),
   ],
 );
 
@@ -34,7 +32,8 @@ export const worklogNewebpaySubscriptions = pgTable(
  *
  * Current state remains one row per user in worklog_newebpay_subscriptions. Every merchant
  * order is retained here so delayed provider callbacks can still be reconciled after a newer
- * checkout has replaced the current PENDING row.
+ * checkout has replaced the current PENDING row. Status/domain validation belongs to the
+ * application layer rather than PostgreSQL CHECK constraints.
  */
 export const worklogNewebpaySubscriptionHistory = pgTable(
   'worklog_newebpay_subscription_history',
@@ -65,9 +64,5 @@ export const worklogNewebpaySubscriptionHistory = pgTable(
     uniqueIndex('worklog_newebpay_history_period_uq').on(table.periodNo),
     index('worklog_newebpay_history_user_time_idx').on(table.userId, table.updatedAt),
     index('worklog_newebpay_history_status_time_idx').on(table.status, table.updatedAt),
-    check(
-      'worklog_newebpay_history_status_ck',
-      sql`${table.status} IN ('PENDING','ACTIVE','TERMINATED','FAILED','SUPERSEDED','PAID_CONFLICT')`,
-    ),
   ],
 );
