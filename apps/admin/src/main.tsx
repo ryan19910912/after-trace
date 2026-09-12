@@ -14,6 +14,7 @@ import { ProfitabilityPage } from './ProfitabilityPage';
 import { installTaipeiDateDisplayPolicy } from './time-display';
 import './styles.css';
 import './admin-modern.css';
+import './admin-shell.css';
 
 installTaipeiDateDisplayPolicy();
 
