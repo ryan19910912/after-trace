@@ -1,0 +1,21 @@
+.admin-app-shell{min-height:100vh;display:grid;grid-template-columns:232px minmax(0,1fr);background:transparent}
+.admin-sidebar{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;padding:18px 14px;border-right:1px solid rgba(84,129,180,.2);background:linear-gradient(180deg,rgba(8,24,41,.98),rgba(5,17,30,.99));box-shadow:12px 0 36px rgba(0,0,0,.12);z-index:20}
+.admin-sidebar-brand{display:flex;align-items:center;gap:11px;padding:6px 8px 18px;color:#f5f9ff;text-decoration:none}
+.admin-sidebar-brand img{width:38px;height:38px;border-radius:11px;box-shadow:0 8px 22px rgba(34,105,190,.22)}
+.admin-sidebar-brand div{display:grid;gap:1px}.admin-sidebar-brand strong{font-size:.92rem;letter-spacing:.07em}.admin-sidebar-brand span{color:#6f8aa5;font-size:.63rem;font-weight:850;letter-spacing:.16em}
+.admin-sidebar-nav{display:grid;gap:5px;margin-top:8px}
+.admin-sidebar-nav a{display:flex;align-items:center;gap:11px;min-height:44px;padding:9px 11px;border:1px solid transparent;border-radius:12px;color:#9eb4ca;text-decoration:none;font-size:.9rem;font-weight:760;transition:background .15s ease,border-color .15s ease,color .15s ease}
+.admin-sidebar-nav a:hover{background:rgba(35,83,131,.24);border-color:rgba(84,146,208,.18);color:#e8f3ff}
+.admin-sidebar-nav a.active{background:linear-gradient(180deg,rgba(44,128,208,.34),rgba(25,76,127,.34));border-color:rgba(86,164,239,.35);color:#fff;box-shadow:inset 0 0 0 1px rgba(137,196,250,.04),0 10px 22px rgba(12,62,112,.12)}
+.admin-nav-icon{display:grid;place-items:center;width:28px;height:28px;border-radius:9px;background:rgba(24,61,98,.64);color:#7fc0ff;font-size:.7rem;font-weight:900}.admin-sidebar-nav a.active .admin-nav-icon{background:rgba(48,135,219,.42);color:#d8ecff}
+.admin-sidebar-footer{display:grid;gap:12px;margin-top:auto;padding:14px 8px 4px;border-top:1px solid rgba(90,132,176,.16)}
+.admin-sidebar-footer>div{display:grid;gap:3px}.admin-sidebar-footer span{color:#607c97;font-size:.62rem;font-weight:850;letter-spacing:.12em}.admin-sidebar-footer strong{color:#aec2d6;font-size:.78rem}.admin-sidebar-footer button{width:100%;min-height:38px}
+.admin-mobile-bar{display:none}
+.admin-app-content{min-width:0;padding:0 22px 48px}
+.admin-app-content>.shell{width:min(1180px,100%);margin:0 auto;padding:26px 0 56px}
+.admin-app-content .admin-home-shell{gap:18px}
+.admin-app-content .admin-page-head{padding:0 0 4px;border:0;border-radius:0;background:transparent;box-shadow:none}
+.admin-app-content .admin-page-head h1{font-size:clamp(1.7rem,2.5vw,2.25rem)}
+.admin-user-pill.compact{min-width:0;padding:9px 12px}
+.admin-login-logo{width:56px;height:56px;border-radius:15px;box-shadow:0 14px 28px rgba(39,117,213,.22)}
+@media(max-width:900px){.admin-app-shell{display:block}.admin-sidebar{display:none}.admin-mobile-bar{position:sticky;top:0;z-index:30;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-bottom:1px solid rgba(84,129,180,.2);background:rgba(6,19,33,.95);backdrop-filter:blur(12px)}.admin-mobile-bar .admin-sidebar-brand{padding:0}.admin-mobile-bar .admin-sidebar-brand img{width:34px;height:34px}.admin-mobile-bar .admin-sidebar-brand strong{font-size:.82rem}.admin-app-content{padding:0 12px 36px}.admin-app-content>.shell{padding-top:18px}}
