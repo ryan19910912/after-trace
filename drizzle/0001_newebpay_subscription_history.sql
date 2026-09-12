@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS "worklog_newebpay_subscription_history" (
 	"checkout_intent_id" bigint REFERENCES "public"."worklog_checkout_intents"("id") ON DELETE restrict ON UPDATE no action,
 	"merchant_order_no" varchar(30) NOT NULL,
 	"period_no" varchar(32),
-	"status" varchar(32) DEFAULT 'PENDING' NOT NULL CHECK ("status" IN ('PENDING','ACTIVE','TERMINATED','FAILED','SUPERSEDED','PAID_CONFLICT')),
+	"status" varchar(32) DEFAULT 'PENDING' NOT NULL,
 	"provider_status" varchar(64),
 	"respond_code" varchar(64),
 	"auth_amount" integer,
@@ -27,7 +27,7 @@ COMMENT ON COLUMN "worklog_newebpay_subscription_history"."user_id" IS 'AFTERTRA
 COMMENT ON COLUMN "worklog_newebpay_subscription_history"."checkout_intent_id" IS '對應的付款意圖 ID，關聯 worklog_checkout_intents.id。';
 COMMENT ON COLUMN "worklog_newebpay_subscription_history"."merchant_order_no" IS 'AFTERTRACE 傳給藍新的商店訂單編號，每次 checkout 唯一。';
 COMMENT ON COLUMN "worklog_newebpay_subscription_history"."period_no" IS '藍新定期定額委託編號，成功建立定期定額後由藍新回傳。';
-COMMENT ON COLUMN "worklog_newebpay_subscription_history"."status" IS 'AFTERTRACE 內部付款歷史狀態：PENDING、ACTIVE、TERMINATED、FAILED、SUPERSEDED、PAID_CONFLICT。';
+COMMENT ON COLUMN "worklog_newebpay_subscription_history"."status" IS 'AFTERTRACE 內部付款歷史狀態，例如 PENDING、ACTIVE、TERMINATED、FAILED、SUPERSEDED、PAID_CONFLICT；合法值由應用程式層控管。';
 COMMENT ON COLUMN "worklog_newebpay_subscription_history"."provider_status" IS '藍新回傳的原始交易／委託狀態。';
 COMMENT ON COLUMN "worklog_newebpay_subscription_history"."respond_code" IS '藍新回傳代碼，例如 00 代表成功。';
 COMMENT ON COLUMN "worklog_newebpay_subscription_history"."auth_amount" IS '本次授權金額，單位為新台幣元。';
