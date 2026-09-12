@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { AccountNotificationApi, notificationCategoryLabel, safeNotificationHref, type AccountProfile, type NotificationCenter, type NotificationCenterItem } from './account-notification-api';
 import { PushNotificationSettings } from './PushNotificationSettings';
 import './account-notification.css';
+import './reference-shell.css';
 const SESSION_KEY='aftertrace.worklog.session'; type Props={apiBaseUrl:string;children:ReactNode};
 const desktopNav=[{href:'/',label:'紀錄',active:(path:string)=>path==='/'},{href:'/tasks',label:'待辦',active:(path:string)=>path.startsWith('/tasks')},{href:'/ai-search',label:'AI 搜尋',active:(path:string)=>path==='/ai-search'||path.startsWith('/ai-tools')||path.startsWith('/ai-task')},{href:'/subscription',label:'方案',active:(path:string)=>path==='/subscription'}];
 export function AuthenticatedAppChrome({apiBaseUrl,children}:Props){
