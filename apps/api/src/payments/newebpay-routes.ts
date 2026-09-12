@@ -488,11 +488,34 @@ async function authenticatedContext(env: NewebPayBindings, header: string | unde
 async function merchantOrderNumber(requestKey: string) { const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(requestKey))); return `AT${[...bytes].map((b)=>b.toString(16).padStart(2,'0')).join('').slice(0,28)}`; }
 async function jsonBody(c: { req: { json(): Promise<unknown> } }) { try { const value=await c.req.json(); return value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:null; } catch { return null; } }
 function errorCode(error: unknown, fallback: string) { return error instanceof Error && /^[A-Z0-9_]+$/.test(error.message) ? error.message : fallback; }
-function safeError(error: unknown) {
+function safeError(error: unknown, depth = 0): Record<string, unknown> {
+  if (depth > 3) return { truncated: true };
   if (error instanceof Error) {
-    return { name: error.name, message: error.message.slice(0, 1000) };
+    const value: Record<string, unknown> = {
+      name: error.name,
+      message: error.message.slice(0, 4000),
+    };
+    const candidate = error as Error & { cause?: unknown; code?: unknown; detail?: unknown; hint?: unknown; severity?: unknown; constraint?: unknown; table?: unknown; column?: unknown };
+    if (candidate.code != null) value.code = String(candidate.code);
+    if (candidate.detail != null) value.detail = String(candidate.detail).slice(0, 2000);
+    if (candidate.hint != null) value.hint = String(candidate.hint).slice(0, 2000);
+    if (candidate.severity != null) value.severity = String(candidate.severity);
+    if (candidate.constraint != null) value.constraint = String(candidate.constraint);
+    if (candidate.table != null) value.table = String(candidate.table);
+    if (candidate.column != null) value.column = String(candidate.column);
+    if (candidate.cause != null) value.cause = safeError(candidate.cause, depth + 1);
+    return value;
   }
-  return { name: typeof error, message: String(error).slice(0, 1000) };
+  if (error && typeof error === 'object') {
+    const record = error as Record<string, unknown>;
+    const value: Record<string, unknown> = { name: 'object' };
+    for (const key of ['message', 'code', 'detail', 'hint', 'severity', 'constraint', 'table', 'column']) {
+      if (record[key] != null) value[key] = String(record[key]).slice(0, 4000);
+    }
+    if (record.cause != null) value.cause = safeError(record.cause, depth + 1);
+    return value;
+  }
+  return { name: typeof error, message: String(error).slice(0, 4000) };
 }
 function periodPayloadFromRaw(rawBody: string, contentType: string): string {
   if (/^multipart\/form-data\b/i.test(contentType)) {
