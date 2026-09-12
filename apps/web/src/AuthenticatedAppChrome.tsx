@@ -10,7 +10,7 @@ type Props = { apiBaseUrl: string; children: ReactNode };
 const desktopNav = [
   { href: '/', label: '紀錄', icon: '▤', active: (path: string) => path === '/' },
   { href: '/tasks', label: '待辦', icon: '✓', active: (path: string) => path.startsWith('/tasks') },
-  { href: '/ai-search', label: 'AI 搜尋', icon: '⌕', active: (path: string) => path === '/ai-search' || path.startsWith('/ai-tools') || path.startsWith('/ai-task') },
+  { href: '/ai-search', label: '搜尋', icon: '⌕', active: (path: string) => path === '/ai-search' || path.startsWith('/ai-tools') || path.startsWith('/ai-task') },
   { href: '/subscription', label: '方案', icon: '◇', active: (path: string) => path === '/subscription' },
 ];
 
