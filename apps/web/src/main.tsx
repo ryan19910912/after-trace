@@ -17,7 +17,7 @@ import { safeLoginReturn } from './login-return';
 import { SubscriptionRoot } from './SubscriptionRoot';
 import { TaskRoot } from './TaskRoot';
 import { installTaipeiDateDisplayPolicy } from './time-display';
-import { WorklogRoot } from './WorklogRoot';
+import { WorklogGroupsRoot } from './WorklogGroupsRoot';
 import './styles.css';
 import './reference-shell.css';
 
@@ -30,8 +30,6 @@ function Fatal({ message }: { message: string }) {
 }
 
 function pageTitle(pathname: string): string {
-  if (pathname === '/') return '紀錄列表｜AFTERTRACE';
-  if (pathname === '/worklog') return '工作紀錄｜AFTERTRACE';
   if (pathname === '/login') return '登入｜AFTERTRACE';
   if (pathname === '/extension/connect') return 'Chrome 擴充元件｜AFTERTRACE';
   if (pathname === '/mobile-shortcut') return '手機桌面捷徑｜AFTERTRACE';
@@ -44,7 +42,8 @@ function pageTitle(pathname: string): string {
   if (pathname === '/feedback') return '意見回饋｜AFTERTRACE';
   if (pathname === '/help') return '使用說明｜AFTERTRACE';
   if (pathname === '/tasks' || pathname.startsWith('/tasks/')) return '待辦｜AFTERTRACE';
-  return 'AFTERTRACE';
+  if (pathname === '/worklog') return '群組｜AFTERTRACE';
+  return '紀錄列表｜AFTERTRACE';
 }
 
 function bootstrap() {
@@ -63,9 +62,7 @@ function bootstrap() {
   }
 
   let content: React.ReactNode;
-  if (window.location.pathname === '/') content = <RecordHomeRoot apiBaseUrl={apiBaseUrl} />;
-  else if (window.location.pathname === '/worklog') content = <WorklogRoot apiBaseUrl={apiBaseUrl} />;
-  else if (window.location.pathname === '/login') content = <LoginRoot apiBaseUrl={apiBaseUrl} />;
+  if (window.location.pathname === '/login') content = <LoginRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/extension/connect') content = <ExtensionConnectRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/mobile-shortcut') content = <MobileShortcutRoot />;
   else if (window.location.pathname === '/about') content = <AboutRoot />;
@@ -77,6 +74,7 @@ function bootstrap() {
   else if (window.location.pathname === '/feedback') content = <FeedbackRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/help') content = <HelpRoot />;
   else if (window.location.pathname === '/tasks' || window.location.pathname.startsWith('/tasks/')) content = <TaskRoot apiBaseUrl={apiBaseUrl} />;
+  else if (window.location.pathname === '/worklog') content = <WorklogGroupsRoot apiBaseUrl={apiBaseUrl} />;
   else content = <RecordHomeRoot apiBaseUrl={apiBaseUrl} />;
 
   const authenticatedSurface = !['/login', '/extension/connect'].includes(window.location.pathname);
