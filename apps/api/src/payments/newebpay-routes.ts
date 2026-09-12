@@ -35,6 +35,15 @@ export type NewebPayBindings = {
 };
 
 type Env = { Bindings: NewebPayBindings; Variables: { userId: number; database: Database } };
+type AdapterRow = {
+  user_id?: unknown;
+  status?: unknown;
+  period_no?: unknown;
+  merchant_order_no?: unknown;
+  current_period_start?: unknown;
+  current_period_end?: unknown;
+  checkout_intent_id?: unknown;
+};
 
 export function createNewebPayRoutes() {
   const app = new Hono<Env>();
@@ -61,7 +70,6 @@ export function createNewebPayRoutes() {
   });
 
   app.get('/availability', (c) => c.json({ ok: true, provider: 'NEWEBPAY', available: Boolean(configOrNull(c.env)) }));
-
   app.post('/return', (c) => paymentReturnRedirect(c.env));
   app.get('/return', (c) => paymentReturnRedirect(c.env));
 
@@ -101,55 +109,56 @@ export function createNewebPayRoutes() {
     `);
     if (active.rows[0]) return c.json({ ok: false, error: 'AI_PRO_ALREADY_ACTIVE' }, 409);
 
-    await auth.database.execute(sql`
-      WITH expired_intents AS (
-        UPDATE worklog_checkout_intents AS checkout_intent
-        SET status = 'FAILED', updated_at = NOW()
-        WHERE checkout_intent.user_id = ${auth.userId}
-          AND checkout_intent.provider = 'NEWEBPAY'
-          AND checkout_intent.status = 'READY'
-          AND checkout_intent.expires_at IS NOT NULL
-          AND checkout_intent.expires_at <= NOW()
-        RETURNING checkout_intent.id
-      )
-      UPDATE worklog_newebpay_subscriptions AS adapter_row
-      SET status = 'FAILED', updated_at = NOW()
-      WHERE adapter_row.user_id = ${auth.userId}
-        AND adapter_row.status = 'PENDING'
-        AND adapter_row.checkout_intent_id IN (SELECT id FROM expired_intents)
-    `);
-
-    const pendingResult = await auth.database.execute(sql`
-      SELECT checkout_intent.request_key, checkout_intent.provider_checkout_id
-      FROM worklog_newebpay_subscriptions AS adapter_row
-      INNER JOIN worklog_checkout_intents AS checkout_intent ON checkout_intent.id = adapter_row.checkout_intent_id
-      WHERE adapter_row.user_id = ${auth.userId}
-        AND adapter_row.status = 'PENDING'
-        AND checkout_intent.status = 'READY'
-        AND checkout_intent.expires_at > NOW()
+    const expiredResult = await auth.database.execute(sql`
+      SELECT n.merchant_order_no, n.checkout_intent_id::text AS checkout_intent_id
+      FROM worklog_newebpay_subscriptions AS n
+      INNER JOIN worklog_checkout_intents AS i ON i.id = n.checkout_intent_id
+      WHERE n.user_id = ${auth.userId}
+        AND n.status = 'PENDING'
+        AND i.status = 'READY'
+        AND i.expires_at IS NOT NULL
+        AND i.expires_at <= NOW()
       LIMIT 1
     `);
-    let pending = pendingResult.rows[0] as { request_key?: unknown; provider_checkout_id?: unknown } | undefined;
-    if (pending && pending.request_key !== requestKey) {
+    const expired = expiredResult.rows[0] as { merchant_order_no?: unknown; checkout_intent_id?: unknown } | undefined;
+    if (expired && typeof expired.merchant_order_no === 'string') {
       await auth.database.execute(sql`
-        WITH superseded_intents AS (
-          UPDATE worklog_checkout_intents AS checkout_intent
-          SET status = 'FAILED', updated_at = NOW()
-          FROM worklog_newebpay_subscriptions AS adapter_row
-          WHERE adapter_row.user_id = ${auth.userId}
-            AND adapter_row.status = 'PENDING'
-            AND checkout_intent.id = adapter_row.checkout_intent_id
-            AND checkout_intent.user_id = ${auth.userId}
-            AND checkout_intent.provider = 'NEWEBPAY'
-            AND checkout_intent.status = 'READY'
-            AND checkout_intent.request_key <> ${requestKey}
-          RETURNING checkout_intent.id
-        )
-        UPDATE worklog_newebpay_subscriptions AS adapter_row
-        SET status = 'FAILED', updated_at = NOW()
-        WHERE adapter_row.user_id = ${auth.userId}
-          AND adapter_row.status = 'PENDING'
-          AND adapter_row.checkout_intent_id IN (SELECT id FROM superseded_intents)
+        UPDATE worklog_checkout_intents SET status='FAILED', updated_at=NOW()
+        WHERE id=${Number(expired.checkout_intent_id)} AND status='READY'
+      `);
+      await auth.database.execute(sql`
+        UPDATE worklog_newebpay_subscription_history SET status='FAILED', updated_at=NOW()
+        WHERE merchant_order_no=${expired.merchant_order_no} AND status='PENDING'
+      `);
+      await auth.database.execute(sql`
+        UPDATE worklog_newebpay_subscriptions SET status='FAILED', updated_at=NOW()
+        WHERE user_id=${auth.userId} AND merchant_order_no=${expired.merchant_order_no} AND status='PENDING'
+      `);
+    }
+
+    const pendingResult = await auth.database.execute(sql`
+      SELECT i.request_key, i.provider_checkout_id, i.id::text AS checkout_intent_id
+      FROM worklog_newebpay_subscriptions AS n
+      INNER JOIN worklog_checkout_intents AS i ON i.id = n.checkout_intent_id
+      WHERE n.user_id = ${auth.userId}
+        AND n.status = 'PENDING'
+        AND i.status = 'READY'
+        AND i.expires_at > NOW()
+      LIMIT 1
+    `);
+    let pending = pendingResult.rows[0] as { request_key?: unknown; provider_checkout_id?: unknown; checkout_intent_id?: unknown } | undefined;
+    if (pending && pending.request_key !== requestKey && typeof pending.provider_checkout_id === 'string') {
+      await auth.database.execute(sql`
+        UPDATE worklog_checkout_intents SET status='FAILED', updated_at=NOW()
+        WHERE id=${Number(pending.checkout_intent_id)} AND status='READY'
+      `);
+      await auth.database.execute(sql`
+        UPDATE worklog_newebpay_subscription_history SET status='SUPERSEDED', updated_at=NOW()
+        WHERE merchant_order_no=${pending.provider_checkout_id} AND status='PENDING'
+      `);
+      await auth.database.execute(sql`
+        UPDATE worklog_newebpay_subscriptions SET status='FAILED', updated_at=NOW()
+        WHERE user_id=${auth.userId} AND merchant_order_no=${pending.provider_checkout_id} AND status='PENDING'
       `);
       pending = undefined;
     }
@@ -181,154 +190,179 @@ export function createNewebPayRoutes() {
       return c.json({ ok: false, error: 'CHECKOUT_IDEMPOTENCY_CONFLICT' }, 409);
     }
 
+    const historyWrite = await auth.database.execute(sql`
+      INSERT INTO worklog_newebpay_subscription_history (
+        user_id, checkout_intent_id, merchant_order_no, status, metadata, created_at, updated_at
+      ) VALUES (
+        ${auth.userId}, ${Number(intent.id)}, ${merchantOrderNo}, 'PENDING', ${JSON.stringify({ requestKey })}::jsonb, NOW(), NOW()
+      )
+      ON CONFLICT (merchant_order_no) DO UPDATE
+      SET checkout_intent_id=EXCLUDED.checkout_intent_id, updated_at=NOW()
+      WHERE worklog_newebpay_subscription_history.user_id=EXCLUDED.user_id
+      RETURNING user_id
+    `);
+    if (!historyWrite.rows[0]) return c.json({ ok: false, error: 'CHECKOUT_IDEMPOTENCY_CONFLICT' }, 409);
+
     const adapterWrite = await auth.database.execute(sql`
       INSERT INTO worklog_newebpay_subscriptions (
         user_id, checkout_intent_id, merchant_order_no, status, metadata, created_at, updated_at
       ) VALUES (
-        ${auth.userId}, ${Number(intent.id)}, ${merchantOrderNo}, 'PENDING',
-        ${JSON.stringify({ requestKey })}::jsonb, NOW(), NOW()
+        ${auth.userId}, ${Number(intent.id)}, ${merchantOrderNo}, 'PENDING', ${JSON.stringify({ requestKey })}::jsonb, NOW(), NOW()
       )
       ON CONFLICT (user_id) DO UPDATE
-      SET checkout_intent_id = EXCLUDED.checkout_intent_id,
-          merchant_order_no = EXCLUDED.merchant_order_no,
-          period_no = NULL,
-          status = 'PENDING',
-          current_period_start = NULL,
-          current_period_end = NULL,
-          metadata = EXCLUDED.metadata,
-          updated_at = NOW()
-      WHERE worklog_newebpay_subscriptions.status IN ('FAILED', 'TERMINATED')
-         OR (
-           worklog_newebpay_subscriptions.status = 'PENDING'
-           AND worklog_newebpay_subscriptions.merchant_order_no = EXCLUDED.merchant_order_no
-         )
+      SET checkout_intent_id=EXCLUDED.checkout_intent_id,
+          merchant_order_no=EXCLUDED.merchant_order_no,
+          period_no=NULL,
+          status='PENDING',
+          current_period_start=NULL,
+          current_period_end=NULL,
+          last_provider_event_key=NULL,
+          metadata=EXCLUDED.metadata,
+          updated_at=NOW()
+      WHERE worklog_newebpay_subscriptions.status IN ('FAILED','TERMINATED')
+         OR (worklog_newebpay_subscriptions.status='PENDING' AND worklog_newebpay_subscriptions.merchant_order_no=EXCLUDED.merchant_order_no)
       RETURNING user_id
     `);
-    if (!adapterWrite.rows[0]) {
-      return c.json({ ok: false, error: 'NEWEBPAY_ADAPTER_STATE_CONFLICT' }, 409);
-    }
+    if (!adapterWrite.rows[0]) return c.json({ ok: false, error: 'NEWEBPAY_ADAPTER_STATE_CONFLICT' }, 409);
 
-    return c.json({
-      ok: true,
-      provider: 'NEWEBPAY',
-      form: checkout,
-      amountTwd: 99,
-      planCode: 'AI_PRO',
-    }, inserted.rows[0] ? 201 : 200);
+    return c.json({ ok: true, provider: 'NEWEBPAY', form: checkout, amountTwd: 99, planCode: 'AI_PRO' }, inserted.rows[0] ? 201 : 200);
   });
 
   app.post('/notify', async (c) => {
     let rawBody: string;
-    try {
-      rawBody = await c.req.text();
-    } catch (error) {
-      console.log(JSON.stringify({ event: 'newebpay_notify_raw_read_failed', detail: safeError(error) }));
-      return c.text('INVALID', 400);
-    }
-    const contentType = c.req.header('content-type') ?? '';
-    console.log(JSON.stringify({
-      event: 'newebpay_notify_raw',
-      contentType,
-      userAgent: c.req.header('user-agent') ?? null,
-      rawBody,
-    }));
-
+    try { rawBody = await c.req.text(); }
+    catch { return c.text('INVALID', 400); }
     const config = configOrNull(c.env);
     if (!config) return c.text('CONFIG_ERROR', 503);
-    const encrypted = periodPayloadFromRaw(rawBody, contentType);
-    if (!encrypted) {
-      console.log(JSON.stringify({ event: 'newebpay_notify_missing_period_payload', contentType }));
-      return c.text('INVALID', 400);
-    }
+    const encrypted = periodPayloadFromRaw(rawBody, c.req.header('content-type') ?? '');
+    if (!encrypted) return c.text('INVALID', 400);
+
     let callback;
     try { callback = await parsePeriodicCallback({ encryptedPeriod: encrypted, config }); }
-    catch (error) {
-      console.log(JSON.stringify({ event: 'newebpay_notify_parse_failed', detail: safeError(error) }));
-      return c.text('INVALID', 400);
-    }
+    catch { return c.text('INVALID', 400); }
 
     const result = callback.result;
     const merchantOrderNo = providerString(result, 'MerchantOrderNo', 'MerOrderNo');
-    if (!merchantOrderNo) {
-      console.log(JSON.stringify({ event: 'newebpay_notify_missing_order_no', status: callback.status, resultKeys: Object.keys(result).sort() }));
-      return c.text('INVALID', 400);
-    }
-    const database = createDatabase(c.env.DATABASE_URL);
-    const adapterResult = await database.execute(sql`
-      SELECT n.user_id::text AS user_id, n.status, n.period_no,
-             n.current_period_start, n.current_period_end,
-             n.checkout_intent_id::text AS checkout_intent_id
-      FROM worklog_newebpay_subscriptions AS n
-      WHERE n.merchant_order_no = ${merchantOrderNo}
-      LIMIT 1
-    `);
-    const adapter = adapterResult.rows[0] as Record<string, unknown> | undefined;
-    if (!adapter) {
-      console.log(JSON.stringify({ event: 'newebpay_notify_adapter_not_found', merchantOrderNo, status: callback.status }));
-      return c.text('OK');
-    }
-    const userId = Number(adapter.user_id);
-    if (!Number.isSafeInteger(userId) || userId <= 0) return c.text('OK');
+    if (!merchantOrderNo) return c.text('INVALID', 400);
 
-    if (!callbackSuccess(callback)) {
-      console.log(JSON.stringify({
-        event: 'newebpay_notify_provider_failed',
-        merchantOrderNo,
-        status: callback.status,
-        message: callback.message,
-        respondCode: providerString(result, 'RespondCode'),
-      }));
+    const database = createDatabase(c.env.DATABASE_URL);
+    const currentByOrderResult = await database.execute(sql`
+      SELECT user_id::text AS user_id, status, period_no, merchant_order_no,
+             current_period_start, current_period_end, checkout_intent_id::text AS checkout_intent_id
+      FROM worklog_newebpay_subscriptions WHERE merchant_order_no=${merchantOrderNo} LIMIT 1
+    `);
+    const currentByOrder = currentByOrderResult.rows[0] as AdapterRow | undefined;
+    const historyResult = await database.execute(sql`
+      SELECT user_id::text AS user_id, status, period_no, merchant_order_no,
+             current_period_start, current_period_end, checkout_intent_id::text AS checkout_intent_id
+      FROM worklog_newebpay_subscription_history WHERE merchant_order_no=${merchantOrderNo} LIMIT 1
+    `);
+    let history = historyResult.rows[0] as AdapterRow | undefined;
+
+    if (!history && currentByOrder) {
       await database.execute(sql`
-        UPDATE worklog_checkout_intents SET status = CASE WHEN status = 'COMPLETED' THEN status ELSE 'FAILED' END, updated_at = NOW()
-        WHERE id = ${Number(adapter.checkout_intent_id)}
+        INSERT INTO worklog_newebpay_subscription_history (
+          user_id, checkout_intent_id, merchant_order_no, period_no, status,
+          current_period_start, current_period_end, metadata, created_at, updated_at
+        ) VALUES (
+          ${Number(currentByOrder.user_id)}, ${Number(currentByOrder.checkout_intent_id)}, ${merchantOrderNo},
+          ${typeof currentByOrder.period_no === 'string' ? currentByOrder.period_no : null},
+          ${String(currentByOrder.status ?? 'PENDING')}, ${dateValue(currentByOrder.current_period_start)},
+          ${dateValue(currentByOrder.current_period_end)}, '{}'::jsonb, NOW(), NOW()
+        ) ON CONFLICT (merchant_order_no) DO NOTHING
       `);
-      if (adapter.status === 'PENDING') {
-        await database.execute(sql`UPDATE worklog_newebpay_subscriptions SET status='FAILED', updated_at=NOW() WHERE merchant_order_no=${merchantOrderNo}`);
-      }
+      history = currentByOrder;
+    }
+    if (!history) return c.text('OK');
+
+    const userId = Number(history.user_id);
+    const checkoutIntentId = Number(history.checkout_intent_id);
+    if (!Number.isSafeInteger(userId) || userId <= 0 || !Number.isSafeInteger(checkoutIntentId) || checkoutIntentId <= 0) return c.text('OK');
+
+    const respondCode = providerString(result, 'RespondCode', 'respondCode');
+    if (!callbackSuccess(callback) || respondCode !== '00') {
+      await database.execute(sql`
+        UPDATE worklog_checkout_intents SET status=CASE WHEN status='COMPLETED' THEN status ELSE 'FAILED' END, updated_at=NOW()
+        WHERE id=${checkoutIntentId}
+      `);
+      await database.execute(sql`
+        UPDATE worklog_newebpay_subscription_history
+        SET status='FAILED', provider_status=${callback.status}, respond_code=${respondCode}, updated_at=NOW()
+        WHERE merchant_order_no=${merchantOrderNo} AND status <> 'ACTIVE'
+      `);
+      await database.execute(sql`
+        UPDATE worklog_newebpay_subscriptions SET status='FAILED', updated_at=NOW()
+        WHERE user_id=${userId} AND merchant_order_no=${merchantOrderNo} AND status='PENDING'
+      `);
       return c.text('OK');
     }
 
     const periodNo = providerString(result, 'PeriodNo');
-    if (!periodNo) {
-      console.log(JSON.stringify({ event: 'newebpay_notify_missing_period_no', merchantOrderNo, status: callback.status, resultKeys: Object.keys(result).sort() }));
-      return c.text('OK');
-    }
     const authDateRaw = providerString(result, 'AuthDate', 'AuthTime');
     const periodStart = parseNewebPayTaipeiDate(authDateRaw);
-    const tradeNo = providerString(result, 'TradeNo', 'OrderNo', 'AuthCode');
-    const alreadyTimes = providerString(result, 'AlreadyTimes', 'AuthTimes');
-    if (!periodStart || (!tradeNo && !alreadyTimes)) {
-      console.log(JSON.stringify({
-        event: 'newebpay_callback_missing_stable_facts',
-        merchantOrderNo,
-        periodNo,
-        authDateRaw,
-        hasParsedPeriodStart: Boolean(periodStart),
-        hasTradeNo: Boolean(tradeNo),
-        hasAlreadyTimes: Boolean(alreadyTimes),
-        resultKeys: Object.keys(result).sort(),
-      }));
-      return c.text('RETRY', 500);
-    }
+    const tradeNo = providerString(result, 'TradeNo', 'OrderNo');
+    const authAmount = providerInteger(result, 'AuthAmt', 'PeriodAmt');
+    const totalTimes = providerInteger(result, 'TotalTimes');
+    const alreadyTimes = providerInteger(result, 'AlreadyTimes', 'AuthTimes');
     const nextAuthRaw = providerString(result, 'NextAuthDate');
     const nextAuth = parseNewebPayTaipeiDate(nextAuthRaw);
+
+    const commercialMismatch = authAmount !== 99
+      || (totalTimes !== null && totalTimes !== config.periodTimes)
+      || (alreadyTimes !== null && (alreadyTimes < 1 || (totalTimes !== null && alreadyTimes > totalTimes)));
+    if (!periodNo || !periodStart || !tradeNo || commercialMismatch) {
+      await database.execute(sql`
+        UPDATE worklog_newebpay_subscription_history
+        SET status='PAID_CONFLICT', period_no=${periodNo}, provider_status=${callback.status}, respond_code=${respondCode},
+            auth_amount=${authAmount}, total_times=${totalTimes}, already_times=${alreadyTimes}, trade_no=${tradeNo},
+            auth_date=${periodStart}, next_auth_date=${nextAuth}, updated_at=NOW()
+        WHERE merchant_order_no=${merchantOrderNo}
+      `);
+      await database.execute(sql`UPDATE worklog_checkout_intents SET status='COMPLETED', updated_at=NOW() WHERE id=${checkoutIntentId}`);
+      return c.text('OK');
+    }
+
     const periodEnd = nextAuth && nextAuth.getTime() > periodStart.getTime() ? nextAuth : nextMonthlyPeriod(periodStart);
-    const externalEventKey = `period:${periodNo}:${tradeNo ?? `attempt:${alreadyTimes}`}`.slice(0, 255);
-    const isActivation = !adapter.current_period_start;
+    const externalEventKey = `period:${periodNo}:${tradeNo}`.slice(0, 255);
 
-    console.log(JSON.stringify({
-      event: 'newebpay_notify_ready_for_lifecycle',
-      merchantOrderNo,
-      periodNo,
-      userId,
-      adapterStatus: adapter.status,
-      isActivation,
-      periodStart: periodStart.toISOString(),
-      periodEnd: periodEnd.toISOString(),
-      hasTradeNo: Boolean(tradeNo),
-      alreadyTimes,
-    }));
+    const currentResult = await database.execute(sql`
+      SELECT user_id::text AS user_id, merchant_order_no, status, checkout_intent_id::text AS checkout_intent_id,
+             current_period_start, current_period_end
+      FROM worklog_newebpay_subscriptions WHERE user_id=${userId} LIMIT 1
+    `);
+    const current = currentResult.rows[0] as AdapterRow | undefined;
+    if (current?.status === 'ACTIVE' && current.merchant_order_no !== merchantOrderNo) {
+      await database.execute(sql`
+        UPDATE worklog_newebpay_subscription_history
+        SET status='PAID_CONFLICT', period_no=${periodNo}, provider_status=${callback.status}, respond_code=${respondCode},
+            auth_amount=${authAmount}, total_times=${totalTimes}, already_times=${alreadyTimes}, trade_no=${tradeNo},
+            auth_date=${periodStart}, next_auth_date=${nextAuth}, current_period_start=${periodStart}, current_period_end=${periodEnd},
+            last_provider_event_key=${externalEventKey}, updated_at=NOW()
+        WHERE merchant_order_no=${merchantOrderNo}
+      `);
+      await database.execute(sql`UPDATE worklog_checkout_intents SET status='COMPLETED', updated_at=NOW() WHERE id=${checkoutIntentId}`);
+      return c.text('OK');
+    }
 
+    if (current?.status === 'PENDING' && current.merchant_order_no !== merchantOrderNo) {
+      const currentCheckoutId = Number(current.checkout_intent_id);
+      if (Number.isSafeInteger(currentCheckoutId) && currentCheckoutId > 0) {
+        await database.execute(sql`UPDATE worklog_checkout_intents SET status='FAILED', updated_at=NOW() WHERE id=${currentCheckoutId} AND status='READY'`);
+      }
+      if (typeof current.merchant_order_no === 'string') {
+        await database.execute(sql`
+          UPDATE worklog_newebpay_subscription_history SET status='SUPERSEDED', updated_at=NOW()
+          WHERE merchant_order_no=${current.merchant_order_no} AND status='PENDING'
+        `);
+      }
+    }
+
+    const coreActive = await database.execute(sql`
+      SELECT 1 FROM worklog_user_subscriptions
+      WHERE user_id=${userId} AND plan_code='AI_PRO' AND status='ACTIVE'
+        AND current_period_start <= NOW() AND current_period_end > NOW()
+      LIMIT 1
+    `);
     const lifecycle = new SubscriptionLifecycleService(
       new DrizzleSubscriptionLifecycleRepository(database),
       new SubscriptionLifecycleNotificationAdapter(database),
@@ -337,54 +371,48 @@ export function createNewebPayRoutes() {
     try {
       lifecycleResult = await lifecycle.apply({
         provider: 'NEWEBPAY', externalEventKey,
-        type: isActivation ? 'ACTIVATE' : 'RENEW',
+        type: coreActive.rows[0] ? 'RENEW' : 'ACTIVATE',
         userId, planCode: 'AI_PRO', occurredAt: periodStart, periodStart, periodEnd,
-        metadata: boundedMetadata({ merchantOrderNo, periodNo, tradeNo, alreadyTimes, status: callback.status }),
+        metadata: boundedMetadata({ merchantOrderNo, periodNo, tradeNo, authAmount, totalTimes, alreadyTimes, status: callback.status }),
       });
-    } catch (error) {
-      console.log(JSON.stringify({
-        event: 'newebpay_lifecycle_failed',
-        merchantOrderNo,
-        periodNo,
-        userId,
-        error: errorCode(error, 'SUBSCRIPTION_LIFECYCLE_FAILED'),
-        detail: safeError(error),
-      }));
+    } catch {
       return c.text('RETRY', 500);
     }
 
-    console.log(JSON.stringify({
-      event: 'newebpay_lifecycle_result',
-      merchantOrderNo,
-      periodNo,
-      userId,
-      lifecycleStatus: lifecycleResult.status,
-    }));
-
-    const currentAdapterStart = dateValue(adapter.current_period_start);
-    const staleAgainstAdapter = Boolean(currentAdapterStart && periodStart.getTime() < currentAdapterStart.getTime());
-    const duplicateAfterTermination = lifecycleResult.status === 'DUPLICATE' && adapter.status === 'TERMINATED';
-    if (lifecycleResult.status === 'IGNORED_STALE' || staleAgainstAdapter || duplicateAfterTermination) {
-      return c.text('OK');
-    }
-    if (lifecycleResult.status === 'DUPLICATE' && !lifecycleResult.applied) {
-      return c.text('OK');
-    }
+    if (lifecycleResult.status === 'IGNORED_STALE' || (lifecycleResult.status === 'DUPLICATE' && !lifecycleResult.applied)) return c.text('OK');
 
     await database.execute(sql`
-      UPDATE worklog_newebpay_subscriptions
-      SET period_no=${periodNo}, status='ACTIVE', current_period_start=${periodStart}, current_period_end=${periodEnd},
-          last_provider_event_key=${externalEventKey},
-          metadata=${JSON.stringify(boundedMetadata({ merchantOrderNo, periodNo, tradeNo, alreadyTimes }))}::jsonb,
+      INSERT INTO worklog_newebpay_subscriptions (
+        user_id, checkout_intent_id, merchant_order_no, period_no, status,
+        current_period_start, current_period_end, last_provider_event_key, metadata, created_at, updated_at
+      ) VALUES (
+        ${userId}, ${checkoutIntentId}, ${merchantOrderNo}, ${periodNo}, 'ACTIVE',
+        ${periodStart}, ${periodEnd}, ${externalEventKey},
+        ${JSON.stringify(boundedMetadata({ merchantOrderNo, periodNo, tradeNo, authAmount, totalTimes, alreadyTimes }))}::jsonb,
+        NOW(), NOW()
+      )
+      ON CONFLICT (user_id) DO UPDATE
+      SET checkout_intent_id=EXCLUDED.checkout_intent_id,
+          merchant_order_no=EXCLUDED.merchant_order_no,
+          period_no=EXCLUDED.period_no,
+          status='ACTIVE',
+          current_period_start=EXCLUDED.current_period_start,
+          current_period_end=EXCLUDED.current_period_end,
+          last_provider_event_key=EXCLUDED.last_provider_event_key,
+          metadata=EXCLUDED.metadata,
           updated_at=NOW()
-      WHERE user_id=${userId}
-        AND (current_period_start IS NULL OR current_period_start <= ${periodStart})
-        AND NOT (status = 'TERMINATED' AND ${lifecycleResult.status === 'DUPLICATE'})
     `);
     await database.execute(sql`
-      UPDATE worklog_checkout_intents SET status='COMPLETED', updated_at=NOW()
-      WHERE id=${Number(adapter.checkout_intent_id)}
+      UPDATE worklog_newebpay_subscription_history
+      SET status='ACTIVE', period_no=${periodNo}, provider_status=${callback.status}, respond_code=${respondCode},
+          auth_amount=${authAmount}, total_times=${totalTimes}, already_times=${alreadyTimes}, trade_no=${tradeNo},
+          auth_date=${periodStart}, next_auth_date=${nextAuth}, current_period_start=${periodStart}, current_period_end=${periodEnd},
+          last_provider_event_key=${externalEventKey},
+          metadata=${JSON.stringify(boundedMetadata({ merchantOrderNo, periodNo, tradeNo, authAmount, totalTimes, alreadyTimes }))}::jsonb,
+          updated_at=NOW()
+      WHERE merchant_order_no=${merchantOrderNo}
     `);
+    await database.execute(sql`UPDATE worklog_checkout_intents SET status='COMPLETED', updated_at=NOW() WHERE id=${checkoutIntentId}`);
     return c.text('OK');
   });
 
@@ -401,14 +429,12 @@ export function createNewebPayRoutes() {
     if (!row || row.status !== 'ACTIVE' || typeof row.period_no !== 'string' || typeof row.merchant_order_no !== 'string') {
       return c.json({ ok: false, error: 'NEWEBPAY_ACTIVE_PERIOD_NOT_FOUND' }, 404);
     }
-    const request = await buildAlterStatusRequest({
-      config, merchantOrderNo: row.merchant_order_no, periodNo: row.period_no, alterType: 'terminate',
-    });
+
+    const request = await buildAlterStatusRequest({ config, merchantOrderNo: row.merchant_order_no, periodNo: row.period_no, alterType: 'terminate' });
     let providerResponse: Response;
     try {
       providerResponse = await fetch(request.action, {
-        method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams(request.fields),
+        method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(request.fields),
       });
     } catch { return c.json({ ok: false, error: 'NEWEBPAY_CANCEL_NETWORK_ERROR' }, 502); }
     const responseText = await providerResponse.text();
@@ -426,13 +452,14 @@ export function createNewebPayRoutes() {
       new SubscriptionLifecycleNotificationAdapter(auth.database),
     );
     await lifecycle.apply({
-      provider: 'NEWEBPAY',
-      externalEventKey: `terminate:${row.period_no}:${periodEnd.toISOString()}`,
+      provider: 'NEWEBPAY', externalEventKey: `terminate:${row.period_no}:${periodEnd.toISOString()}`,
       type: 'CANCEL', userId: auth.userId, planCode: 'AI_PRO', occurredAt: new Date(), periodStart, periodEnd,
       metadata: { merchantOrderNo: row.merchant_order_no, periodNo: row.period_no, providerStatus: parsed.status },
     });
+    await auth.database.execute(sql`UPDATE worklog_newebpay_subscriptions SET status='TERMINATED', updated_at=NOW() WHERE user_id=${auth.userId}`);
     await auth.database.execute(sql`
-      UPDATE worklog_newebpay_subscriptions SET status='TERMINATED', updated_at=NOW() WHERE user_id=${auth.userId}
+      UPDATE worklog_newebpay_subscription_history SET status='TERMINATED', provider_status=${parsed.status}, updated_at=NOW()
+      WHERE merchant_order_no=${row.merchant_order_no}
     `);
     return c.json({ ok: true, status: 'CANCELLED_AT_PERIOD_END', periodEnd: periodEnd.toISOString() });
   });
@@ -443,12 +470,8 @@ export function createNewebPayRoutes() {
 function paymentReturnRedirect(env: NewebPayBindings): Response {
   const raw = env.WEB_APP_URL?.trim() || env.WEB_APP_ORIGIN?.trim();
   if (!raw) return Response.json({ ok: false, error: 'WEB_APP_URL_NOT_CONFIGURED' }, { status: 503 });
-  try {
-    const origin = new URL(raw).origin;
-    return Response.redirect(`${origin}/subscription?payment=returned`, 303);
-  } catch {
-    return Response.json({ ok: false, error: 'WEB_APP_URL_INVALID' }, { status: 503 });
-  }
+  try { return Response.redirect(`${new URL(raw).origin}/subscription?payment=returned`, 303); }
+  catch { return Response.json({ ok: false, error: 'WEB_APP_URL_INVALID' }, { status: 503 }); }
 }
 
 function configOrNull(env: NewebPayBindings): NewebPayPeriodicConfig | null {
@@ -458,65 +481,38 @@ function configOrNull(env: NewebPayBindings): NewebPayPeriodicConfig | null {
   const notifyUrl = env.NEWEBPAY_NOTIFY_URL?.trim();
   const returnUrl = env.NEWEBPAY_RETURN_URL?.trim();
   if (!merchantId || !hashKey || !hashIv || !notifyUrl || !returnUrl) return null;
-
   const rawMode = env.NEWEBPAY_MODE?.trim().toUpperCase() || 'TEST';
   if (rawMode !== 'TEST' && rawMode !== 'PROD') return null;
-  const periodTimes = Number(env.NEWEBPAY_PERIOD_TIMES ?? '99');
   const candidate: NewebPayPeriodicConfig = {
-    merchantId,
-    hashKey,
-    hashIv,
-    mode: rawMode,
+    merchantId, hashKey, hashIv, mode: rawMode,
     version: env.NEWEBPAY_PERIOD_VERSION?.trim() || '1.5',
-    periodTimes,
-    notifyUrl,
-    returnUrl,
+    periodTimes: Number(env.NEWEBPAY_PERIOD_TIMES ?? '99'), notifyUrl, returnUrl,
   };
-  try {
-    return validatePeriodicConfig(candidate);
-  } catch {
-    return null;
-  }
+  try { return validatePeriodicConfig(candidate); } catch { return null; }
 }
+
 async function authenticatedContext(env: NewebPayBindings, header: string | undefined): Promise<{ userId: number; database: Database } | { error: string; status: 401 | 404 | 503 }> {
-  const secret = env.WEB_AUTH_SECRET?.trim() ?? ''; if (secret.length < 32) return { error:'WEB_AUTH_NOT_CONFIGURED', status:503 };
-  const match = /^Bearer\s+(.+)$/i.exec((header ?? '').trim()); if (!match) return { error:'WEB_SESSION_REQUIRED', status:401 };
-  const session = await verifyWebSessionToken(match[1], secret); if (!session) return { error:'INVALID_WEB_SESSION', status:401 };
-  const database = createDatabase(env.DATABASE_URL); const userId = await resolveWebSessionUserId(database, session); if (!userId) return { error:'WORKLOG_USER_NOT_FOUND', status:404 };
+  const secret = env.WEB_AUTH_SECRET?.trim() ?? '';
+  if (secret.length < 32) return { error: 'WEB_AUTH_NOT_CONFIGURED', status: 503 };
+  const match = /^Bearer\s+(.+)$/i.exec((header ?? '').trim());
+  if (!match) return { error: 'WEB_SESSION_REQUIRED', status: 401 };
+  const session = await verifyWebSessionToken(match[1], secret);
+  if (!session) return { error: 'INVALID_WEB_SESSION', status: 401 };
+  const database = createDatabase(env.DATABASE_URL);
+  const userId = await resolveWebSessionUserId(database, session);
+  if (!userId) return { error: 'WORKLOG_USER_NOT_FOUND', status: 404 };
   return { userId, database };
 }
-async function merchantOrderNumber(requestKey: string) { const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(requestKey))); return `AT${[...bytes].map((b)=>b.toString(16).padStart(2,'0')).join('').slice(0,28)}`; }
-async function jsonBody(c: { req: { json(): Promise<unknown> } }) { try { const value=await c.req.json(); return value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:null; } catch { return null; } }
-function errorCode(error: unknown, fallback: string) { return error instanceof Error && /^[A-Z0-9_]+$/.test(error.message) ? error.message : fallback; }
-function safeError(error: unknown, depth = 0): Record<string, unknown> {
-  if (depth > 3) return { truncated: true };
-  if (error instanceof Error) {
-    const value: Record<string, unknown> = {
-      name: error.name,
-      message: error.message.slice(0, 4000),
-    };
-    const candidate = error as Error & { cause?: unknown; code?: unknown; detail?: unknown; hint?: unknown; severity?: unknown; constraint?: unknown; table?: unknown; column?: unknown };
-    if (candidate.code != null) value.code = String(candidate.code);
-    if (candidate.detail != null) value.detail = String(candidate.detail).slice(0, 2000);
-    if (candidate.hint != null) value.hint = String(candidate.hint).slice(0, 2000);
-    if (candidate.severity != null) value.severity = String(candidate.severity);
-    if (candidate.constraint != null) value.constraint = String(candidate.constraint);
-    if (candidate.table != null) value.table = String(candidate.table);
-    if (candidate.column != null) value.column = String(candidate.column);
-    if (candidate.cause != null) value.cause = safeError(candidate.cause, depth + 1);
-    return value;
-  }
-  if (error && typeof error === 'object') {
-    const record = error as Record<string, unknown>;
-    const value: Record<string, unknown> = { name: 'object' };
-    for (const key of ['message', 'code', 'detail', 'hint', 'severity', 'constraint', 'table', 'column']) {
-      if (record[key] != null) value[key] = String(record[key]).slice(0, 4000);
-    }
-    if (record.cause != null) value.cause = safeError(record.cause, depth + 1);
-    return value;
-  }
-  return { name: typeof error, message: String(error).slice(0, 4000) };
+
+async function merchantOrderNumber(requestKey: string) {
+  const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(requestKey)));
+  return `AT${[...bytes].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 28)}`;
 }
+async function jsonBody(c: { req: { json(): Promise<unknown> } }) {
+  try { const value = await c.req.json(); return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null; }
+  catch { return null; }
+}
+function errorCode(error: unknown, fallback: string) { return error instanceof Error && /^[A-Z0-9_]+$/.test(error.message) ? error.message : fallback; }
 function periodPayloadFromRaw(rawBody: string, contentType: string): string {
   if (/^multipart\/form-data\b/i.test(contentType)) {
     const boundaryMatch = /boundary=(?:"([^"]+)"|([^;\s]+))/i.exec(contentType);
@@ -535,5 +531,18 @@ function periodPayloadFromRaw(rawBody: string, contentType: string): string {
   const form = new URLSearchParams(rawBody);
   return form.get('Period')?.trim() ?? form.get('period')?.trim() ?? '';
 }
-function dateValue(value: unknown) { if (value == null) return null; const date=value instanceof Date?value:new Date(String(value)); return Number.isNaN(date.getTime())?null:date; }
-function boundedMetadata(value: Record<string, unknown>) { const encoded=JSON.stringify(value); return encoded.length<=8000?value:{ truncated:true }; }
+function providerInteger(result: Record<string, unknown>, ...names: string[]): number | null {
+  const raw = providerString(result, ...names);
+  if (!raw || !/^\d+$/.test(raw)) return null;
+  const value = Number(raw);
+  return Number.isSafeInteger(value) ? value : null;
+}
+function dateValue(value: unknown) {
+  if (value == null) return null;
+  const date = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+function boundedMetadata(value: Record<string, unknown>) {
+  const encoded = JSON.stringify(value);
+  return encoded.length <= 8000 ? value : { truncated: true };
+}
