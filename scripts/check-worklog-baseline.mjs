@@ -7,6 +7,7 @@ const drizzleDir = resolve(root, 'drizzle');
 const metaDir = resolve(drizzleDir, 'meta');
 const baselinePath = resolve(drizzleDir, '0000_worklog_baseline.sql');
 const historyMigrationPath = resolve(drizzleDir, '0001_newebpay_subscription_history.sql');
+const commentsMigrationPath = resolve(drizzleDir, '0002_worklog_schema_comments.sql');
 const snapshotPath = resolve(metaDir, '0000_snapshot.json');
 const journalPath = resolve(metaDir, '_journal.json');
 const failures = [];
@@ -31,6 +32,23 @@ else {
   }
   if (historyMigration.includes('CONSTRAINT ')) failures.push('NewebPay history migration must not use named CONSTRAINT clauses');
   if (/\bCHECK\s*\(/i.test(historyMigration)) failures.push('NewebPay history migration must not contain CHECK constraints; domain validation belongs to the application layer');
+}
+if (!existsSync(commentsMigrationPath)) failures.push('missing drizzle/0002_worklog_schema_comments.sql');
+else {
+  const commentsMigration = readFileSync(commentsMigrationPath, 'utf8');
+  for (const marker of [
+    'COMMENT ON TABLE "worklog_users"',
+    'COMMENT ON COLUMN "worklog_users"."id"',
+    'COMMENT ON TABLE "worklog_records"',
+    'COMMENT ON TABLE "worklog_ai_grants"',
+    'COMMENT ON TABLE "worklog_newebpay_subscriptions"',
+  ]) {
+    if (!commentsMigration.includes(marker)) failures.push(`schema comments migration missing: ${marker}`);
+  }
+  if (/\bCREATE\s+TABLE\b/i.test(commentsMigration)) failures.push('schema comments migration must not create tables');
+  if (/\bALTER\s+TABLE\b/i.test(commentsMigration)) failures.push('schema comments migration must not alter tables');
+  if (/\bCHECK\s*\(/i.test(commentsMigration)) failures.push('schema comments migration must not contain CHECK constraints');
+  if (commentsMigration.includes('CONSTRAINT ')) failures.push('schema comments migration must not contain CONSTRAINT clauses');
 }
 const journalText = existsSync(journalPath) ? readFileSync(journalPath, 'utf8') : null;
 if (journalText === null) failures.push('missing drizzle/meta/_journal.json');
@@ -115,15 +133,18 @@ if (journalText !== null) {
 }
 if (journal) {
   if (journal.dialect !== 'postgresql') failures.push('Drizzle journal dialect must be postgresql');
-  if (!Array.isArray(journal.entries) || journal.entries.length !== 2) {
-    failures.push('Drizzle journal must contain baseline plus the NewebPay history migration');
+  if (!Array.isArray(journal.entries) || journal.entries.length !== 3) {
+    failures.push('Drizzle journal must contain baseline, NewebPay history, and schema comments migrations');
   } else {
-    const [baseline, history] = journal.entries;
+    const [baseline, history, comments] = journal.entries;
     if (baseline?.idx !== 0 || baseline?.tag !== '0000_worklog_baseline') {
       failures.push('Drizzle journal baseline entry must be idx=0 and tag=0000_worklog_baseline');
     }
     if (history?.idx !== 1 || history?.tag !== '0001_newebpay_subscription_history') {
       failures.push('Drizzle journal NewebPay history entry must be idx=1 and tag=0001_newebpay_subscription_history');
+    }
+    if (comments?.idx !== 2 || comments?.tag !== '0002_worklog_schema_comments') {
+      failures.push('Drizzle journal comments entry must be idx=2 and tag=0002_worklog_schema_comments');
     }
   }
 }
@@ -134,12 +155,12 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log('AFTERTRACE V1 baseline + NewebPay history migration guard passed.');
+console.log('AFTERTRACE V1 baseline + NewebPay history + schema comments migration guard passed.');
 
 function checkArtifactShape() {
   if (!existsSync(drizzleDir)) { failures.push('missing drizzle directory'); return; }
   const rootEntries = readdirSync(drizzleDir).sort();
-  const expectedRoot = ['0000_worklog_baseline.sql', '0001_newebpay_subscription_history.sql', 'meta'];
+  const expectedRoot = ['0000_worklog_baseline.sql', '0001_newebpay_subscription_history.sql', '0002_worklog_schema_comments.sql', 'meta'];
   if (!sameEntries(rootEntries, expectedRoot)) failures.push(`drizzle directory must contain exactly ${expectedRoot.join(', ')}; found ${rootEntries.join(', ') || '(empty)'}`);
   if (!existsSync(metaDir)) { failures.push('missing drizzle/meta directory'); return; }
   const metaEntries = readdirSync(metaDir).sort();
