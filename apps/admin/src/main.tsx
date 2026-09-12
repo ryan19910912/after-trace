@@ -4,6 +4,7 @@ import { AdminApi } from './api';
 import { AdminAnnouncementApi } from './announcement-api';
 import { AdminAnnouncementsPage } from './AdminAnnouncementsPage';
 import { AdminAccountsPage } from './AdminAccountsPage';
+import { AdminAppChrome } from './AdminAppChrome';
 import { AdminCommercialPage } from './AdminCommercialPage';
 import { AdminFeedbackPage } from './AdminFeedbackPage';
 import { AdminHomePage } from './AdminHomePage';
@@ -18,6 +19,7 @@ installTaipeiDateDisplayPolicy();
 
 const root = createRoot(document.getElementById('root')!);
 const baseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
+const hasAdminSession = Boolean(sessionStorage.getItem('aftertrace.admin.session'));
 
 if (!baseUrl) {
   root.render(
@@ -50,7 +52,7 @@ if (!baseUrl) {
 
   root.render(
     <StrictMode>
-      {page}
+      {hasAdminSession ? <AdminAppChrome>{page}</AdminAppChrome> : page}
     </StrictMode>,
   );
 }
