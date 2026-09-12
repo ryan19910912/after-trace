@@ -27,25 +27,20 @@ export function AdminHomePage({ api }: { api: AdminApi }) {
       const session = await api.login(loginUsername.trim(), password);
       sessionStorage.setItem(SESSION_KEY, session.sessionToken);
       api.setSessionToken(session.sessionToken);
-      setUsername(session.username);
-      setPassword('');
+      window.location.href = '/';
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '登入失敗');
-    } finally { setBusy(false); }
-  }
-
-  function logout() {
-    sessionStorage.removeItem(SESSION_KEY);
-    api.setSessionToken(null);
-    setUsername(null);
+      setBusy(false);
+    }
   }
 
   if (busy) return <main className="shell"><section className="panel"><h1>AFTERTRACE Admin</h1><p>正在確認管理員登入狀態…</p></section></main>;
 
   if (!username) return <main className="shell auth-shell"><form className="login-card" onSubmit={(event) => { event.preventDefault(); void login(); }}>
-    <p className="eyebrow">AFTERTRACE</p>
+    <img className="admin-login-logo" src="/aftertrace-icon.svg" alt="" />
+    <p className="eyebrow">AFTERTRACE ADMIN</p>
     <h1>管理後台</h1>
-    <p className="muted">登入後管理 V1 商業方案、公告、意見回饋與營運資料。</p>
+    <p className="muted">登入後管理商業方案、AI 成本、公告與使用者支援。</p>
     {error ? <div className="banner error">{error}</div> : null}
     <label>管理員帳號<input autoComplete="username" value={loginUsername} onChange={(event) => setLoginUsername(event.target.value)} /></label>
     <label>密碼<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
@@ -53,22 +48,13 @@ export function AdminHomePage({ api }: { api: AdminApi }) {
   </form></main>;
 
   return <main className="shell admin-home-shell">
-    <header className="admin-home-hero">
-      <div className="admin-home-title">
-        <div className="admin-brand-mark">AT</div>
-        <div>
-          <p className="eyebrow">AFTERTRACE · ADMIN CONSOLE</p>
-          <h1>營運管理中心</h1>
-          <p className="muted">管理帳號、商業方案、AI 成本與使用者溝通。</p>
-        </div>
+    <header className="topbar admin-page-head">
+      <div>
+        <p className="eyebrow">ADMIN OVERVIEW</p>
+        <h1>營運總覽</h1>
+        <p className="muted">管理帳號、商業方案、AI 成本與使用者溝通。</p>
       </div>
-      <div className="admin-user-area">
-        <div className="admin-user-pill">
-          <span className="admin-user-dot" />
-          <div><small>已登入</small><strong>{username}</strong></div>
-        </div>
-        <button className="ghost" onClick={logout}>登出</button>
-      </div>
+      <div className="admin-user-pill compact"><span className="admin-user-dot" /><div><small>已登入</small><strong>{username}</strong></div></div>
     </header>
 
     <section className="admin-overview-strip">
@@ -90,21 +76,14 @@ export function AdminHomePage({ api }: { api: AdminApi }) {
         <div className="admin-card-head"><span className="admin-card-icon">AI</span><span className="admin-card-kicker">COMMERCIAL</span></div>
         <h2>商業與 AI</h2>
         <p className="muted">管理 FREE AI 試用、AI Pro 資源上限、Provider Cost hard cap 與獲利狀況。</p>
-        <div className="admin-card-actions">
-          <a className="admin-action-primary" href="/commercial">方案設定 <span>→</span></a>
-          <a href="/pricing-calculator">成本試算</a>
-          <a href="/profitability">獲利分析</a>
-        </div>
+        <div className="admin-card-actions"><a className="admin-action-primary" href="/commercial">方案設定 <span>→</span></a><a href="/pricing-calculator">成本試算</a><a href="/profitability">獲利分析</a></div>
       </article>
 
       <article className="admin-dashboard-card communication">
         <div className="admin-card-head"><span className="admin-card-icon">MSG</span><span className="admin-card-kicker">COMMUNICATION</span></div>
         <h2>使用者溝通</h2>
         <p className="muted">集中管理站內公告與意見回饋；LINE OA 保留為外部客服聯絡管道。</p>
-        <div className="admin-card-actions">
-          <a className="admin-action-primary" href="/announcements">公告管理 <span>→</span></a>
-          <a href="/feedback-management">意見回饋</a>
-        </div>
+        <div className="admin-card-actions"><a className="admin-action-primary" href="/announcements">公告管理 <span>→</span></a><a href="/feedback-management">意見回饋</a></div>
       </article>
     </section>
   </main>;
