@@ -304,7 +304,7 @@ export function RecordHomeRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
     {error ? <div className="error">{error}</div> : null}
     {notice ? <div className="worklog-notice">{notice}</div> : null}
 
-    <div className="record-home-subnav"><a className="active" href="/">紀錄</a><a href="/worklog">群組</a><a href="/feedback">回饋</a></div>
+    <div className="record-home-subnav"><a className="active" href="/">紀錄</a><a href="/worklog">群組</a></div>
 
     <section className="record-home-grid">
       <section className="panel quick-record-v2">
