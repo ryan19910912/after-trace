@@ -3,6 +3,12 @@ import { aiTaskDeepLinkUrl } from './ai-task-deep-link';
 import { aiToolsDeepLinkUrl } from './ai-tools-deep-link';
 import { LoginProviderButtons } from './LoginProviderButtons';
 import {
+  browserSpeechRecognitionSupported,
+  createBrowserSpeechRecognition,
+  speechRecognitionErrorMessage,
+  type BrowserSpeechRecognition,
+} from './speech-input';
+import {
   WorklogApi,
   type CreatedNativeGroupInvite,
   type NativeGroupRole,
@@ -30,6 +36,7 @@ type Page = 'RECORDS' | 'GROUPS' | 'FEEDBACK';
 type FilterDraft = { query: string; from: string; to: string };
 type RecordDraft = { rawText: string; occurredAt: string };
 type SharedInvite = CreatedNativeGroupInvite & { groupName: string; revoked: boolean };
+type SpeechState = 'IDLE' | 'LISTENING' | 'ERROR';
 
 const EMPTY_FILTER: FilterDraft = { query: '', from: '', to: '' };
 const EMPTY_RECORD: RecordDraft = { rawText: '', occurredAt: '' };
@@ -38,6 +45,10 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
   const api = useMemo(() => new WorklogApi(apiBaseUrl), [apiBaseUrl]);
   const started = useRef(false);
   const loadGeneration = useRef(0);
+  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const speechFinalRef = useRef('');
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const speechSupported = useMemo(() => browserSpeechRecognitionSupported(), []);
   const initialFilters = useMemo(() => filtersFromUrl(), []);
   const [session, setSession] = useState<string | null>(() => localStorage.getItem(SESSION_KEY));
   const [surfaces, setSurfaces] = useState<WorklogSurfaces | null>(null);
@@ -48,8 +59,9 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
   const [filterDraft, setFilterDraft] = useState<FilterDraft>(initialFilters);
   const [filters, setFilters] = useState<FilterDraft>(initialFilters);
   const [showDeleted, setShowDeleted] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
   const [createDraft, setCreateDraft] = useState<RecordDraft>({ ...EMPTY_RECORD });
+  const [speechState, setSpeechState] = useState<SpeechState>('IDLE');
+  const [speechMessage, setSpeechMessage] = useState<string | null>(null);
   const [editing, setEditing] = useState<WorklogRecord | null>(null);
   const [editDraft, setEditDraft] = useState<RecordDraft | null>(null);
   const [historyRecord, setHistoryRecord] = useState<WorklogRecord | null>(null);
@@ -66,14 +78,13 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
       started.current = true;
       void bootstrap();
     }
+    return () => abortSpeechCapture();
   }, []);
 
   useEffect(() => {
     if (!session || !scope) return;
     loadGeneration.current += 1;
     localStorage.setItem(ACTIVE_SCOPE_KEY, JSON.stringify(scope));
-    setCreateOpen(false);
-    setCreateDraft({ ...EMPTY_RECORD });
     setEditing(null);
     setEditDraft(null);
     setHistoryRecord(null);
@@ -185,6 +196,7 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
 
   function clearSession() {
     loadGeneration.current += 1;
+    abortSpeechCapture();
     localStorage.removeItem(SESSION_KEY);
     localStorage.removeItem(ACTIVE_SCOPE_KEY);
     setSession(null);
@@ -192,7 +204,6 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
     setScope(null);
     setRecords([]);
     setRecordPage(null);
-    setCreateOpen(false);
     setEditing(null);
     setEditDraft(null);
     setHistoryRecord(null);
@@ -212,12 +223,92 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
   }
 
   function switchRecordView(deleted: boolean) {
-    if (deleted) setCreateOpen(false);
+    abortSpeechCapture();
     setShowDeleted(deleted);
+  }
+
+  function clearComposer() {
+    abortSpeechCapture();
+    speechFinalRef.current = '';
+    setCreateDraft({ ...EMPTY_RECORD });
+    setSpeechMessage(null);
+    composerRef.current?.focus();
+  }
+
+  function toggleSpeechCapture() {
+    if (speechState === 'LISTENING') {
+      stopSpeechCapture();
+      return;
+    }
+    startSpeechCapture();
+  }
+
+  function startSpeechCapture() {
+    if (!scope) {
+      setSpeechMessage('請先選擇紀錄空間。');
+      return;
+    }
+    if (!speechSupported) {
+      setSpeechState('ERROR');
+      setSpeechMessage('這個瀏覽器目前不支援語音轉文字，請直接使用文字輸入。');
+      return;
+    }
+    abortSpeechCapture();
+    speechFinalRef.current = '';
+    setCreateDraft((current) => ({ ...current, rawText: '' }));
+    setSpeechMessage(null);
+    setError(null);
+
+    const recognition = createBrowserSpeechRecognition({
+      onTranscript: ({ finalText, interimText }) => {
+        if (finalText) speechFinalRef.current = [speechFinalRef.current, finalText].filter(Boolean).join(' ').trim();
+        const visible = [speechFinalRef.current, interimText].filter(Boolean).join(' ').trim();
+        setCreateDraft((current) => ({ ...current, rawText: visible }));
+      },
+      onError: (code) => {
+        if (recognitionRef.current === recognition) recognitionRef.current = null;
+        setSpeechState('ERROR');
+        setSpeechMessage(speechRecognitionErrorMessage(code));
+      },
+      onEnd: () => {
+        if (recognitionRef.current === recognition) recognitionRef.current = null;
+        setSpeechState((current) => current === 'ERROR' ? current : 'IDLE');
+        setCreateDraft((current) => ({ ...current, rawText: speechFinalRef.current || current.rawText }));
+      },
+    });
+    if (!recognition) return;
+    recognitionRef.current = recognition;
+    try {
+      recognition.start();
+      setSpeechState('LISTENING');
+    } catch {
+      recognitionRef.current = null;
+      setSpeechState('ERROR');
+      setSpeechMessage('麥克風無法啟動，可以再試一次或直接使用文字輸入。');
+    }
+  }
+
+  function stopSpeechCapture() {
+    const recognition = recognitionRef.current;
+    if (!recognition) {
+      setSpeechState('IDLE');
+      return;
+    }
+    try { recognition.stop(); } catch { recognitionRef.current = null; setSpeechState('IDLE'); }
+  }
+
+  function abortSpeechCapture() {
+    const recognition = recognitionRef.current;
+    recognitionRef.current = null;
+    if (recognition) {
+      try { recognition.abort?.(); } catch { /* ignore teardown errors */ }
+    }
+    setSpeechState('IDLE');
   }
 
   async function createRecord() {
     if (!session || !scope || !createDraft.rawText.trim() || !optionalLocalDateValid(createDraft.occurredAt)) return;
+    abortSpeechCapture();
     setLoading(true);
     setError(null);
     try {
@@ -225,9 +316,11 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
         rawText: createDraft.rawText.trim(),
         occurredAt: localDateOrNull(createDraft.occurredAt),
       });
+      speechFinalRef.current = '';
       setCreateDraft({ ...EMPTY_RECORD });
-      setCreateOpen(false);
-      await refreshAfterMutation('紀錄已新增。');
+      setSpeechMessage(null);
+      await refreshAfterMutation('紀錄已儲存。');
+      window.setTimeout(() => composerRef.current?.focus(), 0);
     } catch (cause) {
       setError(message(cause, '新增紀錄失敗'));
     } finally {
@@ -385,15 +478,11 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
   }
 
   const hasFilters = Boolean(filters.query || filters.from || filters.to);
+  const occurredAtValid = optionalLocalDateValid(createDraft.occurredAt);
 
   return <main className="shell worklog-shell">
     <div className="topbar">
-      <div><p className="eyebrow">AFTERTRACE</p><h1>工作紀錄</h1></div>
-      <div className="filter-actions">
-        <button className="ghost" onClick={() => { window.location.href = '/subscription'; }}>方案</button>
-        <button className="ghost" onClick={() => { window.location.href = '/help'; }}>使用說明</button>
-        <button className="ghost" onClick={clearSession}>登出</button>
-      </div>
+      <div><p className="eyebrow">AFTERTRACE</p><h1>紀錄列表</h1><p className="muted">想到就記，之後再找。文字與語音都從這裡開始。</p></div>
     </div>
     {error ? <div className="error">{error}</div> : null}
     {notice ? <div className="worklog-notice">{notice}</div> : null}
@@ -405,22 +494,30 @@ export function WorklogRoot({ apiBaseUrl }: Props) {
     </nav>
 
     {page === 'RECORDS' ? <>
-      <ScopePicker surfaces={surfaces} scope={scope} onChange={setScope} />
+      <ScopePicker surfaces={surfaces} scope={scope} onChange={(next) => { abortSpeechCapture(); setScope(next); }} />
+      {!showDeleted ? <section className="panel quick-record-composer">
+        <div className="quick-record-head"><div><p className="eyebrow">快速紀錄</p><h2>現在發生了什麼？</h2></div><span className="quick-record-scope">{scope ? scopeLabel(scope, surfaces) : '尚未選擇'}</span></div>
+        <textarea ref={composerRef} rows={5} value={createDraft.rawText} onChange={(event) => { abortSpeechCapture(); setCreateDraft({ ...createDraft, rawText: event.target.value }); }} placeholder="直接輸入工作紀錄，或按下語音輸入…" />
+        {speechMessage ? <p className="capture-warning">{speechMessage}</p> : null}
+        <div className="quick-record-controls">
+          <button className={`quick-voice-button${speechState === 'LISTENING' ? ' listening' : ''}`} disabled={loading || !scope} onClick={toggleSpeechCapture}>{speechState === 'LISTENING' ? '■ 停止語音' : '🎙 語音輸入'}</button>
+          <label className="quick-record-time"><span>發生時間（選填）</span><input type="datetime-local" value={createDraft.occurredAt} onChange={(event) => setCreateDraft({ ...createDraft, occurredAt: event.target.value })} /></label>
+          <div className="quick-record-actions"><button disabled={loading || !scope || !createDraft.rawText.trim() || !occurredAtValid} onClick={() => void createRecord()}>儲存紀錄</button><button className="ghost" disabled={loading || (!createDraft.rawText && !createDraft.occurredAt)} onClick={clearComposer}>清除</button></div>
+        </div>
+      </section> : null}
       <section className="record-toolbar">
         <div className="record-view-switch" role="tablist" aria-label="紀錄檢視">
           <button role="tab" aria-selected={!showDeleted} className={!showDeleted ? 'active' : ''} onClick={() => switchRecordView(false)}>目前紀錄</button>
           <button role="tab" aria-selected={showDeleted} className={showDeleted ? 'active' : ''} onClick={() => switchRecordView(true)}>回收桶</button>
         </div>
-        {!showDeleted ? <button className="record-create-button" onClick={() => setCreateOpen((value) => !value)}>{createOpen ? '收起' : '＋新增紀錄'}</button> : null}
       </section>
-      {createOpen && !showDeleted ? <section className="panel record-create-panel"><RecordEditor heading="新增紀錄" draft={createDraft} onChange={setCreateDraft} onCancel={() => setCreateOpen(false)} onSave={() => void createRecord()} busy={loading} /></section> : null}
       <RecordFiltersPanel draft={filterDraft} onChange={setFilterDraft} onApply={applyFilters} onClear={clearFilters} />
-      <section className="panel">
+      <section className="panel record-list-panel">
         {loading && records.length === 0 ? <div className="empty">載入中…</div> : null}
         {!loading && scope && records.length === 0 ? <div className="empty record-empty">
           <strong>{showDeleted ? '回收桶是空的' : hasFilters ? '找不到符合條件的紀錄' : '還沒有任何紀錄'}</strong>
-          <span>{showDeleted ? '刪除的紀錄會出現在這裡。' : hasFilters ? '試著清除篩選，或換一個關鍵字。' : '把今天做過的事記下來，之後需要時就找得到。'}</span>
-          {!showDeleted ? <button onClick={hasFilters ? clearFilters : () => setCreateOpen(true)}>{hasFilters ? '清除篩選' : '＋ 建立第一筆紀錄'}</button> : null}
+          <span>{showDeleted ? '刪除的紀錄會出現在這裡。' : hasFilters ? '試著清除篩選，或換一個關鍵字。' : '在上方輸入文字或語音，第一筆紀錄就會出現在這裡。'}</span>
+          {!showDeleted && hasFilters ? <button onClick={clearFilters}>清除篩選</button> : null}
         </div> : null}
         {!scope ? <div className="empty">目前沒有可使用的紀錄空間。</div> : null}
         <div className="worklog-record-list">
@@ -476,6 +573,11 @@ function ScopePicker({ surfaces, scope, onChange }: { surfaces: WorklogSurfaces 
   </section>;
 }
 
+function scopeLabel(scope: Scope, surfaces: WorklogSurfaces | null): string {
+  if (scope.type === 'PERSONAL') return '我的紀錄';
+  return surfaces?.groups.find((group) => group.sourceId === scope.sourceId)?.name ?? '群組紀錄';
+}
+
 function RecordFiltersPanel({ draft, onChange, onApply, onClear }: { draft: FilterDraft; onChange: (value: FilterDraft) => void; onApply: () => void; onClear: () => void }) {
   return <section className="panel record-filter-card">
     <div className="record-filter-grid">
@@ -489,7 +591,7 @@ function RecordFiltersPanel({ draft, onChange, onApply, onClear }: { draft: Filt
 
 function RecordEditor({ heading, draft, onChange, onCancel, onSave, busy }: { heading: string; draft: RecordDraft; onChange: (value: RecordDraft) => void; onCancel: () => void; onSave: () => void; busy: boolean }) {
   const occurredAtValid = optionalLocalDateValid(draft.occurredAt);
-  return <div className="stack">
+  return <div className="stack record-editor">
     <h2>{heading}</h2>
     <label>紀錄內容<textarea rows={6} value={draft.rawText} onChange={(event) => onChange({ ...draft, rawText: event.target.value })} placeholder="今天發生了什麼？" /></label>
     <label>發生時間（選填）<input type="datetime-local" value={draft.occurredAt} onChange={(event) => onChange({ ...draft, occurredAt: event.target.value })} /></label>
