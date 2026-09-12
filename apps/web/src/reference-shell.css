@@ -6,36 +6,36 @@
       linear-gradient(180deg, #07111f 0%, #07101c 54%, #06101b 100%);
   }
 
-  .account-chrome {
-    position: fixed;
-    inset: 0 auto 0 0;
+  body:has(.account-chrome) .account-chrome {
+    position: fixed !important;
+    inset: 0 auto 0 0 !important;
     z-index: 50;
-    width: 220px;
+    width: 220px !important;
     min-height: 100vh;
-    border: 0;
-    border-right: 1px solid rgba(74, 124, 184, .24);
+    border: 0 !important;
+    border-right: 1px solid rgba(74, 124, 184, .24) !important;
     background:
       radial-gradient(circle at 18% 0%, rgba(45, 132, 236, .12), transparent 16rem),
-      linear-gradient(180deg, rgba(5, 16, 29, .99), rgba(4, 13, 24, .99));
+      linear-gradient(180deg, rgba(5, 16, 29, .99), rgba(4, 13, 24, .99)) !important;
     box-shadow: 16px 0 48px rgb(0 0 0 / 15%);
     backdrop-filter: blur(22px);
   }
 
-  .account-chrome-inner {
-    display: flex;
+  body:has(.account-chrome) .account-chrome-inner {
+    display: flex !important;
     flex-direction: column;
-    width: 100%;
+    width: 100% !important;
     height: 100vh;
-    margin: 0;
-    padding: 22px 18px;
+    margin: 0 !important;
+    padding: 22px 18px !important;
   }
 
-  .account-chrome-top {
-    display: block;
+  body:has(.account-chrome) .account-chrome-top {
+    display: block !important;
     min-width: 0;
   }
 
-  .brand-home {
+  body:has(.account-chrome) .brand-home {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -43,7 +43,7 @@
     padding: 4px 7px;
   }
 
-  .brand-home img {
+  body:has(.account-chrome) .brand-home img {
     width: 38px;
     height: 38px;
     flex: 0 0 38px;
@@ -52,28 +52,28 @@
     box-shadow: 0 0 26px rgba(37, 135, 246, .18), 0 8px 20px rgb(0 0 0 / 24%);
   }
 
-  .brand-home span {
+  body:has(.account-chrome) .brand-home span {
     min-height: auto;
     font-size: 14px;
     letter-spacing: .13em;
   }
 
-  .desktop-primary-nav {
-    display: flex;
+  body:has(.account-chrome) .desktop-primary-nav {
+    display: flex !important;
     flex-direction: column;
     align-items: stretch;
     gap: 7px;
-    width: 100%;
+    width: 100% !important;
     max-width: none;
     margin-top: 34px;
-    padding: 0;
-    border: 0;
+    padding: 0 !important;
+    border: 0 !important;
     border-radius: 0;
-    background: transparent;
-    box-shadow: none;
+    background: transparent !important;
+    box-shadow: none !important;
   }
 
-  .desktop-primary-nav a {
+  body:has(.account-chrome) .desktop-primary-nav a {
     position: relative;
     display: flex;
     align-items: center;
@@ -89,7 +89,7 @@
     text-align: left;
   }
 
-  .desktop-primary-nav a::before {
+  body:has(.account-chrome) .desktop-primary-nav a::before {
     display: grid;
     width: 21px;
     height: 21px;
@@ -99,97 +99,97 @@
     font-weight: 500;
     line-height: 1;
   }
-  .desktop-primary-nav a:nth-child(1)::before { content: "▤"; }
-  .desktop-primary-nav a:nth-child(2)::before { content: "✓"; }
-  .desktop-primary-nav a:nth-child(3)::before { content: "⌕"; }
-  .desktop-primary-nav a:nth-child(4)::before { content: "◇"; }
+  body:has(.account-chrome) .desktop-primary-nav a:nth-child(1)::before { content: "▤"; }
+  body:has(.account-chrome) .desktop-primary-nav a:nth-child(2)::before { content: "✓"; }
+  body:has(.account-chrome) .desktop-primary-nav a:nth-child(3)::before { content: "⌕"; }
+  body:has(.account-chrome) .desktop-primary-nav a:nth-child(4)::before { content: "◇"; }
 
-  .desktop-primary-nav a:hover {
+  body:has(.account-chrome) .desktop-primary-nav a:hover {
     border-color: rgba(68, 126, 190, .22);
     background: rgba(26, 67, 109, .28);
   }
 
-  .desktop-primary-nav a.active {
+  body:has(.account-chrome) .desktop-primary-nav a.active {
     border-color: rgba(91, 167, 255, .52);
     background: linear-gradient(180deg, rgba(38, 111, 183, .88), rgba(24, 75, 126, .9));
     box-shadow: inset 0 0 0 1px rgba(177, 218, 255, .13), 0 10px 22px rgba(12, 68, 126, .18), 0 0 24px rgba(43, 136, 238, .08);
   }
 
-  .account-chrome-actions {
-    position: fixed;
-    top: 0;
-    right: 0;
-    left: 220px;
+  body:has(.account-chrome) .account-chrome-actions {
+    position: fixed !important;
+    top: 0 !important;
+    right: 0 !important;
+    left: 220px !important;
     z-index: 55;
-    display: flex;
+    display: flex !important;
     align-items: center;
     justify-content: flex-end;
-    min-height: 66px;
-    padding: 10px 28px;
+    width: auto !important;
+    min-height: 66px !important;
+    padding: 10px 32px !important;
     border-bottom: 1px solid rgba(74, 124, 184, .22);
-    background: rgba(5, 14, 25, .88);
+    background: rgba(5, 14, 25, .9) !important;
     box-shadow: 0 12px 30px rgb(0 0 0 / 12%);
     backdrop-filter: blur(22px);
   }
 
-  .help-menu-trigger,
-  .notification-bell {
+  body:has(.account-chrome) .help-menu-trigger,
+  body:has(.account-chrome) .notification-bell {
     background: rgba(9, 24, 41, .84);
     border-color: rgba(70, 121, 180, .42);
   }
 
-  .account-trigger {
+  body:has(.account-chrome) .account-trigger {
     min-height: 42px;
     padding-inline: 12px;
   }
 
-  .account-display-name {
-    font-size: 15px;
-  }
+  body:has(.account-chrome) .account-display-name { font-size: 15px; }
+  body:has(.account-chrome) .help-menu,
+  body:has(.account-chrome) .account-menu,
+  body:has(.account-chrome) .notification-center { top: calc(100% + 8px); }
 
-  .help-menu,
-  .account-menu,
-  .notification-center {
-    top: calc(100% + 8px);
-  }
-
-  .account-chrome ~ .shell,
   body:has(.account-chrome) .shell {
-    width: min(1160px, calc(100vw - 268px));
-    margin-left: 244px;
-    margin-right: 24px;
-    padding-top: 96px;
+    width: calc(100vw - 220px) !important;
+    max-width: none !important;
+    margin: 0 0 0 220px !important;
+    padding: 96px clamp(28px, 3vw, 52px) 78px !important;
+  }
+
+  body:has(.account-chrome) .worklog-shell,
+  body:has(.account-chrome) .task-shell,
+  body:has(.account-chrome) .ai-search-shell,
+  body:has(.account-chrome) .subscription-shell,
+  body:has(.account-chrome) .help-shell,
+  body:has(.account-chrome) .feedback-root-shell {
+    width: calc(100vw - 220px) !important;
+    max-width: none !important;
+  }
+
+  body:has(.account-chrome) .shell > * {
+    width: min(1120px, 100%);
+    margin-left: auto;
+    margin-right: auto;
   }
 
   body:has(.account-chrome) .fatal-shell {
-    width: min(980px, calc(100vw - 268px));
-    margin-left: 244px;
+    width: calc(100vw - 220px) !important;
+    margin-left: 220px !important;
   }
 
-  body:has(.account-chrome) .mobile-bottom-nav {
-    display: none !important;
-  }
+  body:has(.account-chrome) .mobile-bottom-nav { display: none !important; }
 
-  .topbar {
+  body:has(.account-chrome) .topbar {
     align-items: center;
     margin-bottom: 22px;
   }
 
-  .topbar h1 {
+  body:has(.account-chrome) .topbar h1 {
     font-size: clamp(32px, 3vw, 44px);
     letter-spacing: -.035em;
   }
 
-  .eyebrow {
-    color: #6f9fd3;
-  }
-}
-
-@media (min-width: 1180px) {
-  .account-chrome ~ .shell,
-  body:has(.account-chrome) .shell {
-    margin-left: max(244px, calc(220px + (100vw - 220px - 1160px) / 2));
-  }
+  body:has(.account-chrome) .eyebrow { color: #6f9fd3; }
 }
 
 @media (max-width: 760px) {
