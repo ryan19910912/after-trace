@@ -8,6 +8,13 @@
       "when": 1788528481453,
       "tag": "0000_worklog_baseline",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789257600000,
+      "tag": "0001_newebpay_subscription_history",
+      "breakpoints": true
     }
   ]
 }
