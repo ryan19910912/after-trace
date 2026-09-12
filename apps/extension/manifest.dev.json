@@ -3,6 +3,12 @@
   "name": "AFTERTRACE DEV",
   "version": "0.1.0",
   "description": "AFTERTRACE 測試版：快速留下工作發生過的事，需要時找得到。",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
   "permissions": ["activeTab", "contextMenus", "storage"],
   "host_permissions": [
     "https://after-trace-api-dev.a0955625660.workers.dev/*"
@@ -17,6 +23,10 @@
   },
   "action": {
     "default_title": "AFTERTRACE DEV 快速紀錄",
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
   }
 }
