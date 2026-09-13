@@ -7,7 +7,7 @@ import './worklog.css';
 const SESSION_KEY = 'aftertrace.worklog.session';
 type NewebPayForm = { action: string; fields: { MerchantID_: string; PostData_: string }; merchantOrderNo: string };
 type PaymentRenewalState = 'ACTIVE' | 'TERMINATED' | 'PENDING' | 'FAILED' | 'NONE';
-type SubscriptionSnapshot = { plans: SubscriptionPlans; renewalState: PaymentRenewalState };
+type SubscriptionSnapshot = { plans: SubscriptionPlans; renewalState: PaymentRenewalState; periodEnd: string | null };
 
 export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
   const api = useMemo(() => new WorklogApi(apiBaseUrl), [apiBaseUrl]);
@@ -17,6 +17,7 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
   const [usage, setUsage] = useState<AiEntitlementDecision | null>(null);
   const [paymentAvailable, setPaymentAvailable] = useState(false);
   const [renewalState, setRenewalState] = useState<PaymentRenewalState>('NONE');
+  const [periodEnd, setPeriodEnd] = useState<string | null>(null);
   const [payerEmail, setPayerEmail] = useState('');
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -48,10 +49,10 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
       setPaymentAvailable(await paymentAvailability(apiBaseUrl).catch(() => false));
       if (token) {
         let snapshot = await subscriptionSnapshot(apiBaseUrl, token);
-        setData(snapshot.plans); setRenewalState(snapshot.renewalState);
+        setData(snapshot.plans); setRenewalState(snapshot.renewalState); setPeriodEnd(snapshot.periodEnd);
         if (paymentReturned) {
           snapshot = await waitForPaymentResult(apiBaseUrl, token, snapshot);
-          setData(snapshot.plans); setRenewalState(snapshot.renewalState);
+          setData(snapshot.plans); setRenewalState(snapshot.renewalState); setPeriodEnd(snapshot.periodEnd);
           if (snapshot.plans.currentPlanCode === 'AI_PRO') setNotice('AI Pro 已啟用。');
           else if (snapshot.renewalState === 'FAILED') setNotice('付款未成功，請重新嘗試。');
           else setNotice('付款結果仍在確認中，請稍後重新整理。');
@@ -101,21 +102,25 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
 
   async function cancelRenewal() {
     if (!session || data?.currentPlanCode !== 'AI_PRO' || renewalState !== 'ACTIVE' || !paymentAvailable || busy) return;
-    if (!window.confirm('確定取消 AI Pro 自動續訂？已付款的本期仍可使用到目前週期結束。')) return;
+    if (!window.confirm('確定取消 AI Pro 自動續訂？取消後不會再自動扣款，已付款的本期仍可使用到週期結束。')) return;
     setBusy(true); setError(null); setNotice(null);
     try {
       const response = await fetch(`${apiBaseUrl.replace(/\/$/, '')}/api/v1/payments/newebpay/cancel`, { method: 'POST', headers: { Authorization: `Bearer ${session}` } });
       const body = await jsonBody(response);
       if (!response.ok) throw new Error(typeof body.error === 'string' ? body.error : `NEWEBPAY_CANCEL_FAILED_${response.status}`);
-      setNotice('已取消 AI Pro 自動續訂。');
-      const snapshot = await subscriptionSnapshot(apiBaseUrl, session); setData(snapshot.plans); setRenewalState(snapshot.renewalState);
+      const cancelledPeriodEnd = typeof body.periodEnd === 'string' ? body.periodEnd : null;
+      setNotice(cancelledPeriodEnd
+        ? `已取消 AI Pro 自動續訂，可使用到 ${formatTaipeiDate(cancelledPeriodEnd)}。到期後如需再次使用，請重新訂閱。`
+        : '已取消 AI Pro 自動續訂。到期後如需再次使用，請重新訂閱。');
+      const snapshot = await subscriptionSnapshot(apiBaseUrl, session);
+      setData(snapshot.plans); setRenewalState(snapshot.renewalState); setPeriodEnd(snapshot.periodEnd ?? cancelledPeriodEnd);
     } catch (cause) {
       if (isSessionError(cause)) { clearSession(); setError('登入已過期，請重新登入。'); }
       else setError(paymentError(cause));
     } finally { setBusy(false); }
   }
 
-  function clearSession() { localStorage.removeItem(SESSION_KEY); localStorage.removeItem('aftertrace.worklog.scope'); setSession(null); setData(null); setUsage(null); setRenewalState('NONE'); }
+  function clearSession() { localStorage.removeItem(SESSION_KEY); localStorage.removeItem('aftertrace.worklog.scope'); setSession(null); setData(null); setUsage(null); setRenewalState('NONE'); setPeriodEnd(null); }
 
   if (!session) return <main className="shell fatal-shell"><section className="fatal-card"><p className="eyebrow">AFTERTRACE</p><h1>方案</h1><p className="muted">登入後可查看免費版與 AI Pro。</p>{error ? <div className="error">{error}</div> : null}<LoginProviderButtons apiBaseUrl={apiBaseUrl} returnTo="/subscription" /></section></main>;
   if (!ready) return <main className="shell worklog-shell subscription-shell subscription-loading"><section className="subscription-loading-card" aria-live="polite"><span className="subscription-loading-dot" /><strong>{confirmingPayment ? '正在確認付款結果' : '正在載入方案'}</strong><p className="muted">{confirmingPayment ? '正在確認付款結果，請稍候…' : '正在確認你的方案與可用功能…'}</p></section></main>;
@@ -149,7 +154,13 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
     })}</section>
 
     {!aiProActive && !paymentAvailable ? <div className="worklog-notice">目前尚未開放線上升級；免費功能與 AI 搜尋體驗不受影響。</div> : null}
-    {aiProActive ? <section className="panel stack subscription-renewal"><strong>AI Pro 自動續訂</strong>{renewalState === 'TERMINATED' ? <div className="worklog-notice">已取消自動續訂。目前 AI Pro 仍可使用到這一期結束。</div> : <p className="muted">取消續訂只會停止下一期扣款，目前已付款週期仍可使用到期。</p>}{renewalState === 'ACTIVE' ? <button className="ghost danger" disabled={busy || !paymentAvailable} onClick={() => void cancelRenewal()}>取消 AI Pro 自動續訂</button> : null}</section> : null}
+    {aiProActive ? <section className="panel stack subscription-renewal">
+      <strong>AI Pro 訂閱管理</strong>
+      {renewalState === 'TERMINATED'
+        ? <div className="worklog-notice">已取消自動續訂。{periodEnd ? `目前 AI Pro 可使用到 ${formatTaipeiDate(periodEnd)}。` : '目前已付款週期仍可使用到期。'} 到期後如需再次使用，請重新走一次訂閱流程。</div>
+        : <p className="muted">{periodEnd ? `目前方案可使用到 ${formatTaipeiDate(periodEnd)}。` : ''} 取消續訂只會停止下一期扣款，目前已付款週期仍可使用到期。</p>}
+      {renewalState === 'ACTIVE' ? <button className="ghost danger" disabled={busy || !paymentAvailable} onClick={() => void cancelRenewal()}>取消 AI Pro 自動續訂</button> : null}
+    </section> : null}
 
     {checkoutOpen && aiProPlan ? <div className="subscription-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeCheckout(); }}><section className="subscription-modal" role="dialog" aria-modal="true" aria-labelledby="subscription-checkout-title"><button className="subscription-modal-close" type="button" aria-label="關閉" disabled={busy} onClick={closeCheckout}>×</button><p className="eyebrow">升級 AI PRO</p><h2 id="subscription-checkout-title">AI Pro｜NT$99 / 月</h2><p className="subscription-modal-copy">輸入付款 Email 後，會前往藍新完成付款。</p><label className="subscription-email-label"><span>付款 Email</span><input type="email" autoComplete="email" autoFocus value={payerEmail} onChange={(event) => { setPayerEmail(event.target.value); if (error) setError(null); }} placeholder="name@example.com" onKeyDown={(event) => { if (event.key === 'Enter' && !busy) void choose(aiProPlan); }} /></label><p className="muted">此 Email 只用於本次付款與訂單查詢；AFTERTRACE 不會接收或保存信用卡號。</p>{error ? <div className="error">{error}</div> : null}<div className="subscription-modal-actions"><button className="ghost" type="button" disabled={busy} onClick={closeCheckout}>取消</button><button type="button" disabled={busy || !validEmail(payerEmail)} onClick={() => void choose(aiProPlan)}>{busy ? '正在前往付款…' : '前往藍新付款'}</button></div></section></div> : null}
   </main>;
@@ -176,7 +187,8 @@ async function subscriptionSnapshot(apiBaseUrl: string, sessionToken: string): P
   const trialStatus = trialRaw.status === 'AVAILABLE' || trialRaw.status === 'EXHAUSTED' || trialRaw.status === 'NOT_ISSUED' ? trialRaw.status : 'NOT_ISSUED';
   const renewalRaw = typeof body.paymentRenewalState === 'string' ? body.paymentRenewalState.toUpperCase() : 'NONE';
   const renewalState: PaymentRenewalState = renewalRaw === 'ACTIVE' || renewalRaw === 'TERMINATED' || renewalRaw === 'PENDING' || renewalRaw === 'FAILED' ? renewalRaw : 'NONE';
-  return { plans: { currentPlanCode: body.currentPlanCode === 'AI_PRO' ? 'AI_PRO' : 'FREE', currentSubscriptionState: typeof body.currentSubscriptionState === 'string' ? body.currentSubscriptionState : undefined, checkoutEnabled: body.checkoutEnabled === true, freeAiTrial: { status: trialStatus, originalPoints: Number(trialRaw.originalPoints ?? 0), remainingPoints: Number(trialRaw.remainingPoints ?? 0) }, plans: planRows }, renewalState };
+  const periodEnd = typeof body.currentPeriodEnd === 'string' && !Number.isNaN(new Date(body.currentPeriodEnd).getTime()) ? body.currentPeriodEnd : null;
+  return { plans: { currentPlanCode: body.currentPlanCode === 'AI_PRO' ? 'AI_PRO' : 'FREE', currentSubscriptionState: typeof body.currentSubscriptionState === 'string' ? body.currentSubscriptionState : undefined, checkoutEnabled: body.checkoutEnabled === true, freeAiTrial: { status: trialStatus, originalPoints: Number(trialRaw.originalPoints ?? 0), remainingPoints: Number(trialRaw.remainingPoints ?? 0) }, plans: planRows }, renewalState, periodEnd };
 }
 async function waitForPaymentResult(apiBaseUrl: string, sessionToken: string, initial: SubscriptionSnapshot): Promise<SubscriptionSnapshot> { let snapshot = initial; for (let attempt = 0; attempt < 15; attempt += 1) { if (snapshot.plans.currentPlanCode === 'AI_PRO' || snapshot.renewalState === 'FAILED') return snapshot; await new Promise((resolve) => setTimeout(resolve, 1000)); snapshot = await subscriptionSnapshot(apiBaseUrl, sessionToken); } return snapshot; }
 function paymentForm(value: unknown): NewebPayForm { if (!value || typeof value !== 'object') throw new Error('NEWEBPAY_FORM_INVALID'); const row = value as Record<string, unknown>; const fields = row.fields as Record<string, unknown> | undefined; if (typeof row.action !== 'string' || !/^https:\/\/(?:c?core)\.newebpay\.com\//.test(row.action) || !fields || typeof fields.MerchantID_ !== 'string' || typeof fields.PostData_ !== 'string') throw new Error('NEWEBPAY_FORM_INVALID'); return { action: row.action, fields: { MerchantID_: fields.MerchantID_, PostData_: fields.PostData_ }, merchantOrderNo: String(row.merchantOrderNo ?? '') }; }
