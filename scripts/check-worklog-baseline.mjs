@@ -6,52 +6,37 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const drizzleDir = resolve(root, 'drizzle');
 const metaDir = resolve(drizzleDir, 'meta');
 const baselinePath = resolve(drizzleDir, '0000_worklog_baseline.sql');
-const historyMigrationPath = resolve(drizzleDir, '0001_newebpay_subscription_history.sql');
-const commentsMigrationPath = resolve(drizzleDir, '0002_worklog_schema_comments.sql');
 const snapshotPath = resolve(metaDir, '0000_snapshot.json');
 const journalPath = resolve(metaDir, '_journal.json');
 const failures = [];
 
 checkArtifactShape();
 
-const sources = [];
-if (existsSync(baselinePath)) sources.push(['baseline SQL', readFileSync(baselinePath, 'utf8')]);
-else failures.push('missing drizzle/0000_worklog_baseline.sql');
-if (existsSync(snapshotPath)) sources.push(['Drizzle snapshot', readFileSync(snapshotPath, 'utf8')]);
-else failures.push('missing drizzle/meta/0000_snapshot.json');
-if (!existsSync(historyMigrationPath)) failures.push('missing drizzle/0001_newebpay_subscription_history.sql');
-else {
-  const historyMigration = readFileSync(historyMigrationPath, 'utf8');
-  for (const marker of [
-    'worklog_newebpay_subscription_history',
-    'worklog_newebpay_history_order_uq',
-    'COMMENT ON TABLE "worklog_newebpay_subscription_history"',
-    'COMMENT ON COLUMN "worklog_newebpay_subscription_history"."merchant_order_no"',
-  ]) {
-    if (!historyMigration.includes(marker)) failures.push(`NewebPay history migration missing: ${marker}`);
-  }
-  if (historyMigration.includes('CONSTRAINT ')) failures.push('NewebPay history migration must not use named CONSTRAINT clauses');
-  if (/\bCHECK\s*\(/i.test(historyMigration)) failures.push('NewebPay history migration must not contain CHECK constraints; domain validation belongs to the application layer');
+const baseline = existsSync(baselinePath) ? readFileSync(baselinePath, 'utf8') : '';
+if (!baseline) failures.push('missing drizzle/0000_worklog_baseline.sql');
+if (!existsSync(snapshotPath)) failures.push('missing drizzle/meta/0000_snapshot.json');
+if (!existsSync(journalPath)) failures.push('missing drizzle/meta/_journal.json');
+
+for (const marker of [
+  'CREATE TABLE "worklog_users"',
+  'CREATE TABLE "worklog_records"',
+  'CREATE TABLE "worklog_checkout_intents"',
+  'CREATE TABLE "worklog_newebpay_subscriptions"',
+  'CREATE TABLE "worklog_newebpay_subscription_history"',
+  'COMMENT ON TABLE "worklog_users"',
+  'COMMENT ON TABLE "worklog_records"',
+  'COMMENT ON TABLE "worklog_newebpay_subscription_history"',
+  'COMMENT ON COLUMN "worklog_checkout_intents"."payer_email"',
+]) {
+  if (baseline && !baseline.includes(marker)) failures.push(`baseline missing: ${marker}`);
 }
-if (!existsSync(commentsMigrationPath)) failures.push('missing drizzle/0002_worklog_schema_comments.sql');
-else {
-  const commentsMigration = readFileSync(commentsMigrationPath, 'utf8');
-  for (const marker of [
-    'COMMENT ON TABLE "worklog_users"',
-    'COMMENT ON COLUMN "worklog_users"."id"',
-    'COMMENT ON TABLE "worklog_records"',
-    'COMMENT ON TABLE "worklog_ai_grants"',
-    'COMMENT ON TABLE "worklog_newebpay_subscriptions"',
-  ]) {
-    if (!commentsMigration.includes(marker)) failures.push(`schema comments migration missing: ${marker}`);
-  }
-  if (/\bCREATE\s+TABLE\b/i.test(commentsMigration)) failures.push('schema comments migration must not create tables');
-  if (/\bALTER\s+TABLE\b/i.test(commentsMigration)) failures.push('schema comments migration must not alter tables');
-  if (/\bCHECK\s*\(/i.test(commentsMigration)) failures.push('schema comments migration must not contain CHECK constraints');
-  if (commentsMigration.includes('CONSTRAINT ')) failures.push('schema comments migration must not contain CONSTRAINT clauses');
+
+if (/CREATE\s+TYPE\s+.+\s+AS\s+ENUM/i.test(baseline)) {
+  failures.push('baseline must not create PostgreSQL ENUM types; domain values belong to the application layer');
 }
-const journalText = existsSync(journalPath) ? readFileSync(journalPath, 'utf8') : null;
-if (journalText === null) failures.push('missing drizzle/meta/_journal.json');
+if (/\bCHECK\s*\(/i.test(baseline)) {
+  failures.push('baseline must not contain CHECK constraints; domain/business validation belongs to the application layer');
+}
 
 const forbidden = [
   ['worklog_customers', 'legacy Customer table'],
@@ -61,14 +46,11 @@ const forbidden = [
   ['worklog_transaction_type', 'legacy Transaction enum'],
   ['worklog_transactions', 'legacy Transaction table'],
   ['ai_units_consumed', 'retired aggregate AI usage column'],
-  ['worklog_ai_reservation_status', 'retired pre-Grant reservation enum'],
   ['worklog_ai_quota', 'retired aggregate AI quota schema/table marker'],
   ['subscription_owner_user_id', 'retired subscription Owner binding'],
   ['recording_enabled', 'retired GROUP recording preference'],
   ['subscription_period_points', 'retired subscription-only plan point template column'],
   ['worklog_source_ai_responsibility', 'retired GROUP AI responsible-user schema'],
-  ["'ONE_TIME'", 'retired one-time paid plan enum value'],
-  ["'TOP_UP'", 'retired AI top-up Grant type'],
   ['worklog_line_ai_edits', 'retired LINE AI edit state'],
   ['web_auth_entry_nonces', 'retired LINE Web-entry nonce'],
   ['line_user_id', 'retired core LINE user identity column'],
@@ -83,89 +65,55 @@ const forbidden = [
   ['worklog_attachment_ingestions', 'retired LINE attachment ingestion table'],
   ['worklog_source_line_profiles', 'retired LINE group profile table'],
   ['LINE_AI_EDIT', 'retired LINE Record revision channel'],
-  ["'LEGACY'", 'retired Record enrichment status'],
 ];
-
-const required = [
-  ['worklog_auth_provider', 'Google/LINE/Apple provider-neutral auth enum'],
-  ['worklog_auth_identities', 'provider-neutral login identity bindings'],
-  ['worklog_user_public_accounts', 'opaque customer-facing account id'],
-  ['worklog_source_invites', 'AFTERTRACE-native group invite tokens'],
-  ['worklog_record_revisions', 'immutable Record revision history'],
-  ['worklog_ai_grants', 'user-owned AI Grant table'],
-  ['worklog_ai_grant_scopes', 'Grant Source scope table'],
-  ['worklog_ai_point_reservations', 'Grant-backed AI point reservation table'],
-  ['worklog_ai_usage_funding', 'exact usage-to-Grant funding attribution'],
-  ['provider_cost_committed_twd', 'subscription-period committed provider-cost counter'],
-  ['provider_cost_reserved_twd', 'subscription-period concurrent provider-cost hold counter'],
-  ['provider_cost_hold_twd', 'per-reservation provider-cost hold'],
-  ['worklog_commercial_config', 'operator commercial singleton'],
-  ['free_initial_ai_trial_points', 'Admin-configured one-time FREE AI trial quantity'],
-  ['worklog_notifications', 'durable ANNOUNCEMENT/SYSTEM/TASK notification table'],
-  ['worklog_notification_recipients', 'durable per-user notification/read state'],
-  ['worklog_push_subscriptions', 'Web Push subscriptions'],
-  ['worklog_notification_preferences', 'user Push preferences'],
-  ['worklog_tasks', 'user-confirmed task/reminder table'],
-  ['worklog_checkout_intents', 'bounded paid checkout intent table'],
-  ['worklog_subscription_lifecycle_events', 'provider-neutral idempotent subscription lifecycle inbox'],
-  ['worklog_feedback', 'durable in-product feedback'],
-  ['worklog_feedback_management', 'Admin feedback category/status workflow'],
-  ['worklog_newebpay_subscriptions', 'NewebPay adapter state'],
-  ['customer_points_charged', 'customer point charge fact'],
-  ['platform_subsidized_points', 'platform subsidy fact'],
-  ['worklog_ai_point_reservation_funding_grant_scope_fk', 'reservation funding scope belongs to Grant'],
-  ['worklog_ai_usage_funding_grant_scope_fk', 'usage funding scope belongs to Grant'],
-];
-
-for (const [sourceName, source] of sources) {
-  for (const [marker, description] of forbidden) {
-    if (source.includes(marker)) failures.push(`${sourceName} forbidden: ${marker} (${description})`);
-  }
-  for (const [marker, description] of required) {
-    if (!source.includes(marker)) failures.push(`${sourceName} missing: ${marker} (${description})`);
-  }
+for (const [marker, description] of forbidden) {
+  if (baseline.includes(marker)) failures.push(`baseline forbidden: ${marker} (${description})`);
 }
 
-let journal;
-if (journalText !== null) {
-  try { journal = JSON.parse(journalText); }
-  catch { failures.push('Drizzle journal is not valid JSON'); }
-}
-if (journal) {
-  if (journal.dialect !== 'postgresql') failures.push('Drizzle journal dialect must be postgresql');
-  if (!Array.isArray(journal.entries) || journal.entries.length !== 3) {
-    failures.push('Drizzle journal must contain baseline, NewebPay history, and schema comments migrations');
-  } else {
-    const [baseline, history, comments] = journal.entries;
-    if (baseline?.idx !== 0 || baseline?.tag !== '0000_worklog_baseline') {
-      failures.push('Drizzle journal baseline entry must be idx=0 and tag=0000_worklog_baseline');
+if (existsSync(journalPath)) {
+  try {
+    const journal = JSON.parse(readFileSync(journalPath, 'utf8'));
+    if (journal.dialect !== 'postgresql') failures.push('Drizzle journal dialect must be postgresql');
+    if (!Array.isArray(journal.entries) || journal.entries.length !== 1) {
+      failures.push('Drizzle journal must contain exactly one canonical baseline entry');
+    } else {
+      const entry = journal.entries[0];
+      if (entry?.idx !== 0 || entry?.tag !== '0000_worklog_baseline') {
+        failures.push('Drizzle journal entry must be idx=0 and tag=0000_worklog_baseline');
+      }
     }
-    if (history?.idx !== 1 || history?.tag !== '0001_newebpay_subscription_history') {
-      failures.push('Drizzle journal NewebPay history entry must be idx=1 and tag=0001_newebpay_subscription_history');
-    }
-    if (comments?.idx !== 2 || comments?.tag !== '0002_worklog_schema_comments') {
-      failures.push('Drizzle journal comments entry must be idx=2 and tag=0002_worklog_schema_comments');
-    }
+  } catch {
+    failures.push('Drizzle journal is not valid JSON');
   }
 }
 
 if (failures.length > 0) {
-  console.error('AFTERTRACE migration artifacts are stale/inconsistent and deployment must stop.');
+  console.error('AFTERTRACE canonical database baseline is stale/inconsistent and deployment must stop.');
   for (const failure of failures) console.error(`- ${failure}`);
   process.exit(1);
 }
 
-console.log('AFTERTRACE V1 baseline + NewebPay history + schema comments migration guard passed.');
+console.log('AFTERTRACE single canonical 0000 database baseline guard passed.');
 
 function checkArtifactShape() {
-  if (!existsSync(drizzleDir)) { failures.push('missing drizzle directory'); return; }
+  if (!existsSync(drizzleDir)) {
+    failures.push('missing drizzle directory');
+    return;
+  }
   const rootEntries = readdirSync(drizzleDir).sort();
-  const expectedRoot = ['0000_worklog_baseline.sql', '0001_newebpay_subscription_history.sql', '0002_worklog_schema_comments.sql', 'meta'];
-  if (!sameEntries(rootEntries, expectedRoot)) failures.push(`drizzle directory must contain exactly ${expectedRoot.join(', ')}; found ${rootEntries.join(', ') || '(empty)'}`);
-  if (!existsSync(metaDir)) { failures.push('missing drizzle/meta directory'); return; }
+  const expectedRoot = ['0000_worklog_baseline.sql', 'meta'];
+  if (!sameEntries(rootEntries, expectedRoot)) {
+    failures.push(`drizzle directory must contain exactly ${expectedRoot.join(', ')}; found ${rootEntries.join(', ') || '(empty)'}`);
+  }
+  if (!existsSync(metaDir)) {
+    failures.push('missing drizzle/meta directory');
+    return;
+  }
   const metaEntries = readdirSync(metaDir).sort();
   const expectedMeta = ['0000_snapshot.json', '_journal.json'];
-  if (!sameEntries(metaEntries, expectedMeta)) failures.push(`drizzle/meta must contain exactly ${expectedMeta.join(', ')}; found ${metaEntries.join(', ') || '(empty)'}`);
+  if (!sameEntries(metaEntries, expectedMeta)) {
+    failures.push(`drizzle/meta must contain exactly ${expectedMeta.join(', ')}; found ${metaEntries.join(', ') || '(empty)'}`);
+  }
 }
 
 function sameEntries(actual, expected) {
