@@ -75,8 +75,8 @@ export function AdminHomePage({ api }: { api: AdminApi }) {
       <article className="admin-dashboard-card commercial">
         <div className="admin-card-head"><span className="admin-card-icon">AI</span><span className="admin-card-kicker">商業設定</span></div>
         <h2>商業與 AI</h2>
-        <p className="muted">管理免費試用、訂閱方案資源上限、AI 成本控制與營運分析。</p>
-        <div className="admin-card-actions"><a className="admin-action-primary" href="/commercial">方案設定 <span>→</span></a><a href="/pricing-calculator">成本試算</a><a href="/profitability">獲利分析</a></div>
+        <p className="muted">管理免費體驗、訂閱方案、AI 模型價格、成本上限與營運分析。</p>
+        <div className="admin-card-actions"><a className="admin-action-primary" href="/commercial">方案設定 <span>→</span></a><a href="/ai-runtime">模型與價格</a><a href="/pricing-calculator">成本試算</a><a href="/profitability">獲利分析</a></div>
       </article>
 
       <article className="admin-dashboard-card communication">
