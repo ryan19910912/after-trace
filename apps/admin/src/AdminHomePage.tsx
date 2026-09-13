@@ -50,39 +50,39 @@ export function AdminHomePage({ api }: { api: AdminApi }) {
   return <main className="shell admin-home-shell">
     <header className="topbar admin-page-head">
       <div>
-        <p className="eyebrow">ADMIN OVERVIEW</p>
+        <p className="eyebrow">AFTERTRACE ADMIN</p>
         <h1>營運總覽</h1>
-        <p className="muted">管理帳號、商業方案、AI 成本與使用者溝通。</p>
+        <p className="muted">集中管理帳號、商業方案、AI 成本與使用者溝通。</p>
       </div>
       <div className="admin-user-pill compact"><span className="admin-user-dot" /><div><small>已登入</small><strong>{username}</strong></div></div>
     </header>
 
     <section className="admin-overview-strip">
-      <div><span>方案模型</span><strong>FREE + AI Pro</strong></div>
-      <div><span>AI Pro 定價</span><strong>NT$99 / 月</strong></div>
-      <div><span>版本</span><strong>V1 Prelaunch</strong></div>
-      <div><span>環境</span><strong>AFTERTRACE</strong></div>
+      <div><span>免費方案</span><strong>FREE</strong></div>
+      <div><span>訂閱方案</span><strong>AI Pro</strong></div>
+      <div><span>每月訂閱價格</span><strong>NT$99</strong></div>
+      <div><span>系統狀態</span><strong>正常運作</strong></div>
     </section>
 
     <section className="admin-dashboard-grid">
       <article className="admin-dashboard-card accounts">
-        <div className="admin-card-head"><span className="admin-card-icon">ID</span><span className="admin-card-kicker">SUPPORT</span></div>
+        <div className="admin-card-head"><span className="admin-card-icon">ID</span><span className="admin-card-kicker">帳號支援</span></div>
         <h2>帳號與客服</h2>
-        <p className="muted">使用 AFTERTRACE 帳號 ID 精確查詢使用者，快速處理登入、訂閱與客服問題。</p>
+        <p className="muted">使用帳號 ID 精確查詢使用者，快速處理登入、訂閱與客服問題。</p>
         <div className="admin-card-actions"><a className="admin-action-primary" href="/accounts">開啟帳號查詢 <span>→</span></a></div>
       </article>
 
       <article className="admin-dashboard-card commercial">
-        <div className="admin-card-head"><span className="admin-card-icon">AI</span><span className="admin-card-kicker">COMMERCIAL</span></div>
+        <div className="admin-card-head"><span className="admin-card-icon">AI</span><span className="admin-card-kicker">商業設定</span></div>
         <h2>商業與 AI</h2>
-        <p className="muted">管理 FREE AI 試用、AI Pro 資源上限、Provider Cost hard cap 與獲利狀況。</p>
+        <p className="muted">管理免費試用、訂閱方案資源上限、AI 成本控制與營運分析。</p>
         <div className="admin-card-actions"><a className="admin-action-primary" href="/commercial">方案設定 <span>→</span></a><a href="/pricing-calculator">成本試算</a><a href="/profitability">獲利分析</a></div>
       </article>
 
       <article className="admin-dashboard-card communication">
-        <div className="admin-card-head"><span className="admin-card-icon">MSG</span><span className="admin-card-kicker">COMMUNICATION</span></div>
-        <h2>使用者溝通</h2>
-        <p className="muted">集中管理站內公告與意見回饋；LINE OA 保留為外部客服聯絡管道。</p>
+        <div className="admin-card-head"><span className="admin-card-icon">MSG</span><span className="admin-card-kicker">使用者溝通</span></div>
+        <h2>公告與回饋</h2>
+        <p className="muted">集中管理站內公告、重要通知與使用者意見回饋。</p>
         <div className="admin-card-actions"><a className="admin-action-primary" href="/announcements">公告管理 <span>→</span></a><a href="/feedback-management">意見回饋</a></div>
       </article>
     </section>
