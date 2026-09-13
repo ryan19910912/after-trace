@@ -4,92 +4,133 @@ Durable development handoff for branch `revive/line-worklog`.
 
 Before substantive work, read the latest documents in the exact order defined by `docs/WORKLOG_DEVELOPMENT_POLICY.md`. Latest docs are authoritative.
 
-Default rule: do not run/dispatch/rerun/enable/modify GitHub Actions unless the user explicitly authorizes it. Every normal development commit contains `[skip ci]`. Do not stage/commit the unrelated local `apps/api/verify-admin-schema.mjs` unless separately reviewed/approved.
+Default rule: do not run/dispatch/rerun/enable/modify GitHub Actions unless the user explicitly authorizes it. Every normal development commit contains `[skip ci]`.
 
-## Current checkpoint — 2026-09-12 latest Web/PWA UI refinement authored; validation still pending
+## Current checkpoint — 2026-09-13 Record/AI entitlement refinement authored; validation pending
 
-AFTERTRACE remains Web + PWA-first with a compact Chrome extension fast-capture surface. LINE remains only as provider-neutral LINE Login plus the external official LINE OA support link. Apple Login source remains available but is intentionally disabled for the current launch because the user is not enrolled in the paid Apple Developer Program. Current active launch login providers are Google + LINE.
+AFTERTRACE remains Web + PWA-first with a compact Chrome extension fast-capture surface. `/` remains the Record home page for Web and installed PWA. Search remains an independent page. LINE remains only provider-neutral LINE Login plus the external LINE OA support link.
 
-Current prelaunch Dev/current Prod data remain disposable while no real customer data exists. Canonical target schema is `apps/api/src/db/schema-all.ts`.
+Prelaunch Dev data remains disposable. Canonical target database is still a single `drizzle/0000_worklog_baseline.sql` generated from `apps/api/src/db/schema-all.ts`, with table/column comments and application-side domain validation.
 
-## Product/commercial contract
+## Current product boundary
 
-- V1 exactly `FREE` NT$0 + `AI_PRO` NT$99/month.
-- No ONE_TIME/TOP_UP or extra paid tier.
-- FREE remains a complete manual product plus one idempotent Admin-configured AI trial grant.
-- AI entitlement is per requesting user; GROUP only authorizes Source data.
-- AI Pro uses monthly point/resource cap, provider-cost hard cap, optional per-request cap and capability toggles.
-- V1 payment transport is NewebPay periodic card billing.
-- No GROUP AI responsible-user/funding-owner concept.
+### FREE
 
-## Target-only legacy cleanup — COMPLETE
+FREE is a complete manual product:
 
-Physically removed from target source/schema/tests/docs: LINE Messaging webhook/runtime, 小跡/GROUP bot, LINE Reply/cache/attachment runtime, bot-entry nonce/group identity state, Entity/Alias/Confirmation workflow, legacy Record entity/message ids, GROUP AI funding/responsibility, ONE_TIME/TOP_UP, and obsolete compatibility tests/docs. Do not restore them.
+- optional user-entered Record title;
+- required text content;
+- optional occurred time;
+- create/edit/delete/restore;
+- latest 10 Records on home;
+- deterministic keyword/date search;
+- groups;
+- tasks/reminders;
+- notifications;
+- browser/device speech-to-text where supported.
 
-## Executable validation proven before latest UI redesign/refinement
+FREE receives one Admin-configured one-time **AI Search trial**. Those points may be spent only by natural-language AI Search.
 
-User checkout: `D:\Project\after-trace`.
+### AI Pro
 
-PASS before the latest UI-only commit batches: frozen install, canonical baseline guard, monorepo TypeScript/ESLint, Admin/Web/API Vitest, Worker/Admin/Web builds, extension static build, Drizzle export, release preflight, PostgreSQL migration/integrity and local health/readiness checks.
+AI Pro is required for every other provider-backed AI capability:
 
-The latest visual/UI commits have NOT YET been revalidated locally. Do not claim they passed until the user runs the Web validation commands again.
+- AI text capture/organization;
+- natural-language AI Search;
+- related Records;
+- time-range summaries;
+- rewrite suggestions;
+- AI task proposals;
+- image AI;
+- audio AI;
+- file/PDF AI;
+- Chrome visible-tab screenshot AI.
 
-## Google Login runtime smoke — PASS
+The generic `FREE_TRIAL` entitlement must not accidentally unlock non-search AI services.
 
-Real browser Google OAuth was exercised locally. The user successfully logged in with Google and reached the authenticated Worklog UI after account-provisioning defects were repaired. LINE Login real browser smoke is still pending.
+## Latest authored implementation
 
-## Current runtime configuration
+Record/client consistency:
 
-Readiness-required local config is proven present: target PostgreSQL schema, Google Login, LINE Login, Web Push VAPID, Gemini, AI runtime config, FREE/AI_PRO plans, FREE initial AI trial config and Admin runtime config. Apple Login is intentionally blank/disabled and is not a readiness requirement.
+- `WorklogApi.updateRecord()` now types optional `title` directly; no cast workaround is needed.
+- manual Record backend supports title/content/time editing.
+- Drizzle Record revision schema source now includes previous/new title fields so the target schema matches title-aware revision code.
 
-## Field-worker UI/UX direction
+Media limit path:
 
-Target audience: field workers, small workshops and small companies. Product UI should feel simple, practical and mobile-first rather than like an engineering/admin console.
+- Web sends audio duration to `/api/v1/ai/capture/audio`;
+- route now requires/validates `durationSeconds` and passes it to `AiMediaCaptureService`;
+- `AiMediaCaptureService` checks the active plan's configured audio-duration limit before provider work;
+- route/client transport ceilings are intentionally above plan defaults: 20 MB image, 30 MB audio, 30 MB file;
+- active plan limits remain the effective operator controls (recommended 5 MB image, 300 sec/10 MB audio, 10 MB file, one image/request until multi-image ships).
 
-Latest screenshot-driven refinement now includes:
+FREE AI Search trial enforcement:
 
-- Record `目前紀錄 / 回收桶` segmented switch, smaller create action and denser day-level filters.
-- Personal-only `我的紀錄` scope selector is hidden when there is nothing else to switch to; it reappears when multiple authorized record spaces exist.
-- Selected states are intentionally stronger across desktop primary navigation, Worklog tabs, Record view switch and Task status switch.
-- Task page removes the redundant `我的待辦` summary card. Its main controls are now `進行中 / 已結束` plus `＋新增待辦`; completed and cancelled items remain distinguished by badges inside the combined closed view.
-- Task layout uses `align-content:start`, avoiding viewport-height row stretching.
-- AI Pro wording is simplified to `使用 AI 快速紀錄、整理、搜尋與理解工作紀錄。` and `使用次數受限於方案 AI 用量上限`.
-- Subscription waits for required bootstrap data before showing API-derived content and has a dedicated bootstrap error state.
-- Feedback wording is softer and invitational.
-- Help support action is now `LINE 聯絡客服`; configured OA add URLs are converted to LINE OA message URLs so mobile users can go directly toward the official-account chat instead of the add-friend QR flow.
+- AI Search continues to accept FREE_TRIAL or AI_PRO;
+- AI text capture now requires AI_PRO;
+- related Records now require AI_PRO;
+- time-range summary now requires AI_PRO;
+- AI rewrite now requires AI_PRO;
+- AI task proposal now requires AI_PRO;
+- media AI already requires AI_PRO;
+- Chrome screenshot AI therefore also requires AI_PRO through the media backend;
+- customer/Admin/subscription/notification wording now calls the free allowance an AI Search experience rather than an AI Pro trial.
 
-Current visual principles:
+Documents aligned:
 
-- dark mode remains, but avoid pure-black empty expanses;
-- current/selected state must be immediately recognizable rather than only slightly different from inactive controls;
-- panels/cards are reserved for meaningful grouping;
-- Worklog Records read as a chronological work stream rather than an admin dashboard;
-- setup/configuration surfaces stay quieter than daily work;
-- customer-facing copy avoids internal terminology;
-- empty states explain the next action;
-- authenticated pages avoid visibly incomplete API-derived layouts while required bootstrap data is loading.
+- `WORKLOG_PRODUCT_SPEC.md`;
+- `WORKLOG_SUBSCRIPTION_POLICY.md`;
+- `WORKLOG_AI_POINT_POLICY.md`;
+- `WORKLOG_DEVELOPMENT_POLICY.md`;
+- `WORKLOG_EXTENSION_POLICY.md`.
 
-## Validation status for latest UI batch
+## Database/schema rules
 
-AUTHORED / NOT YET EXECUTED:
+Target rules remain:
 
+- one canonical prelaunch SQL baseline;
+- every persistent table has `COMMENT ON TABLE`;
+- every persistent column has `COMMENT ON COLUMN`;
+- no PostgreSQL enum for application domain/status values;
+- no business/domain CHECK constraints;
+- PK/FK/UNIQUE/NOT NULL/INDEX/DEFAULT remain structural DB responsibility;
+- legal statuses, feature rules, pricing/point/media limits and transitions are application logic.
+
+### Known schema synchronization item
+
+AUTHORED in Drizzle schema source: Record revision history now has `previous_title` and `new_title`.
+
+The checked-in canonical `drizzle/0000_worklog_baseline.sql` still needs to be regenerated/updated to include those two columns and their comments before the next clean database rebuild. Do not claim the canonical baseline is fully synchronized until this is completed.
+
+## Validation status
+
+Current batch is **AUTHORED / NOT RUN**.
+
+No GitHub Actions were run or modified.
+
+Recommended local validation after schema baseline synchronization:
+
+- `pnpm --filter @aftertrace/api typecheck`
 - `pnpm --filter @aftertrace/web typecheck`
-- `pnpm --filter @aftertrace/web lint`
-- `pnpm --filter @aftertrace/web test`
-- `pnpm --filter @aftertrace/web build`
+- `pnpm --filter @aftertrace/admin typecheck`
+- focused API/Web/Admin tests
+- Web/Admin/API builds
+- canonical baseline guard
+- clean disposable Dev DB rebuild
+- manual smoke: Record title edit/delete/restore, FREE AI Search trial, FREE rejection from non-search AI, AI Pro media/audio duration, Chrome screenshot AI, logout/login.
 
-No GitHub Actions were run, rerun, enabled or modified.
+## Runtime verification remaining
 
-## Remaining runtime verification
+NOT RUNTIME VERIFIED for this latest batch:
 
-NOT RUN / NOT RUNTIME VERIFIED: clean-from-empty PostgreSQL rebuild unless separately proven; LINE Login real browser smoke; focused DB smoke; Gemini provider smoke; Chrome extension smoke; Web Push delivery smoke; shared Cron smoke; NewebPay TEST flow; Dev end-to-end smoke; actual Worker deployment.
+- title-aware Record revision against a rebuilt schema;
+- AI Search FREE trial depletion;
+- FREE blocked from text/media/tools/task AI;
+- AI Pro full AI paths;
+- audio duration configured limit;
+- configured media byte limits;
+- Chrome screenshot-to-AI-Pro path;
+- NewebPay TEST flow after latest code;
+- LINE Login real browser smoke.
 
-## Exact next steps
-
-1. Pull `revive/line-worklog`.
-2. Run focused Web typecheck/lint/test/build.
-3. Start local Web/API and capture representative desktop + mobile screenshots of Worklog and Tasks first.
-4. Verify stronger active states, conditional scope selector, Task open/closed switch and LINE support behavior on mobile.
-5. Continue runtime smoke after UI is accepted.
-
-`apps/api/verify-admin-schema.mjs` was not staged or committed. GitHub Actions were not run or modified.
+GitHub Actions were not run or modified.
