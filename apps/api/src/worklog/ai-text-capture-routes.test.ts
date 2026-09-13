@@ -21,6 +21,26 @@ function requestHeaders(userId = 7) {
   }));
 }
 
+function aiProSnapshot() {
+  return {
+    sourceAuthorized: true,
+    freeTrial: null,
+    aiPro: {
+      planEnabled: true,
+      aiEnabled: true,
+      grantId: 8,
+      periodStart: new Date('2026-09-01T00:00:00.000Z'),
+      periodEnd: new Date('2026-10-01T00:00:00.000Z'),
+      monthlyPointCap: 1000,
+      monthlyProviderCostCapTwd: 30,
+      perRequestAiPointCap: 200,
+      pointsUsed: 0,
+      providerCostTwd: 0,
+      missingProviderCostTwdRequests: 0,
+    },
+  };
+}
+
 describe('provider-backed AI capture routes', () => {
   it('fails Source authorization before runtime/provider/ledger execution', async () => {
     let runtimeCalls = 0;
@@ -96,6 +116,7 @@ describe('provider-backed AI capture routes', () => {
       headers: await requestHeaders(),
       body: JSON.stringify({
         sourceId: 12,
+        durationSeconds: 30,
         audio: { mimeType: 'video/mp4', dataBase64: 'YWJj' },
       }),
     }, env);
@@ -224,13 +245,7 @@ describe('provider-backed AI capture routes', () => {
       databaseFactory: () => ({} as never),
       resolveSessionUserId: async (_database, session) => session.userId,
       entitlementRepositoryFactory: () => ({
-        async snapshot() {
-          return {
-            sourceAuthorized: true,
-            freeTrial: { grantId: 5, remainingPoints: 100, perRequestAiPointCap: 100 },
-            aiPro: null,
-          };
-        },
+        async snapshot() { return aiProSnapshot(); },
         async ensureGrantScope() { throw new Error('scope should not be needed for deterministic retrieval'); },
       }),
       relatedRepositoryFactory: () => ({
