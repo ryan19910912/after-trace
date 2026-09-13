@@ -14,9 +14,9 @@ export async function notifyFreeTrialIssued(
   await service.createSystemNotification({
     eventKey: 'free-ai-trial-issued:v1',
     userId,
-    title: '免費 AI Pro 試用已開啟',
-    body: '你的帳號已取得一次性的 AI Pro 試用額度。手動紀錄功能仍會持續免費使用。',
-    deepLink: '/subscription',
+    title: '免費 AI 搜尋體驗已開啟',
+    body: '你的帳號已取得一次性的 AI 搜尋體驗額度，可在搜尋頁使用自然語言找紀錄；一般紀錄與一般搜尋仍會持續免費使用。',
+    deepLink: '/ai-search?tab=ai',
     referenceType: 'AI_GRANT',
     referenceId: grantId,
     metadata: { entitlementSource: 'FREE_TRIAL' },
