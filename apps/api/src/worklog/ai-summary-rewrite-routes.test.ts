@@ -44,17 +44,21 @@ function aiProEntitlement() {
         sourceAuthorized: true,
         freeTrial: null,
         aiPro: {
+          planEnabled: true,
+          aiEnabled: true,
           grantId: 8,
-          remainingPoints: 1000,
-          perRequestAiPointCap: 200,
-          periodEndsAt: new Date('2026-10-01T00:00:00.000Z'),
+          periodStart: new Date('2026-09-01T00:00:00.000Z'),
+          periodEnd: new Date('2026-10-01T00:00:00.000Z'),
+          monthlyPointCap: 1000,
           monthlyProviderCostCapTwd: 30,
-          providerCostCommittedTwd: 0,
-          providerCostReservedTwd: 0,
+          perRequestAiPointCap: 200,
+          pointsUsed: 0,
+          providerCostTwd: 0,
+          missingProviderCostTwdRequests: 0,
         },
       };
     },
-    async ensureGrantScope() { return { id: 80, grantId: 8, sourceId: 12, capPoints: null, usedPoints: 0, reservedPoints: 0, enabled: true }; },
+    async ensureGrantScope() {},
   };
 }
 
