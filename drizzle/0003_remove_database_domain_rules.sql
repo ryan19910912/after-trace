@@ -26,6 +26,19 @@ ALTER TABLE "worklog_newebpay_subscriptions" DROP CONSTRAINT IF EXISTS "worklog_
 
 ALTER TABLE "worklog_checkout_intents" ADD COLUMN IF NOT EXISTS "payer_email" varchar(320);
 
+ALTER TABLE "worklog_feedback" ALTER COLUMN "channel" DROP DEFAULT;
+ALTER TABLE "worklog_source_members" ALTER COLUMN "role" DROP DEFAULT;
+ALTER TABLE "worklog_sources" ALTER COLUMN "status" DROP DEFAULT;
+ALTER TABLE "worklog_user_subscriptions" ALTER COLUMN "source" DROP DEFAULT;
+ALTER TABLE "worklog_user_subscriptions" ALTER COLUMN "status" DROP DEFAULT;
+ALTER TABLE "worklog_records" ALTER COLUMN "ai_enrichment_status" DROP DEFAULT;
+ALTER TABLE "worklog_records" ALTER COLUMN "status" DROP DEFAULT;
+ALTER TABLE "worklog_notification_recipients" ALTER COLUMN "push_status" DROP DEFAULT;
+ALTER TABLE "worklog_notifications" ALTER COLUMN "status" DROP DEFAULT;
+ALTER TABLE "worklog_tasks" ALTER COLUMN "status" DROP DEFAULT;
+ALTER TABLE "worklog_ai_grants" ALTER COLUMN "status" DROP DEFAULT;
+ALTER TABLE "worklog_ai_point_reservations" ALTER COLUMN "status" DROP DEFAULT;
+
 ALTER TABLE "worklog_feedback" ALTER COLUMN "channel" TYPE varchar(32) USING "channel"::text;
 ALTER TABLE "worklog_subscription_plans" ALTER COLUMN "plan_type" TYPE varchar(32) USING "plan_type"::text;
 ALTER TABLE "worklog_records" ALTER COLUMN "input_type" TYPE varchar(32) USING "input_type"::text;
@@ -49,6 +62,19 @@ ALTER TABLE "worklog_tasks" ALTER COLUMN "status" TYPE varchar(32) USING "status
 ALTER TABLE "worklog_ai_grants" ALTER COLUMN "status" TYPE varchar(32) USING "status"::text;
 ALTER TABLE "worklog_ai_grants" ALTER COLUMN "type" TYPE varchar(32) USING "type"::text;
 ALTER TABLE "worklog_ai_point_reservations" ALTER COLUMN "status" TYPE varchar(32) USING "status"::text;
+
+ALTER TABLE "worklog_feedback" ALTER COLUMN "channel" SET DEFAULT 'PWA';
+ALTER TABLE "worklog_source_members" ALTER COLUMN "role" SET DEFAULT 'MEMBER';
+ALTER TABLE "worklog_sources" ALTER COLUMN "status" SET DEFAULT 'ACTIVE';
+ALTER TABLE "worklog_user_subscriptions" ALTER COLUMN "source" SET DEFAULT 'FREE';
+ALTER TABLE "worklog_user_subscriptions" ALTER COLUMN "status" SET DEFAULT 'ACTIVE';
+ALTER TABLE "worklog_records" ALTER COLUMN "ai_enrichment_status" SET DEFAULT 'NONE';
+ALTER TABLE "worklog_records" ALTER COLUMN "status" SET DEFAULT 'ACTIVE';
+ALTER TABLE "worklog_notification_recipients" ALTER COLUMN "push_status" SET DEFAULT 'PENDING';
+ALTER TABLE "worklog_notifications" ALTER COLUMN "status" SET DEFAULT 'DRAFT';
+ALTER TABLE "worklog_tasks" ALTER COLUMN "status" SET DEFAULT 'OPEN';
+ALTER TABLE "worklog_ai_grants" ALTER COLUMN "status" SET DEFAULT 'ACTIVE';
+ALTER TABLE "worklog_ai_point_reservations" ALTER COLUMN "status" SET DEFAULT 'RESERVED';
 
 DROP TYPE IF EXISTS "public"."worklog_feedback_channel";
 DROP TYPE IF EXISTS "public"."worklog_plan_type";
