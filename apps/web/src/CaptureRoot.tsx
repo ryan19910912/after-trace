@@ -8,9 +8,9 @@ import './capture.css';
 
 const SESSION_KEY = 'aftertrace.worklog.session';
 const ACTIVE_SCOPE_KEY = 'aftertrace.worklog.scope';
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
-const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const HARD_MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+const HARD_MAX_AUDIO_BYTES = 30 * 1024 * 1024;
+const HARD_MAX_FILE_BYTES = 30 * 1024 * 1024;
 
 type Props = { apiBaseUrl: string };
 type CaptureScope = RecordScope;
@@ -79,8 +79,14 @@ export function CaptureRoot({ apiBaseUrl }: Props) {
     if (mode === 'MANUAL' && !optionalLocalDateValid(draft.occurredAt)) return;
     abortSpeechCapture(); setSaving(true); setError(null); setNotice(null);
     try {
-      if (mode === 'AI') { const result = await aiApi.captureText(session, scope.sourceId, draft.rawText.trim()); setDraft({ ...EMPTY_DRAFT }); setNotice(`AI 已整理並記錄${result.record.title ? `：${result.record.title}` : '。'}`); await loadEntitlement(session, scope.sourceId); }
-      else { await api.createRecord(session, scope, { title: draft.title.trim() || null, rawText: draft.rawText.trim(), occurredAt: localDateOrNull(draft.occurredAt) }); setDraft({ ...EMPTY_DRAFT }); setNotice('紀錄已儲存。'); }
+      if (mode === 'AI') {
+        if (entitlement?.source !== 'AI_PRO') throw new Error('AI_PRO_REQUIRED');
+        const result = await aiApi.captureText(session, scope.sourceId, draft.rawText.trim());
+        setDraft({ ...EMPTY_DRAFT }); setNotice(`AI 已整理並記錄${result.record.title ? `：${result.record.title}` : '。'}`); await loadEntitlement(session, scope.sourceId);
+      } else {
+        await api.createRecord(session, scope, { title: draft.title.trim() || null, rawText: draft.rawText.trim(), occurredAt: localDateOrNull(draft.occurredAt) });
+        setDraft({ ...EMPTY_DRAFT }); setNotice('紀錄已儲存。');
+      }
     } catch (cause) { setError(aiCaptureErrorMessage(message(cause, mode === 'AI' ? 'AI 紀錄失敗' : '新增紀錄失敗'))); }
     finally { setSaving(false); }
   }
@@ -88,8 +94,8 @@ export function CaptureRoot({ apiBaseUrl }: Props) {
   async function processMedia(kind: MediaKind) {
     if (!session || !scope || entitlement?.source !== 'AI_PRO' || saving) return;
     const file = kind === 'IMAGE' ? imageFile : kind === 'AUDIO' ? audioFile : documentFile; if (!file) return;
-    const maxBytes = kind === 'IMAGE' ? MAX_IMAGE_BYTES : kind === 'AUDIO' ? MAX_AUDIO_BYTES : MAX_FILE_BYTES;
-    if (file.size > maxBytes) { setError(`${kindLabel(kind)}檔案太大，目前單次上限為 ${Math.round(maxBytes / 1024 / 1024)} MB。`); return; }
+    const hardMaxBytes = kind === 'IMAGE' ? HARD_MAX_IMAGE_BYTES : kind === 'AUDIO' ? HARD_MAX_AUDIO_BYTES : HARD_MAX_FILE_BYTES;
+    if (file.size > hardMaxBytes) { setError(`${kindLabel(kind)}檔案超過系統可處理的大小，請縮小後再試。`); return; }
     setSaving(true); setError(null); setNotice(null);
     try {
       let title: string | null = null;
@@ -105,28 +111,27 @@ export function CaptureRoot({ apiBaseUrl }: Props) {
   if (!session) return <main className="shell capture-shell"><section className="panel capture-login-card"><p className="eyebrow">AFTERTRACE</p><h1>快速紀錄</h1><p className="muted">登入後即可快速留下工作紀錄。</p>{error ? <div className="error">{error}</div> : null}<LoginProviderButtons apiBaseUrl={apiBaseUrl} returnTo="/capture" /><button className="ghost" onClick={() => { window.location.href = '/'; }}>回紀錄頁</button></section></main>;
 
   const occurredAtValid = optionalLocalDateValid(draft.occurredAt);
-  const aiAllowed = entitlement?.allowed === true && entitlement.source !== 'BLOCKED';
-  const aiProMediaAllowed = entitlement?.allowed === true && entitlement.source === 'AI_PRO';
-  const saveDisabled = saving || !scope || !draft.rawText.trim() || (mode === 'MANUAL' && !occurredAtValid) || (mode === 'AI' && (!aiAllowed || entitlementLoading));
+  const aiProAllowed = entitlement?.allowed === true && entitlement.source === 'AI_PRO';
+  const saveDisabled = saving || !scope || !draft.rawText.trim() || (mode === 'MANUAL' && !occurredAtValid) || (mode === 'AI' && (!aiProAllowed || entitlementLoading));
 
   return <main className="shell capture-shell"><header className="capture-topbar"><div><p className="eyebrow">AFTERTRACE</p><h1>快速紀錄</h1></div><button className="ghost" onClick={() => { window.location.href = '/'; }}>回紀錄頁</button></header>{error ? <div className="error">{error}</div> : null}{notice ? <div className="worklog-notice">{notice}</div> : null}<section className="panel capture-card">
     <div className="capture-scope-row">{surfaces?.personal ? <button className={scope?.type === 'PERSONAL' ? 'worklog-scope active' : 'worklog-scope'} onClick={() => chooseScope({ type: 'PERSONAL', sourceId: surfaces.personal!.sourceId })}>我的紀錄</button> : null}{surfaces?.groups.map((group) => <button key={group.sourceId} className={scope?.type === 'GROUP' && scope.sourceId === group.sourceId ? 'worklog-scope active' : 'worklog-scope'} onClick={() => chooseScope({ type: 'GROUP', sourceId: group.sourceId })}>{group.name}</button>)}</div>
-    <div className="capture-mode-row"><button className={mode === 'MANUAL' ? 'capture-mode active' : 'capture-mode'} onClick={() => chooseMode('MANUAL')}><strong>一般紀錄</strong><span>免費使用</span></button><button className={mode === 'AI' ? 'capture-mode active' : 'capture-mode'} onClick={() => chooseMode('AI')}><strong>AI 整理紀錄</strong><span>圖片、音訊與檔案限 AI Pro</span></button></div>
+    <div className="capture-mode-row"><button className={mode === 'MANUAL' ? 'capture-mode active' : 'capture-mode'} onClick={() => chooseMode('MANUAL')}><strong>一般紀錄</strong><span>免費使用，自己輸入文字</span></button><button className={mode === 'AI' ? 'capture-mode active' : 'capture-mode'} onClick={() => chooseMode('AI')}><strong>AI Pro 整理</strong><span>訂閱後可使用完整 AI 功能</span></button></div>
     {mode === 'AI' ? <AiEntitlementCard entitlement={entitlement} loading={entitlementLoading} /> : null}
     <button className={`capture-mic${speechState === 'LISTENING' ? ' listening' : ''}`} disabled={loading || saving || !scope} onClick={toggleSpeechCapture}>🎙️ {speechState === 'LISTENING' ? '停止語音輸入' : '語音轉文字'}</button>
     {speechMessage ? <p className="capture-warning">{speechMessage}</p> : null}{interimText ? <div className="capture-interim"><span>辨識中</span><strong>{interimText}</strong></div> : null}
     {mode === 'MANUAL' ? <label className="capture-title-label">標題（選填）<input value={draft.title} maxLength={255} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="例如：客戶報價討論" /></label> : null}
-    <label className="capture-text-label">{mode === 'AI' ? '要整理的文字或補充說明' : '紀錄內容'}<textarea rows={7} value={draft.rawText} onChange={(event) => setDraft({ ...draft, rawText: event.target.value })} placeholder={mode === 'AI' ? '輸入工作內容，或補充希望 AI 注意的重點。' : '直接輸入工作紀錄，或使用語音轉文字。'} /></label>
-    {mode === 'MANUAL' ? <><label className="capture-time-label">發生時間（選填）<input type="datetime-local" value={draft.occurredAt} onChange={(event) => setDraft({ ...draft, occurredAt: event.target.value })} /></label><p className="muted">標題與發生時間都可以留空；內容為必填。</p></> : null}
-    {mode === 'AI' ? <section className="capture-media-panel"><h3>圖片、音訊與檔案整理</h3><p className="muted">這些功能僅提供 AI Pro 訂閱使用者。原始檔案只用於本次分析，不會當成長期附件保存。</p>{aiProMediaAllowed ? <div className="capture-media-grid"><MediaPicker label="圖片" accept="image/png,image/jpeg,image/webp" file={imageFile} onFile={setImageFile} note="單張上限 5 MB" busy={saving} onSubmit={() => void processMedia('IMAGE')} /><MediaPicker label="音訊" accept="audio/webm,audio/ogg,audio/mpeg,audio/mp4,audio/wav" file={audioFile} onFile={setAudioFile} note="上限 10 MB" busy={saving} onSubmit={() => void processMedia('AUDIO')} /><MediaPicker label="檔案" accept="application/pdf,text/plain,text/markdown,text/csv,application/json,application/xml,text/xml" file={documentFile} onFile={setDocumentFile} note="PDF/文字/CSV 等，上限 10 MB" busy={saving} onSubmit={() => void processMedia('FILE')} /></div> : <div className="capture-media-locked">{entitlementLoading ? '正在確認方案…' : '升級 AI Pro 後即可使用圖片、音訊與檔案整理。'}</div>}</section> : null}
-    <div className="capture-actions"><button disabled={saveDisabled} onClick={() => void saveRecord()}>{saving ? '處理中…' : mode === 'AI' ? 'AI 整理文字並記錄' : '儲存紀錄'}</button><button className="ghost" disabled={saving || (!draft.title && !draft.rawText && !draft.occurredAt)} onClick={() => setDraft({ ...EMPTY_DRAFT })}>清除</button></div>
+    <label className="capture-text-label">{mode === 'AI' ? '要整理的文字或補充說明' : '紀錄內容'}<textarea rows={7} value={draft.rawText} onChange={(event) => setDraft({ ...draft, rawText: event.target.value })} placeholder={mode === 'AI' ? '輸入工作內容，AI Pro 會協助整理。' : '直接輸入工作紀錄，或使用瀏覽器語音轉文字。'} /></label>
+    {mode === 'MANUAL' ? <><label className="capture-time-label">發生時間（選填）<input type="datetime-local" value={draft.occurredAt} onChange={(event) => setDraft({ ...draft, occurredAt: event.target.value })} /></label><p className="muted">標題與發生時間都可以留空；內容為必填。瀏覽器語音轉文字不會消耗 AI 額度。</p></> : null}
+    {mode === 'AI' ? <section className="capture-media-panel"><h3>圖片、音訊與檔案整理</h3><p className="muted">這些功能僅提供 AI Pro。實際檔案大小與音訊長度上限依目前方案設定；原始檔案只用於本次分析，不會當成長期附件保存。</p>{aiProAllowed ? <div className="capture-media-grid"><MediaPicker label="圖片" accept="image/png,image/jpeg,image/webp" file={imageFile} onFile={setImageFile} note="目前一次選擇 1 張" busy={saving} onSubmit={() => void processMedia('IMAGE')} /><MediaPicker label="音訊" accept="audio/webm,audio/ogg,audio/mpeg,audio/mp4,audio/wav" file={audioFile} onFile={setAudioFile} note="依方案設定限制長度與大小" busy={saving} onSubmit={() => void processMedia('AUDIO')} /><MediaPicker label="檔案" accept="application/pdf,text/plain,text/markdown,text/csv,application/json,application/xml,text/xml" file={documentFile} onFile={setDocumentFile} note="PDF、文字、CSV 等" busy={saving} onSubmit={() => void processMedia('FILE')} /></div> : <div className="capture-media-locked">{entitlementLoading ? '正在確認方案…' : '訂閱 AI Pro 後即可使用完整 AI 整理功能。'}</div>}</section> : null}
+    <div className="capture-actions"><button disabled={saveDisabled} onClick={() => void saveRecord()}>{saving ? '處理中…' : mode === 'AI' ? 'AI Pro 整理並記錄' : '儲存紀錄'}</button><button className="ghost" disabled={saving || (!draft.title && !draft.rawText && !draft.occurredAt)} onClick={() => setDraft({ ...EMPTY_DRAFT })}>清除</button></div>
   </section></main>;
 }
 
 function MediaPicker({ label, accept, file, onFile, note, busy, onSubmit }: { label: string; accept: string; file: File | null; onFile: (file: File | null) => void; note: string; busy: boolean; onSubmit: () => void }) { return <div className="capture-media-item"><strong>{label}</strong><input type="file" accept={accept} disabled={busy} onChange={(event) => onFile(event.target.files?.[0] ?? null)} /><small>{file ? file.name : note}</small><button disabled={busy || !file} onClick={onSubmit}>用 AI 整理</button></div>; }
-function AiEntitlementCard({ entitlement, loading }: { entitlement: AiEntitlementDecision | null; loading: boolean }) { if (loading) return <div className="capture-ai-state"><strong>正在確認 AI 使用狀態…</strong></div>; if (!entitlement) return <div className="capture-ai-state blocked"><strong>目前無法讀取 AI 使用狀態</strong><span>一般紀錄仍可正常使用。</span></div>; if (entitlement.allowed && entitlement.source === 'FREE_TRIAL') return <div className="capture-ai-state"><strong>文字 AI 體驗可使用</strong><span>目前尚有 {entitlement.remainingPoints?.toLocaleString() ?? '—'} 點；圖片、音訊與檔案整理需訂閱 AI Pro。</span></div>; if (entitlement.allowed && entitlement.source === 'AI_PRO') return <div className="capture-ai-state"><strong>AI Pro 可使用</strong><span>{entitlement.remainingPoints !== null ? `本期約剩 ${entitlement.remainingPoints.toLocaleString()} 點。` : ''}{entitlement.periodEndsAt ? ` 下次週期：${formatDate(entitlement.periodEndsAt)}。` : ''}</span></div>; return <div className="capture-ai-state blocked"><strong>AI 目前不可使用</strong><span>{entitlementReason(entitlement.reason, entitlement.periodEndsAt)}</span></div>; }
-function entitlementReason(reason: string, periodEndsAt?: string | null): string { const reset = periodEndsAt ? `，預計於 ${formatDate(periodEndsAt)} 恢復` : ''; if (reason === 'TRIAL_EXHAUSTED') return '文字 AI 體驗已用完；一般紀錄仍可免費使用。'; if (reason === 'MONTHLY_POINT_CAP_REACHED' || reason === 'MONTHLY_POINT_CAP_WOULD_BE_EXCEEDED' || reason === 'MONTHLY_PROVIDER_COST_CAP_REACHED') return `本期 AI 使用量已達上限${reset}。`; if (reason === 'PER_REQUEST_POINT_CAP_EXCEEDED') return '這次內容超過單次 AI 使用上限，請縮短後再試。'; return '目前無法使用 AI；一般紀錄仍可正常使用。'; }
-function aiCaptureErrorMessage(error: string): string { if (error === 'AI_PRO_MEDIA_REQUIRED') return '圖片、音訊與檔案整理僅提供 AI Pro 訂閱使用者。'; if (/^[A-Z0-9_]+$/.test(error)) return entitlementReason(error); return error; }
+function AiEntitlementCard({ entitlement, loading }: { entitlement: AiEntitlementDecision | null; loading: boolean }) { if (loading) return <div className="capture-ai-state"><strong>正在確認 AI 使用狀態…</strong></div>; if (!entitlement) return <div className="capture-ai-state blocked"><strong>目前無法讀取 AI 使用狀態</strong><span>一般紀錄仍可正常使用。</span></div>; if (entitlement.allowed && entitlement.source === 'FREE_TRIAL') return <div className="capture-ai-state blocked"><strong>你有免費 AI 搜尋體驗</strong><span>目前尚有 {entitlement.remainingPoints?.toLocaleString() ?? '—'} 點，可到「搜尋」使用 AI 搜尋；其他 AI 功能需訂閱 AI Pro。</span></div>; if (entitlement.allowed && entitlement.source === 'AI_PRO') return <div className="capture-ai-state"><strong>AI Pro 可使用</strong><span>{entitlement.remainingPoints !== null ? `本期約剩 ${entitlement.remainingPoints.toLocaleString()} 點。` : ''}{entitlement.periodEndsAt ? ` 下次週期：${formatDate(entitlement.periodEndsAt)}。` : ''}</span></div>; return <div className="capture-ai-state blocked"><strong>AI Pro 目前不可使用</strong><span>{entitlementReason(entitlement.reason, entitlement.periodEndsAt)}</span></div>; }
+function entitlementReason(reason: string, periodEndsAt?: string | null): string { const reset = periodEndsAt ? `，預計於 ${formatDate(periodEndsAt)} 恢復` : ''; if (reason === 'TRIAL_EXHAUSTED') return '免費 AI 搜尋體驗已用完；一般紀錄與一般搜尋仍可免費使用。'; if (reason === 'MONTHLY_POINT_CAP_REACHED' || reason === 'MONTHLY_POINT_CAP_WOULD_BE_EXCEEDED' || reason === 'MONTHLY_PROVIDER_COST_CAP_REACHED') return `本期 AI 使用量已達上限${reset}。`; if (reason === 'PER_REQUEST_POINT_CAP_EXCEEDED') return '這次內容超過單次 AI 使用上限，請縮短後再試。'; return '這項功能需要 AI Pro；一般紀錄仍可正常使用。'; }
+function aiCaptureErrorMessage(error: string): string { if (error === 'AI_PRO_MEDIA_REQUIRED' || error === 'AI_PRO_REQUIRED') return '這項功能需要 AI Pro；免費方案仍可使用一般紀錄與 AI 搜尋體驗。'; if (error === 'AI_AUDIO_DURATION_TOO_LONG') return '這段音訊超過目前方案允許的長度，請縮短後再試。'; if (error === 'AI_IMAGE_TOO_LARGE' || error === 'AI_AUDIO_TOO_LARGE' || error === 'AI_FILE_TOO_LARGE') return '檔案超過目前方案允許的大小，請縮小後再試。'; if (/^[A-Z0-9_]+$/.test(error)) return entitlementReason(error); return error; }
 function storedScope(): CaptureScope | null { const raw = localStorage.getItem(ACTIVE_SCOPE_KEY); if (!raw) return null; try { const value = JSON.parse(raw) as Record<string, unknown>; if (value.type === 'PERSONAL' && typeof value.sourceId === 'number') return { type: 'PERSONAL', sourceId: value.sourceId }; if (value.type === 'GROUP' && typeof value.sourceId === 'number') return { type: 'GROUP', sourceId: value.sourceId }; } catch {} return null; }
 function defaultScope(surfaces: WorklogSurfaces): CaptureScope | null { if (surfaces.personal) return { type: 'PERSONAL', sourceId: surfaces.personal.sourceId }; const group = surfaces.groups[0]; return group ? { type: 'GROUP', sourceId: group.sourceId } : null; }
 function scopeExists(scope: CaptureScope, surfaces: WorklogSurfaces): boolean { return scope.type === 'PERSONAL' ? surfaces.personal?.sourceId === scope.sourceId : surfaces.groups.some((group) => group.sourceId === scope.sourceId); }
