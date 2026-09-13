@@ -51,16 +51,18 @@ export function PricingCalculatorPage({ api }: Props) {
       <div>
         <p className="eyebrow">AFTERTRACE ADMIN</p>
         <h1>AI 成本試算</h1>
-        <p className="muted">此頁只協助評估內部 AI 資源與成本安全上限。</p>
+        <p className="muted">依目前模型價格、匯率與目標毛利，估算方案可配置的 AI 成本與點數。</p>
       </div>
+      <a href="/ai-runtime"><button className="ghost">模型與價格設定</button></a>
     </header>
 
     {error && <div className="banner error">{error}</div>}
     {loading && <article className="card"><p className="muted">載入 AI 成本設定中…</p></article>}
 
     {!loading && !config && <article className="card empty-state-card cost-empty-state">
-      <strong>尚未設定 AI 成本參數</strong>
-      <p className="muted">請先設定供應商、模型價格與匯率，系統才能估算每次 AI 請求成本、每月成本上限與可支撐的點數配置。</p>
+      <strong>尚未設定 AI 模型與價格</strong>
+      <p className="muted">請先設定目前使用的模型、輸出價格與 USD/TWD 匯率，完成後這裡就能試算免費體驗與訂閱方案的 AI 點數配置。</p>
+      <a href="/ai-runtime"><button className="primary-action">前往模型與價格設定</button></a>
       <div className="cost-preview-grid">
         <div><b>單次請求成本估算</b><span>比較不同模型的使用成本。</span></div>
         <div><b>每月資源上限</b><span>依預算與匯率估算可用資源。</span></div>
@@ -100,7 +102,7 @@ export function PricingCalculatorPage({ api }: Props) {
           <h2>使用建議</h2>
           <p className="muted">可將試算結果作為營運參考，再到「商業方案設定」調整每月 AI 點數與供應商成本上限。</p>
         </article>
-      </> : <div className="banner error">請確認目標毛利介於 0～100%，且 AI 成本參數中的輸出價格與匯率皆為正數。</div>}
+      </> : <div className="banner error">請確認目標毛利介於 0～100%，且 AI 模型輸出價格與匯率皆為正數。</div>}
     </section>}
   </main>;
 }
