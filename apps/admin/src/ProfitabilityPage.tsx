@@ -18,7 +18,7 @@ type Props = { api: AdminApi };
 export function ProfitabilityPage({ api }: Props) {
   const [period, setPeriod] = useState<AdminProfitabilityPeriod>('TODAY');
   const [report, setReport] = useState<AdminProfitabilityReport | null>(null);
-  const [username, setUsername] = useState<string | null>(null);
+  const [sessionReady, setSessionReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,17 +27,17 @@ export function ProfitabilityPage({ api }: Props) {
     api.setSessionToken(token);
     if (!token) {
       setLoading(false);
-      setError('尚未登入管理後台。請先回到管理首頁登入。');
+      setError('尚未登入管理後台。');
       return;
     }
     let active = true;
-    void api.session().then((session) => {
+    void api.session().then(() => {
       if (!active) return;
-      setUsername(session.username);
+      setSessionReady(true);
     }).catch(() => {
       if (!active) return;
       clearAdminSession(api);
-      setUsername(null);
+      setSessionReady(false);
       setReport(null);
       setError('管理員登入已失效，請重新登入。');
       setLoading(false);
@@ -46,7 +46,7 @@ export function ProfitabilityPage({ api }: Props) {
   }, [api]);
 
   useEffect(() => {
-    if (!username) return;
+    if (!sessionReady) return;
     let active = true;
     setLoading(true);
     setError(null);
@@ -58,7 +58,7 @@ export function ProfitabilityPage({ api }: Props) {
       if (!active) return;
       if (isAdminSessionError(cause)) {
         clearAdminSession(api);
-        setUsername(null);
+        setSessionReady(false);
         setReport(null);
         setError('管理員登入已失效，請重新登入。');
       } else {
@@ -67,45 +67,44 @@ export function ProfitabilityPage({ api }: Props) {
       setLoading(false);
     });
     return () => { active = false; };
-  }, [api, period, username]);
+  }, [api, period, sessionReady]);
 
   const metrics = useMemo(() => {
     if (!report) return [];
     const summary = report.summary;
     return [
-      ['AI 請求', summary.requests.toLocaleString()],
+      ['AI 請求數', summary.requests.toLocaleString()],
       ['實際操作使用者', summary.activeUsers.toLocaleString()],
-      ['被扣點使用者 / 額度負責人', summary.chargedUsers.toLocaleString()],
-      ['客戶實扣 AI 點數', Math.round(summary.customerPointsCharged).toLocaleString()],
+      ['被扣點使用者', summary.chargedUsers.toLocaleString()],
+      ['客戶承擔 AI 點數', Math.round(summary.customerPointsCharged).toLocaleString()],
       ['平台補貼 AI 點數', Math.round(summary.platformSubsidizedPoints).toLocaleString()],
-      ['Provider 成本 USD', `$${money(summary.providerCostUsd, 6)}`],
-      ['Provider 成本 TWD', `NT$ ${money(summary.providerCostTwd, 4)}`],
-      ['平均點數 / Request', number(summary.averagePointsPerRequest, 2)],
-      ['平均 USD 成本 / Request', `$${money(summary.averageProviderCostUsdPerRequest, 6)}`],
-      ['平均 TWD 成本 / Request', nullableTwd(summary.averageProviderCostTwdPerRequest)],
-      ['平均點數 / 實際操作使用者', number(summary.averagePointsPerActiveUser, 2)],
-      ['平均 USD 成本 / 實際操作使用者', `$${money(summary.averageProviderCostUsdPerActiveUser, 6)}`],
-      ['平均 TWD 成本 / 實際操作使用者', nullableTwd(summary.averageProviderCostTwdPerActiveUser)],
-      ['平均點數 / 被扣點使用者', number(summary.averagePointsPerChargedUser, 2)],
+      ['供應商成本（美元）', `$${money(summary.providerCostUsd, 6)}`],
+      ['供應商成本（新台幣）', `NT$ ${money(summary.providerCostTwd, 4)}`],
+      ['平均點數／請求', number(summary.averagePointsPerRequest, 2)],
+      ['平均美元成本／請求', `$${money(summary.averageProviderCostUsdPerRequest, 6)}`],
+      ['平均新台幣成本／請求', nullableTwd(summary.averageProviderCostTwdPerRequest)],
+      ['平均點數／實際操作使用者', number(summary.averagePointsPerActiveUser, 2)],
+      ['平均美元成本／實際操作使用者', `$${money(summary.averageProviderCostUsdPerActiveUser, 6)}`],
+      ['平均新台幣成本／實際操作使用者', nullableTwd(summary.averageProviderCostTwdPerActiveUser)],
+      ['平均點數／被扣點使用者', number(summary.averagePointsPerChargedUser, 2)],
     ] as const;
   }, [report]);
 
   return <main className="shell">
-    <header className="topbar">
+    <header className="topbar admin-hero">
       <div>
-        <p className="eyebrow">AFTERTRACE</p>
+        <p className="eyebrow">AFTERTRACE ADMIN</p>
         <h1>AI 成本與點數報表</h1>
-        <p className="muted">{username ? `${username} · ` : ''}只使用 durable usage / Grant accounting 事實</p>
+        <p className="muted">查看指定期間內的 AI 使用量、點數消耗與成本統計，協助掌握營運狀況與方案調整方向。</p>
       </div>
-      <div className="header-actions"><a href="/">返回管理首頁</a></div>
     </header>
 
     {error && <div className="banner error">{error}</div>}
 
     <section className="stack">
-      <article className="card filter-card">
+      <article className="card filter-card report-filter-card">
         <label>報表期間
-          <select value={period} onChange={(event) => setPeriod(event.target.value as AdminProfitabilityPeriod)} disabled={loading || !username}>
+          <select value={period} onChange={(event) => setPeriod(event.target.value as AdminProfitabilityPeriod)} disabled={loading || !sessionReady}>
             {PERIODS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
           </select>
         </label>
@@ -115,53 +114,47 @@ export function ProfitabilityPage({ api }: Props) {
       {loading && <article className="card"><p className="muted">載入報表中…</p></article>}
 
       {report && <>
-        <div className="metric-grid">
+        <div className="metric-grid report-metric-grid">
           {metrics.map(([label, value]) => <article className="metric" key={label}><span>{label}</span><strong>{value}</strong></article>)}
         </div>
 
         {(report.summary.missingProviderCostTwdRequests > 0 || report.summary.missingSubsidyCostTwdRequests > 0) &&
           <div className="banner error">
-            TWD 成本資料不完整：{report.summary.missingProviderCostTwdRequests} 筆 request 缺 provider TWD 成本；
-            {report.summary.missingSubsidyCostTwdRequests} 筆補貼 request 缺 TWD 補貼成本。
-            缺值期間的 TWD 平均值顯示為「資料不完整」，USD 成本仍是完整主要事實。
+            新台幣成本資料不完整：{report.summary.missingProviderCostTwdRequests} 筆請求缺少供應商新台幣成本，
+            {report.summary.missingSubsidyCostTwdRequests} 筆補貼請求缺少新台幣補貼成本。缺值期間的新台幣平均值會顯示為「資料不完整」。
           </div>}
 
-        <article className="card">
-          <h2>營收 / 毛利</h2>
-          <p className="muted">
-            目前沒有 durable 成功付款 revenue ledger，因此不以方案牌價或 checkout intent 推算營收。
-            `revenueTwd`、AI cost ratio 與 realized gross margin 會維持空值，直到付款成功事實正式接入。
-          </p>
+        <article className="card report-section-card">
+          <h2>營收與毛利</h2>
+          <p className="muted">目前尚未接入正式付款成功資料，因此此區暫不顯示營收、成本占比與毛利；完成付款資料串接後會自動顯示。</p>
         </article>
 
-        <Breakdown title="依模型" rows={report.byModel} />
-        <Breakdown title="依 AI 操作" rows={report.byOperation} />
-        <Breakdown title="PRIVATE / GROUP" rows={report.bySourceType} />
+        <Breakdown title="依模型統計" rows={report.byModel} />
+        <Breakdown title="依 AI 操作統計" rows={report.byOperation} />
+        <Breakdown title="依來源類型統計" rows={report.bySourceType} />
 
-        <article className="card">
-          <h2>依方案來源的實扣點數</h2>
-          <p className="muted">只依實際扣到的 Grant 歷史 metadata 歸屬；不拿目前 subscription 狀態回填過去。</p>
-          <table><thead><tr><th>方案</th><th>Requests</th><th>實扣點數</th></tr></thead><tbody>
+        <article className="card report-section-card">
+          <h2>依方案來源統計的已扣點數</h2>
+          <p className="muted">僅依實際發生的點數扣除紀錄統計，不會依目前方案狀態回補過去資料。</p>
+          <table><thead><tr><th>方案</th><th>請求數</th><th>已扣點數</th></tr></thead><tbody>
             {report.byPlan.map((row) => <tr key={row.planCode}><td>{row.planCode}</td><td>{row.requests.toLocaleString()}</td><td>{row.pointsCharged.toLocaleString()}</td></tr>)}
           </tbody></table>
         </article>
 
-        <article className="card">
-          <h2>依 Grant 類型的實扣點數</h2>
-          <table><thead><tr><th>Grant</th><th>Requests</th><th>實扣點數</th></tr></thead><tbody>
-            {report.byGrantType.map((row) => <tr key={row.grantType}><td>{row.grantType}</td><td>{row.requests.toLocaleString()}</td><td>{row.pointsCharged.toLocaleString()}</td></tr>)}
+        <article className="card report-section-card">
+          <h2>依點數來源類型統計的已扣點數</h2>
+          <p className="muted">依實際扣點來源分類，方便比較免費試用、訂閱週期與管理員發放等不同來源的使用量。</p>
+          <table><thead><tr><th>點數來源</th><th>請求數</th><th>已扣點數</th></tr></thead><tbody>
+            {report.byGrantType.map((row) => <tr key={row.grantType}><td>{grantTypeLabel(row.grantType)}</td><td>{row.requests.toLocaleString()}</td><td>{row.pointsCharged.toLocaleString()}</td></tr>)}
           </tbody></table>
         </article>
 
-        <article className="card">
-          <h2>目前有效 Grant Inventory</h2>
-          <p className="muted">
-            只統計已生效、尚未到期且未撤銷的 Grant。使用率只計已 commit 的 used points；
-            reserved points 是進行中 request 的暫時 hold，不會混入已使用比例。
-          </p>
-          <table><thead><tr><th>Grant</th><th>筆數</th><th>耗盡</th><th>原始點數</th><th>已使用</th><th>保留中</th><th>可用餘額</th><th>使用率</th><th>耗盡率</th></tr></thead><tbody>
+        <article className="card report-section-card">
+          <h2>目前有效點數庫存</h2>
+          <p className="muted">僅統計已生效、未到期且未撤銷的點數。已使用與保留中的點數會分開顯示，方便掌握實際可用餘額。</p>
+          <table><thead><tr><th>點數來源</th><th>筆數</th><th>耗盡筆數</th><th>原始點數</th><th>已使用</th><th>保留中</th><th>可用餘額</th><th>使用率</th><th>耗盡率</th></tr></thead><tbody>
             {report.grantInventory.map((row) => <tr key={row.grantType}>
-              <td>{row.grantType}</td><td>{row.grants.toLocaleString()}</td><td>{row.exhaustedGrants.toLocaleString()}</td>
+              <td>{grantTypeLabel(row.grantType)}</td><td>{row.grants.toLocaleString()}</td><td>{row.exhaustedGrants.toLocaleString()}</td>
               <td>{row.originalPoints.toLocaleString()}</td><td>{row.usedPoints.toLocaleString()}</td>
               <td>{row.reservedPoints.toLocaleString()}</td><td>{row.remainingPoints.toLocaleString()}</td>
               <td>{percent(row.utilizationPercent)}</td><td>{percent(row.exhaustionPercent)}</td>
@@ -174,9 +167,9 @@ export function ProfitabilityPage({ api }: Props) {
 }
 
 function Breakdown({ title, rows }: { title: string; rows: AdminProfitabilityReport['byModel'] }) {
-  return <article className="card">
+  return <article className="card report-section-card">
     <h2>{title}</h2>
-    <table><thead><tr><th>項目</th><th>Requests</th><th>操作使用者</th><th>被扣點使用者</th><th>實扣點數</th><th>補貼點數</th><th>USD 成本</th><th>TWD 成本</th><th>TWD 缺值</th></tr></thead><tbody>
+    <table><thead><tr><th>項目</th><th>請求數</th><th>操作使用者</th><th>被扣點使用者</th><th>已扣點數</th><th>補貼點數</th><th>美元成本</th><th>新台幣成本</th><th>成本缺值</th></tr></thead><tbody>
       {rows.map((row) => <tr key={row.key}>
         <td>{row.key}</td><td>{row.requests.toLocaleString()}</td><td>{row.activeUsers.toLocaleString()}</td><td>{row.chargedUsers.toLocaleString()}</td>
         <td>{row.customerPointsCharged.toLocaleString()}</td><td>{row.platformSubsidizedPoints.toLocaleString()}</td>
@@ -185,6 +178,10 @@ function Breakdown({ title, rows }: { title: string; rows: AdminProfitabilityRep
       </tr>)}
     </tbody></table>
   </article>;
+}
+
+function grantTypeLabel(value: string): string {
+  return value === 'FREE_INITIAL' ? '免費試用' : value === 'SUBSCRIPTION_PERIOD' ? '訂閱週期' : value === 'ADMIN' ? '管理員發放' : value;
 }
 
 function clearAdminSession(api: AdminApi) {
