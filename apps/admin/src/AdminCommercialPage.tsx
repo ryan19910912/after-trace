@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { AdminAiRuntimeConfig, AdminApi } from './api';
 import { AdminCommercialApi, type FreeAiTrialConfig, type SubscriptionPlanConfig, type SubscriptionPlanInput } from './commercial-api';
+import { calculatePricingRecommendation } from './pricing-calculator';
 
 const SESSION_KEY = 'aftertrace.admin.session';
 const MB = 1024 * 1024;
@@ -10,6 +12,7 @@ const DEFAULT_NEW_PLAN: PlanDraft = {
   maxImagesPerRequest: '1', maxImageMb: '5', maxAudioSeconds: '300', maxAudioMb: '10', maxFileMb: '10',
 };
 
+type Tab = 'FREE' | 'SUBSCRIPTION';
 type PlanDraft = {
   displayName: string; priceTwd: string; enabled: boolean;
   aiMediaIngestion: boolean; aiNaturalSearch: boolean; aiRelatedRecords: boolean; aiTimeRangeSummary: boolean; aiRecordRewrite: boolean; aiTaskProposal: boolean;
@@ -17,41 +20,49 @@ type PlanDraft = {
   maxImagesPerRequest: string; maxImageMb: string; maxAudioSeconds: string; maxAudioMb: string; maxFileMb: string;
 };
 
-export function AdminCommercialPage({ api }: { api: AdminCommercialApi }) {
+export function AdminCommercialPage({ api, runtimeApi }: { api: AdminCommercialApi; runtimeApi: AdminApi }) {
+  const [tab, setTab] = useState<Tab>('FREE');
   const [trial, setTrial] = useState<FreeAiTrialConfig | null>(null);
   const [trialPoints, setTrialPoints] = useState('');
+  const [trialBudgetTwd, setTrialBudgetTwd] = useState('5');
+  const [runtime, setRuntime] = useState<AdminAiRuntimeConfig | null>(null);
   const [plans, setPlans] = useState<SubscriptionPlanConfig[]>([]);
-  const [selectedCode, setSelectedCode] = useState('');
   const [draft, setDraft] = useState<PlanDraft>({ ...DEFAULT_NEW_PLAN });
-  const [adding, setAdding] = useState(false);
+  const [modal, setModal] = useState<'CREATE' | 'DETAIL' | null>(null);
+  const [selectedCode, setSelectedCode] = useState('');
+  const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    const token = sessionStorage.getItem(SESSION_KEY); api.setSessionToken(token);
+    const token = sessionStorage.getItem(SESSION_KEY); api.setSessionToken(token); runtimeApi.setSessionToken(token);
     if (!token) { setError('請先登入管理後台。'); setLoading(false); return; }
     void load();
-  }, [api]);
+  }, [api, runtimeApi]);
 
   async function load() {
     setLoading(true); setError(null);
     try {
-      const [nextTrial, nextPlans] = await Promise.all([api.getFreeAiTrial(), api.getPlans()]);
-      setTrial(nextTrial); setTrialPoints(nextTrial ? String(nextTrial.freeInitialAiTrialPoints) : ''); setPlans(nextPlans);
-      const wanted = nextPlans.find((plan) => plan.code === selectedCode) ?? nextPlans[0] ?? null;
-      if (wanted) { setSelectedCode(wanted.code); setDraft(planDraft(wanted)); setAdding(false); }
-      else { setSelectedCode(''); setDraft({ ...DEFAULT_NEW_PLAN }); setAdding(true); }
+      const [nextTrial, nextPlans, nextRuntime] = await Promise.all([
+        api.getFreeAiTrial(), api.getPlans(), runtimeApi.aiRuntime().catch(() => null),
+      ]);
+      setTrial(nextTrial); setTrialPoints(nextTrial ? String(nextTrial.freeInitialAiTrialPoints) : ''); setPlans(nextPlans); setRuntime(nextRuntime);
     } catch (cause) { setError(friendlyError(cause, '商業方案設定載入失敗')); }
     finally { setLoading(false); }
   }
 
-  function selectPlan(code: string) {
-    const plan = plans.find((item) => item.code === code); if (!plan) return;
-    setSelectedCode(code); setDraft(planDraft(plan)); setAdding(false); setError(null); setNotice(null);
-  }
-  function startAddPlan() { setSelectedCode(''); setDraft({ ...DEFAULT_NEW_PLAN }); setAdding(true); setError(null); setNotice(null); }
+  const trialEstimate = useMemo(() => {
+    const twd = Number(trialBudgetTwd);
+    if (!runtime || !Number.isFinite(twd) || twd <= 0) return null;
+    return calculatePricingRecommendation({
+      priceTwd: twd,
+      targetGrossMarginPercent: 0,
+      usdTwdRate: Number(runtime.usd_twd_rate ?? 0),
+      outputUsdPerMillion: Number(runtime.output_usd_per_million ?? 0),
+    });
+  }, [trialBudgetTwd, runtime]);
 
   async function saveTrial() {
     const parsed = Number(trialPoints);
@@ -63,51 +74,72 @@ export function AdminCommercialPage({ api }: { api: AdminCommercialApi }) {
     finally { setSaving(false); }
   }
 
+  function openCreate() { setDraft({ ...DEFAULT_NEW_PLAN }); setSelectedCode(''); setEditing(true); setModal('CREATE'); setError(null); setNotice(null); }
+  function openDetail(plan: SubscriptionPlanConfig) { setSelectedCode(plan.code); setDraft(planDraft(plan)); setEditing(false); setModal('DETAIL'); setError(null); setNotice(null); }
+  function closeModal() { if (saving) return; setModal(null); setEditing(false); }
+
   async function savePlan() {
     const input = planInput(draft);
     if ('error' in input) { setError(input.error); return; }
-    if (!window.confirm(adding ? '確定新增這個訂閱方案？' : '確定更新這個訂閱方案？')) return;
     setSaving(true); setError(null); setNotice(null);
     try {
-      const saved = adding ? await api.createPlan(input.value) : await api.updatePlan(selectedCode, input.value);
-      const nextPlans = await api.getPlans(); setPlans(nextPlans); setSelectedCode(saved.code); setDraft(planDraft(saved)); setAdding(false);
-      setNotice(adding ? '訂閱方案已新增。' : '訂閱方案設定已更新。');
+      const saved = modal === 'CREATE' ? await api.createPlan(input.value) : await api.updatePlan(selectedCode, input.value);
+      setPlans(await api.getPlans()); setSelectedCode(saved.code); setDraft(planDraft(saved));
+      setNotice(modal === 'CREATE' ? '訂閱方案已新增。' : '訂閱方案設定已更新。');
+      setModal(null); setEditing(false);
     } catch (cause) { setError(friendlyError(cause, '訂閱方案儲存失敗')); }
     finally { setSaving(false); }
   }
 
-  const selected = useMemo(() => plans.find((plan) => plan.code === selectedCode) ?? null, [plans, selectedCode]);
-
   return <main className="shell">
-    <header className="topbar admin-hero"><div><p className="eyebrow">AFTERTRACE ADMIN</p><h1>商業方案設定</h1><p className="muted">管理免費 AI 搜尋體驗、訂閱方案功能與 AI 使用上限。</p></div><button disabled={loading || saving} onClick={() => void load()}>重新整理</button></header>
+    <header className="topbar admin-hero"><div><p className="eyebrow">AFTERTRACE ADMIN</p><h1>商業方案設定</h1><p className="muted">分開管理免費方案與訂閱方案，避免設定混在同一頁。</p></div><button disabled={loading || saving} onClick={() => void load()}>重新整理</button></header>
     {error && <div className="banner error">{error}</div>}{notice && <div className="banner success">{notice}</div>}
 
-    <section className="stack commercial-stack">
+    <div className="commercial-tabs" role="tablist" aria-label="方案類型">
+      <button className={tab === 'FREE' ? 'active' : ''} onClick={() => setTab('FREE')}>免費方案</button>
+      <button className={tab === 'SUBSCRIPTION' ? 'active' : ''} onClick={() => setTab('SUBSCRIPTION')}>訂閱方案</button>
+    </div>
+
+    {tab === 'FREE' ? <section className="stack commercial-stack">
       <article className="card plan-card">
         <div className="plan-section-head"><span className="plan-badge free">免費方案</span><p className="muted">一般紀錄與一般搜尋持續免費；這裡只設定一次性的 AI 搜尋體驗點數。</p></div>
-        <div className="commercial-grid two-col"><div className="settings-block"><label>免費 AI 搜尋體驗點數<input type="number" min="1" step="1" value={trialPoints} disabled={loading || saving} onChange={(event) => setTrialPoints(event.target.value)} placeholder="尚未設定" /></label><p className="muted compact-copy">符合資格的新帳號只會取得一次，可用於自然語言 AI 搜尋；之後調整不會回頭修改已發放點數。</p><button disabled={loading || saving} onClick={() => void saveTrial()}>{saving ? '儲存中…' : '儲存搜尋體驗點數'}</button></div><div className="settings-block trial-status-block"><h3>體驗發放狀態</h3>{!trial ? <><strong>目前尚未啟用</strong><p className="muted">設定點數後，符合資格的新帳號才會收到一次性 AI 搜尋體驗。</p></> : <><strong>目前可發放</strong><p className="muted">新符合資格的免費用戶會依目前設定取得一次性 AI 搜尋體驗點數。</p></>}</div></div>
+        <div className="commercial-grid two-col">
+          <div className="settings-block"><label>免費 AI 搜尋體驗點數<input type="number" min="1" step="1" value={trialPoints} disabled={loading || saving} onChange={(event) => setTrialPoints(event.target.value)} placeholder="尚未設定" /></label><p className="muted compact-copy">符合資格的新帳號只取得一次，可用於自然語言 AI 搜尋。</p><button disabled={loading || saving} onClick={() => void saveTrial()}>{saving ? '儲存中…' : '儲存搜尋體驗點數'}</button></div>
+          <div className="settings-block trial-status-block"><h3>體驗發放狀態</h3>{!trial ? <><strong>目前尚未啟用</strong><p className="muted">設定點數後，新符合資格的帳號才會收到一次性 AI 搜尋體驗。</p></> : <><strong>目前可發放</strong><p className="muted">新符合資格的免費用戶會依目前設定取得一次性 AI 搜尋體驗點數。</p></>}</div>
+        </div>
         {trial && <div className="metric-grid compact-metrics"><Metric name="目前發放量" value={trial.freeInitialAiTrialPoints}/><Metric name="已發放帳號" value={trial.recipients}/><Metric name="已耗盡帳號" value={trial.exhaustedRecipients}/><Metric name="累計已發放" value={trial.issuedPoints}/><Metric name="目前剩餘" value={trial.remainingPoints}/><Metric name="累計已消耗" value={trial.consumedPoints}/></div>}
       </article>
 
       <article className="card plan-card">
-        <div className="plan-section-head"><span className="plan-badge paid">訂閱方案</span><p className="muted">方案清單由後端提供，可新增方案並分別設定功能與資源上限。</p></div>
-        <div className="subscription-selector"><label>訂閱方案<select value={adding ? '__NEW__' : selectedCode} disabled={loading || saving} onChange={(event) => event.target.value === '__NEW__' ? startAddPlan() : selectPlan(event.target.value)}>{plans.map((plan) => <option key={plan.code} value={plan.code}>{plan.displayName} · NT${Number(plan.priceTwd).toLocaleString('zh-TW')}／月</option>)}<option value="__NEW__">＋ 新增訂閱方案</option></select></label><button className="ghost" disabled={loading || saving} onClick={startAddPlan}>新增方案</button></div>
-
-        <div className="section-divider"/><h3>{adding ? '新增訂閱方案' : `編輯 ${selected?.displayName ?? '訂閱方案'}`}</h3>
-        <div className="form-grid"><label>方案名稱<input value={draft.displayName} onChange={(e)=>setDraft({...draft,displayName:e.target.value})} placeholder="例如 AI Pro Plus" /></label><label>每月售價（TWD）<input inputMode="decimal" value={draft.priceTwd} onChange={(e)=>setDraft({...draft,priceTwd:e.target.value})} placeholder="例如 199" /></label><Toggle label="啟用此方案" checked={draft.enabled} disabled={loading||saving} onChange={(value)=>setDraft({...draft,enabled:value})}/></div>
-
-        <div className="section-divider"/><h3>功能設定</h3><p className="muted">免費方案的 AI 額度只用於 AI 搜尋；以下其他 AI 功能都需要有效的訂閱方案。</p>
-        <div className="feature-switch-grid"><Toggle label="圖片／音訊／檔案 AI" checked={draft.aiMediaIngestion} disabled={loading||saving} onChange={(v)=>setDraft({...draft,aiMediaIngestion:v})}/><Toggle label="AI 自然語言搜尋" checked={draft.aiNaturalSearch} disabled={loading||saving} onChange={(v)=>setDraft({...draft,aiNaturalSearch:v})}/><Toggle label="相關紀錄推薦" checked={draft.aiRelatedRecords} disabled={loading||saving} onChange={(v)=>setDraft({...draft,aiRelatedRecords:v})}/><Toggle label="時間區間摘要" checked={draft.aiTimeRangeSummary} disabled={loading||saving} onChange={(v)=>setDraft({...draft,aiTimeRangeSummary:v})}/><Toggle label="AI 改寫建議" checked={draft.aiRecordRewrite} disabled={loading||saving} onChange={(v)=>setDraft({...draft,aiRecordRewrite:v})}/><Toggle label="AI 待辦建議" checked={draft.aiTaskProposal} disabled={loading||saving} onChange={(v)=>setDraft({...draft,aiTaskProposal:v})}/></div>
-
-        <div className="section-divider"/><h3>AI 使用與成本上限</h3><p className="muted">這些數值用來控制方案資源與成本，不是使用者的現金餘額。</p>
-        <div className="form-grid"><label>每月 AI 點數上限<input type="number" min="1" value={draft.monthlyAiPointCap} onChange={(e)=>setDraft({...draft,monthlyAiPointCap:e.target.value})}/></label><label>每月 AI 供應商成本上限（TWD）<input inputMode="decimal" value={draft.monthlyProviderCostCapTwd} onChange={(e)=>setDraft({...draft,monthlyProviderCostCapTwd:e.target.value})}/></label><label>單次 AI 點數上限（選填）<input type="number" min="1" value={draft.perRequestAiPointCap} onChange={(e)=>setDraft({...draft,perRequestAiPointCap:e.target.value})}/></label></div>
-
-        <div className="section-divider"/><h3>圖片、音訊與檔案限制</h3><p className="muted">「單次最多圖片數」是指一次 AI 請求最多可傳幾張圖片，不是帳號總共可傳幾張。目前前端一次只傳 1 張，保留此設定方便之後支援多圖。</p>
-        <div className="form-grid"><label>單次最多圖片數<input type="number" min="1" max="10" value={draft.maxImagesPerRequest} onChange={(e)=>setDraft({...draft,maxImagesPerRequest:e.target.value})}/></label><label>單張圖片上限（MB）<input type="number" min="1" max="20" value={draft.maxImageMb} onChange={(e)=>setDraft({...draft,maxImageMb:e.target.value})}/></label><label>單段音訊最長秒數<input type="number" min="1" max="3600" value={draft.maxAudioSeconds} onChange={(e)=>setDraft({...draft,maxAudioSeconds:e.target.value})}/></label><label>單段音訊上限（MB）<input type="number" min="1" max="30" value={draft.maxAudioMb} onChange={(e)=>setDraft({...draft,maxAudioMb:e.target.value})}/></label><label>單一檔案上限（MB）<input type="number" min="1" max="30" value={draft.maxFileMb} onChange={(e)=>setDraft({...draft,maxFileMb:e.target.value})}/></label></div>
-        <button disabled={loading || saving} onClick={() => void savePlan()}>{saving ? '儲存中…' : adding ? '新增訂閱方案' : '儲存方案設定'}</button>
+        <div className="plan-section-head"><span className="plan-badge free">免費額度試算</span><p className="muted">輸入想送出的 AI 成本價值，換算建議點數後可直接帶入上方設定。</p></div>
+        <div className="commercial-grid two-col">
+          <div className="settings-block"><label>預計贈送價值（TWD）<input inputMode="decimal" value={trialBudgetTwd} onChange={(event) => setTrialBudgetTwd(event.target.value)} placeholder="例如 5" /></label><p className="muted compact-copy">以目前 AI Runtime 的輸出單價與 USD/TWD 匯率換算，1 點仍遵守既有 output-price-equivalent 定義。</p></div>
+          <div className="settings-block trial-calculator-result"><h3>建議點數</h3>{trialEstimate ? <><strong>{trialEstimate.recommendedPoints.toLocaleString('zh-TW')} 點</strong><p className="muted">約對應 NT${Number(trialBudgetTwd).toLocaleString('zh-TW', { maximumFractionDigits: 2 })} 的輸出價格等值 AI 額度。</p><button className="ghost" onClick={() => setTrialPoints(String(trialEstimate.recommendedPoints))}>帶入免費方案點數</button></> : <><strong>尚無法試算</strong><p className="muted">請先初始化 AI Runtime 的輸出價格與匯率，或確認輸入金額大於 0。</p></>}</div>
+        </div>
       </article>
-    </section>
+    </section> : <section className="stack commercial-stack">
+      <article className="card plan-card">
+        <div className="subscription-list-head"><div><span className="plan-badge paid">訂閱方案</span><p className="muted">新增方案使用彈窗；既有方案從下方清單查看詳情、編輯與儲存。</p></div><button className="primary-action" onClick={openCreate}>＋ 新增訂閱方案</button></div>
+        <div className="subscription-plan-list">
+          {plans.length === 0 ? <div className="empty-state-card"><strong>目前沒有訂閱方案</strong><p className="muted">點右上角「新增訂閱方案」建立第一個方案。</p></div> : plans.map((plan) => <article className="subscription-plan-row" key={plan.code}><div><strong>{plan.displayName}</strong><span>{plan.code}</span></div><div><strong>NT${Number(plan.priceTwd).toLocaleString('zh-TW')} / 月</strong><span>{plan.enabled ? '已啟用' : '已停用'}</span></div><div><strong>{plan.monthlyAiPointCap.toLocaleString('zh-TW')} 點</strong><span>每月 AI 上限</span></div><button className="ghost" onClick={() => openDetail(plan)}>詳情</button></article>)}
+        </div>
+      </article>
+    </section>}
+
+    {modal ? <div className="admin-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeModal(); }}><section className="admin-modal" role="dialog" aria-modal="true" aria-labelledby="plan-modal-title"><div className="admin-modal-head"><div><p className="eyebrow">{modal === 'CREATE' ? 'NEW SUBSCRIPTION' : selectedCode}</p><h2 id="plan-modal-title">{modal === 'CREATE' ? '新增訂閱方案' : '訂閱方案詳情'}</h2></div><button className="ghost" aria-label="關閉" disabled={saving} onClick={closeModal}>×</button></div>
+      <fieldset disabled={modal === 'DETAIL' && !editing} className="admin-modal-fieldset"><PlanFields draft={draft} setDraft={setDraft} loading={loading || saving} /></fieldset>
+      <div className="admin-modal-actions"><button className="ghost" disabled={saving} onClick={closeModal}>關閉</button>{modal === 'DETAIL' && !editing ? <button onClick={() => setEditing(true)}>編輯</button> : <button className="primary-action" disabled={saving} onClick={() => void savePlan()}>{saving ? '儲存中…' : modal === 'CREATE' ? '建立方案' : '儲存變更'}</button>}</div>
+    </section></div> : null}
   </main>;
+}
+
+function PlanFields({ draft, setDraft, loading }: { draft: PlanDraft; setDraft: (next: PlanDraft) => void; loading: boolean }) {
+  return <div className="stack">
+    <div className="form-grid"><label>方案名稱<input value={draft.displayName} onChange={(e)=>setDraft({...draft,displayName:e.target.value})} /></label><label>每月售價（TWD）<input inputMode="decimal" value={draft.priceTwd} onChange={(e)=>setDraft({...draft,priceTwd:e.target.value})} /></label><Toggle label="啟用此方案" checked={draft.enabled} disabled={loading} onChange={(value)=>setDraft({...draft,enabled:value})}/></div>
+    <div className="section-divider"/><h3>功能設定</h3><div className="feature-switch-grid"><Toggle label="圖片／音訊／檔案 AI" checked={draft.aiMediaIngestion} disabled={loading} onChange={(v)=>setDraft({...draft,aiMediaIngestion:v})}/><Toggle label="AI 自然語言搜尋" checked={draft.aiNaturalSearch} disabled={loading} onChange={(v)=>setDraft({...draft,aiNaturalSearch:v})}/><Toggle label="相關紀錄推薦" checked={draft.aiRelatedRecords} disabled={loading} onChange={(v)=>setDraft({...draft,aiRelatedRecords:v})}/><Toggle label="時間區間摘要" checked={draft.aiTimeRangeSummary} disabled={loading} onChange={(v)=>setDraft({...draft,aiTimeRangeSummary:v})}/><Toggle label="AI 改寫建議" checked={draft.aiRecordRewrite} disabled={loading} onChange={(v)=>setDraft({...draft,aiRecordRewrite:v})}/><Toggle label="AI 待辦建議" checked={draft.aiTaskProposal} disabled={loading} onChange={(v)=>setDraft({...draft,aiTaskProposal:v})}/></div>
+    <div className="section-divider"/><h3>AI 使用與成本上限</h3><div className="form-grid"><label>每月 AI 點數上限<input type="number" min="1" value={draft.monthlyAiPointCap} onChange={(e)=>setDraft({...draft,monthlyAiPointCap:e.target.value})}/></label><label>每月 AI 供應商成本上限（TWD）<input inputMode="decimal" value={draft.monthlyProviderCostCapTwd} onChange={(e)=>setDraft({...draft,monthlyProviderCostCapTwd:e.target.value})}/></label><label>單次 AI 點數上限（選填）<input type="number" min="1" value={draft.perRequestAiPointCap} onChange={(e)=>setDraft({...draft,perRequestAiPointCap:e.target.value})}/></label></div>
+    <div className="section-divider"/><h3>圖片、音訊與檔案限制</h3><div className="form-grid"><label>單次最多圖片數<input type="number" min="1" max="10" value={draft.maxImagesPerRequest} onChange={(e)=>setDraft({...draft,maxImagesPerRequest:e.target.value})}/></label><label>單張圖片上限（MB）<input type="number" min="1" max="20" value={draft.maxImageMb} onChange={(e)=>setDraft({...draft,maxImageMb:e.target.value})}/></label><label>單段音訊最長秒數<input type="number" min="1" max="3600" value={draft.maxAudioSeconds} onChange={(e)=>setDraft({...draft,maxAudioSeconds:e.target.value})}/></label><label>單段音訊上限（MB）<input type="number" min="1" max="30" value={draft.maxAudioMb} onChange={(e)=>setDraft({...draft,maxAudioMb:e.target.value})}/></label><label>單一檔案上限（MB）<input type="number" min="1" max="30" value={draft.maxFileMb} onChange={(e)=>setDraft({...draft,maxFileMb:e.target.value})}/></label></div>
+  </div>;
 }
 
 function planDraft(plan: SubscriptionPlanConfig): PlanDraft { return { displayName:plan.displayName,priceTwd:plan.priceTwd,enabled:plan.enabled,aiMediaIngestion:plan.aiMediaIngestion,aiNaturalSearch:plan.aiNaturalSearch,aiRelatedRecords:plan.aiRelatedRecords,aiTimeRangeSummary:plan.aiTimeRangeSummary,aiRecordRewrite:plan.aiRecordRewrite,aiTaskProposal:plan.aiTaskProposal,monthlyAiPointCap:String(plan.monthlyAiPointCap),monthlyProviderCostCapTwd:plan.monthlyProviderCostCapTwd,perRequestAiPointCap:plan.perRequestAiPointCap?String(plan.perRequestAiPointCap):'',maxImagesPerRequest:String(plan.maxImagesPerRequest),maxImageMb:String(Math.round(plan.maxImageBytes/MB)),maxAudioSeconds:String(plan.maxAudioSeconds),maxAudioMb:String(Math.round(plan.maxAudioBytes/MB)),maxFileMb:String(Math.round(plan.maxFileBytes/MB)) }; }
