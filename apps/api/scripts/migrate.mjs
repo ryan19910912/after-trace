@@ -27,6 +27,10 @@ const sql = neon(databaseUrl);
 const db = drizzle(sql);
 
 try {
+  // A disposable Dev database may have had the public schema dropped during reset.
+  // Recreate it before Drizzle runs unqualified CREATE TABLE statements.
+  await sql`CREATE SCHEMA IF NOT EXISTS public`;
+
   await migrate(db, { migrationsFolder });
   console.log('AFTERTRACE database migrations applied successfully.');
 } catch (error) {
