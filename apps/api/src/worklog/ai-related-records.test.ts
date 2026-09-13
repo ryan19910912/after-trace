@@ -53,53 +53,57 @@ describe('AiRelatedRecordsService', () => {
     expect(calls).toEqual(['resolve']);
   });
 
+  it('does not allow FREE trial points to unlock related Records', async () => {
+    const calls: string[] = [];
+    const service = new AiRelatedRecordsService(repository(calls), {
+      async resolve() {
+        calls.push('resolve');
+        return {
+          source: 'FREE_TRIAL', allowed: true, reason: 'FREE_TRIAL_AVAILABLE',
+          remainingPoints: 60, periodEndsAt: null, perRequestAiPointCap: 100,
+        };
+      },
+    });
+
+    expect(await service.related({ userId: 7, sourceId: 12, recordId: 55, limit: 6 })).toEqual({
+      status: 'FAILED', reason: 'AI_PRO_REQUIRED',
+    });
+    expect(calls).toEqual(['resolve']);
+  });
+
   it('fails closed when the operator disables related Records', async () => {
     const calls: string[] = [];
     const service = new AiRelatedRecordsService(repository(calls, { enabled: false }), {
       async resolve() {
         calls.push('resolve');
         return {
-          source: 'AI_PRO',
-          allowed: true,
-          reason: 'AI_PRO_AVAILABLE',
-          remainingPoints: 100,
-          periodEndsAt: '2026-10-07T00:00:00.000Z',
-          perRequestAiPointCap: 100,
+          source: 'AI_PRO', allowed: true, reason: 'AI_PRO_AVAILABLE',
+          remainingPoints: 100, periodEndsAt: '2026-10-07T00:00:00.000Z', perRequestAiPointCap: 100,
         };
       },
     });
 
     expect(await service.related({ userId: 7, sourceId: 12, recordId: 55 })).toEqual({
-      status: 'FAILED',
-      reason: 'AI_RELATED_RECORDS_DISABLED',
+      status: 'FAILED', reason: 'AI_RELATED_RECORDS_DISABLED',
     });
     expect(calls).toEqual(['resolve', 'capability']);
   });
 
-  it('allows an eligible FREE trial to use deterministic ranking without provider accounting', async () => {
+  it('returns AI Pro deterministic related results', async () => {
     const calls: string[] = [];
     const service = new AiRelatedRecordsService(repository(calls), {
       async resolve() {
         calls.push('resolve');
         return {
-          source: 'FREE_TRIAL',
-          allowed: true,
-          reason: 'FREE_TRIAL_AVAILABLE',
-          remainingPoints: 60,
-          periodEndsAt: null,
-          perRequestAiPointCap: 100,
+          source: 'AI_PRO', allowed: true, reason: 'AI_PRO_AVAILABLE',
+          remainingPoints: 100, periodEndsAt: '2026-10-07T00:00:00.000Z', perRequestAiPointCap: 100,
         };
       },
     });
 
     const result = await service.related({ userId: 7, sourceId: 12, recordId: 55, limit: 6 });
 
-    expect(result).toMatchObject({
-      status: 'RESULTS',
-      entitlementSource: 'FREE_TRIAL',
-      recordId: 55,
-      records: [{ id: 91, relevanceScore: 12 }],
-    });
+    expect(result).toMatchObject({ status: 'RESULTS', entitlementSource: 'AI_PRO', recordId: 55, records: [{ id: 91, relevanceScore: 12 }] });
     expect(calls).toEqual(['resolve', 'capability', 'find:12:55:6']);
   });
 
@@ -109,19 +113,14 @@ describe('AiRelatedRecordsService', () => {
       async resolve() {
         calls.push('resolve');
         return {
-          source: 'AI_PRO',
-          allowed: true,
-          reason: 'AI_PRO_AVAILABLE',
-          remainingPoints: 100,
-          periodEndsAt: '2026-10-07T00:00:00.000Z',
-          perRequestAiPointCap: null,
+          source: 'AI_PRO', allowed: true, reason: 'AI_PRO_AVAILABLE',
+          remainingPoints: 100, periodEndsAt: '2026-10-07T00:00:00.000Z', perRequestAiPointCap: null,
         };
       },
     });
 
     expect(await service.related({ userId: 7, sourceId: 12, recordId: 404 })).toEqual({
-      status: 'NOT_FOUND',
-      reason: 'RECORD_NOT_FOUND',
+      status: 'NOT_FOUND', reason: 'RECORD_NOT_FOUND',
     });
     expect(calls).toEqual(['resolve', 'capability', 'find:12:404:8']);
   });
