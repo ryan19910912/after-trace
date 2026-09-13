@@ -36,7 +36,17 @@ describe('AiTaskProposalService product boundary', () => {
     );
 
     expect(await service.propose({ userId: 7, sourceId: 12, text: '明天下午提醒我回覆客戶', timeZone: 'Asia/Taipei' }))
-      .toEqual({ status: 'FAILED', reason: 'AI_PRO_REQUIRED' });
+      .toEqual({
+        status: 'BLOCKED',
+        decision: {
+          source: 'BLOCKED',
+          allowed: false,
+          reason: 'AI_NOT_ENTITLED',
+          remainingPoints: 100,
+          periodEndsAt: null,
+          perRequestAiPointCap: 100,
+        },
+      });
     expect(repositoryCalls).toBe(0);
     expect(providerCalls).toBe(0);
   });
