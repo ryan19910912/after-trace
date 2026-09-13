@@ -2,96 +2,99 @@
 
 ## Core rule
 
-Records may be created and edited manually in Web/PWA. Editing never destroys prior content. The current Record row represents the latest visible state; every content-changing mutation preserves immutable revision/history facts.
+Records may be created and edited manually in Web/PWA. Editing never destroys prior content. The current Record row is the latest visible state; every mutation preserves revision/history facts.
 
-A Record does not require an AI title. Free/manual Records may contain only content plus event/system timestamps.
+A manual Record uses:
+
+- optional user-entered `title`;
+- required content / `raw_text`;
+- optional `occurred_at`;
+- system `created_at` / `updated_at`.
+
+The title is not required to be AI-generated. If title is null, UI may use a short content preview as the display heading without persisting that preview as title.
+
+## Editable fields
+
+FREE/manual editing can change:
+
+- title;
+- content;
+- occurred time.
+
+Manual editing does not call provider AI and does not automatically regenerate keywords or AI metadata.
 
 ## Record times
 
-A Record distinguishes:
+- `occurred_at`: user/business event time, nullable;
+- `created_at`: storage time;
+- `updated_at`: last modification time.
 
-- `occurred_at`: user/business event date/time, nullable;
-- `created_at`: when AFTERTRACE stored the Record;
-- `updated_at`: last current-row modification time.
-
-Do not invent a time the user never supplied. AI date interpretation is allowed only on provider-backed operations and must use an explicit reference timestamp/timezone.
+Do not invent a time the user never supplied.
 
 ## Revision history
 
-Every content-changing edit preserves previous state and actor. Recommended revision facts include:
+Every mutation preserves at least:
 
 - revision id;
 - record id/version;
 - editor user id;
-- edit channel such as `WEB_MANUAL`, `PWA_MANUAL`, `CHROME_MANUAL`, `AI_REWRITE`;
+- edit channel;
+- previous/new title;
 - previous/new content;
-- previous/new `occurred_at` when changed;
-- previous/new AI metadata when the accepted operation explicitly changes it;
+- previous/new occurred time;
+- previous/new status;
 - edit timestamp.
 
-Prefer complete snapshots when simpler/safer than reconstructing diff chains.
+Prefer complete bounded snapshots over fragile diff reconstruction.
 
 ## Concurrency
 
-Use database-backed optimistic concurrency:
+Use optimistic versioning internally:
 
-- current Record has integer `version`;
+- Record has integer `version`;
 - save includes expected version;
-- update succeeds only when version matches;
-- successful save increments version;
-- stale save fails and asks user to reload rather than overwriting newer work.
+- update only succeeds when the version matches;
+- success increments version;
+- stale updates are rejected rather than overwriting newer work.
 
-## Soft deletion
+Customer-facing copy should simply explain that a newer version exists and the page will reload. Do not expose “optimistic locking/version API” terminology.
 
-Deletion is status-based, not physical deletion. Normal search excludes deleted Records. Restore preserves history.
+## Delete / restore
 
-## Free/manual editing
+Deletion is soft/status-based. Normal search excludes deleted Records. The Search page exposes a recycle bin and restore action. Delete and restore also create revision/history facts while preserving title/content.
 
-Manual Web/PWA editing is free and non-AI.
+## AI rewrite
 
-- edit `content` directly;
-- edit `occurred_at` directly when allowed;
-- consume zero provider AI;
-- do not silently generate/re-generate title, keywords or extracted metadata;
-- old free Records remain valid without AI enrichment.
+AI rewrite is suggestion-first:
 
-## AI rewrite / cleanup
+1. authorize the user and record range;
+2. load the exact Record/version;
+3. call AI for the requested rewrite;
+4. show original + suggested content;
+5. user explicitly confirms or cancels;
+6. confirm commits through the normal revision path;
+7. cancel leaves the durable Record unchanged.
 
-Paid AI may propose a rewrite of one exact selected Record.
+AI never directly overwrites a Record without confirmation.
 
-Flow:
+## AI metadata
 
-1. authorize user and Source;
-2. resolve exact Record id/version;
-3. call AI once for the bounded rewrite request;
-4. show proposed content;
-5. user explicitly accepts/cancels;
-6. accept commits through normal optimistic version/revision rules;
-7. cancel leaves durable Record unchanged while provider usage remains auditable.
+AI title/search terms/extracted facts are optional enrichment. Normal manual edits do not automatically rerun AI.
 
-AI never receives authority to write arbitrary SQL or silently overwrite the Record.
-
-## AI metadata on edit
-
-AI title/keywords/entities are optional enrichment. A normal manual edit does not automatically re-run AI. A later explicit `重新整理 AI` feature may exist only as a paid, separately accounted action.
-
-Historical free Records that gain a subscription later are not automatically enriched or rewritten.
+Historical free Records are not automatically enriched after subscription.
 
 ## Authorization
 
-Authorization is checked on every operation.
+Authorization is checked on every operation:
 
-- PRIVATE: authorized owner/user only;
-- GROUP: current AFTERTRACE group membership and role permissions;
-- GROUP authorization no longer depends on LINE membership, LINE bot state, subscription, or an AI responsible user;
-- AI entitlement is checked only when provider compute is requested by the current user.
+- PRIVATE: owner/user only;
+- GROUP: current AFTERTRACE group membership/role;
+- AI entitlement is checked only when provider-backed AI is requested.
 
 ## Tasks
 
-Changing a Record does not silently rewrite or delete Tasks derived from it. If a Task is explicitly linked to a Record, task state remains its own durable fact unless the user accepts a specific task update.
+Editing/deleting a Record does not silently rewrite/delete a related Task. Task state remains its own durable fact unless the user explicitly changes it.
 
-## AI summaries / Q&A
+## Validation
 
-Summaries and Q&A are separate paid retrieval features. They do not replace durable Record content or revision history.
-
-GitHub Actions must not be used as validation unless explicitly requested by the user.
+Do not use GitHub Actions unless explicitly requested. Distinguish AUTHORED from actually executed PASS.
