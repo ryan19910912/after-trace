@@ -31,7 +31,7 @@ export function AuthenticatedAppChrome({ apiBaseUrl, children }: Props) {
 
   const clearExpiredSession = useCallback((cause: unknown) => {
     if (!isSessionError(cause)) return false;
-    window.localStorage.removeItem(SESSION_KEY);
+    clearStoredSession();
     setSession(null);
     return true;
   }, []);
@@ -122,12 +122,14 @@ export function AuthenticatedAppChrome({ apiBaseUrl, children }: Props) {
   }
 
   function logout() {
-    window.localStorage.removeItem(SESSION_KEY);
-    window.localStorage.removeItem('aftertrace.worklog.scope');
+    clearStoredSession();
+    setNotificationsOpen(false);
     setAccountOpen(false);
     setHelpOpen(false);
+    setProfile(null);
+    setCenter(null);
     setSession(null);
-    window.location.href = '/';
+    window.location.replace('/');
   }
 
   async function markRead(item: NotificationCenterItem, navigateAfter = false) {
@@ -283,9 +285,19 @@ function currentSessionToken() {
   const callbackSession = hash.get('session')?.trim() || null;
   if (callbackSession) {
     window.localStorage.setItem(SESSION_KEY, callbackSession);
+    hash.delete('session');
+    const nextHash = hash.toString();
+    window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}${nextHash ? `#${nextHash}` : ''}`);
     return callbackSession;
   }
   return window.localStorage.getItem(SESSION_KEY)?.trim() || null;
+}
+
+function clearStoredSession() {
+  window.localStorage.removeItem(SESSION_KEY);
+  window.localStorage.removeItem('aftertrace.worklog.scope');
+  window.localStorage.removeItem('aftertrace.worklog.returnTo');
+  if (window.location.hash) window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`);
 }
 
 async function copyText(value: string) {
@@ -313,7 +325,7 @@ function formatNotificationTime(value: string) {
 
 function isSessionError(cause: unknown) {
   const text = cause instanceof Error ? cause.message : String(cause ?? '');
-  return /INVALID_WEB_SESSION|WEB_SESSION_REQUIRED/.test(text);
+  return /INVALID_WEB_SESSION|WEB_SESSION_REQUIRED|WORKLOG_USER_NOT_FOUND/.test(text);
 }
 
 function message(cause: unknown, fallback: string) {
