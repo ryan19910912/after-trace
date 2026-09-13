@@ -16,11 +16,11 @@ const ACTIVE_SCOPE_KEY = 'aftertrace.worklog.scope';
 
 type Props = { apiBaseUrl: string };
 type CaptureScope = RecordScope;
-type CaptureDraft = { rawText: string; occurredAt: string };
+type CaptureDraft = { title: string; rawText: string; occurredAt: string };
 type SpeechState = 'IDLE' | 'LISTENING' | 'ERROR';
 type CaptureMode = 'MANUAL' | 'AI';
 
-const EMPTY_DRAFT: CaptureDraft = { rawText: '', occurredAt: '' };
+const EMPTY_DRAFT: CaptureDraft = { title: '', rawText: '', occurredAt: '' };
 
 export function CaptureRoot({ apiBaseUrl }: Props) {
   const api = useMemo(() => new WorklogApi(apiBaseUrl), [apiBaseUrl]);
@@ -215,6 +215,7 @@ export function CaptureRoot({ apiBaseUrl }: Props) {
         await loadEntitlement(session, scope.sourceId);
       } else {
         await api.createRecord(session, scope, {
+          title: draft.title.trim() || null,
           rawText: draft.rawText.trim(),
           occurredAt: localDateOrNull(draft.occurredAt),
         });
@@ -317,6 +318,15 @@ export function CaptureRoot({ apiBaseUrl }: Props) {
       {speechMessage ? <p className="capture-warning">{speechMessage}</p> : null}
       {interimText ? <div className="capture-interim"><span>辨識中</span><strong>{interimText}</strong></div> : null}
 
+      {mode === 'MANUAL' ? <label className="capture-title-label">標題（選填）
+        <input
+          value={draft.title}
+          maxLength={255}
+          onChange={(event) => setDraft({ ...draft, title: event.target.value })}
+          placeholder="例如：客戶報價討論"
+        />
+      </label> : null}
+
       <label className="capture-text-label">紀錄內容
         <textarea
           rows={7}
@@ -330,14 +340,14 @@ export function CaptureRoot({ apiBaseUrl }: Props) {
         <label className="capture-time-label">發生時間（選填）
           <input type="datetime-local" value={draft.occurredAt} onChange={(event) => setDraft({ ...draft, occurredAt: event.target.value })} />
         </label>
-        <p className="muted">沒有填發生時間也可以儲存；之後時間軸會使用記錄建立時間顯示。</p>
+        <p className="muted">標題與發生時間都可以留空；未填標題時仍會以內容保存紀錄，時間軸則使用記錄建立時間。</p>
       </> : <p className="muted">AI 只會在文字有明確日期資訊時解析發生日期；不會自己捏造日期。AI 會為這筆新紀錄產生可搜尋的標題與關鍵詞。</p>}
 
       <div className="capture-actions">
         <button disabled={saveDisabled} onClick={() => void saveRecord()}>
           {saving ? '處理中…' : mode === 'AI' ? 'AI 整理並記錄' : '確認記錄'}
         </button>
-        <button className="ghost" disabled={saving || (!draft.rawText && !draft.occurredAt)} onClick={() => {
+        <button className="ghost" disabled={saving || (!draft.title && !draft.rawText && !draft.occurredAt)} onClick={() => {
           abortSpeechCapture();
           setDraft({ ...EMPTY_DRAFT });
           setSpeechMessage(null);
