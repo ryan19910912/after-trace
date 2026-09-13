@@ -55,11 +55,11 @@ export function AdminCommercialPage({ api }: { api: AdminCommercialApi }) {
 
   async function saveTrial() {
     const parsed = Number(trialPoints);
-    if (!Number.isSafeInteger(parsed) || parsed <= 0) { setError('免費試用 AI 點數必須是大於 0 的整數。'); return; }
-    if (!window.confirm(`確定將之後符合資格的新帳號一次性試用設為 ${parsed.toLocaleString()} 點？\n已經發放的帳號不會被修改。`)) return;
+    if (!Number.isSafeInteger(parsed) || parsed <= 0) { setError('免費 AI 搜尋體驗點數必須是大於 0 的整數。'); return; }
+    if (!window.confirm(`確定將之後符合資格的新帳號 AI 搜尋體驗設為 ${parsed.toLocaleString()} 點？\n已經發放的帳號不會被修改。`)) return;
     setSaving(true); setError(null); setNotice(null);
-    try { const next = await api.setFreeAiTrial(parsed); setTrial(next); setTrialPoints(String(next.freeInitialAiTrialPoints)); setNotice('免費試用設定已更新，只影響之後符合資格的新帳號。'); }
-    catch (cause) { setError(friendlyError(cause, '免費試用設定更新失敗')); }
+    try { const next = await api.setFreeAiTrial(parsed); setTrial(next); setTrialPoints(String(next.freeInitialAiTrialPoints)); setNotice('免費 AI 搜尋體驗設定已更新，只影響之後符合資格的新帳號。'); }
+    catch (cause) { setError(friendlyError(cause, '免費 AI 搜尋體驗設定更新失敗')); }
     finally { setSaving(false); }
   }
 
@@ -79,13 +79,13 @@ export function AdminCommercialPage({ api }: { api: AdminCommercialApi }) {
   const selected = useMemo(() => plans.find((plan) => plan.code === selectedCode) ?? null, [plans, selectedCode]);
 
   return <main className="shell">
-    <header className="topbar admin-hero"><div><p className="eyebrow">AFTERTRACE ADMIN</p><h1>商業方案設定</h1><p className="muted">管理免費試用、訂閱方案功能與 AI 使用上限。</p></div><button disabled={loading || saving} onClick={() => void load()}>重新整理</button></header>
+    <header className="topbar admin-hero"><div><p className="eyebrow">AFTERTRACE ADMIN</p><h1>商業方案設定</h1><p className="muted">管理免費 AI 搜尋體驗、訂閱方案功能與 AI 使用上限。</p></div><button disabled={loading || saving} onClick={() => void load()}>重新整理</button></header>
     {error && <div className="banner error">{error}</div>}{notice && <div className="banner success">{notice}</div>}
 
     <section className="stack commercial-stack">
       <article className="card plan-card">
-        <div className="plan-section-head"><span className="plan-badge free">免費方案</span><p className="muted">免費功能可持續使用；這裡只設定一次性的文字 AI 體驗點數。</p></div>
-        <div className="commercial-grid two-col"><div className="settings-block"><label>免費試用 AI 點數<input type="number" min="1" step="1" value={trialPoints} disabled={loading || saving} onChange={(event) => setTrialPoints(event.target.value)} placeholder="尚未設定" /></label><p className="muted compact-copy">符合資格的新帳號只會取得一次，之後調整不會回頭修改已發放的點數。</p><button disabled={loading || saving} onClick={() => void saveTrial()}>{saving ? '儲存中…' : '儲存試用點數'}</button></div><div className="settings-block trial-status-block"><h3>試用發放狀態</h3>{!trial ? <><strong>目前尚未啟用</strong><p className="muted">設定點數後，符合資格的新帳號才會收到一次性文字 AI 體驗。</p></> : <><strong>目前可發放</strong><p className="muted">新符合資格的免費用戶會依目前設定取得一次性文字 AI 體驗點數。</p></>}</div></div>
+        <div className="plan-section-head"><span className="plan-badge free">免費方案</span><p className="muted">一般紀錄與一般搜尋持續免費；這裡只設定一次性的 AI 搜尋體驗點數。</p></div>
+        <div className="commercial-grid two-col"><div className="settings-block"><label>免費 AI 搜尋體驗點數<input type="number" min="1" step="1" value={trialPoints} disabled={loading || saving} onChange={(event) => setTrialPoints(event.target.value)} placeholder="尚未設定" /></label><p className="muted compact-copy">符合資格的新帳號只會取得一次，可用於自然語言 AI 搜尋；之後調整不會回頭修改已發放點數。</p><button disabled={loading || saving} onClick={() => void saveTrial()}>{saving ? '儲存中…' : '儲存搜尋體驗點數'}</button></div><div className="settings-block trial-status-block"><h3>體驗發放狀態</h3>{!trial ? <><strong>目前尚未啟用</strong><p className="muted">設定點數後，符合資格的新帳號才會收到一次性 AI 搜尋體驗。</p></> : <><strong>目前可發放</strong><p className="muted">新符合資格的免費用戶會依目前設定取得一次性 AI 搜尋體驗點數。</p></>}</div></div>
         {trial && <div className="metric-grid compact-metrics"><Metric name="目前發放量" value={trial.freeInitialAiTrialPoints}/><Metric name="已發放帳號" value={trial.recipients}/><Metric name="已耗盡帳號" value={trial.exhaustedRecipients}/><Metric name="累計已發放" value={trial.issuedPoints}/><Metric name="目前剩餘" value={trial.remainingPoints}/><Metric name="累計已消耗" value={trial.consumedPoints}/></div>}
       </article>
 
@@ -96,7 +96,7 @@ export function AdminCommercialPage({ api }: { api: AdminCommercialApi }) {
         <div className="section-divider"/><h3>{adding ? '新增訂閱方案' : `編輯 ${selected?.displayName ?? '訂閱方案'}`}</h3>
         <div className="form-grid"><label>方案名稱<input value={draft.displayName} onChange={(e)=>setDraft({...draft,displayName:e.target.value})} placeholder="例如 AI Pro Plus" /></label><label>每月售價（TWD）<input inputMode="decimal" value={draft.priceTwd} onChange={(e)=>setDraft({...draft,priceTwd:e.target.value})} placeholder="例如 199" /></label><Toggle label="啟用此方案" checked={draft.enabled} disabled={loading||saving} onChange={(value)=>setDraft({...draft,enabled:value})}/></div>
 
-        <div className="section-divider"/><h3>功能設定</h3><p className="muted">開關只控制這個訂閱方案。圖片、音訊與檔案 AI 不提供免費試用。</p>
+        <div className="section-divider"/><h3>功能設定</h3><p className="muted">免費方案的 AI 額度只用於 AI 搜尋；以下其他 AI 功能都需要有效的訂閱方案。</p>
         <div className="feature-switch-grid"><Toggle label="圖片／音訊／檔案 AI" checked={draft.aiMediaIngestion} disabled={loading||saving} onChange={(v)=>setDraft({...draft,aiMediaIngestion:v})}/><Toggle label="AI 自然語言搜尋" checked={draft.aiNaturalSearch} disabled={loading||saving} onChange={(v)=>setDraft({...draft,aiNaturalSearch:v})}/><Toggle label="相關紀錄推薦" checked={draft.aiRelatedRecords} disabled={loading||saving} onChange={(v)=>setDraft({...draft,aiRelatedRecords:v})}/><Toggle label="時間區間摘要" checked={draft.aiTimeRangeSummary} disabled={loading||saving} onChange={(v)=>setDraft({...draft,aiTimeRangeSummary:v})}/><Toggle label="AI 改寫建議" checked={draft.aiRecordRewrite} disabled={loading||saving} onChange={(v)=>setDraft({...draft,aiRecordRewrite:v})}/><Toggle label="AI 待辦建議" checked={draft.aiTaskProposal} disabled={loading||saving} onChange={(v)=>setDraft({...draft,aiTaskProposal:v})}/></div>
 
         <div className="section-divider"/><h3>AI 使用與成本上限</h3><p className="muted">這些數值用來控制方案資源與成本，不是使用者的現金餘額。</p>
