@@ -14,6 +14,7 @@ type Env = {
   Bindings: FeedbackRouteBindings;
   Variables: { userId: number; database: Database };
 };
+type FeedbackCategory = 'BUG' | 'FEATURE' | 'UX' | 'OTHER';
 
 /** Provider-neutral in-product feedback. LINE OA remains a separate external support channel. */
 export function createFeedbackRoutes() {
@@ -64,23 +65,37 @@ export function createFeedbackRoutes() {
     if (!text || text.length > 10_000) return c.json({ ok: false, error: 'FEEDBACK_TEXT_REQUIRED' }, 400);
     const context = boundedContext(body.context);
     if (body.context !== undefined && context === null) return c.json({ ok: false, error: 'INVALID_FEEDBACK_CONTEXT' }, 400);
+    const category = feedbackCategory(context?.category);
+    if (!category) return c.json({ ok: false, error: 'INVALID_FEEDBACK_CATEGORY' }, 400);
 
     const database = c.get('database');
     const userId = c.get('userId');
     const result = await database.execute(sql`
-      INSERT INTO worklog_feedback (
-        user_id, display_name_snapshot, channel, text, context, created_at
+      WITH inserted AS (
+        INSERT INTO worklog_feedback (
+          user_id, display_name_snapshot, channel, text, context, created_at
+        )
+        SELECT
+          u.id,
+          u.display_name,
+          'PWA',
+          ${text},
+          ${context === null ? null : JSON.stringify(context)}::jsonb,
+          NOW()
+        FROM worklog_users u
+        WHERE u.id = ${userId}
+        RETURNING id, created_at
+      ), management AS (
+        INSERT INTO worklog_feedback_management (
+          feedback_id, category, status, updated_by, updated_at
+        )
+        SELECT id, ${category}, 'OPEN', NULL, NOW()
+        FROM inserted
+        RETURNING feedback_id
       )
-      SELECT
-        u.id,
-        u.display_name,
-        'PWA',
-        ${text},
-        ${context === null ? null : JSON.stringify(context)}::jsonb,
-        NOW()
-      FROM worklog_users u
-      WHERE u.id = ${userId}
-      RETURNING id::text AS id, created_at
+      SELECT inserted.id::text AS id, inserted.created_at
+      FROM inserted
+      INNER JOIN management ON management.feedback_id = inserted.id
     `);
     const row = result.rows[0];
     if (!row) return c.json({ ok: false, error: 'FEEDBACK_CREATE_FAILED' }, 500);
@@ -95,6 +110,10 @@ async function jsonBody(c: { req: { json(): Promise<unknown> } }): Promise<Recor
     const value = await c.req.json();
     return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
   } catch { return null; }
+}
+
+function feedbackCategory(value: unknown): FeedbackCategory | null {
+  return value === 'BUG' || value === 'FEATURE' || value === 'UX' || value === 'OTHER' ? value : null;
 }
 
 function boundedContext(value: unknown): Record<string, string | number | boolean | null> | null {
