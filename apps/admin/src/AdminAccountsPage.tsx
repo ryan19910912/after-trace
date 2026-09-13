@@ -25,24 +25,23 @@ export function AdminAccountsPage({ api }: { api: AdminApi }) {
   }
 
   return <main className="shell">
-    <header className="topbar">
-      <div><p className="eyebrow">AFTERTRACE</p><h1>帳號查詢</h1><p className="muted">客服優先使用使用者提供的「帳號 ID」精確查詢，不需要 Google / LINE / Apple 身份資料。</p></div>
-      <a href="/">回管理首頁</a>
+    <header className="topbar admin-hero">
+      <div><p className="eyebrow">AFTERTRACE ADMIN</p><h1>帳號查詢</h1><p className="muted">優先使用使用者提供的「帳號 ID」精確查詢，快速處理登入、訂閱與客服問題。</p></div>
     </header>
 
     {error ? <div className="banner error">{error}</div> : null}
-    <section className="card stack">
+    <section className="card stack admin-search-card">
       <label>帳號 ID 或顯示名稱
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="例如 AT-7K4M2P" onKeyDown={(event) => { if (event.key === 'Enter') void search(); }} />
       </label>
-      <button disabled={busy || !query.trim()} onClick={() => void search()}>{busy ? '查詢中…' : '查詢帳號'}</button>
+      <button className="primary-action" disabled={busy || !query.trim()} onClick={() => void search()}>{busy ? '查詢中…' : '查詢帳號'}</button>
     </section>
 
     <section className="stack">
-      {rows.length === 0 ? <article className="card"><p className="muted">尚無查詢結果。</p></article> : rows.map((row) => <article className="card" key={String(row.id)}>
-        <div className="topbar">
+      {rows.length === 0 ? <article className="card empty-state-card"><strong>尚無查詢結果。</strong><p className="muted">輸入帳號 ID 或顯示名稱後，查詢結果會顯示在這裡。</p></article> : rows.map((row) => <article className="card" key={String(row.id)}>
+        <div className="card-head">
           <div>
-            <p className="eyebrow">ACCOUNT</p>
+            <p className="eyebrow">帳號資料</p>
             <h2>{String(row.display_name ?? '未設定顯示名稱')}</h2>
           </div>
           <strong>{String(row.public_account_id ?? '帳號 ID 尚未就緒')}</strong>
