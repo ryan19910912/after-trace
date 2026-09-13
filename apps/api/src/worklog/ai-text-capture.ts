@@ -35,7 +35,7 @@ export type AiTextCaptureEntitlementPort = {
 };
 
 export type AiTextCaptureResult =
-  | { status: 'CREATED'; entitlementSource: 'FREE_TRIAL' | 'AI_PRO'; record: AiTextCaptureRecord }
+  | { status: 'CREATED'; entitlementSource: 'AI_PRO'; record: AiTextCaptureRecord }
   | { status: 'BLOCKED'; decision: AiEntitlementDecision }
   | { status: 'DEFERRED'; reason: 'AI_RUNTIME_CONFIG_MISSING' }
   | { status: 'FAILED'; reason: string };
@@ -56,6 +56,7 @@ export class AiTextCaptureService {
 
     const preliminary = await this.entitlement.resolve(userId, sourceId, referenceAt);
     if (!preliminary.allowed || preliminary.source === 'BLOCKED') return { status: 'BLOCKED', decision: preliminary };
+    if (preliminary.source !== 'AI_PRO') return { status: 'FAILED', reason: 'AI_PRO_REQUIRED' };
 
     const config = await this.repository.runtimeConfig();
     if (!config) return { status: 'DEFERRED', reason: 'AI_RUNTIME_CONFIG_MISSING' };
@@ -86,9 +87,7 @@ export class AiTextCaptureService {
     if (reservation.status !== 'RESERVED') {
       const reason = reservation.status === 'AI_ENTITLEMENT_BLOCKED'
         ? entitlementReason(reservation.reason)
-        : preliminary.source === 'FREE_TRIAL'
-          ? 'TRIAL_EXHAUSTED'
-          : 'MONTHLY_POINT_CAP_REACHED';
+        : 'MONTHLY_POINT_CAP_REACHED';
       return {
         status: 'BLOCKED',
         decision: {
@@ -134,7 +133,7 @@ export class AiTextCaptureService {
     });
     if (settled.status !== 'COMMITTED') return { status: 'FAILED', reason: 'AI_USAGE_SETTLEMENT_FAILED' };
 
-    return { status: 'CREATED', entitlementSource: preliminary.source, record: created.record };
+    return { status: 'CREATED', entitlementSource: 'AI_PRO', record: created.record };
   }
 }
 
