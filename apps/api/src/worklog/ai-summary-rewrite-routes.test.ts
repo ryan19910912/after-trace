@@ -37,6 +37,27 @@ function trialEntitlement() {
   };
 }
 
+function aiProEntitlement() {
+  return {
+    async snapshot() {
+      return {
+        sourceAuthorized: true,
+        freeTrial: null,
+        aiPro: {
+          grantId: 8,
+          remainingPoints: 1000,
+          perRequestAiPointCap: 200,
+          periodEndsAt: new Date('2026-10-01T00:00:00.000Z'),
+          monthlyProviderCostCapTwd: 30,
+          providerCostCommittedTwd: 0,
+          providerCostReservedTwd: 0,
+        },
+      };
+    },
+    async ensureGrantScope() { return { id: 80, grantId: 8, sourceId: 12, capPoints: null, usedPoints: 0, reservedPoints: 0, enabled: true }; },
+  };
+}
+
 describe('summary/rewrite route boundaries', () => {
   it('does not query summary Records before Source authorization', async () => {
     let repositoryCalls = 0;
@@ -52,14 +73,8 @@ describe('summary/rewrite route boundaries', () => {
     });
 
     const response = await app.request('/summary', {
-      method: 'POST',
-      headers: await headers(),
-      body: JSON.stringify({
-        sourceId: 99,
-        from: '2026-09-01T00:00:00.000Z',
-        to: '2026-09-08T00:00:00.000Z',
-        timeZone: 'Asia/Taipei',
-      }),
+      method: 'POST', headers: await headers(),
+      body: JSON.stringify({ sourceId: 99, from: '2026-09-01T00:00:00.000Z', to: '2026-09-08T00:00:00.000Z', timeZone: 'Asia/Taipei' }),
     }, env);
 
     expect(response.status).toBe(403);
@@ -67,14 +82,37 @@ describe('summary/rewrite route boundaries', () => {
     expect(repositoryCalls).toBe(0);
   });
 
-  it('returns NO_RECORDS without provider/ledger construction', async () => {
+  it('does not allow the FREE AI-search trial to unlock summaries', async () => {
+    let repositoryCalls = 0;
+    const app = createAiTextCaptureRoutes({
+      databaseFactory: () => ({} as never),
+      resolveSessionUserId: async (_database, session) => session.userId,
+      entitlementRepositoryFactory: trialEntitlement,
+      summaryRepositoryFactory: () => ({
+        async summaryEnabled() { repositoryCalls += 1; return true; },
+        async runtimeConfig() { repositoryCalls += 1; return null; },
+        async recordsForRange() { repositoryCalls += 1; return []; },
+      }),
+    });
+
+    const response = await app.request('/summary', {
+      method: 'POST', headers: await headers(),
+      body: JSON.stringify({ sourceId: 12, from: '2026-09-01T00:00:00.000Z', to: '2026-09-08T00:00:00.000Z', timeZone: 'Asia/Taipei' }),
+    }, env);
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ ok: false, error: 'AI_NOT_ENTITLED' });
+    expect(repositoryCalls).toBe(0);
+  });
+
+  it('returns NO_RECORDS for AI Pro without provider/ledger construction', async () => {
     let runtimeCalls = 0;
     let providerCalls = 0;
     let ledgerCalls = 0;
     const app = createAiTextCaptureRoutes({
       databaseFactory: () => ({} as never),
       resolveSessionUserId: async (_database, session) => session.userId,
-      entitlementRepositoryFactory: trialEntitlement,
+      entitlementRepositoryFactory: aiProEntitlement,
       summaryRepositoryFactory: () => ({
         async summaryEnabled() { return true; },
         async runtimeConfig() { runtimeCalls += 1; return null; },
@@ -90,14 +128,8 @@ describe('summary/rewrite route boundaries', () => {
     });
 
     const response = await app.request('/summary', {
-      method: 'POST',
-      headers: await headers(),
-      body: JSON.stringify({
-        sourceId: 12,
-        from: '2026-09-01T00:00:00.000Z',
-        to: '2026-09-08T00:00:00.000Z',
-        timeZone: 'Asia/Taipei',
-      }),
+      method: 'POST', headers: await headers(),
+      body: JSON.stringify({ sourceId: 12, from: '2026-09-01T00:00:00.000Z', to: '2026-09-08T00:00:00.000Z', timeZone: 'Asia/Taipei' }),
     }, env);
 
     expect(response.status).toBe(200);
@@ -121,8 +153,7 @@ describe('summary/rewrite route boundaries', () => {
     });
 
     const response = await app.request('/rewrite', {
-      method: 'POST',
-      headers: await headers(),
+      method: 'POST', headers: await headers(),
       body: JSON.stringify({ sourceId: 99, recordId: 123, instruction: '改得更精簡' }),
     }, env);
 
@@ -131,12 +162,35 @@ describe('summary/rewrite route boundaries', () => {
     expect(rewriteCalls).toBe(0);
   });
 
+  it('does not allow the FREE AI-search trial to unlock rewrite', async () => {
+    let rewriteCalls = 0;
+    const app = createAiTextCaptureRoutes({
+      databaseFactory: () => ({} as never),
+      resolveSessionUserId: async (_database, session) => session.userId,
+      entitlementRepositoryFactory: trialEntitlement,
+      rewriteRepositoryFactory: () => ({
+        async rewriteEnabled() { rewriteCalls += 1; return true; },
+        async runtimeConfig() { rewriteCalls += 1; return null; },
+        async recordForRewrite() { rewriteCalls += 1; return null; },
+      }),
+    });
+
+    const response = await app.request('/rewrite', {
+      method: 'POST', headers: await headers(),
+      body: JSON.stringify({ sourceId: 12, recordId: 123, instruction: '改得更精簡' }),
+    }, env);
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({ ok: false, error: 'AI_NOT_ENTITLED' });
+    expect(rewriteCalls).toBe(0);
+  });
+
   it('returns 409 for operator-disabled rewrite without reading the target Record', async () => {
     let targetReads = 0;
     const app = createAiTextCaptureRoutes({
       databaseFactory: () => ({} as never),
       resolveSessionUserId: async (_database, session) => session.userId,
-      entitlementRepositoryFactory: trialEntitlement,
+      entitlementRepositoryFactory: aiProEntitlement,
       rewriteRepositoryFactory: () => ({
         async rewriteEnabled() { return false; },
         async runtimeConfig() { throw new Error('runtime should not be read'); },
@@ -145,8 +199,7 @@ describe('summary/rewrite route boundaries', () => {
     });
 
     const response = await app.request('/rewrite', {
-      method: 'POST',
-      headers: await headers(),
+      method: 'POST', headers: await headers(),
       body: JSON.stringify({ sourceId: 12, recordId: 123, instruction: '改得更精簡' }),
     }, env);
 
