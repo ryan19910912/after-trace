@@ -129,7 +129,7 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
     <div className="topbar"><div><p className="eyebrow">AFTERTRACE</p><h1>方案</h1><p className="muted">目前使用：{aiProActive ? 'AI Pro' : '免費版'}</p></div></div>
     {!checkoutOpen && error ? <div className="error">{error}</div> : null}{notice ? <div className="worklog-notice">{notice}</div> : null}
 
-    {!aiProActive ? <section className="panel stack subscription-trial"><h2>先試用，再決定要不要升級</h2>{trial?.status === 'AVAILABLE' ? <p>你目前還有 <strong>{trial.remainingPoints.toLocaleString('zh-TW')}</strong> 點文字 AI 體驗額度，可用於 AI 搜尋、文字整理與改寫。</p> : trial?.status === 'EXHAUSTED' ? <p>文字 AI 體驗額度已使用完畢；工作紀錄、一般搜尋、群組與待辦仍可繼續免費使用。</p> : <p>文字 AI 體驗額度尚未發放；其他免費功能仍可正常使用。</p>}<p className="muted">體驗額度只發放一次，不會每月刷新。圖片、音訊與檔案 AI 僅提供 AI Pro。</p></section> : null}
+    {!aiProActive ? <section className="panel stack subscription-trial"><h2>免費 AI 搜尋體驗</h2>{trial?.status === 'AVAILABLE' ? <p>你目前還有 <strong>{trial.remainingPoints.toLocaleString('zh-TW')}</strong> 點 AI 搜尋體驗額度，可在搜尋頁使用自然語言找紀錄。</p> : trial?.status === 'EXHAUSTED' ? <p>AI 搜尋體驗額度已使用完畢；工作紀錄、一般搜尋、群組與待辦仍可繼續免費使用。</p> : <p>AI 搜尋體驗額度尚未發放；其他免費功能仍可正常使用。</p>}<p className="muted">體驗額度只發放一次，不會每月刷新。AI 整理、圖片、音訊、檔案、摘要、改寫與待辦建議僅提供 AI Pro。</p></section> : null}
 
     {aiProActive ? <AiUsageStatus usage={usage} plan={aiProPlan} /> : null}
 
@@ -140,15 +140,15 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
       return <article className={`panel subscription-card ${paid ? 'pro' : 'free'}${plan.current ? ' current' : ''}`} key={plan.code}>
         <div><p className="eyebrow">{paid ? 'AI PRO' : 'FREE'}</p><h2>{paid ? 'AI Pro' : '免費版'}</h2></div>
         <strong className="subscription-price">{!paid ? 'NT$0' : `NT$${Number(plan.price_twd || 99).toLocaleString('zh-TW')} / 月`}</strong>
-        <p>{!paid ? '日常工作紀錄需要的基本功能都可以免費使用。' : '使用 AI 快速整理、搜尋與理解工作紀錄。'}</p>
-        <small>✓ 工作紀錄、新增、編輯與搜尋</small><small>✓ 群組、待辦與通知</small>
-        {!paid ? <small>✓ 一次文字 AI 體驗額度</small> : <><small>✓ AI 自然語言搜尋</small><small>✓ 圖片、音訊與檔案整理</small><small>✓ 摘要、改寫與待辦建議</small><small>✓ AI 使用受方案資源上限保護</small></>}
+        <p>{!paid ? '日常工作紀錄需要的基本功能都可以免費使用。' : '使用完整 AI 功能快速整理、搜尋與理解工作紀錄。'}</p>
+        <small>✓ 工作紀錄、新增、編輯與一般搜尋</small><small>✓ 群組、待辦與通知</small>
+        {!paid ? <small>✓ 一次 AI 搜尋體驗額度</small> : <><small>✓ AI 自然語言搜尋</small><small>✓ AI 文字整理</small><small>✓ 圖片、音訊與檔案整理</small><small>✓ 相關紀錄、摘要、改寫與待辦建議</small><small>✓ AI 使用受方案資源上限保護</small></>}
         {capabilitySummary(plan.capabilities).map((item) => <small key={item}>✓ {item}</small>)}
         <button disabled={disabled} onClick={() => openCheckout(plan)}>{buttonLabel}</button>
       </article>;
     })}</section>
 
-    {!aiProActive && !paymentAvailable ? <div className="worklog-notice">目前尚未開放線上升級；免費功能與文字 AI 體驗不受影響。</div> : null}
+    {!aiProActive && !paymentAvailable ? <div className="worklog-notice">目前尚未開放線上升級；免費功能與 AI 搜尋體驗不受影響。</div> : null}
     {aiProActive ? <section className="panel stack subscription-renewal"><strong>AI Pro 自動續訂</strong>{renewalState === 'TERMINATED' ? <div className="worklog-notice">已取消自動續訂。目前 AI Pro 仍可使用到這一期結束。</div> : <p className="muted">取消續訂只會停止下一期扣款，目前已付款週期仍可使用到期。</p>}{renewalState === 'ACTIVE' ? <button className="ghost danger" disabled={busy || !paymentAvailable} onClick={() => void cancelRenewal()}>取消 AI Pro 自動續訂</button> : null}</section> : null}
 
     {checkoutOpen && aiProPlan ? <div className="subscription-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeCheckout(); }}><section className="subscription-modal" role="dialog" aria-modal="true" aria-labelledby="subscription-checkout-title"><button className="subscription-modal-close" type="button" aria-label="關閉" disabled={busy} onClick={closeCheckout}>×</button><p className="eyebrow">升級 AI PRO</p><h2 id="subscription-checkout-title">AI Pro｜NT$99 / 月</h2><p className="subscription-modal-copy">輸入付款 Email 後，會前往藍新完成付款。</p><label className="subscription-email-label"><span>付款 Email</span><input type="email" autoComplete="email" autoFocus value={payerEmail} onChange={(event) => { setPayerEmail(event.target.value); if (error) setError(null); }} placeholder="name@example.com" onKeyDown={(event) => { if (event.key === 'Enter' && !busy) void choose(aiProPlan); }} /></label><p className="muted">此 Email 只用於本次付款與訂單查詢；AFTERTRACE 不會接收或保存信用卡號。</p>{error ? <div className="error">{error}</div> : null}<div className="subscription-modal-actions"><button className="ghost" type="button" disabled={busy} onClick={closeCheckout}>取消</button><button type="button" disabled={busy || !validEmail(payerEmail)} onClick={() => void choose(aiProPlan)}>{busy ? '正在前往付款…' : '前往藍新付款'}</button></div></section></div> : null}
