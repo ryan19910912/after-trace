@@ -18,12 +18,17 @@ else failures.push('missing drizzle/0000_worklog_baseline.sql');
 for (const marker of [
   'CREATE TABLE "worklog_users"',
   'CREATE TABLE "worklog_records"',
+  'CREATE TABLE "worklog_record_revisions"',
+  '"previous_title" varchar(255)',
+  '"new_title" varchar(255)',
   'CREATE TABLE "worklog_checkout_intents"',
   '"payer_email" varchar(320)',
   'CREATE TABLE "worklog_newebpay_subscription_history"',
   'CREATE TABLE "worklog_newebpay_subscriptions"',
   'COMMENT ON TABLE "worklog_users"',
   'COMMENT ON TABLE "worklog_newebpay_subscription_history"',
+  'COMMENT ON COLUMN "worklog_record_revisions"."previous_title"',
+  'COMMENT ON COLUMN "worklog_record_revisions"."new_title"',
   'COMMENT ON COLUMN "worklog_checkout_intents"."payer_email"',
 ]) {
   if (!baseline.includes(marker)) failures.push(`baseline missing: ${marker}`);
