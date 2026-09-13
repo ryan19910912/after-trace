@@ -124,7 +124,7 @@ describe('AiTextCaptureService', () => {
     expect(calls).toEqual(['resolve']);
   });
 
-  it('uses resolve -> runtime -> estimate -> entitled reservation -> provider -> Record -> settlement', async () => {
+  it('does not allow the one-time FREE AI trial to create AI-normalized Records', async () => {
     const calls: string[] = [];
     const entitlement: AiTextCaptureEntitlementPort = {
       async resolve() {
@@ -139,9 +139,28 @@ describe('AiTextCaptureService', () => {
 
     const result = await service.capture({ userId: 7, sourceId: 12, text: '今天晴空案收到款項' });
 
+    expect(result).toEqual({ status: 'FAILED', reason: 'AI_PRO_REQUIRED' });
+    expect(calls).toEqual(['resolve']);
+  });
+
+  it('uses resolve -> runtime -> estimate -> entitled reservation -> provider -> Record -> settlement for AI Pro', async () => {
+    const calls: string[] = [];
+    const entitlement: AiTextCaptureEntitlementPort = {
+      async resolve() {
+        calls.push('resolve');
+        return {
+          source: 'AI_PRO', allowed: true, reason: 'AI_PRO_AVAILABLE',
+          remainingPoints: 100, periodEndsAt: '2026-10-07T00:00:00.000Z', perRequestAiPointCap: 100,
+        };
+      },
+    };
+    const service = new AiTextCaptureService(repository(calls), entitlement, aiPoints(calls), provider(calls));
+
+    const result = await service.capture({ userId: 7, sourceId: 12, text: '今天晴空案收到款項' });
+
     expect(result).toMatchObject({
       status: 'CREATED',
-      entitlementSource: 'FREE_TRIAL',
+      entitlementSource: 'AI_PRO',
       record: { id: 91, title: '晴空案收款', searchTerms: ['晴空案', '收款'] },
     });
     expect(calls).toEqual([
