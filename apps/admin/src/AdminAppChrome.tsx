@@ -35,7 +35,7 @@ export function AdminAppChrome({ children }: { children: ReactNode }) {
       </nav>
 
       <div className="admin-sidebar-footer">
-        <div><span>V1 PRELAUNCH</span><strong>FREE + AI Pro</strong></div>
+        <div><span>SYSTEM ENV</span><strong>FREE + AI Pro</strong></div>
         <button className="ghost" onClick={logout}>登出</button>
       </div>
     </aside>
