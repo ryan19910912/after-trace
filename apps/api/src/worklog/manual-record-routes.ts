@@ -39,6 +39,8 @@ export type ManualRecordRevisionView = {
   channel: string;
   previousRawText: string;
   newRawText: string;
+  previousTitle: string | null;
+  newTitle: string | null;
   previousOccurredAt: string | null;
   newOccurredAt: string | null;
   previousStatus: 'ACTIVE' | 'DELETED';
@@ -79,6 +81,7 @@ export interface ManualRecordRouteRepository {
     actorUserId: number;
     channel: 'PWA_MANUAL' | 'PWA_DELETE' | 'PWA_RESTORE';
     rawText: string;
+    title: string | null;
     occurredAt: Date | null;
     status: 'ACTIVE' | 'DELETED';
     deletedAt: Date | null;
@@ -167,11 +170,14 @@ export function createManualRecordRoutes(dependencies: ManualRecordRouteDependen
     const rawValue = Object.hasOwn(body, 'rawText') ? body.rawText : body.content;
     const nextRawText = rawValue === undefined ? current.rawText : requiredText(rawValue, 20000);
     if (!nextRawText) return c.json({ ok: false, error: 'RECORD_TEXT_REQUIRED' }, 400);
+    const titleValue = Object.hasOwn(body, 'title') ? body.title : current.title;
+    const nextTitle = optionalText(titleValue, 255);
+    if (nextTitle === 'INVALID') return c.json({ ok: false, error: 'INVALID_TITLE' }, 400);
     const occurredValue = Object.hasOwn(body, 'occurredAt') ? body.occurredAt : undefined;
     const occurredAt = occurredValue === undefined ? dateFromStored(current.occurredAt) : optionalDate(occurredValue);
     if (occurredAt === 'INVALID') return c.json({ ok: false, error: 'INVALID_OCCURRED_AT' }, 400);
-    if (nextRawText === current.rawText && sameDate(occurredAt, dateFromStored(current.occurredAt))) return c.json({ ok: true, record: current });
-    const updated = await repository.mutate({ recordId, expectedVersion, actorUserId: c.get('userId'), channel: 'PWA_MANUAL', rawText: nextRawText, occurredAt, status: 'ACTIVE', deletedAt: null, deletedByUserId: null });
+    if (nextRawText === current.rawText && nextTitle === current.title && sameDate(occurredAt, dateFromStored(current.occurredAt))) return c.json({ ok: true, record: current });
+    const updated = await repository.mutate({ recordId, expectedVersion, actorUserId: c.get('userId'), channel: 'PWA_MANUAL', rawText: nextRawText, title: nextTitle, occurredAt, status: 'ACTIVE', deletedAt: null, deletedByUserId: null });
     return updated ? c.json({ ok: true, record: updated }) : c.json({ ok: false, error: 'RECORD_VERSION_CONFLICT' }, 409);
   });
 
@@ -230,7 +236,7 @@ async function mutateStatus(c: ManualRecordContext, nextStatus: 'ACTIVE' | 'DELE
   if (!body) return c.json({ ok: false, error: 'INVALID_JSON' }, 400);
   const expectedVersion = positiveInteger(body.expectedVersion);
   if (!expectedVersion) return c.json({ ok: false, error: 'EXPECTED_VERSION_REQUIRED' }, 400);
-  const updated = await repository.mutate({ recordId, expectedVersion, actorUserId: userId, channel: nextStatus === 'DELETED' ? 'PWA_DELETE' : 'PWA_RESTORE', rawText: current.rawText, occurredAt: dateFromStored(current.occurredAt), status: nextStatus, deletedAt: nextStatus === 'DELETED' ? new Date() : null, deletedByUserId: nextStatus === 'DELETED' ? userId : null });
+  const updated = await repository.mutate({ recordId, expectedVersion, actorUserId: userId, channel: nextStatus === 'DELETED' ? 'PWA_DELETE' : 'PWA_RESTORE', rawText: current.rawText, title: current.title, occurredAt: dateFromStored(current.occurredAt), status: nextStatus, deletedAt: nextStatus === 'DELETED' ? new Date() : null, deletedByUserId: nextStatus === 'DELETED' ? userId : null });
   return updated ? c.json({ ok: true, record: updated }) : c.json({ ok: false, error: 'RECORD_VERSION_CONFLICT' }, 409);
 }
 
