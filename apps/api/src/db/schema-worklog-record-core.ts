@@ -4,7 +4,6 @@ import {
   index,
   integer,
   jsonb,
-  pgEnum,
   pgTable,
   text,
   timestamp,
@@ -18,18 +17,9 @@ import {
   worklogUsers,
 } from './schema-worklog';
 
-export const worklogRecordStatusEnum = pgEnum('worklog_record_status', ['ACTIVE', 'DELETED']);
-export const worklogRecordAiEnrichmentStatusEnum = pgEnum('worklog_record_ai_enrichment_status', [
-  'NONE',
-  'ENRICHED',
-]);
-export const worklogRecordRevisionChannelEnum = pgEnum('worklog_record_revision_channel', [
-  'PWA_MANUAL',
-  'PWA_DELETE',
-  'PWA_RESTORE',
-  'AI_REWRITE',
-  'SYSTEM',
-]);
+export const worklogRecordStatusEnum = (name: string) => varchar(name, { length: 32 });
+export const worklogRecordAiEnrichmentStatusEnum = (name: string) => varchar(name, { length: 32 });
+export const worklogRecordRevisionChannelEnum = (name: string) => varchar(name, { length: 32 });
 
 /**
  * Universal durable Record row for the target Web/PWA/Extension product.
@@ -51,9 +41,7 @@ export const worklogRecords = pgTable(
     searchTerms: jsonb('search_terms').$type<string[]>().default([]).notNull(),
     extractedMetadata: jsonb('extracted_metadata').$type<Record<string, unknown>>(),
     captureContext: jsonb('capture_context').$type<Record<string, unknown>>(),
-    aiEnrichmentStatus: worklogRecordAiEnrichmentStatusEnum('ai_enrichment_status')
-      .default('NONE')
-      .notNull(),
+    aiEnrichmentStatus: worklogRecordAiEnrichmentStatusEnum('ai_enrichment_status').default('NONE').notNull(),
     aiEnrichedAt: timestamp('ai_enriched_at', { withTimezone: true }),
     occurredAt: timestamp('occurred_at', { withTimezone: true }),
     status: worklogRecordStatusEnum('status').default('ACTIVE').notNull(),
@@ -68,11 +56,7 @@ export const worklogRecords = pgTable(
   },
   (table) => [
     unique('worklog_record_source_id_uq').on(table.sourceId, table.id),
-    index('worklog_record_source_status_occurred_idx').on(
-      table.sourceId,
-      table.status,
-      table.occurredAt,
-    ),
+    index('worklog_record_source_status_occurred_idx').on(table.sourceId, table.status, table.occurredAt),
     index('worklog_record_author_type_idx').on(table.authorUserId, table.inputType),
     index('worklog_record_ai_enrichment_idx').on(table.aiEnrichmentStatus, table.aiEnrichedAt),
   ],
