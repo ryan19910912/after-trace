@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { AdminApi } from './api';
 import { AdminAnnouncementApi } from './announcement-api';
+import { AdminAiRuntimePage } from './AdminAiRuntimePage';
 import { AdminAnnouncementsPage } from './AdminAnnouncementsPage';
 import { AdminAccountsPage } from './AdminAccountsPage';
 import { AdminAppChrome } from './AdminAppChrome';
@@ -42,15 +43,17 @@ if (!baseUrl) {
     ? <ProfitabilityPage api={api} />
     : window.location.pathname === '/pricing-calculator'
       ? <PricingCalculatorPage api={api} />
-      : window.location.pathname === '/announcements'
-        ? <AdminAnnouncementsPage api={api} announcementApi={announcementApi} />
-        : window.location.pathname === '/accounts'
-          ? <AdminAccountsPage api={api} />
-          : window.location.pathname === '/commercial'
-            ? <AdminCommercialPage api={commercialApi} runtimeApi={api} />
-            : window.location.pathname === '/feedback-management'
-              ? <AdminFeedbackPage apiBaseUrl={baseUrl} />
-              : <AdminHomePage api={api} />;
+      : window.location.pathname === '/ai-runtime'
+        ? <AdminAiRuntimePage api={api} />
+        : window.location.pathname === '/announcements'
+          ? <AdminAnnouncementsPage api={api} announcementApi={announcementApi} />
+          : window.location.pathname === '/accounts'
+            ? <AdminAccountsPage api={api} />
+            : window.location.pathname === '/commercial'
+              ? <AdminCommercialPage api={commercialApi} runtimeApi={api} />
+              : window.location.pathname === '/feedback-management'
+                ? <AdminFeedbackPage apiBaseUrl={baseUrl} />
+                : <AdminHomePage api={api} />;
 
   root.render(
     <StrictMode>
