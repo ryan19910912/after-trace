@@ -17,9 +17,7 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
     this.recordReads = new WorklogRecordReadService(new DrizzleWorklogRecordReadRepository(database));
   }
 
-  surfaces(userId: number) {
-    return this.recordReads.surfaces(userId);
-  }
+  surfaces(userId: number) { return this.recordReads.surfaces(userId); }
 
   async personalSourceId(userId: number): Promise<number | null> {
     const result = await this.database.execute(sql`
@@ -51,11 +49,7 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
     return Boolean((result.rows[0] as { allowed?: boolean } | undefined)?.allowed);
   }
 
-  async listRecords(input: {
-    sourceId: number;
-    status: 'ACTIVE' | 'DELETED';
-    filters: ManualRecordFilters;
-  }): Promise<ManualRecordPage> {
+  async listRecords(input: { sourceId: number; status: 'ACTIVE' | 'DELETED'; filters: ManualRecordFilters }): Promise<ManualRecordPage> {
     const { sourceId, status, filters } = input;
     const result = await this.database.execute(sql`
       SELECT record.id::text AS id,
@@ -82,14 +76,8 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
           OR COALESCE(record.title, '') ILIKE '%' || ${filters.query} || '%'
           OR COALESCE(record.search_terms::text, '') ILIKE '%' || ${filters.query} || '%'
         )
-        AND (
-          ${filters.from}::timestamptz IS NULL
-          OR COALESCE(record.occurred_at, record.created_at) >= ${filters.from}
-        )
-        AND (
-          ${filters.to}::timestamptz IS NULL
-          OR COALESCE(record.occurred_at, record.created_at) < ${filters.to}
-        )
+        AND (${filters.from}::timestamptz IS NULL OR COALESCE(record.occurred_at, record.created_at) >= ${filters.from})
+        AND (${filters.to}::timestamptz IS NULL OR COALESCE(record.occurred_at, record.created_at) < ${filters.to})
       ORDER BY COALESCE(record.occurred_at, record.created_at) DESC, record.id DESC
       LIMIT ${filters.limit + 1}
       OFFSET ${filters.offset}
@@ -97,15 +85,7 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
     const all = (result.rows as Array<Record<string, unknown>>).map(recordView);
     const hasMore = all.length > filters.limit;
     const records = hasMore ? all.slice(0, filters.limit) : all;
-    return {
-      records,
-      page: {
-        limit: filters.limit,
-        offset: filters.offset,
-        hasMore,
-        nextOffset: hasMore ? filters.offset + filters.limit : null,
-      },
-    };
+    return { records, page: { limit: filters.limit, offset: filters.offset, hasMore, nextOffset: hasMore ? filters.offset + filters.limit : null } };
   }
 
   async record(recordId: number): Promise<ManualRecordView | null> {
@@ -114,44 +94,15 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
     return row ? recordView(row) : null;
   }
 
-  async create(input: {
-    sourceId: number;
-    actorUserId: number;
-    rawText: string;
-    captureContext: ManualRecordView['captureContext'];
-    occurredAt: Date | null;
-    title: string | null;
-  }): Promise<ManualRecordView> {
+  async create(input: { sourceId: number; actorUserId: number; rawText: string; captureContext: ManualRecordView['captureContext']; occurredAt: Date | null; title: string | null }): Promise<ManualRecordView> {
     const captureContextJson = input.captureContext ? JSON.stringify(input.captureContext) : null;
     const result = await this.database.execute(sql`
       INSERT INTO worklog_records (
-        source_id,
-        author_user_id,
-        input_type,
-        raw_text,
-        title,
-        search_terms,
-        capture_context,
-        ai_enrichment_status,
-        occurred_at,
-        status,
-        version,
-        created_at,
-        updated_at
+        source_id, author_user_id, input_type, raw_text, title, search_terms,
+        capture_context, ai_enrichment_status, occurred_at, status, version, created_at, updated_at
       ) VALUES (
-        ${input.sourceId},
-        ${input.actorUserId},
-        'TEXT',
-        ${input.rawText},
-        ${input.title},
-        '[]'::jsonb,
-        ${captureContextJson}::jsonb,
-        'NONE',
-        ${input.occurredAt},
-        'ACTIVE',
-        1,
-        NOW(),
-        NOW()
+        ${input.sourceId}, ${input.actorUserId}, 'TEXT', ${input.rawText}, ${input.title}, '[]'::jsonb,
+        ${captureContextJson}::jsonb, 'NONE', ${input.occurredAt}, 'ACTIVE', 1, NOW(), NOW()
       )
       RETURNING id::text AS id
     `);
@@ -168,6 +119,7 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
     actorUserId: number;
     channel: 'PWA_MANUAL' | 'PWA_DELETE' | 'PWA_RESTORE';
     rawText: string;
+    title: string | null;
     occurredAt: Date | null;
     status: 'ACTIVE' | 'DELETED';
     deletedAt: Date | null;
@@ -175,14 +127,11 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
   }): Promise<ManualRecordView | null> {
     const result = await this.database.execute(sql`
       WITH previous AS (
-        SELECT *
-        FROM worklog_records
-        WHERE id = ${input.recordId}
-          AND version = ${input.expectedVersion}
-        LIMIT 1
+        SELECT * FROM worklog_records WHERE id = ${input.recordId} AND version = ${input.expectedVersion} LIMIT 1
       ), updated AS (
         UPDATE worklog_records AS record
         SET raw_text = ${input.rawText},
+            title = ${input.title},
             occurred_at = ${input.occurredAt},
             status = ${input.status},
             deleted_at = ${input.deletedAt},
@@ -190,40 +139,22 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
             version = record.version + 1,
             updated_at = NOW()
         FROM previous
-        WHERE record.id = previous.id
-          AND record.version = ${input.expectedVersion}
+        WHERE record.id = previous.id AND record.version = ${input.expectedVersion}
         RETURNING record.*
       ), revision_row AS (
         INSERT INTO worklog_record_revisions (
-          record_id,
-          version,
-          editor_user_id,
-          channel,
-          previous_raw_text,
-          new_raw_text,
-          previous_occurred_at,
-          new_occurred_at,
-          previous_status,
-          new_status,
-          created_at
+          record_id, version, editor_user_id, channel,
+          previous_raw_text, new_raw_text, previous_title, new_title,
+          previous_occurred_at, new_occurred_at, previous_status, new_status, created_at
         )
-        SELECT previous.id,
-               updated.version,
-               ${input.actorUserId},
-               ${input.channel},
-               previous.raw_text,
-               updated.raw_text,
-               previous.occurred_at,
-               updated.occurred_at,
-               previous.status,
-               updated.status,
-               NOW()
+        SELECT previous.id, updated.version, ${input.actorUserId}, ${input.channel},
+               previous.raw_text, updated.raw_text, previous.title, updated.title,
+               previous.occurred_at, updated.occurred_at, previous.status, updated.status, NOW()
         FROM previous
         INNER JOIN updated ON updated.id = previous.id
         RETURNING record_id
       )
-      SELECT updated.id::text AS id
-      FROM updated
+      SELECT updated.id::text AS id FROM updated
     `);
     const id = databaseId((result.rows[0] as { id?: string } | undefined)?.id);
     return id ? this.record(id) : null;
@@ -239,6 +170,8 @@ export class DrizzleManualRecordRouteRepository implements ManualRecordRouteRepo
              revision.channel,
              revision.previous_raw_text,
              revision.new_raw_text,
+             revision.previous_title,
+             revision.new_title,
              revision.previous_occurred_at,
              revision.new_occurred_at,
              revision.previous_status,
@@ -279,20 +212,12 @@ function recordSelectSql(recordId: number) {
 
 function recordView(raw: Record<string, unknown>): ManualRecordView {
   return {
-    id: Number(raw.id),
-    sourceId: Number(raw.source_id),
-    title: nullableString(raw.title),
-    authorUserId: nullableNumber(raw.author_user_id),
-    authorDisplayName: nullableString(raw.author_display_name),
-    inputType: String(raw.input_type) as ManualRecordView['inputType'],
-    rawText: String(raw.raw_text ?? ''),
-    captureContext: captureContextView(raw.capture_context),
-    occurredAt: dateString(raw.occurred_at),
-    status: String(raw.status) as ManualRecordView['status'],
-    version: Number(raw.version),
-    deletedAt: dateString(raw.deleted_at),
-    createdAt: dateString(raw.created_at) ?? '',
-    updatedAt: dateString(raw.updated_at) ?? '',
+    id: Number(raw.id), sourceId: Number(raw.source_id), title: nullableString(raw.title),
+    authorUserId: nullableNumber(raw.author_user_id), authorDisplayName: nullableString(raw.author_display_name),
+    inputType: String(raw.input_type) as ManualRecordView['inputType'], rawText: String(raw.raw_text ?? ''),
+    captureContext: captureContextView(raw.capture_context), occurredAt: dateString(raw.occurred_at),
+    status: String(raw.status) as ManualRecordView['status'], version: Number(raw.version),
+    deletedAt: dateString(raw.deleted_at), createdAt: dateString(raw.created_at) ?? '', updatedAt: dateString(raw.updated_at) ?? '',
   };
 }
 
@@ -302,49 +227,24 @@ function captureContextView(value: unknown): ManualRecordView['captureContext'] 
   if (context.client !== 'CHROME_EXTENSION') return null;
   if (!context.page || typeof context.page !== 'object' || Array.isArray(context.page)) return null;
   const page = context.page as Record<string, unknown>;
-  const title = nullableString(page.title);
-  const url = nullableString(page.url);
+  const title = nullableString(page.title); const url = nullableString(page.url);
   if (!title && !url) return null;
   return { client: 'CHROME_EXTENSION', page: { title, url } };
 }
 
 function revisionView(raw: Record<string, unknown>): ManualRecordRevisionView {
   return {
-    id: Number(raw.id),
-    recordId: Number(raw.record_id),
-    version: Number(raw.version),
-    editorUserId: nullableNumber(raw.editor_user_id),
-    editorDisplayName: nullableString(raw.editor_display_name),
-    channel: String(raw.channel),
-    previousRawText: String(raw.previous_raw_text ?? ''),
-    newRawText: String(raw.new_raw_text ?? ''),
-    previousOccurredAt: dateString(raw.previous_occurred_at),
-    newOccurredAt: dateString(raw.new_occurred_at),
-    previousStatus: String(raw.previous_status) as ManualRecordRevisionView['previousStatus'],
-    newStatus: String(raw.new_status) as ManualRecordRevisionView['newStatus'],
+    id: Number(raw.id), recordId: Number(raw.record_id), version: Number(raw.version),
+    editorUserId: nullableNumber(raw.editor_user_id), editorDisplayName: nullableString(raw.editor_display_name),
+    channel: String(raw.channel), previousRawText: String(raw.previous_raw_text ?? ''), newRawText: String(raw.new_raw_text ?? ''),
+    previousTitle: nullableString(raw.previous_title), newTitle: nullableString(raw.new_title),
+    previousOccurredAt: dateString(raw.previous_occurred_at), newOccurredAt: dateString(raw.new_occurred_at),
+    previousStatus: String(raw.previous_status) as ManualRecordRevisionView['previousStatus'], newStatus: String(raw.new_status) as ManualRecordRevisionView['newStatus'],
     createdAt: dateString(raw.created_at) ?? '',
   };
 }
 
-function databaseId(raw: string | undefined): number | null {
-  if (!raw) return null;
-  const id = Number(raw);
-  return Number.isSafeInteger(id) && id > 0 ? id : null;
-}
-
-function nullableNumber(value: unknown): number | null {
-  if (value == null) return null;
-  const number = Number(value);
-  return Number.isFinite(number) ? number : null;
-}
-
-function nullableString(value: unknown): string | null {
-  return value == null ? null : String(value);
-}
-
-function dateString(value: unknown): string | null {
-  if (value == null) return null;
-  if (value instanceof Date) return value.toISOString();
-  const parsed = new Date(String(value));
-  return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toISOString();
-}
+function databaseId(raw: string | undefined): number | null { if (!raw) return null; const id = Number(raw); return Number.isSafeInteger(id) && id > 0 ? id : null; }
+function nullableNumber(value: unknown): number | null { if (value == null) return null; const number = Number(value); return Number.isFinite(number) ? number : null; }
+function nullableString(value: unknown): string | null { return value == null ? null : String(value); }
+function dateString(value: unknown): string | null { if (value == null) return null; if (value instanceof Date) return value.toISOString(); const parsed = new Date(String(value)); return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toISOString(); }
