@@ -45,7 +45,7 @@ export function AdminAnnouncementsPage({ api, announcementApi }: Props) {
     announcementApi.setSessionToken(token);
     if (!token) {
       setLoading(false);
-      setError('尚未登入管理後台。請先回到管理首頁登入。');
+      setError('尚未登入管理後台。');
       return;
     }
     let active = true;
@@ -108,7 +108,7 @@ export function AdminAnnouncementsPage({ api, announcementApi }: Props) {
     try {
       const input = toAnnouncementInput(form);
       setPreview(await announcementApi.preview(input));
-      setNotice('預覽已產生。送出前請再次確認對象、管道與時間。');
+      setNotice('預覽已產生。送出前請再次確認對象、通知方式與時間。');
     } catch (cause) {
       handleAdminError(cause, api, announcementApi, setUsername, setError, '公告預覽失敗');
     } finally {
@@ -122,7 +122,7 @@ export function AdminAnnouncementsPage({ api, announcementApi }: Props) {
       return;
     }
     if (preview.mode === 'SEND_NOW' && !window.confirm(
-      `確定立即送出「${preview.title}」？\n對象：${announcementAudienceLabel(preview.audience)}\n管道：${channelLabel(preview.inAppEnabled, preview.pushEnabled)}`,
+      `確定立即送出「${preview.title}」？\n對象：${announcementAudienceLabel(preview.audience)}\n通知方式：${channelLabel(preview.inAppEnabled, preview.pushEnabled)}`,
     )) return;
 
     setBusy(true);
@@ -218,16 +218,13 @@ export function AdminAnnouncementsPage({ api, announcementApi }: Props) {
   }
 
   return <main className="shell">
-    <header className="topbar">
+    <header className="topbar admin-hero">
       <div>
-        <p className="eyebrow">AFTERTRACE</p>
+        <p className="eyebrow">AFTERTRACE ADMIN</p>
         <h1>公告通知</h1>
-        <p className="muted">{username ? `${username} · ` : ''}建立 ANNOUNCEMENT，SYSTEM / TASK 由各自的 deterministic domain flow 產生。</p>
+        <p className="muted">建立、預覽與發送公告，可用於系統通知、維護公告與重要提醒。</p>
       </div>
-      <div className="header-actions">
-        <button disabled={busy || !username} onClick={() => void reloadAnnouncements()}>重新整理</button>
-        <a href="/">返回管理首頁</a>
-      </div>
+      <button disabled={busy || !username} onClick={() => void reloadAnnouncements()}>重新整理</button>
     </header>
 
     {error && <div className="banner error">{error}</div>}
@@ -237,7 +234,7 @@ export function AdminAnnouncementsPage({ api, announcementApi }: Props) {
       <article className="card">
         <p className="eyebrow">建立公告</p>
         <h2>先預覽，再送出</h2>
-        <p className="muted">指定使用者永遠只送給明確選取的 AFTERTRACE 帳號；不會因空清單退化成全部使用者。</p>
+        <p className="muted">填寫公告內容並選擇發送對象，送出前可先預覽，確認訊息與通知方式是否正確。</p>
         <div className="form-grid">
           <label>標題
             <input value={form.title} maxLength={255} onChange={(event) => updateForm({ title: event.target.value })} placeholder="例如：今晚系統維護" />
@@ -248,8 +245,8 @@ export function AdminAnnouncementsPage({ api, announcementApi }: Props) {
               selectedUsers: event.target.value === 'SPECIFIC_USERS' ? form.selectedUsers : [],
             })}>
               <option value="ALL_USERS">全部使用者</option>
-              <option value="FREE_USERS">FREE 使用者</option>
-              <option value="AI_SUBSCRIBERS">AI Pro 訂閱者</option>
+              <option value="FREE_USERS">免費方案使用者</option>
+              <option value="AI_SUBSCRIBERS">訂閱方案使用者</option>
               <option value="SPECIFIC_USERS">指定使用者</option>
             </select>
           </label>
@@ -269,12 +266,12 @@ export function AdminAnnouncementsPage({ api, announcementApi }: Props) {
         </div>
 
         <label>公告內容
-          <textarea rows={6} maxLength={10_000} value={form.body} onChange={(event) => updateForm({ body: event.target.value })} placeholder="輸入使用者會看到的公告內容" />
+          <textarea rows={6} maxLength={10_000} value={form.body} onChange={(event) => updateForm({ body: event.target.value })} placeholder="請輸入使用者會看到的公告內容" />
         </label>
 
-        <div className="form-grid">
-          <label className="switch"><input type="checkbox" checked={form.inAppEnabled} onChange={(event) => updateForm({ inAppEnabled: event.target.checked })} /><span><strong>IN_APP</strong><small className="muted">建立 durable 通知中心項目。</small></span></label>
-          <label className="switch"><input type="checkbox" checked={form.pushEnabled} onChange={(event) => updateForm({ pushEnabled: event.target.checked })} /><span><strong>PUSH</strong><small className="muted">需要有效 Web Push subscription 與 runtime delivery；站內通知不依賴 PUSH 成功。</small></span></label>
+        <div className="form-grid announcement-channel-grid">
+          <label className="switch"><input type="checkbox" checked={form.inAppEnabled} onChange={(event) => updateForm({ inAppEnabled: event.target.checked })} /><span><strong>站內通知</strong><small className="muted">發布到站內通知中心，指定對象登入後即可查看。</small></span></label>
+          <label className="switch"><input type="checkbox" checked={form.pushEnabled} onChange={(event) => updateForm({ pushEnabled: event.target.checked })} /><span><strong>推播通知</strong><small className="muted">透過瀏覽器推播主動提醒使用者；站內通知不受推播是否成功影響。</small></span></label>
         </div>
 
         {form.audience === 'SPECIFIC_USERS' && <SpecificUserPicker
@@ -290,7 +287,7 @@ export function AdminAnnouncementsPage({ api, announcementApi }: Props) {
 
         <div className="plan-actions">
           <button disabled={busy || !username} onClick={() => void previewAnnouncement()}>產生預覽</button>
-          <button disabled={busy || !preview} onClick={() => void createAnnouncement()}>{preview ? `確認${announcementModeLabel(preview.mode)}` : '請先預覽'}</button>
+          <button className="primary-action" disabled={busy || !preview} onClick={() => void createAnnouncement()}>{preview ? `確認${announcementModeLabel(preview.mode)}` : '請先預覽'}</button>
         </div>
       </article>
 
@@ -301,7 +298,7 @@ export function AdminAnnouncementsPage({ api, announcementApi }: Props) {
         <div className="detail-object">
           <SummaryRow label="處理方式" value={announcementModeLabel(preview.mode)} />
           <SummaryRow label="對象" value={announcementAudienceLabel(preview.audience)} />
-          <SummaryRow label="管道" value={channelLabel(preview.inAppEnabled, preview.pushEnabled)} />
+          <SummaryRow label="通知方式" value={channelLabel(preview.inAppEnabled, preview.pushEnabled)} />
           <SummaryRow label="排程時間" value={displayDate(preview.scheduledAt)} />
           <SummaryRow label="站內導向" value={preview.deepLink || '—'} />
           {preview.audience === 'SPECIFIC_USERS' && <SummaryRow label="指定帳號" value={previewSpecificUsers.map(userLabel).join('、') || preview.specificUserIds.join(', ')} />}
@@ -309,9 +306,9 @@ export function AdminAnnouncementsPage({ api, announcementApi }: Props) {
       </article>}
 
       <article className="card">
-        <div className="card-head"><div><p className="eyebrow">ANNOUNCEMENT</p><h2>公告紀錄</h2></div><span className="muted">{announcements.length} 筆</span></div>
-        {loading ? <p className="muted">載入中…</p> : announcements.length === 0 ? <p className="empty">目前沒有公告。</p> : <div className="table-wrap">
-          <table><thead><tr><th>狀態</th><th>標題</th><th>對象</th><th>管道</th><th>排程 / 送出</th><th>收件者</th><th>未讀</th><th>PUSH 成功</th><th>PUSH 失敗</th></tr></thead><tbody>
+        <div className="card-head"><div><p className="eyebrow">公告紀錄</p><h2>公告紀錄</h2><p className="muted">查看已建立或發送的公告內容、對象與發送狀態。</p></div><span className="muted">{announcements.length} 筆</span></div>
+        {loading ? <p className="muted">載入中…</p> : announcements.length === 0 ? <div className="empty-state-card"><strong>目前尚無公告紀錄。</strong><p className="muted">建立第一則公告後，紀錄會顯示在這裡。</p></div> : <div className="table-wrap">
+          <table><thead><tr><th>狀態</th><th>標題</th><th>對象</th><th>通知方式</th><th>排程／送出</th><th>收件者</th><th>未讀</th><th>推播成功</th><th>推播失敗</th></tr></thead><tbody>
             {announcements.map((announcement) => <tr key={announcement.id} className="clickable" onClick={() => void openAnnouncement(announcement.id)}>
               <td>{announcementStatusLabel(announcement.status)}</td>
               <td>{announcement.title}</td>
@@ -333,7 +330,7 @@ export function AdminAnnouncementsPage({ api, announcementApi }: Props) {
         <div className="detail-object">
           <SummaryRow label="狀態" value={announcementStatusLabel(selected.status)} />
           <SummaryRow label="對象" value={announcementAudienceLabel(selected.audience)} />
-          <SummaryRow label="管道" value={channelLabel(selected.inAppEnabled, selected.pushEnabled)} />
+          <SummaryRow label="通知方式" value={channelLabel(selected.inAppEnabled, selected.pushEnabled)} />
           <SummaryRow label="排程時間" value={displayDate(selected.scheduledAt)} />
           <SummaryRow label="開始派送" value={displayDate(selected.dispatchStartedAt)} />
           <SummaryRow label="送出時間" value={displayDate(selected.sentAt)} />
@@ -341,8 +338,8 @@ export function AdminAnnouncementsPage({ api, announcementApi }: Props) {
           <SummaryRow label="建立者" value={selected.createdByActor || '—'} />
           <SummaryRow label="收件者" value={String(selected.recipientCount)} />
           <SummaryRow label="未讀" value={String(selected.unreadCount)} />
-          <SummaryRow label="PUSH 成功" value={String(selected.pushSentCount)} />
-          <SummaryRow label="PUSH 失敗" value={String(selected.pushFailedCount)} />
+          <SummaryRow label="推播成功" value={String(selected.pushSentCount)} />
+          <SummaryRow label="推播失敗" value={String(selected.pushFailedCount)} />
           <SummaryRow label="站內導向" value={selected.deepLink || '—'} />
         </div>
         <div className="plan-actions">
@@ -376,7 +373,7 @@ function SpecificUserPicker({
   return <div className="stack">
     <article className="card">
       <h3>指定使用者</h3>
-      <p className="muted">可用 帳號 ID、顯示名稱或後台既有搜尋條件查找；最後送給 backend 的只有明確選取的 AFTERTRACE user id。</p>
+      <p className="muted">可用帳號 ID 或顯示名稱查找；只有明確選取的使用者會收到公告。</p>
       <div className="search-row">
         <input value={query} onChange={(event) => onQuery(event.target.value)} placeholder="例如 AT-7K4M2P 或顯示名稱" />
         <button disabled={searching || !query.trim()} onClick={() => void onSearch()}>{searching ? '搜尋中…' : '搜尋'}</button>
@@ -387,7 +384,7 @@ function SpecificUserPicker({
     </article>
     <article className="card">
       <h3>已選取 {selected.length} 位</h3>
-      {selected.length === 0 ? <p className="empty">尚未選取任何使用者；指定使用者模式不能送出空清單。</p> : <div className="table-wrap"><table><thead><tr><th>帳號 ID</th><th>顯示名稱</th><th>方案</th><th>操作</th></tr></thead><tbody>
+      {selected.length === 0 ? <p className="empty">尚未選取任何使用者；指定使用者模式需要至少選取一位使用者。</p> : <div className="table-wrap"><table><thead><tr><th>帳號 ID</th><th>顯示名稱</th><th>方案</th><th>操作</th></tr></thead><tbody>
         {selected.map((user) => <tr key={user.id}><td>{user.publicAccountId || `#${user.id}`}</td><td>{user.displayName}</td><td>{user.planCode || '—'}</td><td><button className="danger" onClick={() => onRemove(user.id)}>移除</button></td></tr>)}
       </tbody></table></div>}
     </article>
@@ -400,8 +397,8 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
 
 function channelLabel(inAppEnabled: boolean, pushEnabled: boolean): string {
   const channels = [];
-  if (inAppEnabled) channels.push('IN_APP');
-  if (pushEnabled) channels.push('PUSH');
+  if (inAppEnabled) channels.push('站內通知');
+  if (pushEnabled) channels.push('推播通知');
   return channels.join(' + ') || '未選擇';
 }
 
