@@ -46,7 +46,7 @@ if (!baseUrl) {
         : window.location.pathname === '/accounts'
           ? <AdminAccountsPage api={api} />
           : window.location.pathname === '/commercial'
-            ? <AdminCommercialPage api={commercialApi} />
+            ? <AdminCommercialPage api={commercialApi} runtimeApi={api} />
             : window.location.pathname === '/feedback-management'
               ? <AdminFeedbackPage apiBaseUrl={baseUrl} />
               : <AdminHomePage api={api} />;
