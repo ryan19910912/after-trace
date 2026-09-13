@@ -27,16 +27,28 @@ function unauthorizedEntitlement() {
   };
 }
 
-function trialEntitlement() {
+function aiProEntitlement() {
   return {
     async snapshot() {
       return {
         sourceAuthorized: true,
-        freeTrial: { grantId: 5, remainingPoints: 100, perRequestAiPointCap: 100 },
-        aiPro: null,
+        freeTrial: null,
+        aiPro: {
+          planEnabled: true,
+          aiEnabled: true,
+          grantId: 8,
+          periodStart: new Date('2026-09-01T00:00:00.000Z'),
+          periodEnd: new Date('2026-10-01T00:00:00.000Z'),
+          monthlyPointCap: 1000,
+          monthlyProviderCostCapTwd: 30,
+          perRequestAiPointCap: 100,
+          pointsUsed: 0,
+          providerCostTwd: 0,
+          missingProviderCostTwdRequests: 0,
+        },
       };
     },
-    async ensureGrantScope() { throw new Error('scope should not be needed before reservation'); },
+    async ensureGrantScope() {},
   };
 }
 
@@ -150,7 +162,7 @@ describe('AI summary/rewrite routes', () => {
     const app = createAiTextCaptureRoutes({
       databaseFactory: () => ({} as never),
       resolveSessionUserId: async (_database, session) => session.userId,
-      entitlementRepositoryFactory: trialEntitlement,
+      entitlementRepositoryFactory: aiProEntitlement,
       rewriteRepositoryFactory: () => ({
         async rewriteEnabled() { return false; },
         async runtimeConfig() { throw new Error('runtime should not be read'); },
