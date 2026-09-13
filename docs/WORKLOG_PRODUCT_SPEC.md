@@ -106,17 +106,28 @@ MVP group roles: `OWNER`, `MEMBER`. Backend authorization is checked for every g
 
 Customer UI should say “紀錄範圍”, “我的紀錄”, or the group name. Avoid exposing the internal word `Source`.
 
-## Free product and AI trial
+## Free product and AI search trial
 
 FREE is a complete manual Record product.
 
-FREE includes one idempotent, Admin-configured, one-time **text AI trial**. It does not refresh monthly.
+FREE users manually create/edit text Records. Provider-free browser/device speech-to-text may turn speech into text where supported; this remains a manual text path and does not consume AI points.
 
-The Free AI trial can be used for eligible text-based AI features such as text organization/search/rewrite according to capability and point rules.
+FREE includes one idempotent, Admin-configured, one-time **AI search trial**. It does not refresh monthly.
 
-**Image, audio and file AI are not part of the Free AI trial. They require an active AI Pro subscription.**
+The Free AI trial points may be consumed **only by natural-language AI Search**. When those points are exhausted, deterministic keyword/date search and all normal FREE manual functions remain available.
 
-Free browser/device speech-to-text is not provider AI and remains available where supported.
+The Free AI trial does **not** unlock:
+
+- AI text capture/automatic organization;
+- image AI;
+- audio AI;
+- file/PDF AI;
+- related-record AI tools;
+- time-range summaries;
+- AI rewrite;
+- AI task proposals.
+
+Those provider-backed capabilities require an active AI Pro subscription.
 
 ## Subscription plans
 
@@ -131,14 +142,19 @@ No one-time top-up is part of the current product.
 
 AI entitlement is per user, not per group.
 
-## AI Pro media features
+## AI Pro features
 
-AI Pro may use:
+AI Pro unlocks the complete accepted AI feature set:
 
-- text AI;
+- AI text capture/organization;
+- natural-language AI search;
 - image AI;
 - audio AI;
-- supported PDF/text/document AI.
+- supported PDF/text/document AI;
+- related Records;
+- time-range summaries;
+- rewrite suggestions;
+- task suggestions/proposals.
 
 Current recommended media defaults:
 
@@ -149,6 +165,8 @@ Current recommended media defaults:
 - file size: **10 MB per file/request**.
 
 “Images per request” means the maximum number of images in one AI operation. It is **not** a lifetime or monthly image-count quota.
+
+Transport/runtime absolute ceilings may be higher (currently 20 MB image, 30 MB audio/file) so Admin-configured per-plan limits remain authoritative below those safety ceilings.
 
 These limits belong to application-level plan capabilities/configuration. Database CHECK constraints must not encode them.
 
@@ -173,7 +191,9 @@ FREE deterministic search covers stored title/content, date range and authorized
 
 ### AI search
 
-Eligible text AI trial or AI Pro may interpret natural-language requests and search authorized Records. PostgreSQL remains authoritative retrieval. AI must not fabricate stored facts.
+The one-time FREE AI search trial or AI Pro may interpret natural-language requests and search authorized Records. PostgreSQL remains authoritative retrieval. AI must not fabricate stored facts.
+
+FREE trial points are consumed only here.
 
 ## AI tools
 
@@ -184,7 +204,7 @@ Customer-facing AI tools include:
 - rewrite suggestion;
 - task suggestion.
 
-AI rewrite and task creation are **proposal first**. The user explicitly confirms before durable content/task creation.
+These tools require AI Pro. AI rewrite and task creation are **proposal first**. The user explicitly confirms before durable content/task creation.
 
 Customer copy must be plain Traditional Chinese. Do not show engineering terms such as `Source`, `Record ID`, `provider`, `bounded dataset`, `proposal`, `Grant`, `runtime`, `ledger`, `metadata`, `optimistic version`, or `revision API` unless the context is explicitly an internal Admin/developer screen where the term is necessary.
 
@@ -192,7 +212,7 @@ Customer copy must be plain Traditional Chinese. Do not show engineering terms s
 
 Tasks support title, optional body, optional due/remind times, status and optional source/record relation.
 
-Reminder scheduling is deterministic stored data. AI may interpret a task/time only as a suggestion before confirmation.
+Reminder scheduling is deterministic stored data. AI may interpret a task/time only as a suggestion before confirmation, and that AI suggestion requires AI Pro.
 
 ## Notifications
 
@@ -227,7 +247,7 @@ When AI is blocked by a monthly limit, manual/free features remain available.
 Admin supports:
 
 - exact user lookup by customer-facing 帳號 ID;
-- free one-time text-AI trial point configuration;
+- free one-time AI search trial point configuration;
 - subscription plan list supplied by backend;
 - adding and editing future subscription plan definitions;
 - monthly AI point cap;
@@ -266,8 +286,8 @@ Rules:
 - latest 10 Record preview + independent Search page;
 - groups + invites;
 - tasks/reminders + notifications;
-- FREE one-time text AI trial;
-- AI Pro text/image/audio/file features;
+- FREE one-time AI search trial;
+- AI Pro full text/image/audio/file/tool features;
 - Chrome extension screenshot-to-AI-Pro path;
 - NewebPay AI Pro payment lifecycle;
 - friendly AI usage state;
