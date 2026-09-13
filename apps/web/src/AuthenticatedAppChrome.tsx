@@ -8,7 +8,7 @@ const SESSION_KEY = 'aftertrace.worklog.session';
 type Props = { apiBaseUrl: string; children: ReactNode };
 
 const desktopNav = [
-  { href: '/', label: '紀錄', icon: '▤', active: (path: string) => path === '/' },
+  { href: '/', label: '紀錄', icon: '▤', active: (path: string) => path === '/' || path.startsWith('/worklog') },
   { href: '/tasks', label: '待辦', icon: '✓', active: (path: string) => path.startsWith('/tasks') },
   { href: '/ai-search', label: '搜尋', icon: '⌕', active: (path: string) => path === '/ai-search' || path.startsWith('/ai-tools') || path.startsWith('/ai-task') },
   { href: '/subscription', label: '方案', icon: '◇', active: (path: string) => path === '/subscription' },
@@ -312,15 +312,8 @@ async function copyText(value: string) {
   textarea.style.opacity = '0';
   document.body.appendChild(textarea);
   textarea.select();
-  const copied = document.execCommand('copy');
+  document.execCommand('copy');
   textarea.remove();
-  if (!copied) throw new Error('COPY_FAILED');
-}
-
-function formatNotificationTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
 function isSessionError(cause: unknown) {
@@ -330,4 +323,9 @@ function isSessionError(cause: unknown) {
 
 function message(cause: unknown, fallback: string) {
   return cause instanceof Error && cause.message ? cause.message : fallback;
+}
+
+function formatNotificationTime(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false });
 }
