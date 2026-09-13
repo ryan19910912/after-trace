@@ -7,6 +7,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const drizzleDir = resolve(root, 'drizzle');
 const metaDir = resolve(drizzleDir, 'meta');
 const journalPath = resolve(metaDir, '_journal.json');
+const baselinePath = resolve(drizzleDir, '0000_worklog_baseline.sql');
 const resetFlag = '--confirm-prelaunch-reset';
 
 if (!process.argv.includes(resetFlag)) {
@@ -17,6 +18,7 @@ if (!process.argv.includes(resetFlag)) {
 
 assertCurrentPrelaunchShape();
 const existingBaselineWhen = readExistingBaselineWhen();
+const existingComments = extractCommentStatements(readFileSync(baselinePath, 'utf8'));
 
 const backupDir = resolve(root, `.aftertrace-drizzle-backup-${process.pid}-${Date.now()}`);
 if (existsSync(backupDir)) rmSync(backupDir, { recursive: true, force: true });
@@ -41,6 +43,7 @@ try {
       process.platform === 'win32',
     );
     preserveBaselineMigrationIdentity(existingBaselineWhen);
+    restoreCanonicalComments(existingComments);
   } catch (error) {
     rmSync(drizzleDir, { recursive: true, force: true });
     renameSync(backupDir, drizzleDir);
@@ -88,6 +91,74 @@ function preserveBaselineMigrationIdentity(existingWhen) {
 
   entry.when = existingWhen;
   writeFileSync(journalPath, `${JSON.stringify(journal, null, 2)}\n`, 'utf8');
+}
+
+function extractCommentStatements(sql) {
+  const comments = new Map();
+  for (const match of sql.matchAll(/COMMENT ON (?:TABLE|COLUMN) [\s\S]*?;/g)) {
+    const statement = match[0].trim();
+    const key = commentKey(statement);
+    if (key) comments.set(key, statement);
+  }
+  return comments;
+}
+
+function restoreCanonicalComments(existingComments) {
+  let generated = readFileSync(baselinePath, 'utf8').trimEnd();
+  generated = generated.replace(/\n?--> statement-breakpoint\nCOMMENT ON (?:TABLE|COLUMN) [\s\S]*$/m, '').trimEnd();
+
+  const required = schemaCommentTargets(generated);
+  const statements = [];
+  for (const target of required) {
+    const existing = existingComments.get(target);
+    if (existing) {
+      statements.push(existing);
+      continue;
+    }
+    const generatedComment = newCommentFor(target);
+    if (!generatedComment) {
+      throw new Error(`Missing PostgreSQL schema comment for ${target}. Add a meaningful comment before regenerating the canonical baseline.`);
+    }
+    statements.push(generatedComment);
+  }
+
+  writeFileSync(
+    baselinePath,
+    `${generated}\n\n--> statement-breakpoint\n${statements.join('\n')}\n`,
+    'utf8',
+  );
+}
+
+function schemaCommentTargets(sql) {
+  const targets = [];
+  for (const tableMatch of sql.matchAll(/CREATE TABLE "([^"]+)" \(([\s\S]*?)\n\);/g)) {
+    const [, table, body] = tableMatch;
+    targets.push(`TABLE:${table}`);
+    for (const line of body.split('\n')) {
+      const columnMatch = /^\s*"([^"]+)"\s+/.exec(line);
+      if (columnMatch) targets.push(`COLUMN:${table}.${columnMatch[1]}`);
+    }
+  }
+  return targets;
+}
+
+function commentKey(statement) {
+  let match = /^COMMENT ON TABLE "([^"]+)"/i.exec(statement);
+  if (match) return `TABLE:${match[1]}`;
+  match = /^COMMENT ON COLUMN "([^"]+)"\."([^"]+)"/i.exec(statement);
+  return match ? `COLUMN:${match[1]}.${match[2]}` : null;
+}
+
+function newCommentFor(target) {
+  const additions = {
+    'COLUMN:worklog_record_revisions.previous_title': '修改前的紀錄標題。',
+    'COLUMN:worklog_record_revisions.new_title': '修改後的紀錄標題。',
+  };
+  const text = additions[target];
+  if (!text) return null;
+  const [, qualified] = target.split(':');
+  const [table, column] = qualified.split('.');
+  return `COMMENT ON COLUMN "${table}"."${column}" IS '${text.replaceAll("'", "''")}';`;
 }
 
 function assertCurrentPrelaunchShape() {
