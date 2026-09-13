@@ -1,14 +1,11 @@
-import { sql } from 'drizzle-orm';
 import {
   bigint,
   bigserial,
   boolean,
-  check,
   index,
   integer,
   jsonb,
   numeric,
-  pgEnum,
   pgTable,
   text,
   timestamp,
@@ -17,28 +14,14 @@ import {
   varchar,
 } from 'drizzle-orm/pg-core';
 
-export const worklogSourceTypeEnum = pgEnum('worklog_source_type', ['PRIVATE', 'GROUP']);
-export const worklogSourceStatusEnum = pgEnum('worklog_source_status', ['ACTIVE', 'INACTIVE']);
-export const worklogSourceMemberRoleEnum = pgEnum('worklog_source_member_role', ['OWNER', 'MEMBER']);
-export const worklogRecordInputTypeEnum = pgEnum('worklog_record_input_type', [
-  'TEXT',
-  'AUDIO',
-  'IMAGE',
-  'FILE',
-]);
-export const worklogSubscriptionStatusEnum = pgEnum('worklog_subscription_status', [
-  'ACTIVE',
-  'PAST_DUE',
-  'CANCELED',
-  'EXPIRED',
-]);
-export const worklogSubscriptionSourceEnum = pgEnum('worklog_subscription_source', [
-  'FREE',
-  'PAYMENT',
-  'ADMIN',
-]);
-export const worklogPlanTypeEnum = pgEnum('worklog_plan_type', ['FREE', 'SUBSCRIPTION']);
-export const worklogFeedbackChannelEnum = pgEnum('worklog_feedback_channel', ['PWA']);
+export const worklogSourceTypeEnum = (name: string) => varchar(name, { length: 32 });
+export const worklogSourceStatusEnum = (name: string) => varchar(name, { length: 32 });
+export const worklogSourceMemberRoleEnum = (name: string) => varchar(name, { length: 32 });
+export const worklogRecordInputTypeEnum = (name: string) => varchar(name, { length: 32 });
+export const worklogSubscriptionStatusEnum = (name: string) => varchar(name, { length: 32 });
+export const worklogSubscriptionSourceEnum = (name: string) => varchar(name, { length: 32 });
+export const worklogPlanTypeEnum = (name: string) => varchar(name, { length: 32 });
+export const worklogFeedbackChannelEnum = (name: string) => varchar(name, { length: 32 });
 
 export const worklogUsers = pgTable('worklog_users', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
@@ -47,14 +30,11 @@ export const worklogUsers = pgTable('worklog_users', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
-/** Internal storage container currently used by onboarding and audit linkage. */
 export const worklogWorkspaces = pgTable(
   'worklog_workspaces',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    ownerUserId: bigint('owner_user_id', { mode: 'number' })
-      .notNull()
-      .references(() => worklogUsers.id, { onDelete: 'restrict' }),
+    ownerUserId: bigint('owner_user_id', { mode: 'number' }).notNull().references(() => worklogUsers.id, { onDelete: 'restrict' }),
     name: varchar('name', { length: 255 }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -62,24 +42,16 @@ export const worklogWorkspaces = pgTable(
   (table) => [uniqueIndex('worklog_workspace_owner_uq').on(table.ownerUserId)],
 );
 
-/** Durable PRIVATE/GROUP authorization boundary. GROUP is always AFTERTRACE-native. */
 export const worklogSources = pgTable(
   'worklog_sources',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    workspaceId: bigint('workspace_id', { mode: 'number' })
-      .notNull()
-      .references(() => worklogWorkspaces.id, { onDelete: 'restrict' }),
+    workspaceId: bigint('workspace_id', { mode: 'number' }).notNull().references(() => worklogWorkspaces.id, { onDelete: 'restrict' }),
     type: worklogSourceTypeEnum('type').notNull(),
     status: worklogSourceStatusEnum('status').default('ACTIVE').notNull(),
-    privateUserId: bigint('private_user_id', { mode: 'number' }).references(() => worklogUsers.id, {
-      onDelete: 'restrict',
-    }),
+    privateUserId: bigint('private_user_id', { mode: 'number' }).references(() => worklogUsers.id, { onDelete: 'restrict' }),
     name: varchar('name', { length: 255 }),
-    createdByUserId: bigint('created_by_user_id', { mode: 'number' }).references(
-      () => worklogUsers.id,
-      { onDelete: 'restrict' },
-    ),
+    createdByUserId: bigint('created_by_user_id', { mode: 'number' }).references(() => worklogUsers.id, { onDelete: 'restrict' }),
     inactiveAt: timestamp('inactive_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -89,14 +61,6 @@ export const worklogSources = pgTable(
     unique('worklog_source_private_user_id_uq').on(table.privateUserId, table.id),
     index('worklog_source_workspace_type_idx').on(table.workspaceId, table.type),
     index('worklog_source_creator_idx').on(table.createdByUserId),
-    check(
-      'worklog_source_identity_shape_ck',
-      sql`(
-        (${table.type} = 'PRIVATE' AND ${table.privateUserId} IS NOT NULL AND ${table.name} IS NULL)
-        OR
-        (${table.type} = 'GROUP' AND ${table.privateUserId} IS NULL AND ${table.name} IS NOT NULL AND length(btrim(${table.name})) > 0)
-      )`,
-    ),
   ],
 );
 
@@ -104,12 +68,8 @@ export const worklogSourceMembers = pgTable(
   'worklog_source_members',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    sourceId: bigint('source_id', { mode: 'number' })
-      .notNull()
-      .references(() => worklogSources.id, { onDelete: 'restrict' }),
-    userId: bigint('user_id', { mode: 'number' })
-      .notNull()
-      .references(() => worklogUsers.id, { onDelete: 'restrict' }),
+    sourceId: bigint('source_id', { mode: 'number' }).notNull().references(() => worklogSources.id, { onDelete: 'restrict' }),
+    userId: bigint('user_id', { mode: 'number' }).notNull().references(() => worklogUsers.id, { onDelete: 'restrict' }),
     role: worklogSourceMemberRoleEnum('role').default('MEMBER').notNull(),
     isActive: boolean('is_active').default(true).notNull(),
     firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).defaultNow().notNull(),
@@ -137,58 +97,20 @@ export const worklogSubscriptionPlans = pgTable(
     grantPoints: integer('grant_points').default(0).notNull(),
     aiEnabled: boolean('ai_enabled').default(false).notNull(),
     monthlyAiPointCap: integer('monthly_ai_point_cap'),
-    monthlyProviderCostCapTwd: numeric('monthly_provider_cost_cap_twd', {
-      precision: 12,
-      scale: 2,
-    }),
+    monthlyProviderCostCapTwd: numeric('monthly_provider_cost_cap_twd', { precision: 12, scale: 2 }),
     perRequestAiPointCap: integer('per_request_ai_point_cap'),
     capabilities: jsonb('capabilities').default({}).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (table) => [
-    check(
-      'worklog_plan_v1_identity_ck',
-      sql`(
-        (${table.code} = 'FREE' AND ${table.planType} = 'FREE' AND ${table.priceTwd} = 0 AND ${table.aiEnabled} = FALSE)
-        OR
-        (${table.code} = 'AI_PRO' AND ${table.planType} = 'SUBSCRIPTION' AND ${table.priceTwd} = 99 AND ${table.aiEnabled} = TRUE)
-      )`,
-    ),
-    check('worklog_plan_grant_points_ck', sql`${table.grantPoints} >= 0`),
-    check(
-      'worklog_plan_ai_cap_values_ck',
-      sql`(
-        (${table.monthlyAiPointCap} IS NULL OR ${table.monthlyAiPointCap} > 0)
-        AND (${table.monthlyProviderCostCapTwd} IS NULL OR ${table.monthlyProviderCostCapTwd} > 0)
-        AND (${table.perRequestAiPointCap} IS NULL OR ${table.perRequestAiPointCap} > 0)
-      )`,
-    ),
-    check(
-      'worklog_plan_ai_enabled_shape_ck',
-      sql`(
-        ${table.aiEnabled} = FALSE
-        OR (
-          ${table.planType} = 'SUBSCRIPTION'
-          AND ${table.priceTwd} = 99
-          AND ${table.monthlyAiPointCap} IS NOT NULL
-          AND ${table.monthlyProviderCostCapTwd} IS NOT NULL
-        )
-      )`,
-    ),
-  ],
 );
 
 export const worklogUserSubscriptions = pgTable(
   'worklog_user_subscriptions',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    userId: bigint('user_id', { mode: 'number' })
-      .notNull()
-      .references(() => worklogUsers.id, { onDelete: 'restrict' }),
-    planCode: varchar('plan_code', { length: 64 })
-      .notNull()
-      .references(() => worklogSubscriptionPlans.code, { onDelete: 'restrict' }),
+    userId: bigint('user_id', { mode: 'number' }).notNull().references(() => worklogUsers.id, { onDelete: 'restrict' }),
+    planCode: varchar('plan_code', { length: 64 }).notNull().references(() => worklogSubscriptionPlans.code, { onDelete: 'restrict' }),
     status: worklogSubscriptionStatusEnum('status').default('ACTIVE').notNull(),
     source: worklogSubscriptionSourceEnum('source').default('FREE').notNull(),
     effectiveAt: timestamp('effective_at', { withTimezone: true }).defaultNow().notNull(),
@@ -207,16 +129,9 @@ export const worklogSubscriptionHistory = pgTable(
   'worklog_subscription_history',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    userId: bigint('user_id', { mode: 'number' })
-      .notNull()
-      .references(() => worklogUsers.id, { onDelete: 'restrict' }),
-    previousPlanCode: varchar('previous_plan_code', { length: 64 }).references(
-      () => worklogSubscriptionPlans.code,
-      { onDelete: 'restrict' },
-    ),
-    nextPlanCode: varchar('next_plan_code', { length: 64 })
-      .notNull()
-      .references(() => worklogSubscriptionPlans.code, { onDelete: 'restrict' }),
+    userId: bigint('user_id', { mode: 'number' }).notNull().references(() => worklogUsers.id, { onDelete: 'restrict' }),
+    previousPlanCode: varchar('previous_plan_code', { length: 64 }).references(() => worklogSubscriptionPlans.code, { onDelete: 'restrict' }),
+    nextPlanCode: varchar('next_plan_code', { length: 64 }).notNull().references(() => worklogSubscriptionPlans.code, { onDelete: 'restrict' }),
     source: worklogSubscriptionSourceEnum('source').notNull(),
     actor: varchar('actor', { length: 128 }),
     metadata: jsonb('metadata'),
@@ -243,9 +158,7 @@ export const worklogFeedback = pgTable(
   'worklog_feedback',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    userId: bigint('user_id', { mode: 'number' })
-      .notNull()
-      .references(() => worklogUsers.id, { onDelete: 'restrict' }),
+    userId: bigint('user_id', { mode: 'number' }).notNull().references(() => worklogUsers.id, { onDelete: 'restrict' }),
     displayNameSnapshot: varchar('display_name_snapshot', { length: 255 }),
     channel: worklogFeedbackChannelEnum('channel').default('PWA').notNull(),
     text: text('text').notNull(),
@@ -259,12 +172,8 @@ export const worklogAuditLogs = pgTable(
   'worklog_audit_logs',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
-    workspaceId: bigint('workspace_id', { mode: 'number' }).references(() => worklogWorkspaces.id, {
-      onDelete: 'restrict',
-    }),
-    actorUserId: bigint('actor_user_id', { mode: 'number' }).references(() => worklogUsers.id, {
-      onDelete: 'restrict',
-    }),
+    workspaceId: bigint('workspace_id', { mode: 'number' }).references(() => worklogWorkspaces.id, { onDelete: 'restrict' }),
+    actorUserId: bigint('actor_user_id', { mode: 'number' }).references(() => worklogUsers.id, { onDelete: 'restrict' }),
     actorAdmin: varchar('actor_admin', { length: 128 }),
     action: varchar('action', { length: 128 }).notNull(),
     targetType: varchar('target_type', { length: 64 }).notNull(),
