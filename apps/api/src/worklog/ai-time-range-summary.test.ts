@@ -74,12 +74,29 @@ describe('AiTimeRangeSummaryService', () => {
     expect(calls).toEqual(['resolve']);
   });
 
-  it('returns NO_RECORDS without runtime lookup, reservation or provider cost', async () => {
+  it('does not allow FREE trial points to unlock time-range summaries', async () => {
     const calls: string[] = [];
     const service = new AiTimeRangeSummaryService(repository(calls, []), {
       async resolve() {
         calls.push('resolve');
         return { source: 'FREE_TRIAL', allowed: true, reason: 'FREE_TRIAL_AVAILABLE', remainingPoints: 100, periodEndsAt: null, perRequestAiPointCap: 100 };
+      },
+    }, ledger(calls), {
+      reservationPoints() { calls.push('estimate'); return 50; },
+      async summarize() { calls.push('provider'); throw new Error('should not run'); },
+    });
+
+    const result = await service.summarize({ userId: 7, sourceId: 12, ...range });
+    expect(result).toMatchObject({ status: 'BLOCKED', decision: { reason: 'AI_NOT_ENTITLED' } });
+    expect(calls).toEqual(['resolve']);
+  });
+
+  it('returns NO_RECORDS for AI Pro without runtime lookup, reservation or provider cost', async () => {
+    const calls: string[] = [];
+    const service = new AiTimeRangeSummaryService(repository(calls, []), {
+      async resolve() {
+        calls.push('resolve');
+        return { source: 'AI_PRO', allowed: true, reason: 'AI_PRO_AVAILABLE', remainingPoints: 100, periodEndsAt: '2026-10-01T00:00:00.000Z', perRequestAiPointCap: 100 };
       },
     }, ledger(calls), {
       reservationPoints() { calls.push('estimate'); return 50; },
@@ -135,7 +152,7 @@ describe('AiTimeRangeSummaryService', () => {
         calls.push(`provider:${input.records.length}`);
         expect(input.records.reduce((sum, record) => sum + record.rawText.length, 0)).toBeLessThanOrEqual(120_000);
         expect(input.records.at(-1)?.rawText.length).toBeLessThan(20_000);
-        return { summary: '大型資料集仍以 bounded provider input 摘要。', inputTokens: 100, outputTokens: 20, providerResponseId: 'resp-summary-large', latencyMs: 10 };
+        return { summary: '大型資料集仍能依單次處理上限摘要。', inputTokens: 100, outputTokens: 20, providerResponseId: 'resp-summary-large', latencyMs: 10 };
       },
     });
 
