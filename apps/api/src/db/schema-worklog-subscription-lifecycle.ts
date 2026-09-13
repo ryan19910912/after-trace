@@ -1,13 +1,10 @@
-import { sql } from 'drizzle-orm';
-import { bigint, bigserial, check, index, jsonb, pgTable, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
+import { bigint, bigserial, index, jsonb, pgTable, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
 import { worklogUsers } from './schema-worklog';
 
 /**
  * Provider-neutral external subscription event inbox.
- *
- * Payment adapters translate their webhook payloads into AFTERTRACE lifecycle events.
- * provider + external_event_key is the durable idempotency boundary; raw card/payment
- * credentials never belong here.
+ * Provider + external_event_key remains the durable idempotency boundary. Allowed event,
+ * plan and processing-result values are validated by application services.
  */
 export const worklogSubscriptionLifecycleEvents = pgTable(
   'worklog_subscription_lifecycle_events',
@@ -32,8 +29,5 @@ export const worklogSubscriptionLifecycleEvents = pgTable(
     uniqueIndex('worklog_subscription_lifecycle_provider_event_uq').on(table.provider, table.externalEventKey),
     index('worklog_subscription_lifecycle_user_time_idx').on(table.userId, table.occurredAt),
     index('worklog_subscription_lifecycle_type_time_idx').on(table.eventType, table.occurredAt),
-    check('worklog_subscription_lifecycle_event_type_ck', sql`${table.eventType} IN ('ACTIVATE','RENEW','CANCEL')`),
-    check('worklog_subscription_lifecycle_plan_code_ck', sql`${table.planCode} = 'AI_PRO'`),
-    check('worklog_subscription_lifecycle_processing_result_ck', sql`${table.processingResult} IN ('PENDING','APPLIED','IGNORED_STALE')`),
   ],
 );
