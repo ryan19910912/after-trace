@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  worklogPlanTypeEnum,
-  worklogSourceMemberRoleEnum,
   worklogSourceMembers,
   worklogSources,
   worklogSubscriptionPlans,
@@ -9,10 +7,14 @@ import {
 } from '../db/schema-worklog';
 import {
   worklogAuthIdentities,
-  worklogAuthProviderEnum,
   worklogSourceInvites,
   worklogUserPublicAccounts,
 } from '../db/schema-worklog-product';
+import {
+  WORKLOG_AUTH_PROVIDERS,
+  WORKLOG_PLAN_TYPES,
+  WORKLOG_SOURCE_MEMBER_ROLES,
+} from './domain-values';
 
 describe('Web/PWA product foundation schema', () => {
   it('keeps the core user provider-neutral with no legacy LINE identity column', () => {
@@ -20,10 +22,11 @@ describe('Web/PWA product foundation schema', () => {
     expect('isOaFriend' in worklogUsers).toBe(false);
   });
 
-  it('supports Google, LINE and Apple as provider-neutral login bindings', () => {
-    expect(worklogAuthProviderEnum.enumValues).toEqual(['GOOGLE', 'LINE', 'APPLE']);
+  it('supports Google, LINE and Apple as provider-neutral login bindings in application rules', () => {
+    expect(WORKLOG_AUTH_PROVIDERS).toEqual(['GOOGLE', 'LINE', 'APPLE']);
     expect(worklogAuthIdentities.userId.notNull).toBe(true);
     expect(worklogAuthIdentities.provider.notNull).toBe(true);
+    expect(worklogAuthIdentities.provider.dataType).toBe('string');
     expect(worklogAuthIdentities.subject.notNull).toBe(true);
   });
 
@@ -37,13 +40,14 @@ describe('Web/PWA product foundation schema', () => {
     expect(worklogSources.name.notNull).toBe(false);
     expect(worklogSources.createdByUserId.notNull).toBe(false);
     expect('lineGroupId' in worklogSources).toBe(false);
-    expect(worklogSourceMemberRoleEnum.enumValues).toEqual(['OWNER', 'MEMBER']);
+    expect(WORKLOG_SOURCE_MEMBER_ROLES).toEqual(['OWNER', 'MEMBER']);
     expect(worklogSourceMembers.role.notNull).toBe(true);
     expect(worklogSourceMembers.role.default).toBe('MEMBER');
+    expect(worklogSourceMembers.role.dataType).toBe('string');
   });
 
-  it('allows only FREE and recurring SUBSCRIPTION plan types', () => {
-    expect(worklogPlanTypeEnum.enumValues).toEqual(['FREE', 'SUBSCRIPTION']);
+  it('allows only FREE and recurring SUBSCRIPTION plan types in application rules', () => {
+    expect(WORKLOG_PLAN_TYPES).toEqual(['FREE', 'SUBSCRIPTION']);
   });
 
   it('keeps paid AI plan caps explicit and fail-closed-capable', () => {
