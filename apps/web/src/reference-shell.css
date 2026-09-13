@@ -26,13 +26,22 @@
   body{padding-bottom:104px!important}
   .at-app-shell{min-height:100vh}
   .at-sidebar,.at-topbar{display:none}
-  .at-mobile-header{position:sticky;top:0;z-index:60;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 14px;border-bottom:1px solid rgba(74,124,184,.22);background:rgba(5,14,25,.94);backdrop-filter:blur(18px)}
-  .at-mobile-header>.brand-home{gap:8px;min-width:0;min-height:42px}
+  .at-mobile-header{position:sticky;top:0;z-index:60;display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 12px;border-bottom:1px solid rgba(74,124,184,.22);background:rgba(5,14,25,.94);backdrop-filter:blur(18px)}
+  .at-mobile-header>.brand-home{gap:7px;min-width:0;min-height:42px}
   .at-mobile-header>.brand-home img{width:32px;height:32px;flex-basis:32px;border-radius:9px}
-  .at-mobile-header>.brand-home span{min-height:42px;font-size:13px;letter-spacing:.1em}
-  .at-mobile-header .account-chrome-actions{position:static!important;display:flex!important;width:auto!important;min-height:42px!important;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important}
-  .at-app-content{margin-left:0;padding-top:0}
-  .at-app-content>.shell{width:100%;margin:0;padding:22px 18px 40px;font-size:17px}
+  .at-mobile-header>.brand-home span{min-height:42px;font-size:12px;letter-spacing:.08em}
+  .at-mobile-header .account-chrome-actions{position:static!important;display:flex!important;width:auto!important;min-width:0!important;min-height:42px!important;gap:6px!important;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important}
+  .at-mobile-header .help-menu-trigger{min-width:auto!important;padding-inline:10px!important;white-space:nowrap!important}
+  .at-mobile-header .help-menu-trigger span{display:inline!important}
+  .at-mobile-header .notification-bell{min-width:42px!important;width:42px!important;padding:0!important}
+  .at-mobile-header .account-trigger{min-width:0!important;padding-inline:8px!important}
+  .at-mobile-header .account-display-name{max-width:82px!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .at-app-content{margin-left:0;padding-top:0;min-width:0;overflow-x:hidden}
+  .at-app-content>.shell{width:100%;max-width:100%;min-width:0;margin:0;padding:22px 18px 40px;font-size:17px;overflow-x:hidden}
+  .at-app-content>.fatal-shell{width:100%;max-width:100%;padding-inline:18px}
+  .at-app-content>.fatal-shell .fatal-card{width:100%;max-width:100%;min-width:0;overflow:hidden}
+  .at-app-content>.fatal-shell .fatal-card *{max-width:100%;min-width:0}
+  .at-app-content>.fatal-shell .fatal-card p,.at-app-content>.fatal-shell .fatal-card .worklog-notice,.at-app-content>.fatal-shell .fatal-card strong{overflow-wrap:anywhere;word-break:break-word}
   .at-app-content>.shell>.topbar{justify-content:center!important;align-items:center!important;margin-bottom:28px!important;text-align:center!important}
   .at-app-content>.shell>.topbar>div{width:100%;text-align:center!important}
   .at-app-content>.shell>.topbar h1{font-size:clamp(38px,10vw,46px)!important;line-height:1.08!important}
@@ -46,5 +55,13 @@
   .mobile-bottom-nav a>span:last-child{font-size:15px!important;line-height:1.15!important}
   .mobile-bottom-nav a.active{background:rgba(24,67,111,.48)!important;color:#fff!important;box-shadow:inset 0 2px 0 #5aaaff!important}
 }
-@media(max-width:380px){.at-mobile-header .brand-home span{font-size:11px;letter-spacing:.07em}.at-mobile-header .account-display-name{max-width:74px}.at-mobile-header .help-menu-trigger span{display:none}.at-mobile-header .help-menu-trigger{width:38px;justify-content:center;padding:0}.at-mobile-header .help-menu-trigger .account-chevron{width:16px;height:16px}.mobile-bottom-nav a{font-size:14px!important}.mobile-bottom-nav a>span:last-child{font-size:14px!important}.mobile-bottom-nav-icon{font-size:22px!important}}
-@media(max-width:340px){.at-mobile-header .brand-home span{display:none}.at-mobile-header .account-display-name{max-width:72px}}
+@media(max-width:380px){
+  .at-mobile-header>.brand-home span{display:none}
+  .at-mobile-header .account-display-name{max-width:68px!important}
+  .at-mobile-header .help-menu-trigger{padding-inline:8px!important}
+  .at-mobile-header .help-menu-trigger .account-chevron{width:14px;height:14px}
+  .mobile-bottom-nav a{font-size:14px!important}
+  .mobile-bottom-nav a>span:last-child{font-size:14px!important}
+  .mobile-bottom-nav-icon{font-size:22px!important}
+}
+@media(max-width:340px){.at-mobile-header .account-display-name{max-width:54px!important}}
