@@ -23,7 +23,7 @@ export const worklogRecordRevisionChannelEnum = (name: string) => varchar(name, 
 
 /**
  * Universal durable Record row for the target Web/PWA/Extension product.
- * Manual records require only source/author/input/content plus timestamps; AI metadata is optional.
+ * Manual Records have required content, optional user-entered title/time and optional AI metadata.
  */
 export const worklogRecords = pgTable(
   'worklog_records',
@@ -76,6 +76,8 @@ export const worklogRecordRevisions = pgTable(
       { onDelete: 'restrict' },
     ),
     channel: worklogRecordRevisionChannelEnum('channel').notNull(),
+    previousTitle: varchar('previous_title', { length: 255 }),
+    newTitle: varchar('new_title', { length: 255 }),
     previousRawText: text('previous_raw_text').notNull(),
     newRawText: text('new_raw_text').notNull(),
     previousOccurredAt: timestamp('previous_occurred_at', { withTimezone: true }),
