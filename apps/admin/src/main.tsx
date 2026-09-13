@@ -15,6 +15,7 @@ import { installTaipeiDateDisplayPolicy } from './time-display';
 import './styles.css';
 import './admin-modern.css';
 import './admin-shell.css';
+import './commercial-page.css';
 
 installTaipeiDateDisplayPolicy();
 
