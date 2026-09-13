@@ -13,6 +13,7 @@ const CHECKOUT_ENABLED = false;
 type UserSubscriptionRow = {
   id: number;
   planCode: string;
+  currentPeriodEnd: string | null;
   effectiveState: 'NO_SUBSCRIPTION' | 'SUBSCRIPTION_INACTIVE' | 'PLAN_DISABLED' | 'NOT_YET_EFFECTIVE' | 'PERIOD_NOT_STARTED' | 'PERIOD_EXPIRED' | 'ACTIVE';
 };
 
@@ -113,6 +114,7 @@ export function createWorklogSubscriptionRoutes() {
       ok: true,
       currentPlanCode: user.effectiveState === 'ACTIVE' && user.planCode === 'AI_PRO' ? 'AI_PRO' : 'FREE',
       currentSubscriptionState: user.effectiveState,
+      currentPeriodEnd: user.currentPeriodEnd,
       paymentRenewalState,
       checkoutEnabled: CHECKOUT_ENABLED,
       freeAiTrial: trial
@@ -187,6 +189,7 @@ async function userRow(db: ReturnType<typeof createDatabase>, userId: number): P
     SELECT
       u.id::text AS id,
       COALESCE(subscription.plan_code, 'FREE') AS plan_code,
+      subscription.current_period_end,
       CASE
         WHEN subscription.user_id IS NULL THEN 'NO_SUBSCRIPTION'
         WHEN subscription.status <> 'ACTIVE' THEN 'SUBSCRIPTION_INACTIVE'
@@ -202,13 +205,20 @@ async function userRow(db: ReturnType<typeof createDatabase>, userId: number): P
     WHERE u.id = ${userId}
     LIMIT 1
   `);
-  const row = result.rows[0] as { id?: string; plan_code?: string; effective_state?: UserSubscriptionRow['effectiveState'] } | undefined;
+  const row = result.rows[0] as { id?: string; plan_code?: string; current_period_end?: Date | string | null; effective_state?: UserSubscriptionRow['effectiveState'] } | undefined;
   if (!row?.id) return null;
   return {
     id: Number(row.id),
     planCode: row.plan_code ?? 'FREE',
+    currentPeriodEnd: isoDateOrNull(row.current_period_end),
     effectiveState: row.effective_state ?? 'NO_SUBSCRIPTION',
   };
+}
+
+function isoDateOrNull(value: Date | string | null | undefined): string | null {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
 function isNewebPayRenewalState(value: string): value is Exclude<NewebPayRenewalState, 'NONE'> {
