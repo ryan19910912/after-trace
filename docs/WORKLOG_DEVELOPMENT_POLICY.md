@@ -55,13 +55,34 @@ The Record home page shows the latest 10 Records. Full browsing/filtering remain
 
 Customer UI displays title first. If stored title is null, use a bounded content preview without silently persisting a generated title.
 
+## FREE / AI boundary
+
+FREE is manual-first:
+
+- user-entered text Record CRUD;
+- deterministic keyword/date search;
+- native groups, tasks/reminders and notifications;
+- browser/device speech-to-text where supported, because it only produces text and does not call provider AI.
+
+FREE receives one Admin-configured one-time AI allowance, but those points may be consumed **only by natural-language AI Search**.
+
+All other provider-backed AI capabilities require an active AI Pro subscription, including:
+
+- AI text capture/organization;
+- related Records;
+- time-range summaries;
+- rewrite suggestions;
+- task proposals;
+- image AI;
+- audio AI;
+- file/PDF AI;
+- Chrome screenshot AI.
+
+Do not let a generic `FREE_TRIAL` entitlement accidentally unlock non-search AI services. Enforce this on the backend as well as in UI availability.
+
 ## AI media boundary
 
-Text AI may use an eligible one-time Free AI trial or AI Pro according to entitlement.
-
-**Image, audio and file AI require an active AI Pro subscription. Free trial must not unlock media AI.**
-
-Recommended current media defaults:
+Recommended current AI Pro media defaults:
 
 - 1 image/request while the API is single-image; 4/request is the preferred future multi-image default;
 - 5 MB/image;
@@ -70,6 +91,10 @@ Recommended current media defaults:
 - 10 MB/file request.
 
 Media plan limits live in application plan capabilities, not database CHECK constraints.
+
+Runtime transport ceilings may be higher (currently 20 MB image and 30 MB audio/file) so plan limits remain the effective configurable limits below those ceilings.
+
+Audio duration sent by the Web client must be passed through the API route and validated by the AI media service before provider work begins.
 
 The extension screenshot path is explicit user action only and must use the same AI Pro entitlement as Web media AI.
 
@@ -147,7 +172,7 @@ Avoid PostgreSQL reserved/command words as unquoted aliases/CTE names/identifier
 - customer labels are 公告通知 / 系統通知 / 待辦通知;
 - in-app notification remains durable even when push fails;
 - one shared scheduled worker handles reminders/announcements; no Cron per task;
-- AI task extraction produces a suggestion first; user confirms durable task creation;
+- AI task extraction produces a suggestion first and requires AI Pro; user confirms durable task creation;
 - feedback is stored in AFTERTRACE and manageable from Admin;
 - LINE OA is support contact only.
 
