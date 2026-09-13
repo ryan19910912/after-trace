@@ -7,8 +7,6 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const drizzleDir = resolve(root, 'drizzle');
 const metaDir = resolve(drizzleDir, 'meta');
 const journalPath = resolve(metaDir, '_journal.json');
-const baselinePath = resolve(drizzleDir, '0000_worklog_baseline.sql');
-const commentsPath = resolve(drizzleDir, '0002_worklog_schema_comments.sql');
 const resetFlag = '--confirm-prelaunch-reset';
 
 if (!process.argv.includes(resetFlag)) {
@@ -19,10 +17,7 @@ if (!process.argv.includes(resetFlag)) {
 
 assertCurrentPrelaunchShape();
 const existingBaselineWhen = readExistingBaselineWhen();
-const preservedComments = existsSync(commentsPath) ? readFileSync(commentsPath, 'utf8').trim() : '';
 
-// Dev and prelaunch Prod are disposable. Rebuild one canonical migration from the current
-// Drizzle schema instead of keeping transitional 0001/0002/0003 migrations around.
 const backupDir = resolve(root, `.aftertrace-drizzle-backup-${process.pid}-${Date.now()}`);
 if (existsSync(backupDir)) rmSync(backupDir, { recursive: true, force: true });
 renameSync(drizzleDir, backupDir);
@@ -30,7 +25,6 @@ mkdirSync(drizzleDir, { recursive: true });
 
 try {
   console.log('Regenerating the canonical fresh-database Drizzle baseline from apps/api/src/db/schema-all.ts...');
-
   try {
     run(
       'pnpm',
@@ -47,7 +41,6 @@ try {
       process.platform === 'win32',
     );
     preserveBaselineMigrationIdentity(existingBaselineWhen);
-    appendSchemaComments(preservedComments);
   } catch (error) {
     rmSync(drizzleDir, { recursive: true, force: true });
     renameSync(backupDir, drizzleDir);
@@ -56,10 +49,7 @@ try {
   }
 
   run(process.execPath, [resolve(root, 'scripts/check-worklog-baseline.mjs')], 'AFTERTRACE baseline guard');
-
   console.log('Prelaunch baseline regenerated and guard passed.');
-  console.log('The drizzle directory now contains one canonical 0000 migration plus metadata only.');
-  console.log('Rebuild disposable Dev/Prod-prelaunch databases from this 0000 baseline.');
 } finally {
   if (existsSync(backupDir)) rmSync(backupDir, { recursive: true, force: true });
 }
@@ -98,22 +88,6 @@ function preserveBaselineMigrationIdentity(existingWhen) {
 
   entry.when = existingWhen;
   writeFileSync(journalPath, `${JSON.stringify(journal, null, 2)}\n`, 'utf8');
-  console.log(`Preserved 0000_worklog_baseline migration timestamp: ${existingWhen}`);
-}
-
-function appendSchemaComments(comments) {
-  if (!comments) {
-    console.warn('No existing schema comments migration found; generated baseline will contain no COMMENT ON statements.');
-    return;
-  }
-  if (!existsSync(baselinePath)) throw new Error('Generated 0000_worklog_baseline.sql is missing.');
-  const baseline = readFileSync(baselinePath, 'utf8').trimEnd();
-  writeFileSync(
-    baselinePath,
-    `${baseline}\n--> statement-breakpoint\n${comments}\n`,
-    'utf8',
-  );
-  console.log('Merged schema/table/column comments into 0000_worklog_baseline.sql.');
 }
 
 function assertCurrentPrelaunchShape() {
@@ -122,16 +96,15 @@ function assertCurrentPrelaunchShape() {
   }
 
   const rootEntries = readdirSync(drizzleDir).sort();
-  const sqlEntries = rootEntries.filter((entry) => /^\d{4}_.+\.sql$/.test(entry));
-  const unexpected = rootEntries.filter((entry) => entry !== 'meta' && !/^\d{4}_.+\.sql$/.test(entry));
-  if (!sqlEntries.includes('0000_worklog_baseline.sql') || unexpected.length > 0) {
-    fail(`Unexpected prelaunch drizzle contents: ${rootEntries.join(', ') || '(empty)'}.`);
+  const expectedRoot = ['0000_worklog_baseline.sql', 'meta'];
+  if (!sameEntries(rootEntries, expectedRoot)) {
+    fail(`Refusing to delete unexpected migration artifacts. Expected ${expectedRoot.join(', ')}; found ${rootEntries.join(', ') || '(empty)'}.`);
   }
 
   const metaEntries = readdirSync(metaDir).sort();
   const expectedMeta = ['0000_snapshot.json', '_journal.json'];
   if (!sameEntries(metaEntries, expectedMeta)) {
-    fail(`Unexpected drizzle/meta contents. Expected ${expectedMeta.join(', ')}; found ${metaEntries.join(', ') || '(empty)'}.`);
+    fail(`Refusing to delete unexpected Drizzle metadata. Expected ${expectedMeta.join(', ')}; found ${metaEntries.join(', ') || '(empty)'}.`);
   }
 }
 
