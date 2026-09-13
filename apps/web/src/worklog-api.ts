@@ -87,7 +87,7 @@ export type RecordScope =
 export type ManualRecordInput = {
   rawText: string;
   occurredAt?: string | null;
-  /** Legacy compatibility only. New free/manual clients do not require a title. */
+  /** Optional user-entered title. Manual Records never require provider AI. */
   title?: string | null;
   /** Legacy compatibility only. New free/manual clients do not require an Entity. */
   entityId?: number;
@@ -263,7 +263,7 @@ export class WorklogApi {
   async updateRecord(
     sessionToken: string,
     recordId: number,
-    input: { expectedVersion: number; rawText?: string; occurredAt?: string | null },
+    input: { expectedVersion: number; title?: string | null; rawText?: string; occurredAt?: string | null },
   ) {
     const body = await json<{ record: Record<string, unknown> }>(
       await this.request(sessionToken, `/api/v1/worklog/records/${recordId}`, this.body('PATCH', input)),
