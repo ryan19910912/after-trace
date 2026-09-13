@@ -1,7 +1,3 @@
--- AFTERTRACE canonical prelaunch database baseline.
--- Dev and prelaunch Prod are disposable; this single migration represents the complete schema.
--- Domain/status/business validation belongs to application services.
-
 CREATE TABLE "worklog_ai_runtime_config" (
 	"id" integer PRIMARY KEY DEFAULT 1 NOT NULL,
 	"provider" varchar(128) NOT NULL,
@@ -129,6 +125,8 @@ CREATE TABLE "worklog_record_revisions" (
 	"version" integer NOT NULL,
 	"editor_user_id" bigint,
 	"channel" varchar(32) NOT NULL,
+	"previous_title" varchar(255),
+	"new_title" varchar(255),
 	"previous_raw_text" text NOT NULL,
 	"new_raw_text" text NOT NULL,
 	"previous_occurred_at" timestamp with time zone,
@@ -450,133 +448,130 @@ CREATE TABLE "worklog_newebpay_subscriptions" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
-
 --> statement-breakpoint
-ALTER TABLE "worklog_audit_logs" ADD CONSTRAINT "worklog_audit_logs_workspace_id_worklog_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."worklog_workspaces"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_audit_logs" ADD CONSTRAINT "worklog_audit_logs_actor_user_id_worklog_users_id_fk" FOREIGN KEY ("actor_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_feedback" ADD CONSTRAINT "worklog_feedback_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_source_members" ADD CONSTRAINT "worklog_source_members_source_id_worklog_sources_id_fk" FOREIGN KEY ("source_id") REFERENCES "public"."worklog_sources"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_source_members" ADD CONSTRAINT "worklog_source_members_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_sources" ADD CONSTRAINT "worklog_sources_workspace_id_worklog_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."worklog_workspaces"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_sources" ADD CONSTRAINT "worklog_sources_private_user_id_worklog_users_id_fk" FOREIGN KEY ("private_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_sources" ADD CONSTRAINT "worklog_sources_created_by_user_id_worklog_users_id_fk" FOREIGN KEY ("created_by_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_subscription_history" ADD CONSTRAINT "worklog_subscription_history_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_subscription_history" ADD CONSTRAINT "worklog_subscription_history_previous_plan_code_worklog_subscription_plans_code_fk" FOREIGN KEY ("previous_plan_code") REFERENCES "public"."worklog_subscription_plans"("code") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_subscription_history" ADD CONSTRAINT "worklog_subscription_history_next_plan_code_worklog_subscription_plans_code_fk" FOREIGN KEY ("next_plan_code") REFERENCES "public"."worklog_subscription_plans"("code") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_user_subscriptions" ADD CONSTRAINT "worklog_user_subscriptions_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_user_subscriptions" ADD CONSTRAINT "worklog_user_subscriptions_plan_code_worklog_subscription_plans_code_fk" FOREIGN KEY ("plan_code") REFERENCES "public"."worklog_subscription_plans"("code") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_workspaces" ADD CONSTRAINT "worklog_workspaces_owner_user_id_worklog_users_id_fk" FOREIGN KEY ("owner_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_record_revisions" ADD CONSTRAINT "worklog_record_revisions_record_id_worklog_records_id_fk" FOREIGN KEY ("record_id") REFERENCES "public"."worklog_records"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_record_revisions" ADD CONSTRAINT "worklog_record_revisions_editor_user_id_worklog_users_id_fk" FOREIGN KEY ("editor_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_records" ADD CONSTRAINT "worklog_records_source_id_worklog_sources_id_fk" FOREIGN KEY ("source_id") REFERENCES "public"."worklog_sources"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_records" ADD CONSTRAINT "worklog_records_author_user_id_worklog_users_id_fk" FOREIGN KEY ("author_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_records" ADD CONSTRAINT "worklog_records_deleted_by_user_id_worklog_users_id_fk" FOREIGN KEY ("deleted_by_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_auth_identities" ADD CONSTRAINT "worklog_auth_identities_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "worklog_source_invites" ADD CONSTRAINT "worklog_source_invites_source_id_worklog_sources_id_fk" FOREIGN KEY ("source_id") REFERENCES "public"."worklog_sources"("id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "worklog_source_invites" ADD CONSTRAINT "worklog_source_invites_created_by_user_id_worklog_users_id_fk" FOREIGN KEY ("created_by_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_user_public_accounts" ADD CONSTRAINT "worklog_user_public_accounts_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "worklog_notification_preferences" ADD CONSTRAINT "worklog_notification_preferences_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "worklog_notification_recipients" ADD CONSTRAINT "worklog_notification_recipients_notification_id_worklog_notifications_id_fk" FOREIGN KEY ("notification_id") REFERENCES "public"."worklog_notifications"("id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "worklog_notification_recipients" ADD CONSTRAINT "worklog_notification_recipients_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "worklog_push_subscriptions" ADD CONSTRAINT "worklog_push_subscriptions_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "worklog_tasks" ADD CONSTRAINT "worklog_tasks_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "worklog_tasks" ADD CONSTRAINT "worklog_tasks_source_id_worklog_sources_id_fk" FOREIGN KEY ("source_id") REFERENCES "public"."worklog_sources"("id") ON DELETE set null ON UPDATE no action;
-ALTER TABLE "worklog_tasks" ADD CONSTRAINT "worklog_tasks_record_id_worklog_records_id_fk" FOREIGN KEY ("record_id") REFERENCES "public"."worklog_records"("id") ON DELETE set null ON UPDATE no action;
-ALTER TABLE "worklog_ai_usage_events" ADD CONSTRAINT "worklog_ai_usage_events_actor_user_id_worklog_users_id_fk" FOREIGN KEY ("actor_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_ai_usage_events" ADD CONSTRAINT "worklog_ai_usage_events_charged_user_id_worklog_users_id_fk" FOREIGN KEY ("charged_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_ai_usage_events" ADD CONSTRAINT "worklog_ai_usage_events_workspace_id_worklog_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."worklog_workspaces"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_ai_usage_events" ADD CONSTRAINT "worklog_ai_usage_events_source_id_worklog_sources_id_fk" FOREIGN KEY ("source_id") REFERENCES "public"."worklog_sources"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_ai_usage_events" ADD CONSTRAINT "worklog_ai_usage_events_record_id_worklog_records_id_fk" FOREIGN KEY ("record_id") REFERENCES "public"."worklog_records"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_ai_grant_scopes" ADD CONSTRAINT "worklog_ai_grant_scopes_grant_id_worklog_ai_grants_id_fk" FOREIGN KEY ("grant_id") REFERENCES "public"."worklog_ai_grants"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_ai_grant_scopes" ADD CONSTRAINT "worklog_ai_grant_scopes_source_id_worklog_sources_id_fk" FOREIGN KEY ("source_id") REFERENCES "public"."worklog_sources"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_ai_grants" ADD CONSTRAINT "worklog_ai_grants_owner_user_id_worklog_users_id_fk" FOREIGN KEY ("owner_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_ai_point_reservation_funding" ADD CONSTRAINT "worklog_ai_point_reservation_funding_reservation_id_worklog_ai_point_reservations_id_fk" FOREIGN KEY ("reservation_id") REFERENCES "public"."worklog_ai_point_reservations"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_ai_point_reservation_funding" ADD CONSTRAINT "worklog_ai_point_reservation_funding_grant_id_worklog_ai_grants_id_fk" FOREIGN KEY ("grant_id") REFERENCES "public"."worklog_ai_grants"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_ai_point_reservation_funding" ADD CONSTRAINT "worklog_ai_point_reservation_funding_grant_scope_fk" FOREIGN KEY ("grant_id","grant_scope_id") REFERENCES "public"."worklog_ai_grant_scopes"("grant_id","id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_ai_point_reservations" ADD CONSTRAINT "worklog_ai_point_reservations_charged_user_id_worklog_users_id_fk" FOREIGN KEY ("charged_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_ai_point_reservations" ADD CONSTRAINT "worklog_ai_point_reservations_actor_user_id_worklog_users_id_fk" FOREIGN KEY ("actor_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_ai_point_reservations" ADD CONSTRAINT "worklog_ai_point_reservations_source_id_worklog_sources_id_fk" FOREIGN KEY ("source_id") REFERENCES "public"."worklog_sources"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_ai_point_reservations" ADD CONSTRAINT "worklog_ai_point_reservations_entitlement_grant_id_worklog_ai_grants_id_fk" FOREIGN KEY ("entitlement_grant_id") REFERENCES "public"."worklog_ai_grants"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_ai_usage_funding" ADD CONSTRAINT "worklog_ai_usage_funding_usage_event_id_worklog_ai_usage_events_id_fk" FOREIGN KEY ("usage_event_id") REFERENCES "public"."worklog_ai_usage_events"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_ai_usage_funding" ADD CONSTRAINT "worklog_ai_usage_funding_grant_id_worklog_ai_grants_id_fk" FOREIGN KEY ("grant_id") REFERENCES "public"."worklog_ai_grants"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_ai_usage_funding" ADD CONSTRAINT "worklog_ai_usage_funding_grant_scope_fk" FOREIGN KEY ("grant_id","grant_scope_id") REFERENCES "public"."worklog_ai_grant_scopes"("grant_id","id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_checkout_intents" ADD CONSTRAINT "worklog_checkout_intents_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_checkout_intents" ADD CONSTRAINT "worklog_checkout_intents_plan_code_worklog_subscription_plans_code_fk" FOREIGN KEY ("plan_code") REFERENCES "public"."worklog_subscription_plans"("code") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_subscription_lifecycle_events" ADD CONSTRAINT "worklog_subscription_lifecycle_events_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_feedback_management" ADD CONSTRAINT "worklog_feedback_management_feedback_id_worklog_feedback_id_fk" FOREIGN KEY ("feedback_id") REFERENCES "public"."worklog_feedback"("id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "worklog_newebpay_subscription_history" ADD CONSTRAINT "worklog_newebpay_history_user_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_newebpay_subscription_history" ADD CONSTRAINT "worklog_newebpay_history_checkout_fk" FOREIGN KEY ("checkout_intent_id") REFERENCES "public"."worklog_checkout_intents"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_newebpay_subscriptions" ADD CONSTRAINT "worklog_newebpay_subscriptions_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "worklog_newebpay_subscriptions" ADD CONSTRAINT "worklog_newebpay_subscriptions_checkout_intent_id_worklog_checkout_intents_id_fk" FOREIGN KEY ("checkout_intent_id") REFERENCES "public"."worklog_checkout_intents"("id") ON DELETE restrict ON UPDATE no action;
-
---> statement-breakpoint
-CREATE INDEX "worklog_audit_workspace_time_idx" ON "worklog_audit_logs" USING btree ("workspace_id","created_at");
-CREATE INDEX "worklog_audit_target_idx" ON "worklog_audit_logs" USING btree ("target_type","target_id");
-CREATE INDEX "worklog_feedback_created_idx" ON "worklog_feedback" USING btree ("created_at");
-CREATE UNIQUE INDEX "worklog_source_member_uq" ON "worklog_source_members" USING btree ("source_id","user_id");
-CREATE INDEX "worklog_source_member_user_active_idx" ON "worklog_source_members" USING btree ("user_id","is_active");
-CREATE INDEX "worklog_source_member_source_role_idx" ON "worklog_source_members" USING btree ("source_id","role","is_active");
-CREATE UNIQUE INDEX "worklog_source_private_user_uq" ON "worklog_sources" USING btree ("private_user_id");
-CREATE INDEX "worklog_source_workspace_type_idx" ON "worklog_sources" USING btree ("workspace_id","type");
-CREATE INDEX "worklog_source_creator_idx" ON "worklog_sources" USING btree ("created_by_user_id");
-CREATE INDEX "worklog_subscription_history_user_time_idx" ON "worklog_subscription_history" USING btree ("user_id","created_at");
-CREATE UNIQUE INDEX "worklog_user_subscription_user_uq" ON "worklog_user_subscriptions" USING btree ("user_id");
-CREATE INDEX "worklog_user_subscription_plan_status_idx" ON "worklog_user_subscriptions" USING btree ("plan_code","status");
-CREATE UNIQUE INDEX "worklog_workspace_owner_uq" ON "worklog_workspaces" USING btree ("owner_user_id");
-CREATE UNIQUE INDEX "worklog_record_revision_record_version_uq" ON "worklog_record_revisions" USING btree ("record_id","version");
-CREATE INDEX "worklog_record_revision_record_time_idx" ON "worklog_record_revisions" USING btree ("record_id","created_at");
-CREATE INDEX "worklog_record_source_status_occurred_idx" ON "worklog_records" USING btree ("source_id","status","occurred_at");
-CREATE INDEX "worklog_record_author_type_idx" ON "worklog_records" USING btree ("author_user_id","input_type");
-CREATE INDEX "worklog_record_ai_enrichment_idx" ON "worklog_records" USING btree ("ai_enrichment_status","ai_enriched_at");
-CREATE UNIQUE INDEX "worklog_auth_identity_provider_subject_uq" ON "worklog_auth_identities" USING btree ("provider","subject");
-CREATE INDEX "worklog_auth_identity_user_idx" ON "worklog_auth_identities" USING btree ("user_id");
-CREATE UNIQUE INDEX "worklog_source_invite_token_hash_uq" ON "worklog_source_invites" USING btree ("token_hash");
-CREATE INDEX "worklog_source_invite_source_active_idx" ON "worklog_source_invites" USING btree ("source_id","revoked_at","expires_at");
-CREATE UNIQUE INDEX "worklog_user_public_account_id_uq" ON "worklog_user_public_accounts" USING btree ("public_account_id");
-CREATE UNIQUE INDEX "worklog_notification_recipient_uq" ON "worklog_notification_recipients" USING btree ("notification_id","user_id");
-CREATE INDEX "worklog_notification_recipient_user_read_idx" ON "worklog_notification_recipients" USING btree ("user_id","read_at","created_at");
-CREATE INDEX "worklog_notification_recipient_push_idx" ON "worklog_notification_recipients" USING btree ("push_status","push_next_attempt_at","push_attempted_at");
-CREATE UNIQUE INDEX "worklog_notification_system_event_key_uq" ON "worklog_notifications" USING btree ("system_event_key");
-CREATE INDEX "worklog_notification_status_schedule_idx" ON "worklog_notifications" USING btree ("status","scheduled_at");
-CREATE INDEX "worklog_notification_type_created_idx" ON "worklog_notifications" USING btree ("type","created_at");
-CREATE UNIQUE INDEX "worklog_push_subscription_endpoint_uq" ON "worklog_push_subscriptions" USING btree ("endpoint");
-CREATE INDEX "worklog_push_subscription_user_active_idx" ON "worklog_push_subscriptions" USING btree ("user_id","revoked_at");
-CREATE INDEX "worklog_task_user_status_idx" ON "worklog_tasks" USING btree ("user_id","status","created_at");
-CREATE INDEX "worklog_task_due_reminder_idx" ON "worklog_tasks" USING btree ("status","remind_at","reminder_notified_at");
-CREATE INDEX "worklog_task_source_idx" ON "worklog_tasks" USING btree ("source_id","status");
-CREATE UNIQUE INDEX "worklog_ai_usage_reservation_uq" ON "worklog_ai_usage_events" USING btree ("reservation_token");
-CREATE INDEX "worklog_ai_usage_actor_time_idx" ON "worklog_ai_usage_events" USING btree ("actor_user_id","created_at");
-CREATE INDEX "worklog_ai_usage_charged_time_idx" ON "worklog_ai_usage_events" USING btree ("charged_user_id","created_at");
-CREATE INDEX "worklog_ai_usage_source_actor_time_idx" ON "worklog_ai_usage_events" USING btree ("source_id","actor_user_id","created_at");
-CREATE INDEX "worklog_ai_usage_workspace_time_idx" ON "worklog_ai_usage_events" USING btree ("workspace_id","created_at");
-CREATE INDEX "worklog_ai_usage_operation_time_idx" ON "worklog_ai_usage_events" USING btree ("operation","created_at");
-CREATE INDEX "worklog_ai_usage_record_idx" ON "worklog_ai_usage_events" USING btree ("record_id");
-CREATE UNIQUE INDEX "worklog_ai_grant_scope_uq" ON "worklog_ai_grant_scopes" USING btree ("grant_id","source_id");
-CREATE INDEX "worklog_ai_grant_scope_source_enabled_idx" ON "worklog_ai_grant_scopes" USING btree ("source_id","enabled");
-CREATE UNIQUE INDEX "worklog_ai_grant_origin_uq" ON "worklog_ai_grants" USING btree ("owner_user_id","origin_key");
-CREATE INDEX "worklog_ai_grant_owner_status_time_idx" ON "worklog_ai_grants" USING btree ("owner_user_id","status","effective_at","expires_at");
-CREATE INDEX "worklog_ai_grant_type_status_idx" ON "worklog_ai_grants" USING btree ("type","status");
-CREATE UNIQUE INDEX "worklog_ai_point_reservation_funding_uq" ON "worklog_ai_point_reservation_funding" USING btree ("reservation_id","grant_id","grant_scope_id");
-CREATE INDEX "worklog_ai_point_reservation_funding_grant_idx" ON "worklog_ai_point_reservation_funding" USING btree ("grant_id","created_at");
-CREATE INDEX "worklog_ai_point_reservation_user_status_idx" ON "worklog_ai_point_reservations" USING btree ("charged_user_id","status","expires_at");
-CREATE INDEX "worklog_ai_point_reservation_source_idx" ON "worklog_ai_point_reservations" USING btree ("source_id","created_at");
-CREATE INDEX "worklog_ai_point_reservation_entitlement_grant_idx" ON "worklog_ai_point_reservations" USING btree ("entitlement_grant_id","status");
-CREATE UNIQUE INDEX "worklog_ai_usage_funding_uq" ON "worklog_ai_usage_funding" USING btree ("usage_event_id","grant_id","grant_scope_id");
-CREATE INDEX "worklog_ai_usage_funding_grant_idx" ON "worklog_ai_usage_funding" USING btree ("grant_id","created_at");
-CREATE UNIQUE INDEX "worklog_checkout_intent_request_uq" ON "worklog_checkout_intents" USING btree ("request_key");
-CREATE INDEX "worklog_checkout_intent_user_time_idx" ON "worklog_checkout_intents" USING btree ("user_id","created_at");
-CREATE INDEX "worklog_checkout_intent_status_time_idx" ON "worklog_checkout_intents" USING btree ("status","created_at");
-CREATE UNIQUE INDEX "worklog_subscription_lifecycle_provider_event_uq" ON "worklog_subscription_lifecycle_events" USING btree ("provider","external_event_key");
-CREATE INDEX "worklog_subscription_lifecycle_user_time_idx" ON "worklog_subscription_lifecycle_events" USING btree ("user_id","occurred_at");
-CREATE INDEX "worklog_subscription_lifecycle_type_time_idx" ON "worklog_subscription_lifecycle_events" USING btree ("event_type","occurred_at");
-CREATE INDEX "worklog_feedback_management_status_time_idx" ON "worklog_feedback_management" USING btree ("status","updated_at");
-CREATE UNIQUE INDEX "worklog_newebpay_history_order_uq" ON "worklog_newebpay_subscription_history" USING btree ("merchant_order_no");
-CREATE UNIQUE INDEX "worklog_newebpay_history_period_uq" ON "worklog_newebpay_subscription_history" USING btree ("period_no");
-CREATE INDEX "worklog_newebpay_history_user_time_idx" ON "worklog_newebpay_subscription_history" USING btree ("user_id","updated_at");
-CREATE INDEX "worklog_newebpay_history_status_time_idx" ON "worklog_newebpay_subscription_history" USING btree ("status","updated_at");
-CREATE UNIQUE INDEX "worklog_newebpay_subscription_user_uq" ON "worklog_newebpay_subscriptions" USING btree ("user_id");
-CREATE UNIQUE INDEX "worklog_newebpay_subscription_order_uq" ON "worklog_newebpay_subscriptions" USING btree ("merchant_order_no");
-CREATE UNIQUE INDEX "worklog_newebpay_subscription_period_uq" ON "worklog_newebpay_subscriptions" USING btree ("period_no");
+ALTER TABLE "worklog_audit_logs" ADD CONSTRAINT "worklog_audit_logs_workspace_id_worklog_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."worklog_workspaces"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_audit_logs" ADD CONSTRAINT "worklog_audit_logs_actor_user_id_worklog_users_id_fk" FOREIGN KEY ("actor_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_feedback" ADD CONSTRAINT "worklog_feedback_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_source_members" ADD CONSTRAINT "worklog_source_members_source_id_worklog_sources_id_fk" FOREIGN KEY ("source_id") REFERENCES "public"."worklog_sources"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_source_members" ADD CONSTRAINT "worklog_source_members_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_sources" ADD CONSTRAINT "worklog_sources_workspace_id_worklog_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."worklog_workspaces"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_sources" ADD CONSTRAINT "worklog_sources_private_user_id_worklog_users_id_fk" FOREIGN KEY ("private_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_sources" ADD CONSTRAINT "worklog_sources_created_by_user_id_worklog_users_id_fk" FOREIGN KEY ("created_by_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_subscription_history" ADD CONSTRAINT "worklog_subscription_history_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_subscription_history" ADD CONSTRAINT "worklog_subscription_history_previous_plan_code_worklog_subscription_plans_code_fk" FOREIGN KEY ("previous_plan_code") REFERENCES "public"."worklog_subscription_plans"("code") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_subscription_history" ADD CONSTRAINT "worklog_subscription_history_next_plan_code_worklog_subscription_plans_code_fk" FOREIGN KEY ("next_plan_code") REFERENCES "public"."worklog_subscription_plans"("code") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_user_subscriptions" ADD CONSTRAINT "worklog_user_subscriptions_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_user_subscriptions" ADD CONSTRAINT "worklog_user_subscriptions_plan_code_worklog_subscription_plans_code_fk" FOREIGN KEY ("plan_code") REFERENCES "public"."worklog_subscription_plans"("code") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_workspaces" ADD CONSTRAINT "worklog_workspaces_owner_user_id_worklog_users_id_fk" FOREIGN KEY ("owner_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_record_revisions" ADD CONSTRAINT "worklog_record_revisions_record_id_worklog_records_id_fk" FOREIGN KEY ("record_id") REFERENCES "public"."worklog_records"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_record_revisions" ADD CONSTRAINT "worklog_record_revisions_editor_user_id_worklog_users_id_fk" FOREIGN KEY ("editor_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_records" ADD CONSTRAINT "worklog_records_source_id_worklog_sources_id_fk" FOREIGN KEY ("source_id") REFERENCES "public"."worklog_sources"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_records" ADD CONSTRAINT "worklog_records_author_user_id_worklog_users_id_fk" FOREIGN KEY ("author_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_records" ADD CONSTRAINT "worklog_records_deleted_by_user_id_worklog_users_id_fk" FOREIGN KEY ("deleted_by_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_auth_identities" ADD CONSTRAINT "worklog_auth_identities_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_source_invites" ADD CONSTRAINT "worklog_source_invites_source_id_worklog_sources_id_fk" FOREIGN KEY ("source_id") REFERENCES "public"."worklog_sources"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_source_invites" ADD CONSTRAINT "worklog_source_invites_created_by_user_id_worklog_users_id_fk" FOREIGN KEY ("created_by_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_user_public_accounts" ADD CONSTRAINT "worklog_user_public_accounts_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_notification_preferences" ADD CONSTRAINT "worklog_notification_preferences_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_notification_recipients" ADD CONSTRAINT "worklog_notification_recipients_notification_id_worklog_notifications_id_fk" FOREIGN KEY ("notification_id") REFERENCES "public"."worklog_notifications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_notification_recipients" ADD CONSTRAINT "worklog_notification_recipients_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_push_subscriptions" ADD CONSTRAINT "worklog_push_subscriptions_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_tasks" ADD CONSTRAINT "worklog_tasks_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_tasks" ADD CONSTRAINT "worklog_tasks_source_id_worklog_sources_id_fk" FOREIGN KEY ("source_id") REFERENCES "public"."worklog_sources"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_tasks" ADD CONSTRAINT "worklog_tasks_record_id_worklog_records_id_fk" FOREIGN KEY ("record_id") REFERENCES "public"."worklog_records"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_ai_usage_events" ADD CONSTRAINT "worklog_ai_usage_events_actor_user_id_worklog_users_id_fk" FOREIGN KEY ("actor_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_ai_usage_events" ADD CONSTRAINT "worklog_ai_usage_events_charged_user_id_worklog_users_id_fk" FOREIGN KEY ("charged_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_ai_usage_events" ADD CONSTRAINT "worklog_ai_usage_events_workspace_id_worklog_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."worklog_workspaces"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_ai_usage_events" ADD CONSTRAINT "worklog_ai_usage_events_source_id_worklog_sources_id_fk" FOREIGN KEY ("source_id") REFERENCES "public"."worklog_sources"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_ai_usage_events" ADD CONSTRAINT "worklog_ai_usage_events_record_id_worklog_records_id_fk" FOREIGN KEY ("record_id") REFERENCES "public"."worklog_records"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_ai_grant_scopes" ADD CONSTRAINT "worklog_ai_grant_scopes_grant_id_worklog_ai_grants_id_fk" FOREIGN KEY ("grant_id") REFERENCES "public"."worklog_ai_grants"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_ai_grant_scopes" ADD CONSTRAINT "worklog_ai_grant_scopes_source_id_worklog_sources_id_fk" FOREIGN KEY ("source_id") REFERENCES "public"."worklog_sources"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_ai_grants" ADD CONSTRAINT "worklog_ai_grants_owner_user_id_worklog_users_id_fk" FOREIGN KEY ("owner_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_ai_point_reservation_funding" ADD CONSTRAINT "worklog_ai_point_reservation_funding_reservation_id_worklog_ai_point_reservations_id_fk" FOREIGN KEY ("reservation_id") REFERENCES "public"."worklog_ai_point_reservations"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_ai_point_reservation_funding" ADD CONSTRAINT "worklog_ai_point_reservation_funding_grant_id_worklog_ai_grants_id_fk" FOREIGN KEY ("grant_id") REFERENCES "public"."worklog_ai_grants"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_ai_point_reservation_funding" ADD CONSTRAINT "worklog_ai_point_reservation_funding_grant_scope_fk" FOREIGN KEY ("grant_id","grant_scope_id") REFERENCES "public"."worklog_ai_grant_scopes"("grant_id","id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_ai_point_reservations" ADD CONSTRAINT "worklog_ai_point_reservations_charged_user_id_worklog_users_id_fk" FOREIGN KEY ("charged_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_ai_point_reservations" ADD CONSTRAINT "worklog_ai_point_reservations_actor_user_id_worklog_users_id_fk" FOREIGN KEY ("actor_user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_ai_point_reservations" ADD CONSTRAINT "worklog_ai_point_reservations_source_id_worklog_sources_id_fk" FOREIGN KEY ("source_id") REFERENCES "public"."worklog_sources"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_ai_point_reservations" ADD CONSTRAINT "worklog_ai_point_reservations_entitlement_grant_id_worklog_ai_grants_id_fk" FOREIGN KEY ("entitlement_grant_id") REFERENCES "public"."worklog_ai_grants"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_ai_usage_funding" ADD CONSTRAINT "worklog_ai_usage_funding_usage_event_id_worklog_ai_usage_events_id_fk" FOREIGN KEY ("usage_event_id") REFERENCES "public"."worklog_ai_usage_events"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_ai_usage_funding" ADD CONSTRAINT "worklog_ai_usage_funding_grant_id_worklog_ai_grants_id_fk" FOREIGN KEY ("grant_id") REFERENCES "public"."worklog_ai_grants"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_ai_usage_funding" ADD CONSTRAINT "worklog_ai_usage_funding_grant_scope_fk" FOREIGN KEY ("grant_id","grant_scope_id") REFERENCES "public"."worklog_ai_grant_scopes"("grant_id","id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_checkout_intents" ADD CONSTRAINT "worklog_checkout_intents_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_checkout_intents" ADD CONSTRAINT "worklog_checkout_intents_plan_code_worklog_subscription_plans_code_fk" FOREIGN KEY ("plan_code") REFERENCES "public"."worklog_subscription_plans"("code") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_subscription_lifecycle_events" ADD CONSTRAINT "worklog_subscription_lifecycle_events_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_feedback_management" ADD CONSTRAINT "worklog_feedback_management_feedback_id_worklog_feedback_id_fk" FOREIGN KEY ("feedback_id") REFERENCES "public"."worklog_feedback"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_newebpay_subscription_history" ADD CONSTRAINT "worklog_newebpay_subscription_history_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_newebpay_subscription_history" ADD CONSTRAINT "worklog_newebpay_subscription_history_checkout_intent_id_worklog_checkout_intents_id_fk" FOREIGN KEY ("checkout_intent_id") REFERENCES "public"."worklog_checkout_intents"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_newebpay_subscriptions" ADD CONSTRAINT "worklog_newebpay_subscriptions_user_id_worklog_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."worklog_users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "worklog_newebpay_subscriptions" ADD CONSTRAINT "worklog_newebpay_subscriptions_checkout_intent_id_worklog_checkout_intents_id_fk" FOREIGN KEY ("checkout_intent_id") REFERENCES "public"."worklog_checkout_intents"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "worklog_audit_workspace_time_idx" ON "worklog_audit_logs" USING btree ("workspace_id","created_at");--> statement-breakpoint
+CREATE INDEX "worklog_audit_target_idx" ON "worklog_audit_logs" USING btree ("target_type","target_id");--> statement-breakpoint
+CREATE INDEX "worklog_feedback_created_idx" ON "worklog_feedback" USING btree ("created_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "worklog_source_member_uq" ON "worklog_source_members" USING btree ("source_id","user_id");--> statement-breakpoint
+CREATE INDEX "worklog_source_member_user_active_idx" ON "worklog_source_members" USING btree ("user_id","is_active");--> statement-breakpoint
+CREATE INDEX "worklog_source_member_source_role_idx" ON "worklog_source_members" USING btree ("source_id","role","is_active");--> statement-breakpoint
+CREATE UNIQUE INDEX "worklog_source_private_user_uq" ON "worklog_sources" USING btree ("private_user_id");--> statement-breakpoint
+CREATE INDEX "worklog_source_workspace_type_idx" ON "worklog_sources" USING btree ("workspace_id","type");--> statement-breakpoint
+CREATE INDEX "worklog_source_creator_idx" ON "worklog_sources" USING btree ("created_by_user_id");--> statement-breakpoint
+CREATE INDEX "worklog_subscription_history_user_time_idx" ON "worklog_subscription_history" USING btree ("user_id","created_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "worklog_user_subscription_user_uq" ON "worklog_user_subscriptions" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX "worklog_user_subscription_plan_status_idx" ON "worklog_user_subscriptions" USING btree ("plan_code","status");--> statement-breakpoint
+CREATE UNIQUE INDEX "worklog_workspace_owner_uq" ON "worklog_workspaces" USING btree ("owner_user_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "worklog_record_revision_record_version_uq" ON "worklog_record_revisions" USING btree ("record_id","version");--> statement-breakpoint
+CREATE INDEX "worklog_record_revision_record_time_idx" ON "worklog_record_revisions" USING btree ("record_id","created_at");--> statement-breakpoint
+CREATE INDEX "worklog_record_source_status_occurred_idx" ON "worklog_records" USING btree ("source_id","status","occurred_at");--> statement-breakpoint
+CREATE INDEX "worklog_record_author_type_idx" ON "worklog_records" USING btree ("author_user_id","input_type");--> statement-breakpoint
+CREATE INDEX "worklog_record_ai_enrichment_idx" ON "worklog_records" USING btree ("ai_enrichment_status","ai_enriched_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "worklog_auth_identity_provider_subject_uq" ON "worklog_auth_identities" USING btree ("provider","subject");--> statement-breakpoint
+CREATE INDEX "worklog_auth_identity_user_idx" ON "worklog_auth_identities" USING btree ("user_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "worklog_source_invite_token_hash_uq" ON "worklog_source_invites" USING btree ("token_hash");--> statement-breakpoint
+CREATE INDEX "worklog_source_invite_source_active_idx" ON "worklog_source_invites" USING btree ("source_id","revoked_at","expires_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "worklog_user_public_account_id_uq" ON "worklog_user_public_accounts" USING btree ("public_account_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "worklog_notification_recipient_uq" ON "worklog_notification_recipients" USING btree ("notification_id","user_id");--> statement-breakpoint
+CREATE INDEX "worklog_notification_recipient_user_read_idx" ON "worklog_notification_recipients" USING btree ("user_id","read_at","created_at");--> statement-breakpoint
+CREATE INDEX "worklog_notification_recipient_push_idx" ON "worklog_notification_recipients" USING btree ("push_status","push_next_attempt_at","push_attempted_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "worklog_notification_system_event_key_uq" ON "worklog_notifications" USING btree ("system_event_key");--> statement-breakpoint
+CREATE INDEX "worklog_notification_status_schedule_idx" ON "worklog_notifications" USING btree ("status","scheduled_at");--> statement-breakpoint
+CREATE INDEX "worklog_notification_type_created_idx" ON "worklog_notifications" USING btree ("type","created_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "worklog_push_subscription_endpoint_uq" ON "worklog_push_subscriptions" USING btree ("endpoint");--> statement-breakpoint
+CREATE INDEX "worklog_push_subscription_user_active_idx" ON "worklog_push_subscriptions" USING btree ("user_id","revoked_at");--> statement-breakpoint
+CREATE INDEX "worklog_task_user_status_idx" ON "worklog_tasks" USING btree ("user_id","status","created_at");--> statement-breakpoint
+CREATE INDEX "worklog_task_due_reminder_idx" ON "worklog_tasks" USING btree ("status","remind_at","reminder_notified_at");--> statement-breakpoint
+CREATE INDEX "worklog_task_source_idx" ON "worklog_tasks" USING btree ("source_id","status");--> statement-breakpoint
+CREATE UNIQUE INDEX "worklog_ai_usage_reservation_uq" ON "worklog_ai_usage_events" USING btree ("reservation_token");--> statement-breakpoint
+CREATE INDEX "worklog_ai_usage_actor_time_idx" ON "worklog_ai_usage_events" USING btree ("actor_user_id","created_at");--> statement-breakpoint
+CREATE INDEX "worklog_ai_usage_charged_time_idx" ON "worklog_ai_usage_events" USING btree ("charged_user_id","created_at");--> statement-breakpoint
+CREATE INDEX "worklog_ai_usage_source_actor_time_idx" ON "worklog_ai_usage_events" USING btree ("source_id","actor_user_id","created_at");--> statement-breakpoint
+CREATE INDEX "worklog_ai_usage_workspace_time_idx" ON "worklog_ai_usage_events" USING btree ("workspace_id","created_at");--> statement-breakpoint
+CREATE INDEX "worklog_ai_usage_operation_time_idx" ON "worklog_ai_usage_events" USING btree ("operation","created_at");--> statement-breakpoint
+CREATE INDEX "worklog_ai_usage_record_idx" ON "worklog_ai_usage_events" USING btree ("record_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "worklog_ai_grant_scope_uq" ON "worklog_ai_grant_scopes" USING btree ("grant_id","source_id");--> statement-breakpoint
+CREATE INDEX "worklog_ai_grant_scope_source_enabled_idx" ON "worklog_ai_grant_scopes" USING btree ("source_id","enabled");--> statement-breakpoint
+CREATE UNIQUE INDEX "worklog_ai_grant_origin_uq" ON "worklog_ai_grants" USING btree ("owner_user_id","origin_key");--> statement-breakpoint
+CREATE INDEX "worklog_ai_grant_owner_status_time_idx" ON "worklog_ai_grants" USING btree ("owner_user_id","status","effective_at","expires_at");--> statement-breakpoint
+CREATE INDEX "worklog_ai_grant_type_status_idx" ON "worklog_ai_grants" USING btree ("type","status");--> statement-breakpoint
+CREATE UNIQUE INDEX "worklog_ai_point_reservation_funding_uq" ON "worklog_ai_point_reservation_funding" USING btree ("reservation_id","grant_id","grant_scope_id");--> statement-breakpoint
+CREATE INDEX "worklog_ai_point_reservation_funding_grant_idx" ON "worklog_ai_point_reservation_funding" USING btree ("grant_id","created_at");--> statement-breakpoint
+CREATE INDEX "worklog_ai_point_reservation_user_status_idx" ON "worklog_ai_point_reservations" USING btree ("charged_user_id","status","expires_at");--> statement-breakpoint
+CREATE INDEX "worklog_ai_point_reservation_source_idx" ON "worklog_ai_point_reservations" USING btree ("source_id","created_at");--> statement-breakpoint
+CREATE INDEX "worklog_ai_point_reservation_entitlement_grant_idx" ON "worklog_ai_point_reservations" USING btree ("entitlement_grant_id","status");--> statement-breakpoint
+CREATE UNIQUE INDEX "worklog_ai_usage_funding_uq" ON "worklog_ai_usage_funding" USING btree ("usage_event_id","grant_id","grant_scope_id");--> statement-breakpoint
+CREATE INDEX "worklog_ai_usage_funding_grant_idx" ON "worklog_ai_usage_funding" USING btree ("grant_id","created_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "worklog_checkout_intent_request_uq" ON "worklog_checkout_intents" USING btree ("request_key");--> statement-breakpoint
+CREATE INDEX "worklog_checkout_intent_user_time_idx" ON "worklog_checkout_intents" USING btree ("user_id","created_at");--> statement-breakpoint
+CREATE INDEX "worklog_checkout_intent_status_time_idx" ON "worklog_checkout_intents" USING btree ("status","created_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "worklog_subscription_lifecycle_provider_event_uq" ON "worklog_subscription_lifecycle_events" USING btree ("provider","external_event_key");--> statement-breakpoint
+CREATE INDEX "worklog_subscription_lifecycle_user_time_idx" ON "worklog_subscription_lifecycle_events" USING btree ("user_id","occurred_at");--> statement-breakpoint
+CREATE INDEX "worklog_subscription_lifecycle_type_time_idx" ON "worklog_subscription_lifecycle_events" USING btree ("event_type","occurred_at");--> statement-breakpoint
+CREATE INDEX "worklog_feedback_management_status_time_idx" ON "worklog_feedback_management" USING btree ("status","updated_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "worklog_newebpay_history_order_uq" ON "worklog_newebpay_subscription_history" USING btree ("merchant_order_no");--> statement-breakpoint
+CREATE UNIQUE INDEX "worklog_newebpay_history_period_uq" ON "worklog_newebpay_subscription_history" USING btree ("period_no");--> statement-breakpoint
+CREATE INDEX "worklog_newebpay_history_user_time_idx" ON "worklog_newebpay_subscription_history" USING btree ("user_id","updated_at");--> statement-breakpoint
+CREATE INDEX "worklog_newebpay_history_status_time_idx" ON "worklog_newebpay_subscription_history" USING btree ("status","updated_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "worklog_newebpay_subscription_user_uq" ON "worklog_newebpay_subscriptions" USING btree ("user_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "worklog_newebpay_subscription_order_uq" ON "worklog_newebpay_subscriptions" USING btree ("merchant_order_no");--> statement-breakpoint
+CREATE UNIQUE INDEX "worklog_newebpay_subscription_period_uq" ON "worklog_newebpay_subscriptions" USING btree ("period_no");--> statement-breakpoint
 CREATE INDEX "worklog_newebpay_subscription_status_time_idx" ON "worklog_newebpay_subscriptions" USING btree ("status","updated_at");
 
 --> statement-breakpoint
@@ -685,6 +680,8 @@ COMMENT ON COLUMN "worklog_record_revisions"."record_id" IS '對應 Record ID。
 COMMENT ON COLUMN "worklog_record_revisions"."version" IS 'Record 版本號。';
 COMMENT ON COLUMN "worklog_record_revisions"."editor_user_id" IS '執行修改的使用者 ID。';
 COMMENT ON COLUMN "worklog_record_revisions"."channel" IS '此次修改的來源管道。';
+COMMENT ON COLUMN "worklog_record_revisions"."previous_title" IS '修改前的紀錄標題。';
+COMMENT ON COLUMN "worklog_record_revisions"."new_title" IS '修改後的紀錄標題。';
 COMMENT ON COLUMN "worklog_record_revisions"."previous_raw_text" IS '修改前原始文字。';
 COMMENT ON COLUMN "worklog_record_revisions"."new_raw_text" IS '修改後原始文字。';
 COMMENT ON COLUMN "worklog_record_revisions"."previous_occurred_at" IS '修改前事件發生時間。';

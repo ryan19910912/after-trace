@@ -1,5 +1,5 @@
 {
-  "id": "11cba9b6-b326-47e2-ab35-2e7ab056674c",
+  "id": "4de4ff8c-c987-4bd7-94c7-05f77da45a10",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -254,8 +254,7 @@
         },
         "channel": {
           "name": "channel",
-          "type": "worklog_feedback_channel",
-          "typeSchema": "public",
+          "type": "varchar(32)",
           "primaryKey": false,
           "notNull": true,
           "default": "'PWA'"
@@ -342,8 +341,7 @@
         },
         "role": {
           "name": "role",
-          "type": "worklog_source_member_role",
-          "typeSchema": "public",
+          "type": "varchar(32)",
           "primaryKey": false,
           "notNull": true,
           "default": "'MEMBER'"
@@ -507,15 +505,13 @@
         },
         "type": {
           "name": "type",
-          "type": "worklog_source_type",
-          "typeSchema": "public",
+          "type": "varchar(32)",
           "primaryKey": false,
           "notNull": true
         },
         "status": {
           "name": "status",
-          "type": "worklog_source_status",
-          "typeSchema": "public",
+          "type": "varchar(32)",
           "primaryKey": false,
           "notNull": true,
           "default": "'ACTIVE'"
@@ -665,12 +661,7 @@
         }
       },
       "policies": {},
-      "checkConstraints": {
-        "worklog_source_identity_shape_ck": {
-          "name": "worklog_source_identity_shape_ck",
-          "value": "(\n        (\"worklog_sources\".\"type\" = 'PRIVATE' AND \"worklog_sources\".\"private_user_id\" IS NOT NULL AND \"worklog_sources\".\"name\" IS NULL)\n        OR\n        (\"worklog_sources\".\"type\" = 'GROUP' AND \"worklog_sources\".\"private_user_id\" IS NULL AND \"worklog_sources\".\"name\" IS NOT NULL AND length(btrim(\"worklog_sources\".\"name\")) > 0)\n      )"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.worklog_subscription_history": {
@@ -703,8 +694,7 @@
         },
         "source": {
           "name": "source",
-          "type": "worklog_subscription_source",
-          "typeSchema": "public",
+          "type": "varchar(32)",
           "primaryKey": false,
           "notNull": true
         },
@@ -816,8 +806,7 @@
         },
         "plan_type": {
           "name": "plan_type",
-          "type": "worklog_plan_type",
-          "typeSchema": "public",
+          "type": "varchar(32)",
           "primaryKey": false,
           "notNull": true
         },
@@ -915,24 +904,7 @@
         }
       },
       "policies": {},
-      "checkConstraints": {
-        "worklog_plan_v1_identity_ck": {
-          "name": "worklog_plan_v1_identity_ck",
-          "value": "(\n        (\"worklog_subscription_plans\".\"code\" = 'FREE' AND \"worklog_subscription_plans\".\"plan_type\" = 'FREE' AND \"worklog_subscription_plans\".\"price_twd\" = 0 AND \"worklog_subscription_plans\".\"ai_enabled\" = FALSE)\n        OR\n        (\"worklog_subscription_plans\".\"code\" = 'AI_PRO' AND \"worklog_subscription_plans\".\"plan_type\" = 'SUBSCRIPTION' AND \"worklog_subscription_plans\".\"price_twd\" = 99 AND \"worklog_subscription_plans\".\"ai_enabled\" = TRUE)\n      )"
-        },
-        "worklog_plan_grant_points_ck": {
-          "name": "worklog_plan_grant_points_ck",
-          "value": "\"worklog_subscription_plans\".\"grant_points\" >= 0"
-        },
-        "worklog_plan_ai_cap_values_ck": {
-          "name": "worklog_plan_ai_cap_values_ck",
-          "value": "(\n        (\"worklog_subscription_plans\".\"monthly_ai_point_cap\" IS NULL OR \"worklog_subscription_plans\".\"monthly_ai_point_cap\" > 0)\n        AND (\"worklog_subscription_plans\".\"monthly_provider_cost_cap_twd\" IS NULL OR \"worklog_subscription_plans\".\"monthly_provider_cost_cap_twd\" > 0)\n        AND (\"worklog_subscription_plans\".\"per_request_ai_point_cap\" IS NULL OR \"worklog_subscription_plans\".\"per_request_ai_point_cap\" > 0)\n      )"
-        },
-        "worklog_plan_ai_enabled_shape_ck": {
-          "name": "worklog_plan_ai_enabled_shape_ck",
-          "value": "(\n        \"worklog_subscription_plans\".\"ai_enabled\" = FALSE\n        OR (\n          \"worklog_subscription_plans\".\"plan_type\" = 'SUBSCRIPTION'\n          AND \"worklog_subscription_plans\".\"price_twd\" = 99\n          AND \"worklog_subscription_plans\".\"monthly_ai_point_cap\" IS NOT NULL\n          AND \"worklog_subscription_plans\".\"monthly_provider_cost_cap_twd\" IS NOT NULL\n        )\n      )"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.worklog_user_subscriptions": {
@@ -959,16 +931,14 @@
         },
         "status": {
           "name": "status",
-          "type": "worklog_subscription_status",
-          "typeSchema": "public",
+          "type": "varchar(32)",
           "primaryKey": false,
           "notNull": true,
           "default": "'ACTIVE'"
         },
         "source": {
           "name": "source",
-          "type": "worklog_subscription_source",
-          "typeSchema": "public",
+          "type": "varchar(32)",
           "primaryKey": false,
           "notNull": true,
           "default": "'FREE'"
@@ -1224,10 +1194,21 @@
         },
         "channel": {
           "name": "channel",
-          "type": "worklog_record_revision_channel",
-          "typeSchema": "public",
+          "type": "varchar(32)",
           "primaryKey": false,
           "notNull": true
+        },
+        "previous_title": {
+          "name": "previous_title",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "new_title": {
+          "name": "new_title",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
         },
         "previous_raw_text": {
           "name": "previous_raw_text",
@@ -1255,15 +1236,13 @@
         },
         "previous_status": {
           "name": "previous_status",
-          "type": "worklog_record_status",
-          "typeSchema": "public",
+          "type": "varchar(32)",
           "primaryKey": false,
           "notNull": true
         },
         "new_status": {
           "name": "new_status",
-          "type": "worklog_record_status",
-          "typeSchema": "public",
+          "type": "varchar(32)",
           "primaryKey": false,
           "notNull": true
         },
@@ -1377,8 +1356,7 @@
         },
         "input_type": {
           "name": "input_type",
-          "type": "worklog_record_input_type",
-          "typeSchema": "public",
+          "type": "varchar(32)",
           "primaryKey": false,
           "notNull": true
         },
@@ -1415,8 +1393,7 @@
         },
         "ai_enrichment_status": {
           "name": "ai_enrichment_status",
-          "type": "worklog_record_ai_enrichment_status",
-          "typeSchema": "public",
+          "type": "varchar(32)",
           "primaryKey": false,
           "notNull": true,
           "default": "'NONE'"
@@ -1435,8 +1412,7 @@
         },
         "status": {
           "name": "status",
-          "type": "worklog_record_status",
-          "typeSchema": "public",
+          "type": "varchar(32)",
           "primaryKey": false,
           "notNull": true,
           "default": "'ACTIVE'"
@@ -1620,8 +1596,7 @@
         },
         "provider": {
           "name": "provider",
-          "type": "worklog_auth_provider",
-          "typeSchema": "public",
+          "type": "varchar(32)",
           "primaryKey": false,
           "notNull": true
         },
@@ -1860,16 +1835,7 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "worklog_source_invite_use_count_ck": {
-          "name": "worklog_source_invite_use_count_ck",
-          "value": "\"worklog_source_invites\".\"use_count\" >= 0"
-        },
-        "worklog_source_invite_max_uses_ck": {
-          "name": "worklog_source_invite_max_uses_ck",
-          "value": "\"worklog_source_invites\".\"max_uses\" IS NULL OR (\"worklog_source_invites\".\"max_uses\" > 0 AND \"worklog_source_invites\".\"use_count\" <= \"worklog_source_invites\".\"max_uses\")"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.worklog_user_public_accounts": {
@@ -2032,8 +1998,7 @@
         },
         "push_status": {
           "name": "push_status",
-          "type": "worklog_notification_delivery_status",
-          "typeSchema": "public",
+          "type": "varchar(32)",
           "primaryKey": false,
           "notNull": true,
           "default": "'PENDING'"
@@ -2192,12 +2157,7 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "worklog_notification_recipient_push_attempt_count_ck": {
-          "name": "worklog_notification_recipient_push_attempt_count_ck",
-          "value": "\"worklog_notification_recipients\".\"push_attempt_count\" >= 0"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.worklog_notifications": {
@@ -2212,23 +2172,20 @@
         },
         "type": {
           "name": "type",
-          "type": "worklog_notification_type",
-          "typeSchema": "public",
+          "type": "varchar(32)",
           "primaryKey": false,
           "notNull": true
         },
         "status": {
           "name": "status",
-          "type": "worklog_notification_status",
-          "typeSchema": "public",
+          "type": "varchar(32)",
           "primaryKey": false,
           "notNull": true,
           "default": "'DRAFT'"
         },
         "audience": {
           "name": "audience",
-          "type": "worklog_notification_audience",
-          "typeSchema": "public",
+          "type": "varchar(32)",
           "primaryKey": false,
           "notNull": true
         },
@@ -2396,16 +2353,7 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "worklog_notification_channel_ck": {
-          "name": "worklog_notification_channel_ck",
-          "value": "\"worklog_notifications\".\"in_app_enabled\" = TRUE OR \"worklog_notifications\".\"push_enabled\" = TRUE"
-        },
-        "worklog_notification_schedule_ck": {
-          "name": "worklog_notification_schedule_ck",
-          "value": "\"worklog_notifications\".\"status\" <> 'SCHEDULED' OR \"worklog_notifications\".\"scheduled_at\" IS NOT NULL"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.worklog_push_subscriptions": {
@@ -2582,8 +2530,7 @@
         },
         "status": {
           "name": "status",
-          "type": "worklog_task_status",
-          "typeSchema": "public",
+          "type": "varchar(32)",
           "primaryKey": false,
           "notNull": true,
           "default": "'OPEN'"
@@ -2754,20 +2701,7 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "worklog_task_title_nonblank_ck": {
-          "name": "worklog_task_title_nonblank_ck",
-          "value": "length(btrim(\"worklog_tasks\".\"title\")) > 0"
-        },
-        "worklog_task_completed_state_ck": {
-          "name": "worklog_task_completed_state_ck",
-          "value": "\"worklog_tasks\".\"status\" <> 'COMPLETED' OR \"worklog_tasks\".\"completed_at\" IS NOT NULL"
-        },
-        "worklog_task_cancelled_state_ck": {
-          "name": "worklog_task_cancelled_state_ck",
-          "value": "\"worklog_tasks\".\"status\" <> 'CANCELLED' OR \"worklog_tasks\".\"cancelled_at\" IS NOT NULL"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.worklog_commercial_config": {
@@ -2813,16 +2747,7 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "worklog_commercial_config_singleton_ck": {
-          "name": "worklog_commercial_config_singleton_ck",
-          "value": "\"worklog_commercial_config\".\"id\" = 1"
-        },
-        "worklog_commercial_config_free_trial_points_ck": {
-          "name": "worklog_commercial_config_free_trial_points_ck",
-          "value": "\"worklog_commercial_config\".\"free_initial_ai_trial_points\" > 0"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.worklog_ai_usage_events": {
@@ -3380,15 +3305,13 @@
         },
         "type": {
           "name": "type",
-          "type": "worklog_ai_grant_type",
-          "typeSchema": "public",
+          "type": "varchar(32)",
           "primaryKey": false,
           "notNull": true
         },
         "status": {
           "name": "status",
-          "type": "worklog_ai_grant_status",
-          "typeSchema": "public",
+          "type": "varchar(32)",
           "primaryKey": false,
           "notNull": true,
           "default": "'ACTIVE'"
@@ -3781,8 +3704,7 @@
         },
         "status": {
           "name": "status",
-          "type": "worklog_ai_point_reservation_status",
-          "typeSchema": "public",
+          "type": "varchar(32)",
           "primaryKey": false,
           "notNull": true,
           "default": "'RESERVED'"
@@ -4118,6 +4040,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "payer_email": {
+          "name": "payer_email",
+          "type": "varchar(320)",
+          "primaryKey": false,
+          "notNull": false
+        },
         "request_key": {
           "name": "request_key",
           "type": "varchar(64)",
@@ -4260,12 +4188,7 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "worklog_checkout_intent_status_ck": {
-          "name": "worklog_checkout_intent_status_ck",
-          "value": "\"worklog_checkout_intents\".\"status\" IN ('PENDING_PROVIDER','READY','COMPLETED','CANCELLED','FAILED')"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.worklog_subscription_lifecycle_events": {
@@ -4436,20 +4359,7 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "worklog_subscription_lifecycle_event_type_ck": {
-          "name": "worklog_subscription_lifecycle_event_type_ck",
-          "value": "\"worklog_subscription_lifecycle_events\".\"event_type\" IN ('ACTIVATE','RENEW','CANCEL')"
-        },
-        "worklog_subscription_lifecycle_plan_code_ck": {
-          "name": "worklog_subscription_lifecycle_plan_code_ck",
-          "value": "\"worklog_subscription_lifecycle_events\".\"plan_code\" = 'AI_PRO'"
-        },
-        "worklog_subscription_lifecycle_processing_result_ck": {
-          "name": "worklog_subscription_lifecycle_processing_result_ck",
-          "value": "\"worklog_subscription_lifecycle_events\".\"processing_result\" IN ('PENDING','APPLIED','IGNORED_STALE')"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.worklog_feedback_management": {
@@ -4531,16 +4441,244 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "worklog_feedback_management_category_ck": {
-          "name": "worklog_feedback_management_category_ck",
-          "value": "\"worklog_feedback_management\".\"category\" IN ('BUG','FEATURE','UX','OTHER')"
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.worklog_newebpay_subscription_history": {
+      "name": "worklog_newebpay_subscription_history",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
         },
-        "worklog_feedback_management_status_ck": {
-          "name": "worklog_feedback_management_status_ck",
-          "value": "\"worklog_feedback_management\".\"status\" IN ('OPEN','IN_PROGRESS','RESOLVED','IGNORED')"
+        "user_id": {
+          "name": "user_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "checkout_intent_id": {
+          "name": "checkout_intent_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "merchant_order_no": {
+          "name": "merchant_order_no",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "period_no": {
+          "name": "period_no",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'PENDING'"
+        },
+        "provider_status": {
+          "name": "provider_status",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "respond_code": {
+          "name": "respond_code",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "auth_amount": {
+          "name": "auth_amount",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "total_times": {
+          "name": "total_times",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "already_times": {
+          "name": "already_times",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "trade_no": {
+          "name": "trade_no",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "auth_date": {
+          "name": "auth_date",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "next_auth_date": {
+          "name": "next_auth_date",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "current_period_start": {
+          "name": "current_period_start",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "current_period_end": {
+          "name": "current_period_end",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_provider_event_key": {
+          "name": "last_provider_event_key",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
         }
       },
+      "indexes": {
+        "worklog_newebpay_history_order_uq": {
+          "name": "worklog_newebpay_history_order_uq",
+          "columns": [
+            {
+              "expression": "merchant_order_no",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "worklog_newebpay_history_period_uq": {
+          "name": "worklog_newebpay_history_period_uq",
+          "columns": [
+            {
+              "expression": "period_no",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "worklog_newebpay_history_user_time_idx": {
+          "name": "worklog_newebpay_history_user_time_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "updated_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "worklog_newebpay_history_status_time_idx": {
+          "name": "worklog_newebpay_history_status_time_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "updated_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "worklog_newebpay_subscription_history_user_id_worklog_users_id_fk": {
+          "name": "worklog_newebpay_subscription_history_user_id_worklog_users_id_fk",
+          "tableFrom": "worklog_newebpay_subscription_history",
+          "tableTo": "worklog_users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "worklog_newebpay_subscription_history_checkout_intent_id_worklog_checkout_intents_id_fk": {
+          "name": "worklog_newebpay_subscription_history_checkout_intent_id_worklog_checkout_intents_id_fk",
+          "tableFrom": "worklog_newebpay_subscription_history",
+          "tableTo": "worklog_checkout_intents",
+          "columnsFrom": [
+            "checkout_intent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.worklog_newebpay_subscriptions": {
@@ -4723,199 +4861,11 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "worklog_newebpay_subscription_status_ck": {
-          "name": "worklog_newebpay_subscription_status_ck",
-          "value": "\"worklog_newebpay_subscriptions\".\"status\" IN ('PENDING','ACTIVE','TERMINATED','FAILED')"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     }
   },
-  "enums": {
-    "public.worklog_feedback_channel": {
-      "name": "worklog_feedback_channel",
-      "schema": "public",
-      "values": [
-        "PWA"
-      ]
-    },
-    "public.worklog_plan_type": {
-      "name": "worklog_plan_type",
-      "schema": "public",
-      "values": [
-        "FREE",
-        "SUBSCRIPTION"
-      ]
-    },
-    "public.worklog_record_input_type": {
-      "name": "worklog_record_input_type",
-      "schema": "public",
-      "values": [
-        "TEXT",
-        "AUDIO",
-        "IMAGE",
-        "FILE"
-      ]
-    },
-    "public.worklog_source_member_role": {
-      "name": "worklog_source_member_role",
-      "schema": "public",
-      "values": [
-        "OWNER",
-        "MEMBER"
-      ]
-    },
-    "public.worklog_source_status": {
-      "name": "worklog_source_status",
-      "schema": "public",
-      "values": [
-        "ACTIVE",
-        "INACTIVE"
-      ]
-    },
-    "public.worklog_source_type": {
-      "name": "worklog_source_type",
-      "schema": "public",
-      "values": [
-        "PRIVATE",
-        "GROUP"
-      ]
-    },
-    "public.worklog_subscription_source": {
-      "name": "worklog_subscription_source",
-      "schema": "public",
-      "values": [
-        "FREE",
-        "PAYMENT",
-        "ADMIN"
-      ]
-    },
-    "public.worklog_subscription_status": {
-      "name": "worklog_subscription_status",
-      "schema": "public",
-      "values": [
-        "ACTIVE",
-        "PAST_DUE",
-        "CANCELED",
-        "EXPIRED"
-      ]
-    },
-    "public.worklog_record_ai_enrichment_status": {
-      "name": "worklog_record_ai_enrichment_status",
-      "schema": "public",
-      "values": [
-        "NONE",
-        "ENRICHED"
-      ]
-    },
-    "public.worklog_record_revision_channel": {
-      "name": "worklog_record_revision_channel",
-      "schema": "public",
-      "values": [
-        "PWA_MANUAL",
-        "PWA_DELETE",
-        "PWA_RESTORE",
-        "AI_REWRITE",
-        "SYSTEM"
-      ]
-    },
-    "public.worklog_record_status": {
-      "name": "worklog_record_status",
-      "schema": "public",
-      "values": [
-        "ACTIVE",
-        "DELETED"
-      ]
-    },
-    "public.worklog_auth_provider": {
-      "name": "worklog_auth_provider",
-      "schema": "public",
-      "values": [
-        "GOOGLE",
-        "LINE",
-        "APPLE"
-      ]
-    },
-    "public.worklog_notification_audience": {
-      "name": "worklog_notification_audience",
-      "schema": "public",
-      "values": [
-        "ALL_USERS",
-        "FREE_USERS",
-        "AI_SUBSCRIBERS",
-        "SPECIFIC_USERS"
-      ]
-    },
-    "public.worklog_notification_delivery_status": {
-      "name": "worklog_notification_delivery_status",
-      "schema": "public",
-      "values": [
-        "PENDING",
-        "SENT",
-        "FAILED",
-        "SKIPPED"
-      ]
-    },
-    "public.worklog_notification_status": {
-      "name": "worklog_notification_status",
-      "schema": "public",
-      "values": [
-        "DRAFT",
-        "SCHEDULED",
-        "SENDING",
-        "SENT",
-        "CANCELLED",
-        "FAILED"
-      ]
-    },
-    "public.worklog_notification_type": {
-      "name": "worklog_notification_type",
-      "schema": "public",
-      "values": [
-        "ANNOUNCEMENT",
-        "SYSTEM",
-        "TASK"
-      ]
-    },
-    "public.worklog_task_status": {
-      "name": "worklog_task_status",
-      "schema": "public",
-      "values": [
-        "OPEN",
-        "COMPLETED",
-        "CANCELLED"
-      ]
-    },
-    "public.worklog_ai_grant_status": {
-      "name": "worklog_ai_grant_status",
-      "schema": "public",
-      "values": [
-        "ACTIVE",
-        "EXHAUSTED",
-        "REVOKED"
-      ]
-    },
-    "public.worklog_ai_grant_type": {
-      "name": "worklog_ai_grant_type",
-      "schema": "public",
-      "values": [
-        "FREE_INITIAL",
-        "SUBSCRIPTION_PERIOD",
-        "ADMIN"
-      ]
-    },
-    "public.worklog_ai_point_reservation_status": {
-      "name": "worklog_ai_point_reservation_status",
-      "schema": "public",
-      "values": [
-        "RESERVED",
-        "COMMITTED",
-        "RELEASED",
-        "EXPIRED"
-      ]
-    }
-  },
+  "enums": {},
   "schemas": {},
   "sequences": {},
   "roles": {},
