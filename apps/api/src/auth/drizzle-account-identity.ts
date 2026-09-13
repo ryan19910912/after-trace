@@ -38,7 +38,7 @@ export class DrizzleAccountIdentityRepository implements AccountIdentityReposito
       WITH existing_identity AS (
         SELECT identity_row.user_id
         FROM worklog_auth_identities AS identity_row
-        WHERE identity_row.provider = ${provider}::worklog_auth_provider
+        WHERE identity_row.provider = ${provider}
           AND identity_row.subject = ${subject}
         LIMIT 1
       ),
@@ -61,7 +61,7 @@ export class DrizzleAccountIdentityRepository implements AccountIdentityReposito
           user_id, provider, subject, email_snapshot, display_name_snapshot, created_at, updated_at
         )
         SELECT candidate_account.user_id,
-               ${provider}::worklog_auth_provider,
+               ${provider},
                ${subject}, ${emailSnapshot}, ${displayNameSnapshot}, ${input.at}, ${input.at}
         FROM candidate_account
         ON CONFLICT (provider, subject) DO UPDATE
