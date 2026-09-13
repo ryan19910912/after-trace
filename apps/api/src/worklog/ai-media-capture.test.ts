@@ -11,10 +11,18 @@ const config = {
   provider: 'GOOGLE', model: 'gemini-test', inputUsdPerMillion: 1, outputUsdPerMillion: 2,
   audioUsdPerMillion: 1.5, imageUsdPerMillion: 3, usdTwdRate: 32,
 };
+const defaultPlan = {
+  enabled: true,
+  maxImagesPerRequest: 1,
+  maxImageBytes: 5 * 1024 * 1024,
+  maxAudioSeconds: 300,
+  maxAudioBytes: 10 * 1024 * 1024,
+  maxFileBytes: 10 * 1024 * 1024,
+};
 
-function repository(calls: string[], mediaEnabled = true): AiMediaCaptureRepository {
+function repository(calls: string[], plan = defaultPlan): AiMediaCaptureRepository {
   return {
-    async mediaEnabled() { calls.push('media-capability'); return mediaEnabled; },
+    async mediaPlan() { calls.push('media-plan'); return plan; },
     async runtimeConfig() { calls.push('runtime'); return config; },
     async createMediaRecord(input) {
       calls.push(`create-record:${input.inputType}`);
@@ -89,7 +97,7 @@ const image = { mimeType: 'image/png' as const, byteLength: 3, dataBase64: 'YWJj
 const audio = { mimeType: 'audio/webm' as const, byteLength: 3, dataBase64: 'YWJj' };
 const file = { mimeType: 'application/pdf' as const, byteLength: 3, dataBase64: 'YWJj' };
 
-function entitled(source: 'FREE_TRIAL' | 'AI_PRO' = 'FREE_TRIAL') {
+function entitled(source: 'FREE_TRIAL' | 'AI_PRO' = 'AI_PRO') {
   return {
     async resolve() {
       return source === 'FREE_TRIAL'
@@ -100,7 +108,7 @@ function entitled(source: 'FREE_TRIAL' | 'AI_PRO' = 'FREE_TRIAL') {
 }
 
 describe('AiMediaCaptureService', () => {
-  it('blocks before capability/runtime/provider when source or entitlement is unavailable', async () => {
+  it('blocks unavailable entitlement before plan/runtime/provider work', async () => {
     const calls: string[] = [];
     const service = new AiMediaCaptureService(repository(calls), {
       async resolve() {
@@ -115,17 +123,37 @@ describe('AiMediaCaptureService', () => {
     expect(calls).toEqual(['resolve']);
   });
 
-  it('fails before runtime/reservation/provider when operator disables AI media', async () => {
+  it('does not allow FREE trial points to unlock media AI', async () => {
     const calls: string[] = [];
-    const service = new AiMediaCaptureService(repository(calls, false), entitled('AI_PRO'), ledger(calls), provider(calls, 'AUDIO'));
+    const service = new AiMediaCaptureService(repository(calls), entitled('FREE_TRIAL'), ledger(calls), provider(calls, 'IMAGE'));
 
-    expect(await service.captureAudio({ userId: 7, sourceId: 12, audio })).toEqual({
-      status: 'FAILED', reason: 'AI_MEDIA_DISABLED',
+    expect(await service.captureImage({ userId: 7, sourceId: 12, image, captureContext: null })).toEqual({
+      status: 'FAILED', reason: 'AI_PRO_MEDIA_REQUIRED',
     });
-    expect(calls).toEqual(['media-capability']);
+    expect(calls).toEqual([]);
   });
 
-  it('reserves provider-cost hold, analyzes image, persists Record and settles actual image usage', async () => {
+  it('fails before runtime/reservation/provider when the active plan disables media AI', async () => {
+    const calls: string[] = [];
+    const service = new AiMediaCaptureService(repository(calls, { ...defaultPlan, enabled: false }), entitled(), ledger(calls), provider(calls, 'AUDIO'));
+
+    expect(await service.captureAudio({ userId: 7, sourceId: 12, audio, durationSeconds: 30 })).toEqual({
+      status: 'FAILED', reason: 'AI_MEDIA_DISABLED',
+    });
+    expect(calls).toEqual(['media-plan']);
+  });
+
+  it('enforces the plan audio duration before provider work', async () => {
+    const calls: string[] = [];
+    const service = new AiMediaCaptureService(repository(calls), entitled(), ledger(calls), provider(calls, 'AUDIO'));
+
+    expect(await service.captureAudio({ userId: 7, sourceId: 12, audio, durationSeconds: 301 })).toEqual({
+      status: 'FAILED', reason: 'AI_AUDIO_DURATION_TOO_LONG',
+    });
+    expect(calls).toEqual(['media-plan']);
+  });
+
+  it('reserves cost, analyzes image, persists Record and settles actual image usage for AI Pro', async () => {
     const calls: string[] = [];
     const service = new AiMediaCaptureService(repository(calls), entitled(), ledger(calls), provider(calls, 'IMAGE'));
 
@@ -134,46 +162,42 @@ describe('AiMediaCaptureService', () => {
       captureContext: { client: 'CHROME_EXTENSION', page: { title: 'Example', url: 'https://example.test/' } },
     });
 
-    expect(result).toMatchObject({ status: 'CREATED', entitlementSource: 'FREE_TRIAL', record: { id: 99, inputType: 'IMAGE' } });
+    expect(result).toMatchObject({ status: 'CREATED', entitlementSource: 'AI_PRO', record: { id: 99, inputType: 'IMAGE' } });
     expect(calls).toEqual([
-      'media-capability', 'runtime', 'estimate:IMAGE', 'reserve:hold', 'provider:IMAGE',
+      'media-plan', 'runtime', 'estimate:IMAGE', 'reserve:hold', 'provider:IMAGE',
       'create-record:IMAGE', 'commit:IMAGE_RECORD_CREATE:99:0:12',
     ]);
   });
 
-  it('uses the same entitlement and actual modality accounting for AI voice capture', async () => {
+  it('uses plan duration validation and actual modality accounting for AI Pro audio capture', async () => {
     const calls: string[] = [];
     const service = new AiMediaCaptureService(repository(calls), entitled(), ledger(calls), provider(calls, 'AUDIO'));
 
-    const result = await service.captureAudio({ userId: 7, sourceId: 12, audio });
+    const result = await service.captureAudio({ userId: 7, sourceId: 12, audio, durationSeconds: 120 });
 
-    expect(result).toMatchObject({ status: 'CREATED', entitlementSource: 'FREE_TRIAL', record: { inputType: 'AUDIO' } });
+    expect(result).toMatchObject({ status: 'CREATED', entitlementSource: 'AI_PRO', record: { inputType: 'AUDIO' } });
     expect(calls).toEqual([
-      'media-capability', 'runtime', 'estimate:AUDIO', 'reserve:hold', 'provider:AUDIO',
+      'media-plan', 'runtime', 'estimate:AUDIO', 'reserve:hold', 'provider:AUDIO',
       'create-record:AUDIO', 'commit:AUDIO_RECORD_CREATE:99:12:0',
     ]);
   });
 
-  it('uses the same entitlement path for bounded PDF/file interpretation', async () => {
+  it('uses the same AI Pro entitlement path for bounded PDF/file interpretation', async () => {
     const calls: string[] = [];
-    const service = new AiMediaCaptureService(repository(calls), entitled('AI_PRO'), ledger(calls), provider(calls, 'FILE'));
+    const service = new AiMediaCaptureService(repository(calls), entitled(), ledger(calls), provider(calls, 'FILE'));
 
     const result = await service.captureFile({ userId: 7, sourceId: 12, file });
 
     expect(result).toMatchObject({ status: 'CREATED', entitlementSource: 'AI_PRO', record: { inputType: 'FILE' } });
-    expect(calls).toEqual([
-      'media-capability', 'runtime', 'estimate:FILE', 'reserve:hold', 'provider:FILE',
-      'create-record:FILE', 'commit:FILE_RECORD_CREATE:99:0:0',
-    ]);
   });
 
   it('fails closed on the AI Pro provider-cost cap before provider execution', async () => {
     const calls: string[] = [];
-    const service = new AiMediaCaptureService(repository(calls), entitled('AI_PRO'), ledger(calls, true), provider(calls, 'FILE'));
+    const service = new AiMediaCaptureService(repository(calls), entitled(), ledger(calls, true), provider(calls, 'FILE'));
 
     expect(await service.captureFile({ userId: 7, sourceId: 12, file })).toMatchObject({
       status: 'BLOCKED', decision: { reason: 'MONTHLY_PROVIDER_COST_CAP_REACHED' },
     });
-    expect(calls).toEqual(['media-capability', 'runtime', 'estimate:FILE', 'reserve:hold']);
+    expect(calls).toEqual(['media-plan', 'runtime', 'estimate:FILE', 'reserve:hold']);
   });
 });
