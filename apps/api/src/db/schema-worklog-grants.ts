@@ -7,7 +7,6 @@ import {
   integer,
   jsonb,
   numeric,
-  pgEnum,
   pgTable,
   timestamp,
   unique,
@@ -17,37 +16,11 @@ import {
 import { worklogSources, worklogUsers } from './schema-worklog';
 import { worklogAiUsageEvents } from './schema-worklog-ai-usage';
 
-export const worklogAiGrantTypeEnum = pgEnum('worklog_ai_grant_type', [
-  'FREE_INITIAL',
-  'SUBSCRIPTION_PERIOD',
-  'ADMIN',
-]);
+export const worklogAiGrantTypeEnum = (name: string) => varchar(name, { length: 32 });
+export const worklogAiGrantStatusEnum = (name: string) => varchar(name, { length: 32 });
+export const worklogAiPointReservationStatusEnum = (name: string) => varchar(name, { length: 32 });
 
-export const worklogAiGrantStatusEnum = pgEnum('worklog_ai_grant_status', [
-  'ACTIVE',
-  'EXHAUSTED',
-  'REVOKED',
-]);
-
-export const worklogAiPointReservationStatusEnum = pgEnum('worklog_ai_point_reservation_status', [
-  'RESERVED',
-  'COMMITTED',
-  'RELEASED',
-  'EXPIRED',
-]);
-
-/**
- * User-owned AI allowance grant.
- *
- * FREE and each successful subscription period are separate rows. A later plan/pricing
- * change never resizes historical grants. remaining_points is the currently available
- * customer balance after active reservation holds; provider overage subsidy is accounted
- * on usage events and never drives this value negative.
- *
- * provider_cost_*_twd are operational paid-period hard-cap counters. The subscription-
- * period Grant row is the lock/serialization boundary for concurrent provider admission;
- * detailed immutable provider-call accounting remains in worklog_ai_usage_events.
- */
+/** User-owned AI allowance grant. */
 export const worklogAiGrants = pgTable(
   'worklog_ai_grants',
   {
@@ -70,25 +43,12 @@ export const worklogAiGrants = pgTable(
   },
   (table) => [
     uniqueIndex('worklog_ai_grant_origin_uq').on(table.ownerUserId, table.originKey),
-    index('worklog_ai_grant_owner_status_time_idx').on(
-      table.ownerUserId,
-      table.status,
-      table.effectiveAt,
-      table.expiresAt,
-    ),
+    index('worklog_ai_grant_owner_status_time_idx').on(table.ownerUserId, table.status, table.effectiveAt, table.expiresAt),
     index('worklog_ai_grant_type_status_idx').on(table.type, table.status),
   ],
 );
 
-/**
- * Explicit Source permissions/caps for one grant.
- *
- * A grant is never an implicit fallback for every Source. PRIVATE and selected GROUP
- * Sources must be represented explicitly. cap_points NULL means the grant may use its
- * full remaining balance in that Source. used_points is committed customer usage;
- * reserved_points is a temporary provider preflight hold so concurrent requests cannot
- * oversubscribe a Source cap.
- */
+/** Explicit Source permissions/caps for one grant. */
 export const worklogAiGrantScopes = pgTable(
   'worklog_ai_grant_scopes',
   {
@@ -113,12 +73,7 @@ export const worklogAiGrantScopes = pgTable(
   ],
 );
 
-/**
- * One provider preflight reservation. entitlement_grant_id records the exact provider-
- * admission Grant selected by the provider-neutral entitlement layer. It lets the low-
- * level PostgreSQL ledger update the same subscription-period Grant row for both point
- * and provider-cost holds without guessing from email/group/provider identity.
- */
+/** One provider preflight reservation. */
 export const worklogAiPointReservations = pgTable(
   'worklog_ai_point_reservations',
   {
