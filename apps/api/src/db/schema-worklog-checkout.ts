@@ -1,5 +1,4 @@
-import { sql } from 'drizzle-orm';
-import { bigint, bigserial, check, index, pgTable, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
+import { bigint, bigserial, index, pgTable, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
 import { worklogSubscriptionPlans, worklogUsers } from './schema-worklog';
 
 export const worklogCheckoutIntents = pgTable(
@@ -26,6 +25,5 @@ export const worklogCheckoutIntents = pgTable(
     uniqueIndex('worklog_checkout_intent_request_uq').on(table.requestKey),
     index('worklog_checkout_intent_user_time_idx').on(table.userId, table.createdAt),
     index('worklog_checkout_intent_status_time_idx').on(table.status, table.createdAt),
-    check('worklog_checkout_intent_status_ck', sql`${table.status} IN ('PENDING_PROVIDER','READY','COMPLETED','CANCELLED','FAILED')`),
   ],
 );
