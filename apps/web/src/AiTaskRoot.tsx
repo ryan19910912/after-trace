@@ -14,7 +14,6 @@ type Proposal = {
   body: string | null;
   dueAt: string | null;
   remindAt: string | null;
-  entitlementSource: 'FREE_TRIAL' | 'AI_PRO';
 };
 
 export function AiTaskRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
@@ -63,33 +62,20 @@ export function AiTaskRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
   async function propose() {
     if (!session || !sourceId || !text.trim() || busy) return;
     const targetRecordId = recordId.trim() ? positiveId(recordId) : null;
-    if (recordId.trim() && !targetRecordId) { setError('紀錄 ID 必須是正整數。'); return; }
+    if (recordId.trim() && !targetRecordId) { setError('紀錄編號必須是有效的正整數。'); return; }
     setBusy(true); setError(null); setNotice(null); setProposal(null);
     try {
       const response = await fetch(`${apiBaseUrl.replace(/\/$/, '')}/api/v1/ai/task-proposal`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${session}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sourceId,
-          recordId: targetRecordId,
-          text: text.trim(),
-          timeZone: browserTimeZone(),
-        }),
+        body: JSON.stringify({ sourceId, recordId: targetRecordId, text: text.trim(), timeZone: browserTimeZone() }),
       });
       const body = await responseBody(response);
       if (!response.ok) throw new Error(typeof body.error === 'string' ? body.error : `AI_TASK_PROPOSAL_FAILED_${response.status}`);
       const title = typeof body.title === 'string' ? body.title.trim() : '';
       if (!title) throw new Error('AI_TASK_PROPOSAL_INVALID_RESPONSE');
-      setProposal({
-        sourceId,
-        recordId: targetRecordId,
-        title,
-        body: nullableString(body.body),
-        dueAt: nullableString(body.dueAt),
-        remindAt: nullableString(body.remindAt),
-        entitlementSource: body.entitlementSource === 'FREE_TRIAL' ? 'FREE_TRIAL' : 'AI_PRO',
-      });
-    } catch (cause) { handleError(cause, 'AI 待辦提案失敗'); }
+      setProposal({ sourceId, recordId: targetRecordId, title, body: nullableString(body.body), dueAt: nullableString(body.dueAt), remindAt: nullableString(body.remindAt) });
+    } catch (cause) { handleError(cause, 'AI 待辦建議產生失敗'); }
     finally { setBusy(false); }
   }
 
@@ -105,7 +91,7 @@ export function AiTaskRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
         dueAt: proposal.dueAt,
         remindAt: proposal.remindAt,
       });
-      setNotice(`待辦「${created.title}」已建立。AI 只負責提案，這筆 Task 是由你剛剛確認後才建立。`);
+      setNotice(`待辦「${created.title}」已建立。`);
       setProposal(null); setText(''); setRecordId('');
     } catch (cause) { handleError(cause, '待辦建立失敗'); }
     finally { setBusy(false); }
@@ -113,26 +99,26 @@ export function AiTaskRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
 
   function handleError(cause: unknown, fallback: string) {
     const code = cause instanceof Error ? cause.message : String(cause ?? '');
-    if (/INVALID_WEB_SESSION|WEB_SESSION_REQUIRED/.test(code)) {
+    if (/INVALID_WEB_SESSION|WEB_SESSION_REQUIRED|WORKLOG_USER_NOT_FOUND/.test(code)) {
       localStorage.removeItem(SESSION_KEY); setSession(null); setSurfaces(null); setSourceId(null);
-      setError('登入已過期，請重新登入 AFTERTRACE。'); return;
+      setError('登入已過期，請重新登入。'); return;
     }
-    if (/TRIAL_EXHAUSTED|AI_NOT_ENTITLED/.test(code)) { setError('AI 試用已用完或目前沒有 AI entitlement；仍可到待辦頁手動建立。'); return; }
-    if (/MONTHLY_POINT_CAP|MONTHLY_PROVIDER_COST_CAP/.test(code)) { setError('本期 AI 已達方案資源上限；手動待辦仍可正常使用。'); return; }
-    if (code === 'AI_TASK_PROPOSAL_DISABLED') { setError('AI 待辦提案目前由營運端關閉；手動待辦仍可正常使用。'); return; }
+    if (/TRIAL_EXHAUSTED|AI_NOT_ENTITLED/.test(code)) { setError('AI 待辦建議需要 AI Pro；你仍可到待辦頁手動建立待辦。'); return; }
+    if (/MONTHLY_POINT_CAP|MONTHLY_PROVIDER_COST_CAP/.test(code)) { setError('本期 AI 使用量已達上限；手動待辦仍可正常使用。'); return; }
+    if (code === 'AI_TASK_PROPOSAL_DISABLED') { setError('AI 待辦建議目前暫停使用；手動待辦仍可正常使用。'); return; }
     if (code === 'RECORD_NOT_FOUND') { setError('找不到這筆紀錄，或它不在目前選擇的紀錄範圍。'); return; }
-    setError(cause instanceof Error && cause.message ? cause.message : fallback);
+    setError(cause instanceof Error && cause.message && !/^[A-Z0-9_]+$/.test(cause.message) ? cause.message : fallback);
   }
 
   if (!session) return <main className="shell fatal-shell"><section className="fatal-card">
-    <p className="eyebrow">AFTERTRACE AI</p><h1>AI 待辦提案</h1>
-    <p className="muted">AI 只會提出待辦內容；你確認後才會真正建立 Task。</p>
+    <p className="eyebrow">AFTERTRACE AI</p><h1>AI 待辦建議</h1>
+    <p className="muted">AI Pro 可以先整理待辦內容與時間；你確認後才會真正建立待辦。</p>
     {error ? <div className="error">{error}</div> : null}
     <LoginProviderButtons apiBaseUrl={apiBaseUrl} returnTo={loginReturn} />
   </section></main>;
 
   return <main className="shell worklog-shell">
-    <div className="topbar"><div><p className="eyebrow">AFTERTRACE AI</p><h1>AI 待辦提案</h1></div><div className="filter-actions"><button className="ghost" onClick={() => { location.href = '/tasks'; }}>我的待辦</button><button className="ghost" onClick={() => { location.href = '/'; }}>回紀錄</button></div></div>
+    <div className="topbar"><div><p className="eyebrow">AFTERTRACE AI</p><h1>AI 待辦建議</h1><p className="muted">這項功能需要 AI Pro。AI 只會先產生建議，你確認後才會建立待辦。</p></div><div className="filter-actions"><button className="ghost" onClick={() => { location.href = '/tasks'; }}>我的待辦</button><button className="ghost" onClick={() => { location.href = '/'; }}>回紀錄</button></div></div>
     {error ? <div className="error">{error}</div> : null}
     {notice ? <div className="worklog-notice">{notice}</div> : null}
     <section className="panel stack">
@@ -140,21 +126,21 @@ export function AiTaskRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
         {surfaces?.personal ? <option value={surfaces.personal.sourceId}>我的紀錄</option> : null}
         {surfaces?.groups.map((group) => <option key={group.sourceId} value={group.sourceId}>{group.name}</option>)}
       </select></label>
-      <label>參考紀錄 ID（選填）<input inputMode="numeric" value={recordId} onChange={(event) => setRecordId(event.target.value)} placeholder="例如 123" /></label>
+      <label>參考紀錄編號（選填）<input inputMode="numeric" value={recordId} onChange={(event) => setRecordId(event.target.value)} placeholder="例如 123" /></label>
       <label>想做什麼？<textarea rows={5} maxLength={5000} value={text} onChange={(event) => setText(event.target.value)} placeholder="例如：下週三提醒我回王先生晴空案的報價" /></label>
-      <p className="muted">AI 只會解讀你明確寫出的時間；沒有時間資訊時，不會自行捏造提醒時間。</p>
-      <button disabled={busy || !sourceId || !text.trim()} onClick={() => void propose()}>{busy ? '整理中…' : '產生待辦提案'}</button>
+      <p className="muted">AI 只會解讀你明確寫出的時間；沒有時間資訊時，不會自行補上提醒時間。</p>
+      <button disabled={busy || !sourceId || !text.trim()} onClick={() => void propose()}>{busy ? '整理中…' : '產生待辦建議'}</button>
     </section>
 
     {proposal ? <section className="panel stack">
-      <div><p className="eyebrow">TASK PROPOSAL</p><h2>確認後才會建立</h2></div>
+      <div><p className="eyebrow">AI 建議</p><h2>確認後才會建立</h2></div>
       <label>待辦名稱<input value={proposal.title} maxLength={255} onChange={(event) => setProposal({ ...proposal, title: event.target.value })} /></label>
       <label>補充內容<textarea rows={4} value={proposal.body ?? ''} onChange={(event) => setProposal({ ...proposal, body: event.target.value || null })} /></label>
       <div className="record-filter-grid">
         <label>到期時間<input type="datetime-local" value={localInput(proposal.dueAt)} onChange={(event) => setProposal({ ...proposal, dueAt: isoOrNull(event.target.value) })} /></label>
         <label>提醒時間<input type="datetime-local" value={localInput(proposal.remindAt)} onChange={(event) => setProposal({ ...proposal, remindAt: isoOrNull(event.target.value) })} /></label>
       </div>
-      <p className="muted">本次提案使用：{proposal.entitlementSource === 'FREE_TRIAL' ? '免費 AI 試用' : 'AI Pro'}。取消提案不會建立 Task，但已發生的 provider AI 使用仍會被正常記帳。</p>
+      <p className="muted">取消後不會建立待辦。</p>
       <div className="filter-actions"><button disabled={busy || !proposal.title.trim()} onClick={() => void confirm()}>確認建立待辦</button><button className="ghost" disabled={busy} onClick={() => setProposal(null)}>取消</button></div>
     </section> : null}
   </main>;
