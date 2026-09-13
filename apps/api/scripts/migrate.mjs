@@ -1,5 +1,4 @@
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { loadEnvFile } from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -29,15 +28,24 @@ const db = drizzle(sql);
 let normalizedMigrationsFolder;
 
 try {
-  // A disposable Dev database may have had the public schema dropped during reset.
-  // Recreate it before Drizzle runs unqualified CREATE TABLE statements.
+  // Disposable Dev databases may have had public dropped during reset.
   await sql`CREATE SCHEMA IF NOT EXISTS public`;
 
   // Neon HTTP executes prepared statements and rejects multiple SQL commands in one statement.
-  // AFTERTRACE intentionally keeps one canonical prelaunch SQL migration, so normalize that
-  // file into Drizzle statement breakpoints in a temporary copy before executing it.
-  normalizedMigrationsFolder = mkdtempSync(resolve(tmpdir(), 'aftertrace-drizzle-'));
-  cpSync(migrationsFolder, normalizedMigrationsFolder, { recursive: true });
+  // Keep the repository at one canonical 0000 migration, but create a same-volume temporary
+  // Drizzle folder whose baseline has a breakpoint after every SQL statement.
+  normalizedMigrationsFolder = resolve(
+    root,
+    `.aftertrace-drizzle-migrate-${process.pid}-${Date.now()}`,
+  );
+  mkdirSync(normalizedMigrationsFolder, { recursive: true });
+  cpSync(
+    resolve(migrationsFolder, '0000_worklog_baseline.sql'),
+    resolve(normalizedMigrationsFolder, '0000_worklog_baseline.sql'),
+  );
+  cpSync(resolve(migrationsFolder, 'meta'), resolve(normalizedMigrationsFolder, 'meta'), {
+    recursive: true,
+  });
   normalizeSingleFileBaseline(normalizedMigrationsFolder);
 
   await migrate(db, { migrationsFolder: normalizedMigrationsFolder });
@@ -47,16 +55,104 @@ try {
   console.error(error);
   process.exitCode = 1;
 } finally {
-  if (normalizedMigrationsFolder) rmSync(normalizedMigrationsFolder, { recursive: true, force: true });
+  if (normalizedMigrationsFolder) {
+    rmSync(normalizedMigrationsFolder, { recursive: true, force: true });
+  }
 }
 
 function normalizeSingleFileBaseline(folder) {
   const baselinePath = resolve(folder, '0000_worklog_baseline.sql');
   if (!existsSync(baselinePath)) throw new Error('Missing drizzle/0000_worklog_baseline.sql');
 
-  const source = readFileSync(baselinePath, 'utf8')
-    .replace(/^\s*--> statement-breakpoint\s*$/gm, '')
-    .replace(/;\s*(?=\r?\n|$)/g, ';\n--> statement-breakpoint\n');
+  const source = readFileSync(baselinePath, 'utf8');
+  const statements = splitSqlStatements(source);
+  if (statements.length === 0) throw new Error('Canonical baseline contains no SQL statements');
 
-  writeFileSync(baselinePath, source, 'utf8');
+  writeFileSync(
+    baselinePath,
+    `${statements.join('\n--> statement-breakpoint\n')}\n`,
+    'utf8',
+  );
+}
+
+function splitSqlStatements(source) {
+  const statements = [];
+  let current = '';
+  let singleQuoted = false;
+  let doubleQuoted = false;
+  let lineComment = false;
+  let blockComment = false;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    const next = source[index + 1];
+
+    if (lineComment) {
+      current += char;
+      if (char === '\n') lineComment = false;
+      continue;
+    }
+
+    if (blockComment) {
+      current += char;
+      if (char === '*' && next === '/') {
+        current += next;
+        index += 1;
+        blockComment = false;
+      }
+      continue;
+    }
+
+    if (!singleQuoted && !doubleQuoted && char === '-' && next === '-') {
+      // Drizzle breakpoint markers are metadata, not SQL comments we need to execute.
+      const remainder = source.slice(index);
+      const marker = /^-->\s*statement-breakpoint\s*(?:\r?\n|$)/.exec(remainder);
+      if (marker) {
+        index += marker[0].length - 1;
+        continue;
+      }
+      lineComment = true;
+      current += char;
+      continue;
+    }
+
+    if (!singleQuoted && !doubleQuoted && char === '/' && next === '*') {
+      blockComment = true;
+      current += char;
+      continue;
+    }
+
+    if (!doubleQuoted && char === "'") {
+      current += char;
+      if (singleQuoted && next === "'") {
+        current += next;
+        index += 1;
+      } else {
+        singleQuoted = !singleQuoted;
+      }
+      continue;
+    }
+
+    if (!singleQuoted && char === '"') {
+      current += char;
+      if (doubleQuoted && next === '"') {
+        current += next;
+        index += 1;
+      } else {
+        doubleQuoted = !doubleQuoted;
+      }
+      continue;
+    }
+
+    current += char;
+    if (!singleQuoted && !doubleQuoted && char === ';') {
+      const statement = current.trim();
+      if (statement) statements.push(statement);
+      current = '';
+    }
+  }
+
+  const tail = current.trim();
+  if (tail) statements.push(tail);
+  return statements;
 }
