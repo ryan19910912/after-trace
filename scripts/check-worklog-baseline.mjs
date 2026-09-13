@@ -34,6 +34,8 @@ for (const marker of [
   if (!baseline.includes(marker)) failures.push(`baseline missing: ${marker}`);
 }
 
+if (baseline) checkCompleteSchemaComments(baseline);
+
 if (/CREATE\s+TYPE\s+[^;]+\s+AS\s+ENUM/i.test(baseline)) {
   failures.push('baseline must not create PostgreSQL ENUM types; domain validation belongs to the application layer');
 }
@@ -67,6 +69,27 @@ if (failures.length > 0) {
 }
 
 console.log('AFTERTRACE canonical single database baseline guard passed.');
+
+function checkCompleteSchemaComments(sql) {
+  const commentTargets = new Set();
+  for (const match of sql.matchAll(/COMMENT ON TABLE "([^"]+)"/g)) {
+    commentTargets.add(`TABLE:${match[1]}`);
+  }
+  for (const match of sql.matchAll(/COMMENT ON COLUMN "([^"]+)"\."([^"]+)"/g)) {
+    commentTargets.add(`COLUMN:${match[1]}.${match[2]}`);
+  }
+
+  for (const tableMatch of sql.matchAll(/CREATE TABLE "([^"]+)" \(([\s\S]*?)\n\);/g)) {
+    const [, table, body] = tableMatch;
+    if (!commentTargets.has(`TABLE:${table}`)) failures.push(`missing table comment: ${table}`);
+    for (const line of body.split('\n')) {
+      const columnMatch = /^\s*"([^"]+)"\s+/.exec(line);
+      if (!columnMatch) continue;
+      const column = columnMatch[1];
+      if (!commentTargets.has(`COLUMN:${table}.${column}`)) failures.push(`missing column comment: ${table}.${column}`);
+    }
+  }
+}
 
 function checkArtifactShape() {
   if (!existsSync(drizzleDir)) {
