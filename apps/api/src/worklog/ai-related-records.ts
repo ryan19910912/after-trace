@@ -27,22 +27,15 @@ export type AiRelatedRecordsEntitlementPort = {
 export type AiRelatedRecordsResult =
   | {
       status: 'RESULTS';
-      entitlementSource: 'FREE_TRIAL' | 'AI_PRO';
+      entitlementSource: 'AI_PRO';
       recordId: number;
       records: AiRelatedRecord[];
     }
   | { status: 'BLOCKED'; decision: AiEntitlementDecision }
   | { status: 'NOT_FOUND'; reason: 'RECORD_NOT_FOUND' }
-  | { status: 'FAILED'; reason: 'AI_RELATED_RECORDS_DISABLED' | 'AI_RELATED_RECORDS_RETRIEVAL_FAILED' };
+  | { status: 'FAILED'; reason: 'AI_PRO_REQUIRED' | 'AI_RELATED_RECORDS_DISABLED' | 'AI_RELATED_RECORDS_RETRIEVAL_FAILED' };
 
-/**
- * Related Records is an entitled AI-product capability with deterministic retrieval.
- *
- * V1 ranking stays inside PostgreSQL and does not call a provider, so this service must not
- * manufacture provider usage, reserve AI points, or charge the FREE trial. Entitlement is
- * still checked first so exhausted/not-entitled users cannot use paid product surfaces and
- * unauthorized callers cannot probe whether a Record exists inside another Source.
- */
+/** Related-record recommendations are an AI Pro feature. Ranking currently stays inside PostgreSQL. */
 export class AiRelatedRecordsService {
   constructor(
     private readonly repository: AiRelatedRecordsRepository,
@@ -64,6 +57,7 @@ export class AiRelatedRecordsService {
 
     const decision = await this.entitlement.resolve(userId, sourceId, referenceAt);
     if (!decision.allowed || decision.source === 'BLOCKED') return { status: 'BLOCKED', decision };
+    if (decision.source !== 'AI_PRO') return { status: 'FAILED', reason: 'AI_PRO_REQUIRED' };
     if (!(await this.repository.relatedEnabled())) {
       return { status: 'FAILED', reason: 'AI_RELATED_RECORDS_DISABLED' };
     }
@@ -73,7 +67,7 @@ export class AiRelatedRecordsService {
       if (!result.targetFound) return { status: 'NOT_FOUND', reason: 'RECORD_NOT_FOUND' };
       return {
         status: 'RESULTS',
-        entitlementSource: decision.source,
+        entitlementSource: 'AI_PRO',
         recordId,
         records: result.records,
       };
