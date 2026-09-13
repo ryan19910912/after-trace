@@ -32,9 +32,7 @@ let recognition = null;
 let recognizing = false;
 let saving = false;
 
-function setStatus(message) {
-  status.textContent = message ?? '';
-}
+function setStatus(message) { status.textContent = message ?? ''; }
 
 async function loadActiveTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -46,24 +44,17 @@ async function loadActiveTab() {
 async function loadPendingSelection() {
   const { aftertracePendingCapture } = await chrome.storage.local.get('aftertracePendingCapture');
   if (!aftertracePendingCapture) return;
-
   if (aftertracePendingCapture.kind === 'SELECTION' && aftertracePendingCapture.text) {
     content.value = aftertracePendingCapture.text;
-    const selectionPage = normalizedPageContext(
-      aftertracePendingCapture.pageTitle,
-      aftertracePendingCapture.pageUrl,
-    );
+    const selectionPage = normalizedPageContext(aftertracePendingCapture.pageTitle, aftertracePendingCapture.pageUrl);
     if (selectionPage) {
       draftPageContext = selectionPage;
       renderPageContext(draftPageContext);
       includePage.checked = true;
       pageContext.classList.remove('hidden');
-      setStatus('已帶入你剛剛選取的文字與來源頁面。儲存前可取消「附上目前頁面」。');
-    } else {
-      setStatus('已帶入你剛剛選取的文字。');
-    }
+      setStatus('已帶入選取的文字與來源頁面，你可以在儲存前取消附上頁面資訊。');
+    } else setStatus('已帶入你剛剛選取的文字。');
   }
-
   await chrome.storage.local.remove('aftertracePendingCapture');
   updateSaveState();
 }
@@ -71,12 +62,7 @@ async function loadPendingSelection() {
 async function loadAuth() {
   const stored = await chrome.storage.local.get([AUTH_KEY, LAST_WEB_APP_KEY]);
   auth = validAuth(stored[AUTH_KEY]) ? stored[AUTH_KEY] : null;
-  if (!auth) {
-    if (stored[AUTH_KEY]) await chrome.storage.local.remove(AUTH_KEY);
-    renderDisconnected();
-    return;
-  }
-
+  if (!auth) { if (stored[AUTH_KEY]) await chrome.storage.local.remove(AUTH_KEY); renderDisconnected(); return; }
   authState.textContent = '已連接 AFTERTRACE';
   connectButton.classList.add('hidden');
   disconnectButton.classList.remove('hidden');
@@ -104,14 +90,9 @@ async function loadSources() {
     const response = await authenticatedFetch('/api/v1/worklog/surfaces');
     const body = await response.json();
     if (!response.ok) throw apiError(response, body, '紀錄空間載入失敗');
-    const surfaces = normalizedSurfaces(body?.surfaces);
-    renderSources(surfaces);
+    renderSources(normalizedSurfaces(body?.surfaces));
   } catch (error) {
-    if (sessionExpired(error)) {
-      await clearAuth();
-      setStatus('AFTERTRACE 登入已過期，請重新連接。');
-      return;
-    }
+    if (sessionExpired(error)) { await clearAuth(); setStatus('登入已過期，請重新連接。'); return; }
     source.innerHTML = '<option value="">紀錄空間載入失敗</option>';
     setStatus(error instanceof Error ? error.message : '紀錄空間載入失敗');
   }
@@ -120,27 +101,10 @@ async function loadSources() {
 async function renderSources(surfaces) {
   source.innerHTML = '';
   const options = [];
-  if (surfaces.personal) {
-    options.push({ value: `PERSONAL:${surfaces.personal.sourceId}`, label: '我的紀錄' });
-  }
-  for (const group of surfaces.groups) {
-    options.push({ value: `GROUP:${group.sourceId}`, label: group.name });
-  }
-
-  if (options.length === 0) {
-    source.innerHTML = '<option value="">目前沒有可用的紀錄空間</option>';
-    source.disabled = true;
-    updateSaveState();
-    return;
-  }
-
-  for (const option of options) {
-    const element = document.createElement('option');
-    element.value = option.value;
-    element.textContent = option.label;
-    source.appendChild(element);
-  }
-
+  if (surfaces.personal) options.push({ value: `PERSONAL:${surfaces.personal.sourceId}`, label: '我的紀錄' });
+  for (const group of surfaces.groups) options.push({ value: `GROUP:${group.sourceId}`, label: group.name });
+  if (options.length === 0) { source.innerHTML = '<option value="">目前沒有可用的紀錄空間</option>'; source.disabled = true; updateSaveState(); return; }
+  for (const option of options) { const element = document.createElement('option'); element.value = option.value; element.textContent = option.label; source.appendChild(element); }
   const stored = await chrome.storage.local.get(SELECTED_SOURCE_KEY);
   const remembered = typeof stored[SELECTED_SOURCE_KEY] === 'string' ? stored[SELECTED_SOURCE_KEY] : '';
   source.value = options.some((option) => option.value === remembered) ? remembered : options[0].value;
@@ -151,287 +115,126 @@ async function renderSources(surfaces) {
 function createRecognition() {
   const Constructor = globalThis.SpeechRecognition ?? globalThis.webkitSpeechRecognition;
   if (!Constructor) return null;
-
   const instance = new Constructor();
-  instance.lang = 'zh-TW';
-  instance.interimResults = true;
-  instance.continuous = false;
-
+  instance.lang = 'zh-TW'; instance.interimResults = true; instance.continuous = false;
   let committedPrefix = '';
-  instance.onstart = () => {
-    recognizing = true;
-    committedPrefix = content.value.trim();
-    voiceButton.textContent = '⏹️ 停止';
-    setStatus('正在聆聽…瀏覽器語音轉文字不會呼叫 AFTERTRACE AI。');
-  };
+  instance.onstart = () => { recognizing = true; committedPrefix = content.value.trim(); voiceButton.textContent = '⏹️ 停止'; setStatus('正在聆聽…語音會先轉成文字，不會直接使用 AI。'); };
   instance.onresult = (event) => {
-    let finalText = '';
-    let interimText = '';
-    for (let i = event.resultIndex; i < event.results.length; i += 1) {
-      const transcript = event.results[i]?.[0]?.transcript ?? '';
-      if (event.results[i].isFinal) finalText += transcript;
-      else interimText += transcript;
-    }
-    const parts = [committedPrefix, finalText || interimText].filter(Boolean);
-    content.value = parts.join(committedPrefix ? ' ' : '');
-    updateSaveState();
+    let finalText = ''; let interimText = '';
+    for (let i = event.resultIndex; i < event.results.length; i += 1) { const transcript = event.results[i]?.[0]?.transcript ?? ''; if (event.results[i].isFinal) finalText += transcript; else interimText += transcript; }
+    content.value = [committedPrefix, finalText || interimText].filter(Boolean).join(committedPrefix ? ' ' : ''); updateSaveState();
   };
-  instance.onerror = (event) => {
-    setStatus(`語音輸入失敗（${event.error ?? 'unknown'}），可直接改用文字。`);
-  };
-  instance.onend = () => {
-    recognizing = false;
-    voiceButton.textContent = '🎙️ 語音';
-    if (!status.textContent.includes('失敗')) setStatus('語音輸入完成，可再編輯後記錄。');
-    updateSaveState();
-  };
+  instance.onerror = (event) => setStatus(`語音輸入失敗（${event.error ?? 'unknown'}），可以直接改用文字。`);
+  instance.onend = () => { recognizing = false; voiceButton.textContent = '🎙️ 語音'; if (!status.textContent.includes('失敗')) setStatus('語音輸入完成，可以再編輯後儲存。'); updateSaveState(); };
   return instance;
 }
 
 connectButton.addEventListener('click', async () => {
-  const nonce = randomNonce();
-  await chrome.storage.session.set({ [PENDING_CONNECT_KEY]: nonce });
-  const webAppUrl = await preferredWebAppUrl();
-  const url = new URL('/extension/connect', webAppUrl);
-  url.searchParams.set('extensionId', chrome.runtime.id);
-  url.searchParams.set('nonce', nonce);
+  const nonce = randomNonce(); await chrome.storage.session.set({ [PENDING_CONNECT_KEY]: nonce });
+  const webAppUrl = await preferredWebAppUrl(); const url = new URL('/extension/connect', webAppUrl);
+  url.searchParams.set('extensionId', chrome.runtime.id); url.searchParams.set('nonce', nonce);
   await chrome.tabs.create({ url: url.toString() });
-  setStatus('已開啟 AFTERTRACE Web，完成登入並按「連接這個擴充功能」後再回來。');
+  setStatus('已開啟 AFTERTRACE，完成登入並按「連接這個擴充功能」後再回來。');
 });
 
-disconnectButton.addEventListener('click', async () => {
-  await clearAuth();
-  setStatus('已解除這個擴充功能的 AFTERTRACE session。');
-});
-
-source.addEventListener('change', async () => {
-  if (source.value) await chrome.storage.local.set({ [SELECTED_SOURCE_KEY]: source.value });
-  updateSaveState();
-});
-
+disconnectButton.addEventListener('click', async () => { await clearAuth(); setStatus('已解除連接。'); });
+source.addEventListener('change', async () => { if (source.value) await chrome.storage.local.set({ [SELECTED_SOURCE_KEY]: source.value }); updateSaveState(); });
 content.addEventListener('input', updateSaveState);
 
 includePage.addEventListener('change', async () => {
   if (includePage.checked) {
     if (!draftPageContext) await loadActiveTab();
-    if (!draftPageContext) {
-      includePage.checked = false;
-      pageContext.classList.add('hidden');
-      setStatus('目前頁面沒有可安全附上的 title / http(s) URL。');
-      return;
-    }
-    pageContext.classList.remove('hidden');
-    setStatus('目前頁面的 title / URL 會以 bounded metadata 隨這筆 Record 儲存，不會擷取完整頁面內容。');
-  } else {
-    pageContext.classList.add('hidden');
-  }
+    if (!draftPageContext) { includePage.checked = false; pageContext.classList.add('hidden'); setStatus('目前頁面沒有可附上的頁面資訊。'); return; }
+    pageContext.classList.remove('hidden'); setStatus('儲存時會附上目前頁面的標題與網址，不會自動擷取完整網頁內容。');
+  } else pageContext.classList.add('hidden');
 });
 
-voiceButton.addEventListener('click', () => {
-  if (!recognition) recognition = createRecognition();
-  if (!recognition) {
-    setStatus('此瀏覽器環境不支援語音輸入，可直接輸入文字。');
-    return;
-  }
-
-  if (recognizing) recognition.stop();
-  else recognition.start();
-});
+voiceButton.addEventListener('click', () => { if (!recognition) recognition = createRecognition(); if (!recognition) { setStatus('目前環境不支援語音輸入，可以直接輸入文字。'); return; } if (recognizing) recognition.stop(); else recognition.start(); });
 
 screenshotButton.addEventListener('click', async () => {
   try {
     screenshotDataUrl = await chrome.tabs.captureVisibleTab(undefined, { format: 'png' });
-    screenshotPreview.src = screenshotDataUrl;
-    screenshotPreview.classList.remove('hidden');
-    setStatus('已擷取目前可見畫面供預覽。截圖尚未送到 provider；圖片 AI 仍需 AI Pro 或可用試用額度。');
-  } catch {
-    screenshotDataUrl = null;
-    screenshotPreview.classList.add('hidden');
-    setStatus('無法擷取目前頁面，請確認此頁面允許擴充功能存取。');
-  }
+    screenshotPreview.src = screenshotDataUrl; screenshotPreview.classList.remove('hidden');
+    setStatus('已擷取目前可見畫面。按「儲存紀錄」後會使用 AI Pro 整理成紀錄。');
+  } catch { screenshotDataUrl = null; screenshotPreview.classList.add('hidden'); setStatus('無法擷取目前畫面，請確認這個頁面允許擴充功能使用。'); }
+  updateSaveState();
 });
 
 saveButton.addEventListener('click', async () => {
   if (!auth || saving) return;
-  const target = selectedSource();
-  const rawText = content.value.trim();
-  if (!target || !rawText) return;
-
-  saving = true;
-  updateSaveState();
-  setStatus('記錄中…');
+  const target = selectedSource(); const rawText = content.value.trim();
+  if (!target || (!rawText && !screenshotDataUrl)) return;
+  saving = true; updateSaveState(); setStatus(screenshotDataUrl ? '正在用 AI 整理截圖…' : '正在儲存…');
   try {
-    const path = target.type === 'PERSONAL'
-      ? '/api/v1/worklog/records/personal'
-      : `/api/v1/worklog/records/group/${target.sourceId}`;
-    const requestBody = { rawText, occurredAt: null };
-    if (includePage.checked && draftPageContext) {
-      requestBody.captureContext = {
-        page: {
-          title: draftPageContext.title,
-          url: draftPageContext.url,
-        },
-      };
-    }
-    const response = await authenticatedFetch(path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody),
-    });
-    const body = await response.json();
-    if (!response.ok) throw apiError(response, body, '記錄失敗');
-
-    const pageStored = Boolean(requestBody.captureContext);
+    if (screenshotDataUrl) await saveScreenshotWithAi(target, rawText);
+    else await saveManualRecord(target, rawText);
     content.value = '';
     if (recognizing) recognition?.stop();
-    setStatus(screenshotDataUrl
-      ? `${pageStored ? '文字與頁面資訊' : '文字'}已儲存到 AFTERTRACE。截圖仍只在本機預覽，尚未送出。`
-      : `${pageStored ? '文字與頁面資訊' : '紀錄'}已儲存到 AFTERTRACE。`);
   } catch (error) {
-    if (sessionExpired(error)) {
-      await clearAuth();
-      setStatus('AFTERTRACE 登入已過期，請重新連接後再記錄。');
-    } else {
-      setStatus(error instanceof Error ? error.message : '記錄失敗');
-    }
-  } finally {
-    saving = false;
-    updateSaveState();
-  }
+    if (sessionExpired(error)) { await clearAuth(); setStatus('登入已過期，請重新連接後再記錄。'); }
+    else setStatus(extensionErrorMessage(error));
+  } finally { saving = false; updateSaveState(); }
 });
 
+async function saveManualRecord(target, rawText) {
+  const path = target.type === 'PERSONAL' ? '/api/v1/worklog/records/personal' : `/api/v1/worklog/records/group/${target.sourceId}`;
+  const requestBody = { rawText, occurredAt: null };
+  if (includePage.checked && draftPageContext) requestBody.captureContext = { page: { title: draftPageContext.title, url: draftPageContext.url } };
+  const response = await authenticatedFetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
+  const body = await response.json(); if (!response.ok) throw apiError(response, body, '儲存失敗');
+  setStatus(requestBody.captureContext ? '紀錄與來源頁面資訊已儲存。' : '紀錄已儲存。');
+}
+
+async function saveScreenshotWithAi(target, instruction) {
+  const entitlementResponse = await authenticatedFetch(`/api/v1/ai/entitlement?sourceId=${encodeURIComponent(String(target.sourceId))}`);
+  const entitlementBody = await entitlementResponse.json();
+  if (!entitlementResponse.ok) throw apiError(entitlementResponse, entitlementBody, '無法確認 AI Pro 狀態');
+  if (entitlementBody?.entitlement?.source !== 'AI_PRO' || entitlementBody?.entitlement?.allowed !== true) throw new Error('AI_PRO_SCREENSHOT_REQUIRED');
+
+  const media = dataUrlMedia(screenshotDataUrl);
+  if (!media || media.byteLength > 5 * 1024 * 1024) throw new Error('AI_IMAGE_TOO_LARGE');
+  const requestBody = { sourceId: target.sourceId, image: media };
+  if (instruction) requestBody.instruction = instruction;
+  if (includePage.checked && draftPageContext) requestBody.captureContext = { page: { title: draftPageContext.title, url: draftPageContext.url } };
+  const response = await authenticatedFetch('/api/v1/ai/capture/image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
+  const body = await response.json(); if (!response.ok) throw apiError(response, body, '截圖整理失敗');
+  screenshotDataUrl = null; screenshotPreview.removeAttribute('src'); screenshotPreview.classList.add('hidden');
+  setStatus('截圖已由 AI Pro 整理並儲存成紀錄。');
+}
+
+function dataUrlMedia(value) {
+  if (typeof value !== 'string') return null;
+  const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]+={0,2})$/.exec(value);
+  if (!match) return null;
+  const base64 = match[2]; const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+  const byteLength = (base64.length / 4) * 3 - padding;
+  return Number.isSafeInteger(byteLength) && byteLength > 0 ? { mimeType: match[1], byteLength, dataBase64: base64 } : null;
+}
+
 async function authenticatedFetch(path, init = {}) {
-  if (!auth || !validAuth(auth)) {
-    await clearAuth();
-    throw new Error('INVALID_WEB_SESSION');
-  }
-  const headers = new Headers(init.headers ?? {});
-  headers.set('Authorization', `Bearer ${auth.sessionToken}`);
-  headers.set('Accept', 'application/json');
+  if (!auth || !validAuth(auth)) { await clearAuth(); throw new Error('INVALID_WEB_SESSION'); }
+  const headers = new Headers(init.headers ?? {}); headers.set('Authorization', `Bearer ${auth.sessionToken}`); headers.set('Accept', 'application/json');
   return fetch(`${auth.apiBaseUrl}${path}`, { ...init, headers });
 }
 
-function selectedSource() {
-  const [type, sourceIdText] = source.value.split(':');
-  const sourceId = Number(sourceIdText);
-  if (!['PERSONAL', 'GROUP'].includes(type) || !Number.isSafeInteger(sourceId) || sourceId <= 0) return null;
-  return { type, sourceId };
-}
-
-function updateSaveState() {
-  const connected = Boolean(auth) && validAuth(auth);
-  const target = selectedSource();
-  saveButton.disabled = saving || !connected || !target || !content.value.trim();
-  saveButton.textContent = saving
-    ? '記錄中…'
-    : !connected
-      ? '請先連接 AFTERTRACE'
-      : '儲存紀錄';
-}
-
-async function clearAuth() {
-  const currentWeb = auth?.webAppUrl;
-  await chrome.storage.local.remove([AUTH_KEY, SELECTED_SOURCE_KEY]);
-  if (currentWeb) await chrome.storage.local.set({ [LAST_WEB_APP_KEY]: currentWeb });
-  renderDisconnected();
-}
-
-async function preferredWebAppUrl() {
-  const activeOrigin = safeHttpOrigin(activeTab?.url);
-  if (activeOrigin && WEB_APP_ORIGINS.has(activeOrigin)) return activeOrigin;
-  const stored = await chrome.storage.local.get(LAST_WEB_APP_KEY);
-  const remembered = safeHttpOrigin(stored[LAST_WEB_APP_KEY]);
-  return remembered && WEB_APP_ORIGINS.has(remembered) ? remembered : DEFAULT_WEB_APP_URL;
-}
+function selectedSource() { const [type, sourceIdText] = source.value.split(':'); const sourceId = Number(sourceIdText); if (!['PERSONAL', 'GROUP'].includes(type) || !Number.isSafeInteger(sourceId) || sourceId <= 0) return null; return { type, sourceId }; }
+function updateSaveState() { const connected = Boolean(auth) && validAuth(auth); const target = selectedSource(); saveButton.disabled = saving || !connected || !target || (!content.value.trim() && !screenshotDataUrl); saveButton.textContent = saving ? '處理中…' : !connected ? '請先連接 AFTERTRACE' : screenshotDataUrl ? '用 AI Pro 儲存截圖' : '儲存紀錄'; }
+async function clearAuth() { const currentWeb = auth?.webAppUrl; await chrome.storage.local.remove([AUTH_KEY, SELECTED_SOURCE_KEY]); if (currentWeb) await chrome.storage.local.set({ [LAST_WEB_APP_KEY]: currentWeb }); renderDisconnected(); }
+async function preferredWebAppUrl() { const activeOrigin = safeHttpOrigin(activeTab?.url); if (activeOrigin && WEB_APP_ORIGINS.has(activeOrigin)) return activeOrigin; const stored = await chrome.storage.local.get(LAST_WEB_APP_KEY); const remembered = safeHttpOrigin(stored[LAST_WEB_APP_KEY]); return remembered && WEB_APP_ORIGINS.has(remembered) ? remembered : DEFAULT_WEB_APP_URL; }
 
 function normalizedSurfaces(value) {
-  const result = { personal: null, groups: [] };
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return result;
-  if (value.personal && typeof value.personal === 'object' && Number.isSafeInteger(value.personal.sourceId) && value.personal.sourceId > 0) {
-    result.personal = { sourceId: value.personal.sourceId };
-  }
-  if (Array.isArray(value.groups)) {
-    result.groups = value.groups.flatMap((group) => {
-      if (!group || typeof group !== 'object') return [];
-      if (!Number.isSafeInteger(group.sourceId) || group.sourceId <= 0) return [];
-      const name = typeof group.name === 'string' ? group.name.trim().slice(0, 255) : '';
-      return name ? [{ sourceId: group.sourceId, name }] : [];
-    });
-  }
+  const result = { personal: null, groups: [] }; if (!value || typeof value !== 'object' || Array.isArray(value)) return result;
+  if (value.personal && typeof value.personal === 'object' && Number.isSafeInteger(value.personal.sourceId) && value.personal.sourceId > 0) result.personal = { sourceId: value.personal.sourceId };
+  if (Array.isArray(value.groups)) result.groups = value.groups.flatMap((group) => { if (!group || typeof group !== 'object' || !Number.isSafeInteger(group.sourceId) || group.sourceId <= 0) return []; const name = typeof group.name === 'string' ? group.name.trim().slice(0, 255) : ''; return name ? [{ sourceId: group.sourceId, name }] : []; });
   return result;
 }
+function normalizedPageContext(titleValue, urlValue) { const title = typeof titleValue === 'string' ? titleValue.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 255) || null : null; let url = null; if (typeof urlValue === 'string' && urlValue.trim()) { try { const parsed = new URL(urlValue.trim()); if ((parsed.protocol === 'https:' || parsed.protocol === 'http:') && !parsed.username && !parsed.password) { const candidate = parsed.toString(); if (candidate.length <= 2048) url = candidate; } } catch { url = null; } } return title || url ? { title, url } : null; }
+function renderPageContext(context) { pageTitle.textContent = context?.title ?? '目前頁面'; pageUrl.textContent = context?.url ?? ''; pageUrl.href = context?.url ?? '#'; }
+function validAuth(value) { if (!value || typeof value !== 'object') return false; const apiBaseUrl = safeHttpOrigin(value.apiBaseUrl); const webAppUrl = safeHttpOrigin(value.webAppUrl); const expiresAt = typeof value.sessionExpiresAt === 'string' ? new Date(value.sessionExpiresAt) : null; return typeof value.sessionToken === 'string' && value.sessionToken.trim().length > 0 && value.sessionToken.length <= 8192 && expiresAt instanceof Date && Number.isFinite(expiresAt.getTime()) && expiresAt.getTime() > Date.now() && expiresAt.getTime() <= Date.now() + 60 * 60 * 24 * 7 * 1000 + 60_000 && Boolean(apiBaseUrl) && Boolean(webAppUrl) && WEB_APP_ORIGINS.has(webAppUrl); }
+function apiError(response, body, fallback) { const code = typeof body?.error === 'string' ? body.error : `${fallback} (${response.status})`; const error = new Error(code); error.status = response.status; return error; }
+function sessionExpired(error) { return error?.status === 401 || /INVALID_WEB_SESSION|WEB_SESSION_REQUIRED|WORKLOG_USER_NOT_FOUND/.test(error?.message ?? ''); }
+function extensionErrorMessage(error) { const code = error instanceof Error ? error.message : ''; if (code === 'AI_PRO_SCREENSHOT_REQUIRED' || code === 'AI_PRO_MEDIA_REQUIRED') return '截圖 AI 整理僅提供 AI Pro 訂閱使用者。'; if (code === 'AI_IMAGE_TOO_LARGE') return '截圖超過目前單次圖片大小上限。'; return code || '儲存失敗'; }
+function safeHttpOrigin(value) { if (typeof value !== 'string') return null; try { const url = new URL(value.trim()); return url.protocol === 'https:' ? url.origin : null; } catch { return null; } }
+function randomNonce() { const bytes = crypto.getRandomValues(new Uint8Array(24)); let binary = ''; for (const byte of bytes) binary += String.fromCharCode(byte); return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''); }
 
-function normalizedPageContext(titleValue, urlValue) {
-  const title = typeof titleValue === 'string'
-    ? titleValue.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 255) || null
-    : null;
-  let url = null;
-  if (typeof urlValue === 'string' && urlValue.trim()) {
-    try {
-      const parsed = new URL(urlValue.trim());
-      if ((parsed.protocol === 'https:' || parsed.protocol === 'http:') && !parsed.username && !parsed.password) {
-        const candidate = parsed.toString();
-        if (candidate.length <= 2048) url = candidate;
-      }
-    } catch {
-      url = null;
-    }
-  }
-  return title || url ? { title, url } : null;
-}
-
-function renderPageContext(context) {
-  pageTitle.textContent = context?.title ?? '目前頁面';
-  pageUrl.textContent = context?.url ?? '';
-  pageUrl.href = context?.url ?? '#';
-}
-
-function validAuth(value) {
-  if (!value || typeof value !== 'object') return false;
-  const apiBaseUrl = safeHttpOrigin(value.apiBaseUrl);
-  const webAppUrl = safeHttpOrigin(value.webAppUrl);
-  const expiresAt = typeof value.sessionExpiresAt === 'string' ? new Date(value.sessionExpiresAt) : null;
-  return typeof value.sessionToken === 'string'
-    && value.sessionToken.trim().length > 0
-    && value.sessionToken.length <= 8192
-    && expiresAt instanceof Date
-    && Number.isFinite(expiresAt.getTime())
-    && expiresAt.getTime() > Date.now()
-    && expiresAt.getTime() <= Date.now() + 60 * 60 * 24 * 7 * 1000 + 60_000
-    && Boolean(apiBaseUrl)
-    && Boolean(webAppUrl)
-    && WEB_APP_ORIGINS.has(webAppUrl);
-}
-
-function apiError(response, body, fallback) {
-  const code = typeof body?.error === 'string' ? body.error : `${fallback} (${response.status})`;
-  const error = new Error(code);
-  error.status = response.status;
-  return error;
-}
-
-function sessionExpired(error) {
-  return error?.status === 401 || /INVALID_WEB_SESSION|WEB_SESSION_REQUIRED/.test(error?.message ?? '');
-}
-
-function safeHttpOrigin(value) {
-  if (typeof value !== 'string') return null;
-  try {
-    const url = new URL(value.trim());
-    return url.protocol === 'https:' ? url.origin : null;
-  } catch {
-    return null;
-  }
-}
-
-function randomNonce() {
-  const bytes = crypto.getRandomValues(new Uint8Array(24));
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-
-await loadActiveTab();
-await loadPendingSelection();
-await loadAuth();
-updateSaveState();
+await loadActiveTab(); await loadPendingSelection(); await loadAuth(); updateSaveState();
