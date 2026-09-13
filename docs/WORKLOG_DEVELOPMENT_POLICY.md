@@ -17,134 +17,166 @@ Before substantive product/domain/schema/runtime work, read in this order:
 11. `docs/WORKLOG_DEPLOYMENT.md`
 12. `docs/WORKLOG_REBUILD_PROGRESS.md`
 
-The latest documents above are the only product/development specification. Retired LINE-era policy files are intentionally deleted and must not be recreated or used as product authority.
+Latest docs are authoritative. When an older document conflicts with a later explicit user decision, update the documents and follow the latest user decision.
 
-## GitHub Actions / CI policy
+## GitHub Actions / CI
 
 **Do not run, dispatch, rerun, enable, modify, or otherwise trigger GitHub Actions unless the user explicitly asks.**
 
-Do not use Actions as validation. Tests may be authored but must not be claimed passed unless actually executed locally/runtime.
+Every normal development commit on this branch includes `[skip ci]`.
 
-Every development commit on this branch must include `[skip ci]`.
+Do not claim tests or runtime validation passed unless they were actually executed.
 
-## Current architecture direction
+## Current product architecture
 
-AFTERTRACE is **Web + PWA-first** with a committed Chrome extension fast-capture surface.
-
-- LINE is not a Record/group/AI product surface;
-- LINE Login remains one provider-neutral authentication provider;
-- the official LINE OA remains only an external customer-support contact channel under `WORKLOG_SUPPORT_POLICY.md`;
-- no LINE Messaging webhook/runtime is part of the product;
-- PWA is capture-first with microphone as the primary action;
-- Web is the full timeline/search/edit/group/subscription surface;
-- Chrome extension reuses the same account/API/domain model and remains a compact capture surface;
-- groups are created in AFTERTRACE and joined through invite links;
-- free users get manual CRUD/search/date filtering and non-provider browser speech-to-text where available;
+- Web + PWA first;
+- `/` remains the Record home page on desktop and installed PWA;
+- microphone/voice-to-text is available but does not need to be the dominant PWA action;
+- Search stays a separate page;
+- Chrome extension is a compact capture surface;
+- LINE is only LINE Login + external LINE OA support contact;
+- no LINE Messaging bot/webhook product runtime;
+- groups are native AFTERTRACE groups joined by invite link;
 - paid AI entitlement is per user;
-- no GROUP AI responsible-user/funding-owner concept exists;
-- no automatic AI backfill when a free user subscribes later.
+- no automatic historical AI backfill.
 
-## Account / authentication boundary
+## Record contract
+
+Manual Record fields:
+
+- optional user-entered `title`;
+- required `raw_text`/content;
+- optional `occurred_at`;
+- system `created_at` / `updated_at`.
+
+Manual CRUD must support create, edit title/content/time, delete-to-recycle-bin and restore. Mutations preserve revision history.
+
+The Record home page shows the latest 10 Records. Full browsing/filtering remains on the Search page.
+
+Customer UI displays title first. If stored title is null, use a bounded content preview without silently persisting a generated title.
+
+## AI media boundary
+
+Text AI may use an eligible one-time Free AI trial or AI Pro according to entitlement.
+
+**Image, audio and file AI require an active AI Pro subscription. Free trial must not unlock media AI.**
+
+Recommended current media defaults:
+
+- 1 image/request while the API is single-image; 4/request is the preferred future multi-image default;
+- 5 MB/image;
+- 300 seconds/audio request;
+- 10 MB/audio request;
+- 10 MB/file request.
+
+Media plan limits live in application plan capabilities, not database CHECK constraints.
+
+The extension screenshot path is explicit user action only and must use the same AI Pro entitlement as Web media AI.
+
+## Customer copy policy
+
+Customer-facing text must use clear Traditional Chinese and avoid implementation vocabulary.
+
+Do not expose terms such as:
+
+- Source;
+- Record ID (say 紀錄編號 only when an identifier is genuinely required);
+- provider;
+- bounded dataset;
+- proposal;
+- Grant;
+- runtime;
+- ledger;
+- metadata;
+- optimistic locking/version/revision API.
+
+Admin is an internal surface, but still prefer plain Chinese. Technical accounting labels may remain only where they are necessary to understand cost/usage facts.
+
+## Account/authentication
 
 Follow `WORKLOG_ACCOUNT_IDENTITY_POLICY.md`.
 
-- Google Login, LINE Login and Apple Login are provider bindings to provider-neutral AFTERTRACE accounts;
-- core AFTERTRACE users must not depend on provider ids/emails;
-- never silently merge provider identities merely because email matches;
-- every account has an immutable opaque public account id for support lookup;
-- Admin user search supports exact public account id lookup;
-- authenticated Web/PWA account UI exposes notification bell/unread count, display name, public `帳號 ID`, and copy action;
-- do not restore LINE bot-entry exchange or LINE Messaging token-based account/session flows.
+- provider-neutral AFTERTRACE account;
+- Google + LINE current launch priority;
+- Apple supported when operationally enabled;
+- no silent account merge by email;
+- customer-facing immutable opaque 帳號 ID;
+- Web/PWA account UI exposes notification bell, display name, 帳號 ID and copy action;
+- expired/missing database user sessions must clear local session state;
+- OAuth callback `#session` must be consumed/removed so logout cannot rehydrate the old session.
 
-## Support / feedback boundary
+## Subscription architecture
 
-- Web/PWA `意見回饋` uses durable AFTERTRACE feedback records manageable from Admin;
-- Web/PWA `聯絡客服` opens the official LINE OA;
-- LINE OA does not create/search/edit Records, manage groups, mutate AI entitlement, or synchronize support chats into Admin for MVP;
-- no LINE webhook is needed for this support boundary;
-- no general-purpose RAG support bot for V1.
+Current purchasable launch plan remains AI Pro NT$99/month via NewebPay.
 
-## Notification boundary
+The Admin/backend plan catalog is allowed to contain additional future subscription definitions. Creating a plan in Admin does not make it purchasable until checkout, renewal, entitlement and customer plan exposure explicitly support that plan.
 
-Follow `WORKLOG_NOTIFICATION_POLICY.md`.
+Do not implement one-time AI top-ups unless the user changes the product direction.
 
-Current categories are exactly `ANNOUNCEMENT | SYSTEM | TASK`; channels are `IN_APP | PUSH`. Task reminders and scheduled announcements use one shared approximately five-minute Cloudflare Worker Cron with bounded idempotent scans. Do not create one Cron per task.
+Customer AI usage UI should show plain states such as normal, approaching limit, reached limit and reset date. Never expose internal supplier cost or margin to customers.
 
-## Chrome extension boundary
+## Database/schema policy
 
-Follow `WORKLOG_EXTENSION_POLICY.md`.
+AFTERTRACE remains prelaunch; Dev data is disposable and a clean rebuild is allowed until this document is explicitly changed after real production data exists.
 
-The extension reuses the same AFTERTRACE account, native Source/group authorization, Record APIs, AI entitlement and provider-cost accounting. V1 accepts quick text, quick voice, selected webpage text, optional active-page title/URL and explicit visible-page screenshot/image capture. Do not add automatic browsing-history/full-page capture, continuous microphone/screen capture, or a large extension-only sidebar/agent.
+Canonical target:
 
-## Product behavior boundary
+- one prelaunch migration: `drizzle/0000_worklog_baseline.sql`;
+- Drizzle schema + baseline + metadata stay aligned.
 
-Free/manual Record:
+Required rules:
 
-- content;
-- nullable user-entered event date/time;
-- created timestamp;
-- updated timestamp;
-- no required AI title/keywords/entities.
+- every persistent table has `COMMENT ON TABLE`;
+- every persistent column has `COMMENT ON COLUMN`;
+- comments live in the canonical baseline and should be meaningful Traditional Chinese descriptions;
+- no PostgreSQL ENUM for application-domain/status values;
+- no business/domain `CHECK` constraints;
+- legal statuses/categories/price rules/cross-field rules are validated in TypeScript/application services;
+- handwritten SQL should not add explicit named business `CONSTRAINT` clauses;
+- keep structural integrity in PostgreSQL: PRIMARY KEY, FOREIGN KEY, UNIQUE, NOT NULL, INDEX, DEFAULT and appropriate data types.
 
-Paid AI may add title, keywords/search terms, date interpretation and bounded retrieval metadata for new AI operations only. Do not silently call provider AI during manual CRUD.
+If a future migration changes table/column structure, update comments at the same time.
 
-## AI features currently accepted
+## SQL safety
 
-- natural-language text capture;
-- AI voice capture;
-- image/file/PDF input;
-- automatic title/keywords/date;
-- bounded extraction metadata for retrieval;
-- natural-language search;
-- related Records;
-- time-range summary;
-- explicit AI rewrite;
-- task extraction/proposal;
-- later grounded Q&A when retrieval quality is sufficient.
+Avoid PostgreSQL reserved/command words as unquoted aliases/CTE names/identifiers. In particular never use `grant` as a SQL alias. Apply the same care to `user`, `group`, `order`, `limit`, `offset`, `constraint`, `table`, `column`, etc.
 
-## Subscription fair-use / hard-cap rule
+## Notifications/tasks/support
 
-Launch commercial shape is exactly FREE + AI_PRO NT$99/month for V1. No one-time AI top-up or additional paid tier exists.
+- notification categories remain ANNOUNCEMENT / SYSTEM / TASK internally;
+- customer labels are 公告通知 / 系統通知 / 待辦通知;
+- in-app notification remains durable even when push fails;
+- one shared scheduled worker handles reminders/announcements; no Cron per task;
+- AI task extraction produces a suggestion first; user confirms durable task creation;
+- feedback is stored in AFTERTRACE and manageable from Admin;
+- LINE OA is support contact only.
 
-FREE receives one idempotent one-time AI trial grant using Admin-configured initial AI trial points. AI Pro enforces monthly internal point/resource cap, monthly provider-cost hard cap in TWD, optional per-request/modality limits and capability toggles. Provider work fails closed once a hard cap is reached.
+## Retired code
 
-## Tasks / reminders
+Do not restore retired LINE webhook/bot runtime, LINE group command flow, bot-entry auth, GROUP AI funding/responsible-user concepts, legacy Entity confirmation workflow, ONE_TIME/TOP_UP, or obsolete compatibility tests merely to preserve old behavior.
 
-Native AFTERTRACE tasks/reminders + notification center/PWA push are the V1 path. AI may interpret a reminder phrase only as a proposal; persisted schedule/action is deterministic and user-confirmed.
+## Validation
 
-## Retired product code policy
+Use explicit status words:
 
-AFTERTRACE is prelaunch and current Dev/Prod data remain disposable. The user has explicitly directed that obsolete product versions be physically removed rather than kept as migration residue.
+- AUTHORED;
+- NOT RUN;
+- PASS;
+- FAIL;
+- RUNTIME VERIFIED.
 
-Therefore:
-
-- do not retain or recreate LINE webhook, 小跡 command, LINE GROUP bot, LINE Reply/cache/attachment runtime, OA product runtime, GROUP AI responsible-user/funding-owner, bot-entry auth, legacy confirmation/title Entity workflow, or ONE_TIME/TOP_UP product code merely for compatibility;
-- LINE Login and the external LINE OA support link are the only accepted LINE-related product integrations;
-- target runtime, schema exports, tests, docs, env examples and deployment requirements must not depend on LINE Messaging Channel token/secret;
-- obsolete tests must be deleted instead of changing expectations to preserve retired behavior;
-- legacy schema must be removed from the next regenerated canonical baseline once source references are gone;
-- current prelaunch database compatibility is not a reason to keep dead code.
-
-## SQL / PostgreSQL safety rules
-
-Raw SQL and Drizzle templates must avoid PostgreSQL reserved/command keywords as unquoted aliases/CTE names/identifiers. Never use `grant` as a SQL alias; apply the same discipline to `user`, `group`, `order`, `limit`, `offset`, `constraint`, `table`, `column`, etc.
-
-## Database / code rebuild policy
-
-AFTERTRACE is still in prelaunch testing. **Existing Dev and current Prod data are disposable unless the user explicitly changes this rule later.** Databases may be dropped/recreated from a clean canonical target baseline. Prefer the simplest correct target architecture over compatibility with disposable test data.
-
-Safety boundary: once real users or durable production data exist, destructive Prod rebuilds require a new explicit user decision and this policy must be updated first.
-
-The unrelated local untracked `apps/api/verify-admin-schema.mjs` must not be staged/committed unless separately reviewed/approved.
-
-## Validation policy
-
-Do not claim a test passed unless it actually executed and returned PASS. Distinguish `AUTHORED`, `NOT RUN`, `PASS`, `FAIL`, `RUNTIME VERIFIED`.
+No validation claim without execution evidence.
 
 ## Development handoff
 
-Every substantial run updates `WORKLOG_REBUILD_PROGRESS.md` with completed work, commits/files changed, real validation status, remaining blockers, exact next batch and remaining estimate.
+Every substantial run updates `WORKLOG_REBUILD_PROGRESS.md` with:
+
+- current product decisions;
+- code/docs changed;
+- commit references;
+- validation status;
+- remaining runtime checks/blockers.
 
 ## Commit discipline
 
-Prefer small coherent commits. Every normal development commit includes `[skip ci]`. Do not touch GitHub Actions unless the user explicitly asks.
+Prefer coherent commits and include `[skip ci]` in every normal development commit. Do not touch GitHub Actions unless the user explicitly asks.
