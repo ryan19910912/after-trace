@@ -28,12 +28,8 @@ const db = drizzle(sql);
 let normalizedMigrationsFolder;
 
 try {
-  // Disposable Dev databases may have had public dropped during reset.
   await sql`CREATE SCHEMA IF NOT EXISTS public`;
 
-  // Neon HTTP executes prepared statements and rejects multiple SQL commands in one statement.
-  // Keep the repository at one canonical 0000 migration, but create a same-volume temporary
-  // Drizzle folder whose baseline has a breakpoint after every SQL statement.
   normalizedMigrationsFolder = resolve(
     root,
     `.aftertrace-drizzle-migrate-${process.pid}-${Date.now()}`,
@@ -49,6 +45,7 @@ try {
   normalizeSingleFileBaseline(normalizedMigrationsFolder);
 
   await migrate(db, { migrationsFolder: normalizedMigrationsFolder });
+  await verifyCanonicalSchemaExists();
   console.log('AFTERTRACE database migrations applied successfully.');
 } catch (error) {
   console.error('AFTERTRACE database migration failed.');
@@ -57,6 +54,33 @@ try {
 } finally {
   if (normalizedMigrationsFolder) {
     rmSync(normalizedMigrationsFolder, { recursive: true, force: true });
+  }
+}
+
+async function verifyCanonicalSchemaExists() {
+  const rows = await sql`
+    SELECT table_name
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_name IN (
+        'worklog_users',
+        'worklog_records',
+        'worklog_record_revisions',
+        'worklog_subscription_plans',
+        'worklog_commercial_config'
+      )
+  `;
+  const found = new Set(rows.map((row) => String(row.table_name)));
+  const required = [
+    'worklog_users',
+    'worklog_records',
+    'worklog_record_revisions',
+    'worklog_subscription_plans',
+    'worklog_commercial_config',
+  ];
+  const missing = required.filter((table) => !found.has(table));
+  if (missing.length > 0) {
+    throw new Error(`Canonical schema verification failed. Missing public tables: ${missing.join(', ')}`);
   }
 }
 
@@ -104,7 +128,6 @@ function splitSqlStatements(source) {
     }
 
     if (!singleQuoted && !doubleQuoted && char === '-' && next === '-') {
-      // Drizzle breakpoint markers are metadata, not SQL comments we need to execute.
       const remainder = source.slice(index);
       const marker = /^-->\s*statement-breakpoint\s*(?:\r?\n|$)/.exec(remainder);
       if (marker) {
