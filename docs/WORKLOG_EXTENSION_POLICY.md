@@ -52,7 +52,7 @@ Rules:
 - preview remains local until the user explicitly saves;
 - when saved, screenshot goes through `/api/v1/ai/capture/image` and the same backend authorization/accounting as Web image AI;
 - screenshot/image AI requires **active AI Pro**;
-- the one-time FREE text AI trial does **not** unlock screenshot/image AI;
+- the one-time FREE AI Search trial does **not** unlock screenshot/image AI;
 - the original screenshot is not a durable attachment unless a future product decision explicitly adds attachment storage.
 
 Current image defaults: one image per request and 5 MB per image.
@@ -73,11 +73,13 @@ FREE extension features:
 - browser/device speech-to-text;
 - authorized destination selection.
 
-AI Pro-only extension media feature:
+FREE AI Search trial points are used only on the Web/PWA natural-language Search surface. They do not unlock provider-backed AI inside the extension.
 
-- screenshot/image interpretation.
+Any provider-backed extension feature requires active AI Pro, including:
 
-Text-based AI functionality, when exposed in the extension later, may follow the same text AI entitlement used by Web. Media AI remains AI Pro-only unless the product policy is explicitly changed.
+- screenshot/image interpretation;
+- future AI text organization inside the extension;
+- future AI voice interpretation or other provider-backed extension processing.
 
 ## Permissions/privacy
 
