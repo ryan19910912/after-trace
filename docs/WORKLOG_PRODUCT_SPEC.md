@@ -2,377 +2,294 @@
 
 ## Product direction
 
-AFTERTRACE is a **Web + PWA-first work memory product**. LINE is no longer a Record/group/AI product surface. The official LINE OA remains an external customer-support channel, and LINE Login remains one supported authentication provider. A Chrome extension is a committed fast-capture surface for desktop use.
+AFTERTRACE is a **Web + PWA-first work memory product** with a compact Chrome extension for fast desktop capture.
 
 Core promise:
 
 > **快速留下工作發生過的事，需要時找得到。**
 
-The product centers on a chronological Record timeline plus optional AI assistance. It is not a full CRM/ERP/knowledge-management workspace.
+The product centers on Records, search, simple tasks/reminders, groups, optional AI assistance and subscription. It is not a CRM, ERP or general knowledge-management system.
+
+LINE is not a Record/group/AI product surface. LINE Login remains an authentication provider and the official LINE OA remains a customer-support channel only.
 
 ## Customer surfaces
 
-### PWA
+### Web / PWA
 
-PWA is capture-first. The landing experience makes the microphone the primary action. Search/history, groups and account controls are secondary. Opening the PWA must not automatically start the microphone; the user explicitly starts/stops input.
+The Web/PWA home route `/` opens the **紀錄** page. Do not force a separate microphone-first landing page. Voice-to-text remains a convenient capture method, but it does not need to dominate the interface.
 
-### Web
+The authenticated product contains:
 
-Web is the full management surface: timeline/history, search/date filtering, manual CRUD, groups, subscription, notifications and AI features.
+- 紀錄：quick capture + latest 10 Records;
+- 待辦；
+- 搜尋：general deterministic search + AI search;
+- 方案；
+- 群組；
+- notifications, help, feedback and account menu.
+
+Search remains its own page. The home page shows the latest 10 Records rather than becoming a second search interface.
 
 ### Chrome extension
 
-The Chrome extension is a compact quick-capture surface, not a second full workspace. It reuses the same AFTERTRACE account, Source/group authorization, Record APIs, AI entitlement and cost accounting as Web/PWA.
+The extension is a compact capture surface. It may:
 
-Accepted V1 capture scope:
+- create text Records;
+- use browser speech-to-text;
+- capture explicitly selected page text;
+- optionally attach the current page title + URL as bounded context;
+- explicitly capture the visible tab screenshot and send it to image AI **only for an active AI Pro subscription**.
 
-- quick text;
-- quick voice;
-- destination Source/group selection;
-- explicit selected-webpage-text capture;
-- optional active-page title + URL context;
-- explicit visible-page/bounded screenshot/image capture for AI Pro or eligible Free AI trial;
-- submit into the same AFTERTRACE timeline/domain model.
-
-Do not silently archive full pages, browsing history, clipboard, tabs, screen, or microphone. Do not build a large sidebar workspace, meeting-length recorder, automatic tab monitor, or RAG over visited pages for V1.
-
-Follow `WORKLOG_EXTENSION_POLICY.md` for the durable extension contract.
+It must not silently capture browsing history, tabs, clipboard, full-page content, screen or microphone.
 
 ## Account and identity
 
-Target architecture uses provider-neutral Web/PWA authentication with these customer login options:
+Customer login providers:
 
 - Google Login;
 - LINE Login;
-- Apple Login.
+- Apple Login when operationally enabled.
 
-Google and LINE are first implementation priorities. Apple is supported and may follow after them if sequencing is needed.
+Provider identities attach to one AFTERTRACE user. Do not silently merge accounts by email.
 
-Rules:
+Every user has an immutable, unique, opaque/non-sequential `public_account_id`, displayed to the customer as **帳號 ID**. It is the preferred support lookup identifier and must not be the database primary key or a provider-specific identity.
 
-- provider identities attach to one AFTERTRACE user;
-- do not make the core account depend on Google email, LINE id, Apple relay email or another provider-specific field;
-- do not silently merge accounts merely because two providers expose the same email;
-- LINE Login being available does **not** make LINE OA/GROUP/webhook part of the core Record/AI product surface;
-- LINE OA remains a separate support channel under `WORKLOG_SUPPORT_POLICY.md`;
-- provider identity data is never the customer-facing account identifier.
+Authenticated Web/PWA headers expose notification bell/unread count, display name, 帳號 ID and copy action.
 
-Every account has an immutable, unique, opaque/non-sequential `public_account_id`, shown as **帳號 ID**. It must not be the raw database primary key. Example presentation: `AT-7K4M2P`.
+## Records
 
-### Web / PWA account header
+### Manual Record fields
 
-Authenticated Web/PWA surfaces expose the current user in the top-right area together with notifications.
+A manually created Record has:
 
-Show at minimum:
-
-- notification bell / unread count;
-- user display name;
-- customer-facing 帳號 ID;
-- one-tap copy action for 帳號 ID.
-
-The copied id is the preferred support lookup identifier. The user should not need to provide Google email, LINE id, Apple id or any other third-party identity merely to let support locate the AFTERTRACE account.
-
-Follow `WORKLOG_ACCOUNT_IDENTITY_POLICY.md` for durable identity/linking rules.
-
-## Support / feedback
-
-Web/PWA exposes:
-
-- `意見回饋` — in-product feedback form stored in AFTERTRACE and manageable from Admin;
-- `聯絡客服` — opens the official AFTERTRACE LINE OA.
-
-LINE OA is a support contact channel only. It does not create/search/edit Records, manage groups or mutate AI entitlement. No RAG/general-purpose AI support bot is required for the initial product. Follow `WORKLOG_SUPPORT_POLICY.md`.
-
-## Sources / groups
-
-AFTERTRACE supports personal and shared record spaces:
-
-- PRIVATE / personal Source;
-- GROUP Source created inside AFTERTRACE.
-
-GROUP flow:
-
-1. user creates a group in Web/PWA;
-2. backend creates an invite link/token;
-3. invited user authenticates and explicitly joins;
-4. backend stores membership;
-5. authorization is checked server-side on every group operation.
-
-MVP roles may stay minimal (`OWNER`, `MEMBER`). Group membership is an AFTERTRACE fact.
-
-## Free product
-
-The free product is a complete manual work-record tool. Provider-backed AI is available only through the one-time eligible Free AI trial until that trial allowance is exhausted.
-
-Free users may manually create/edit/delete/restore Records, view timeline/history, search stored Record content, filter by time/date, use permitted group features, use provider-free extension capture, and use browser/device speech-to-text where supported when it does not call AFTERTRACE provider AI.
-
-Free voice is **voice input / speech-to-text**, not AI voice interpretation.
-
-A newly eligible FREE account receives one idempotent one-time AI trial allowance using internal AI points. Admin configures the initial point quantity; it does not refresh monthly and is not displayed as a TWD trial price. Follow `WORKLOG_SUBSCRIPTION_POLICY.md` and `WORKLOG_AI_POINT_POLICY.md`.
-
-### Free Record fields
-
-A free/manual Record requires only:
-
-- `content`;
-- `occurred_at` — user-entered business/event date/time, nullable;
+- `title` — optional user-entered title, maximum 255 characters;
+- `content` / persisted `raw_text` — required;
+- `occurred_at` — optional business/event date-time;
 - `created_at` — system creation timestamp;
 - `updated_at` — system last-modified timestamp.
 
-Free Records do not require AI title, AI keywords or AI entities.
+Manual Records do **not** require AI-generated title, keywords or entities.
 
-## AI subscription
+If title is empty, customer UI may show a short content preview as the display heading; the stored title remains null.
 
-Launch commercial shape is exactly:
+### Record CRUD
 
-- `FREE` — NT$0;
-- `AI_PRO` — NT$99/month.
+FREE users can:
 
-No one-time AI top-up and no extra paid tier are part of V1.
+- create Records;
+- edit title, content and occurred time;
+- delete to recycle bin;
+- restore from recycle bin;
+- view latest Records;
+- search title/content by keyword and date.
 
-AI entitlement is **per user**, not per group. There is no GROUP AI responsible-user concept in the target product.
+Every mutation uses optimistic versioning and preserves revision history. User-facing copy should say “修改紀錄” or equivalent; do not expose implementation terms such as optimistic locking/revision API.
 
-If paid user A and free user B are in the same GROUP, A may use AI against authorized GROUP data; B may manually use permitted GROUP Record features and may use provider AI only while B has eligible Free trial points.
+### Home page
 
-### AI input capabilities
+The `/` Record page contains:
 
-Paid AI may support:
+1. quick capture form: destination, optional title, optional occurred time, required content, optional browser speech-to-text;
+2. latest 10 Records for the selected destination;
+3. clear Edit/Delete actions on active Records;
+4. link to the independent Search page for full history/filtering.
 
-- natural-language text input;
-- AI voice interpretation;
-- image input;
-- supported file/PDF/document input.
+Record list/search cards show title first and content second. When title is null, use a bounded content preview as the heading.
 
-Provider-backed inputs should converge on one shared bounded interpretation pipeline.
+## Sources / groups
 
-### AI enrichment for new Records
+AFTERTRACE supports:
+
+- PRIVATE/personal Source;
+- GROUP Source created inside AFTERTRACE.
+
+MVP group roles: `OWNER`, `MEMBER`. Backend authorization is checked for every group operation.
+
+Customer UI should say “紀錄範圍”, “我的紀錄”, or the group name. Avoid exposing the internal word `Source`.
+
+## Free product and AI trial
+
+FREE is a complete manual Record product.
+
+FREE includes one idempotent, Admin-configured, one-time **text AI trial**. It does not refresh monthly.
+
+The Free AI trial can be used for eligible text-based AI features such as text organization/search/rewrite according to capability and point rules.
+
+**Image, audio and file AI are not part of the Free AI trial. They require an active AI Pro subscription.**
+
+Free browser/device speech-to-text is not provider AI and remains available where supported.
+
+## Subscription plans
+
+Current launch offering:
+
+- FREE — NT$0;
+- AI Pro — NT$99/month, billed through NewebPay periodic card billing.
+
+The schema and Admin configuration support adding additional subscription plan definitions later. Admin plan creation does not by itself make a new plan purchasable; payment checkout/renewal support must explicitly support that plan before it is exposed to customers for purchase.
+
+No one-time top-up is part of the current product.
+
+AI entitlement is per user, not per group.
+
+## AI Pro media features
+
+AI Pro may use:
+
+- text AI;
+- image AI;
+- audio AI;
+- supported PDF/text/document AI.
+
+Current recommended media defaults:
+
+- images per request: **1** while the current client/API is single-image; when multi-image input ships, recommended default is **4 images/request**;
+- image size: **5 MB per image**;
+- audio duration: **300 seconds (5 minutes) per request**;
+- audio size: **10 MB per request**;
+- file size: **10 MB per file/request**.
+
+“Images per request” means the maximum number of images in one AI operation. It is **not** a lifetime or monthly image-count quota.
+
+These limits belong to application-level plan capabilities/configuration. Database CHECK constraints must not encode them.
+
+## AI enrichment
 
 AI-created/enriched Records may add nullable metadata:
 
-- `title`;
-- `search_terms` / keywords;
-- AI-resolved event date/time when expressed by the user;
-- optional bounded extracted entities useful for retrieval such as PERSON, CUSTOMER, PROJECT, ORGANIZATION, AMOUNT or LOCATION.
+- title;
+- search terms/keywords;
+- resolved event time when expressed by the user;
+- bounded extracted facts useful for retrieval.
 
-Extracted entities are retrieval metadata, not a requirement to build CRM/ERP tables.
+Do not automatically AI-backfill historical manual Records when a user subscribes.
 
-### No historical backfill
+AI must not invent an event time that the user did not express.
 
-When a free user later subscribes to AI, **do not automatically reprocess historical free Records**.
+## Search
 
-- historical Records remain unchanged;
-- enrichment begins only for new provider-backed operations after entitlement starts;
-- old Records remain searchable from raw `content` and time filters;
-- new AI Records may search better because they also have title/keywords/entities;
-- natural-language retrieval searches both old raw content and new metadata where available.
+### General search
 
-## AI date interpretation
+FREE deterministic search covers stored title/content, date range and authorized Record scope. Search is an independent page.
 
-AI may resolve expressions such as `今天`, `昨天`, `下週三` against an explicit reference timestamp and product timezone. It must not invent a date/time that the user did not express.
+### AI search
 
-Record time semantics remain distinct:
+Eligible text AI trial or AI Pro may interpret natural-language requests and search authorized Records. PostgreSQL remains authoritative retrieval. AI must not fabricate stored facts.
 
-1. `occurred_at` = user/business event date/time, nullable;
-2. `created_at` = storage time;
-3. `updated_at` = modification time.
+## AI tools
 
-## Search and retrieval
+Customer-facing AI tools include:
 
-### Free deterministic search
+- related Records;
+- time-range summary;
+- rewrite suggestion;
+- task suggestion.
 
-Provider-free search uses raw Record content, date/time filters and Source/group scope.
+AI rewrite and task creation are **proposal first**. The user explicitly confirms before durable content/task creation.
 
-### AI natural-language search
-
-Paid AI or eligible Free trial AI may interpret a natural-language request into bounded search terms/filters. PostgreSQL remains authoritative retrieval.
-
-Search combines, where available:
-
-- raw `content` for all Records;
-- `title`;
-- `search_terms`;
-- bounded extracted entity metadata;
-- date/time filters.
-
-AI must not fabricate stored facts.
-
-## Related Records
-
-AI subscribers may receive related Record suggestions when viewing a Record. Initial ranking may remain deterministic and combine title overlap, keyword overlap, entity overlap, content full-text similarity, Source scope and recency. Vector/embedding search is optional later work.
-
-## AI time-range summary
-
-Paid AI may summarize an explicitly selected time range or bounded filtered Record set. Backend selects authorized Records deterministically first; AI summarizes only that bounded result set. Usage is audited as paid AI compute.
-
-## AI rewrite / cleanup
-
-Paid users may explicitly ask AI to rewrite/clean a selected Record. AI returns a proposal; user previews/accepts; backend commits through normal revision/version rules. AI never silently overwrites durable content.
-
-## AI Q&A
-
-AI Q&A may be added when retrieval grounding is reliable:
-
-1. authorize user/Source;
-2. interpret bounded query;
-3. retrieve deterministic matching Records;
-4. answer only from those Records;
-5. preserve references/deep links to source Records;
-6. state when evidence is insufficient.
-
-Deterministic calculations are preferred for totals/aggregations where feasible.
+Customer copy must be plain Traditional Chinese. Do not show engineering terms such as `Source`, `Record ID`, `provider`, `bounded dataset`, `proposal`, `Grant`, `runtime`, `ledger`, `metadata`, `optimistic version`, or `revision API` unless the context is explicitly an internal Admin/developer screen where the term is necessary.
 
 ## Tasks / reminders
 
-AFTERTRACE includes a simple task/reminder direction. Paid AI may detect a task from natural-language input and propose it. It must not silently create a task without confirmation unless a later explicit rule changes this.
+Tasks support title, optional body, optional due/remind times, status and optional source/record relation.
 
-Suggested task facts:
-
-- title/content;
-- `due_at` nullable;
-- `remind_at` nullable;
-- status;
-- related Source/Record nullable;
-- `created_at` / `updated_at`.
-
-Reminder scheduling is deterministic stored data. AI may interpret time language only as a proposal before user confirmation.
+Reminder scheduling is deterministic stored data. AI may interpret a task/time only as a suggestion before confirmation.
 
 ## Notifications
 
-Current notification categories are:
+Notification categories:
 
-- `ANNOUNCEMENT` / 公告通知;
-- `SYSTEM` / 系統通知;
-- `TASK` / 待辦通知.
+- 公告通知;
+- 系統通知;
+- 待辦通知.
 
-Category and channel are separate. Current channels are durable `IN_APP` and optional `PUSH`.
+Channels:
 
-### Announcement notifications
+- in-app notification;
+- optional Web Push.
 
-Admin can manually create an announcement such as `今晚 23:00～23:15 進行系統更新` and choose:
+Notification permission is requested only after an explicit user action. Push failure must not remove the in-app notification.
 
-- audience: ALL_USERS / FREE_USERS / AI_SUBSCRIBERS / SPECIFIC_USERS;
-- immediate or scheduled send;
-- IN_APP and/or PUSH;
-- preview before send;
-- cancel while still pending;
-- inspect delivery/status summary.
+## AI usage / customer experience
 
-Manual Admin messages are ANNOUNCEMENT by default; do not fabricate a SYSTEM business event merely because Admin typed a message.
+Customer UI must not expose internal provider cost or margin.
 
-### System notifications
+AI Pro should show a friendly usage state:
 
-SYSTEM notifications are deterministic backend events such as:
+- 使用狀況正常;
+- 接近本期上限;
+- 已達本期上限;
+- next reset/period date when known.
 
-- payment success;
-- subscription activation/renewal/cancellation;
-- AI monthly resource limit reached.
+When AI is blocked by a monthly limit, manual/free features remain available.
 
-Event-driven notification creation must be idempotent so retries/webhook redelivery cannot duplicate the same customer event.
+## Admin
 
-### Task notifications
+Admin supports:
 
-TASK notifications are generated from the user's confirmed task/reminder data.
+- exact user lookup by customer-facing 帳號 ID;
+- free one-time text-AI trial point configuration;
+- subscription plan list supplied by backend;
+- adding and editing future subscription plan definitions;
+- monthly AI point cap;
+- monthly AI supplier-cost cap;
+- optional per-request AI point cap;
+- AI feature switches;
+- media limits: images/request, image bytes, audio seconds, audio bytes, file bytes;
+- AI cost calculator/reporting;
+- announcements;
+- feedback management.
 
-Initial scheduler:
+Admin customer/operations copy should still prefer plain Chinese. Technical accounting terms are allowed only where they are necessary for internal cost diagnosis.
 
-- one global Cloudflare Worker scheduled handler/Cron, approximately every 5 minutes;
-- bounded query for due reminders and scheduled announcements;
-- idempotent notification creation/delivery;
-- no one-Cron-per-task design;
-- Cloudflare Queue only later if volume/fan-out requires it.
+## Database/schema policy
 
-### Notification center
+The canonical schema is application-owned and optimized for a prelaunch clean rebuild.
 
-Web/PWA includes a notification center opened from the top-right bell. It shows unread count and durable read/unread state. Push delivery failure must not remove an IN_APP notification that should remain visible.
+Rules:
 
-### iOS/iPadOS PWA Push
-
-AFTERTRACE supports the installed Home Screen PWA push path on supported iOS/iPadOS versions.
-
-- user adds AFTERTRACE to the Home Screen;
-- notification permission is requested only after an explicit user action such as `開啟通知`;
-- never auto-prompt for notification permission on initial load;
-- if push is denied/unsupported, IN_APP notifications still work;
-- do not claim a normal Safari tab has identical push behavior to the installed Home Screen PWA.
-
-Android/desktop PWA use the same Web Push domain model where supported.
-
-Google Calendar integration remains later/optional. Native tasks + notification center + PWA push come first.
-
-Follow `WORKLOG_NOTIFICATION_POLICY.md` for durable notification behavior.
-
-## AI subscription usage limits / fair use
-
-Customer-facing subscription must **not** claim mathematically unlimited provider compute.
-
-Suggested disclosure:
-
-> **日常使用不限次數；AI 功能仍受公平使用原則與每月方案資源上限限制。達到上限後，AI 功能將於下一個週期恢復。**
-
-User UI should show a friendly state such as normal / approaching limit / limit reached and next reset date. Do not expose provider cost or margin.
-
-Admin plan configuration should support at minimum:
-
-- `price_twd`;
-- `ai_enabled`;
-- monthly AI point/resource cap;
-- monthly provider-cost cap in TWD;
-- optional per-request safety cap;
-- optional modality limits such as file size/image count/audio duration;
-- feature toggles such as natural-language search, summary, image/file AI;
-- FREE one-time initial AI trial point quantity.
-
-Runtime fails closed when a hard limit is reached. The provider-cost cap protects unit economics even if token mix/model pricing changes.
-
-## AI usage/accounting
-
-Internal AI points/resource units may remain an implementation/accounting detail and do not need to dominate customer UX.
-
-Admin retains auditable provider-call facts: user, Source/group, operation, provider/model, usage units/tokens, pricing snapshot, actual provider cost USD/TWD, plan/period or Free trial grant, and whether a request was blocked by plan/resource caps.
+- canonical prelaunch migration is a single `drizzle/0000_worklog_baseline.sql`;
+- every persistent product table must have a PostgreSQL `COMMENT ON TABLE` description;
+- every persistent product column must have a PostgreSQL `COMMENT ON COLUMN` description;
+- comments are schema metadata and must be included in the canonical baseline;
+- do not use PostgreSQL ENUM for application-domain values; use ordinary varchar/text and validate legal values in TypeScript/application services;
+- do not encode business/domain rules in database `CHECK` constraints;
+- handwritten SQL should not add explicit named `CONSTRAINT` clauses for business logic;
+- structural integrity remains in the database: PRIMARY KEY, FOREIGN KEY, UNIQUE, NOT NULL, INDEX and appropriate DEFAULT/type constraints;
+- status transitions, category allowlists, pricing rules, point limits and cross-field business rules belong to application services.
 
 ## Product priorities
 
-### High priority
+### Current high priority
 
-- provider-neutral Google + LINE login, with Apple supported next if sequencing is needed;
-- immutable copyable public account id shown in Web/PWA account header + Admin exact lookup;
-- Web/PWA manual Record CRUD;
-- capture-first PWA microphone UX;
-- free browser/device speech-to-text where practical;
-- AFTERTRACE groups + invite links;
-- notification center + Admin announcements + SYSTEM notification foundation;
-- FREE one-time AI trial points + Admin configuration;
-- paid AI text/voice/image/file interpretation;
-- AI title/keywords/date for new AI operations only;
-- deterministic content/date search;
-- paid natural-language search;
-- related Records;
-- AI time-range summary;
-- AI rewrite;
-- tasks + PWA push reminders;
-- subscription fair-use/resource caps and Admin controls;
-- in-product feedback + LINE OA support entry;
-- Chrome extension quick capture: text, voice, selected text, page title/URL and explicit screenshot/image.
+- stable Google + LINE login;
+- Record title/content/time CRUD;
+- latest 10 Record preview + independent Search page;
+- groups + invites;
+- tasks/reminders + notifications;
+- FREE one-time text AI trial;
+- AI Pro text/image/audio/file features;
+- Chrome extension screenshot-to-AI-Pro path;
+- NewebPay AI Pro payment lifecycle;
+- friendly AI usage state;
+- backend-driven Admin subscription plan management;
+- plain-language customer/Admin UI;
+- feedback + LINE OA support.
 
 ### Later / conditional
 
-- safe account-linking/merge UX across providers;
-- AI Q&A after grounding quality is proven;
+- Apple launch enablement;
+- safe provider account linking/merge UX;
+- multi-image AI input (recommended 4/request when introduced);
+- additional purchasable paid tiers after payment lifecycle supports them;
 - Calendar integration;
-- vector/embedding search;
-- richer screenshot region-selection if visible-page capture ships first.
+- vector/embedding retrieval;
+- richer screenshot region selection.
 
 ### Not current priority
 
-- LINE OA/GROUP bot as a Record/AI product surface;
-- GROUP AI responsible user/funding owner;
-- LINE Reply cache/mentions/product-command lifecycle;
+- LINE bot/webhook as Record/AI surface;
+- group AI funding owner;
 - automatic historical AI backfill;
-- project/group AI summary as a standalone feature;
 - broad CRM/ERP schema;
-- RAG/general AI customer-support bot;
-- automatic browsing-history/full-page capture or extension sidebar agent.
-
-## Brand
-
-Keep the product name **AFTERTRACE** for now. Naming may be revisited later without blocking product development.
+- general-purpose AI customer-support bot;
+- automatic browsing-history or full-page capture.
