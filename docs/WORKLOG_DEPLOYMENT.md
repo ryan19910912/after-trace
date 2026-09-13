@@ -16,7 +16,7 @@ Cloudflare Workers only. Do not reintroduce Pages.
 - `after-trace-web-prod`
 - `after-trace-admin-prod`
 
-workers.dev subdomain: `a0955625660`.
+workers.dev subdomain: `after-lab`.
 
 Manual deployment remains the accepted operating model. Do not enable automatic Git deployment or GitHub Actions unless explicitly requested.
 
@@ -125,14 +125,34 @@ Authoritative Drizzle export is `apps/api/src/db/schema-all.ts`.
 
 AFTERTRACE is currently prelaunch/test-stage and existing Dev/current Prod data are disposable. While that remains true:
 
-- Dev and current prelaunch Prod may be dropped/recreated from a clean target schema;
+- Dev and current prelaunch Prod may be recreated from a clean target schema;
 - canonical `drizzle/0000` may be regenerated after accepted schema changes;
 - clean baseline rebuild is preferred over compatibility migrations when it produces a simpler target architecture;
 - legacy LINE-era test users, Records, Grants, runtime config and other disposable test data do not need preservation;
 - after reset, recreate only explicit target seed/runtime configuration required by the current product;
 - do not add migration complexity solely to preserve disposable prelaunch data.
 
-The target source schema now excludes retired LINE Messaging/GROUP bot schema, Entity/Alias/confirmation schema, GROUP AI responsible-user/funding-owner schema and ONE_TIME/TOP_UP product schema. The checked-in canonical `drizzle/0000_worklog_baseline.sql` and metadata must still be regenerated from the current `schema-all.ts` before clean database validation/deployment; do not hand-edit those generated artifacts to simulate success.
+The target source schema excludes retired LINE Messaging/GROUP bot schema, Entity/Alias/confirmation schema, GROUP AI responsible-user/funding-owner schema and ONE_TIME/TOP_UP product schema. Checked-in canonical `drizzle/0000_worklog_baseline.sql` and metadata must be regenerated from the current `schema-all.ts` before clean database validation/deployment; do not hand-edit generated artifacts to simulate success.
+
+### Complete clean-reset procedure
+
+During the current disposable prelaunch stage, a true clean rebuild must clear both the application schema and Drizzle migration history. Clearing only `public` is incomplete because Drizzle records applied migrations separately and may otherwise skip `0000_worklog_baseline.sql` on the next deploy.
+
+Use the following reset only for disposable Dev/prelaunch environments that have been explicitly approved for destructive reset:
+
+```sql
+DROP SCHEMA IF EXISTS drizzle CASCADE;
+DROP SCHEMA IF EXISTS public CASCADE;
+CREATE SCHEMA public;
+```
+
+Then deploy the API first:
+
+```text
+pnpm deploy:dev:api
+```
+
+The migration runner must verify that canonical core tables exist after Drizzle reports migration completion. A migration run is not considered successful merely because the Drizzle migrator returned without error.
 
 Safety boundary: destructive permission expires once real customers or durable production data exist. At that point, destructive Prod rebuilds require a new explicit user decision and the development/deployment policies must be updated before proceeding.
 
@@ -140,8 +160,10 @@ Safety boundary: destructive permission expires once real customers or durable p
 
 Before any provider call, runtime checks the current accepted entitlement source:
 
-- eligible FREE one-time trial points; or
+- eligible FREE one-time AI Search trial points; or
 - active AI_PRO entitlement.
+
+FREE trial points are only valid for natural-language AI Search. All other provider-backed AI operations require AI Pro.
 
 Then enforce the relevant capability/resource/cost boundaries:
 
@@ -152,14 +174,14 @@ Then enforce the relevant capability/resource/cost boundaries:
 
 Provider usage/cost remains auditable. Customer UI does not expose internal provider pricing/margin or present trial points/provider-cost caps as TWD cash balances.
 
-Launch commercial contract remains exactly FREE NT$0 + AI_PRO NT$99/month. Do not add one-time top-up products or extra paid tiers for V1.
+Launch commercial contract remains FREE NT$0 + AI_PRO NT$99/month. Admin may define future plan rows, but a plan is not purchasable until payment, entitlement and customer exposure support it explicitly.
 
 ## API liveness/readiness
 
 - `GET /health` = Worker liveness;
 - `GET /health/ready` = target schema/config/runtime readiness.
 
-Readiness must validate target provider-neutral auth, AI/commercial configuration, notification/PUSH foundation and target schema. It must not require retired LINE Messaging credentials or legacy LINE/GROUP product tables.
+Readiness validates target provider-neutral auth, AI/commercial configuration, notification/PUSH foundation and target schema. It must not require retired LINE Messaging credentials or legacy LINE/GROUP product tables.
 
 ## Local release validation
 
