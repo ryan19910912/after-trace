@@ -50,7 +50,6 @@ export function TaskRoot({ apiBaseUrl }: Props) {
       if (clearSessionIfExpired(cause)) {
         setSession(null);
         setTasks([]);
-        setError('登入狀態已失效，請重新登入。');
         return;
       }
       setError(message(cause, '待辦載入失敗'));
@@ -121,7 +120,7 @@ function TaskCard({ task, focused, busy, onEdit, onComplete, onCancel }: { task:
 function draftRequest(draft:TaskDraft){return{title:draft.title.trim(),body:draft.body.trim()||null,dueAt:localDateOrNull(draft.dueAt),remindAt:localDateOrNull(draft.remindAt)}}
 function currentSessionToken(){return callbackSessionToken()||localStorage.getItem(SESSION_KEY)?.trim()||null}
 function callbackSessionToken(){const hash=new URLSearchParams(window.location.hash.replace(/^#/,''));return hash.get('session')?.trim()||null}
-function clearSessionIfExpired(cause:unknown){const text=cause instanceof Error?cause.message:String(cause??'');if(text!=='INVALID_WEB_SESSION'&&text!=='WEB_SESSION_REQUIRED'&&text!=='WORKLOG_USER_NOT_FOUND')return false;localStorage.removeItem(SESSION_KEY);localStorage.removeItem('aftertrace.worklog.scope');return true}
+function clearSessionIfExpired(cause:unknown){const text=cause instanceof Error?cause.message:String(cause??'');if(text!=='INVALID_WEB_SESSION'&&text!=='WEB_SESSION_REQUIRED'&&text!=='WORKLOG_USER_NOT_FOUND')return false;localStorage.removeItem(SESSION_KEY);localStorage.removeItem('aftertrace.worklog.scope');localStorage.setItem(RETURN_KEY,window.location.pathname);window.location.href='/login';return true}
 function taskIdFromPath(pathname:string){const match=/^\/tasks\/(\d+)\/?$/.exec(pathname);if(!match)return null;const id=Number(match[1]);return Number.isSafeInteger(id)&&id>0?id:null}
 function datetimeLocalValue(value:string|null){if(!value)return'';const date=new Date(value);if(Number.isNaN(date.getTime()))return'';const local=new Date(date.getTime()-date.getTimezoneOffset()*60_000);return local.toISOString().slice(0,16)}
 function localDateOrNull(value:string){if(!value.trim())return null;const date=new Date(value);if(Number.isNaN(date.getTime()))throw new Error('INVALID_TASK_DATE');return date.toISOString()}
