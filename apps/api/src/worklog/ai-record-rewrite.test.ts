@@ -64,12 +64,29 @@ describe('AiRecordRewriteService', () => {
     expect(calls).toEqual(['resolve']);
   });
 
-  it('returns proposal and expectedVersion without mutating a Record', async () => {
+  it('does not allow FREE trial points to unlock AI rewrite', async () => {
     const calls: string[] = [];
     const service = new AiRecordRewriteService(repository(calls), {
       async resolve() {
         calls.push('resolve');
         return { source: 'FREE_TRIAL', allowed: true, reason: 'FREE_TRIAL_AVAILABLE', remainingPoints: 100, periodEndsAt: null, perRequestAiPointCap: 100 };
+      },
+    }, ledger(calls), {
+      reservationPoints() { calls.push('estimate'); return 40; },
+      async rewrite() { calls.push('provider'); throw new Error('should not run'); },
+    });
+
+    expect(await service.propose({ userId: 7, sourceId: 12, recordId: 99, instruction: '改得更精簡' }))
+      .toMatchObject({ status: 'BLOCKED', decision: { reason: 'AI_NOT_ENTITLED' } });
+    expect(calls).toEqual(['resolve']);
+  });
+
+  it('returns an AI Pro proposal and expectedVersion without mutating a Record', async () => {
+    const calls: string[] = [];
+    const service = new AiRecordRewriteService(repository(calls), {
+      async resolve() {
+        calls.push('resolve');
+        return { source: 'AI_PRO', allowed: true, reason: 'AI_PRO_AVAILABLE', remainingPoints: 100, periodEndsAt: '2026-10-01T00:00:00.000Z', perRequestAiPointCap: 100 };
       },
     }, ledger(calls), {
       reservationPoints() { calls.push('estimate'); return 40; },
@@ -80,7 +97,7 @@ describe('AiRecordRewriteService', () => {
     });
     const result = await service.propose({ userId: 7, sourceId: 12, recordId: 99, instruction: '改得更精簡' });
     expect(result).toMatchObject({
-      status: 'PROPOSAL', entitlementSource: 'FREE_TRIAL', recordId: 99, expectedVersion: 4,
+      status: 'PROPOSAL', entitlementSource: 'AI_PRO', recordId: 99, expectedVersion: 4,
       originalText: '今天完成晴空案第一階段。', proposedText: '晴空案第一階段今日完成。',
     });
     expect(calls).toEqual([
