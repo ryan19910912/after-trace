@@ -47,7 +47,12 @@ export function TaskRoot({ apiBaseUrl }: Props) {
     setError(null);
     try { setTasks(await api.list(token)); }
     catch (cause) {
-      if (clearSessionIfExpired(cause)) { setSession(null); setTasks([]); }
+      if (clearSessionIfExpired(cause)) {
+        setSession(null);
+        setTasks([]);
+        setError('登入狀態已失效，請重新登入。');
+        return;
+      }
       setError(message(cause, '待辦載入失敗'));
     } finally { setLoading(false); }
   }
@@ -116,10 +121,10 @@ function TaskCard({ task, focused, busy, onEdit, onComplete, onCancel }: { task:
 function draftRequest(draft:TaskDraft){return{title:draft.title.trim(),body:draft.body.trim()||null,dueAt:localDateOrNull(draft.dueAt),remindAt:localDateOrNull(draft.remindAt)}}
 function currentSessionToken(){return callbackSessionToken()||localStorage.getItem(SESSION_KEY)?.trim()||null}
 function callbackSessionToken(){const hash=new URLSearchParams(window.location.hash.replace(/^#/,''));return hash.get('session')?.trim()||null}
-function clearSessionIfExpired(cause:unknown){const text=cause instanceof Error?cause.message:String(cause??'');if(text!=='INVALID_WEB_SESSION'&&text!=='WEB_SESSION_REQUIRED')return false;localStorage.removeItem(SESSION_KEY);return true}
+function clearSessionIfExpired(cause:unknown){const text=cause instanceof Error?cause.message:String(cause??'');if(text!=='INVALID_WEB_SESSION'&&text!=='WEB_SESSION_REQUIRED'&&text!=='WORKLOG_USER_NOT_FOUND')return false;localStorage.removeItem(SESSION_KEY);localStorage.removeItem('aftertrace.worklog.scope');return true}
 function taskIdFromPath(pathname:string){const match=/^\/tasks\/(\d+)\/?$/.exec(pathname);if(!match)return null;const id=Number(match[1]);return Number.isSafeInteger(id)&&id>0?id:null}
 function datetimeLocalValue(value:string|null){if(!value)return'';const date=new Date(value);if(Number.isNaN(date.getTime()))return'';const local=new Date(date.getTime()-date.getTimezoneOffset()*60_000);return local.toISOString().slice(0,16)}
 function localDateOrNull(value:string){if(!value.trim())return null;const date=new Date(value);if(Number.isNaN(date.getTime()))throw new Error('INVALID_TASK_DATE');return date.toISOString()}
 function formatOptionalTime(value:string|null){return value?formatTime(value):'未設定'}
 function formatTime(value:string){const date=new Date(value);return Number.isNaN(date.getTime())?'—':date.toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour12:false})}
-function message(cause:unknown,fallback:string){if(!(cause instanceof Error))return fallback;const labels:Record<string,string>={INVALID_TASK_TITLE:'請輸入待辦名稱。',INVALID_TASK_DUE_AT:'到期時間格式不正確。',INVALID_TASK_REMIND_AT:'提醒時間格式不正確。',TASK_NOT_FOUND_OR_NOT_OPEN:'這筆待辦已不存在或已結束。',TASK_SOURCE_NOT_AUTHORIZED:'你沒有這個紀錄空間的權限。'};return labels[cause.message]??cause.message??fallback}
+function message(cause:unknown,fallback:string){if(!(cause instanceof Error))return fallback;const labels:Record<string,string>={INVALID_TASK_TITLE:'請輸入待辦名稱。',INVALID_TASK_DUE_AT:'到期時間格式不正確。',INVALID_TASK_REMIND_AT:'提醒時間格式不正確。',TASK_NOT_FOUND_OR_NOT_OPEN:'這筆待辦已不存在或已結束。',TASK_SOURCE_NOT_AUTHORIZED:'你沒有這個紀錄空間的權限。',WORKLOG_USER_NOT_FOUND:'登入狀態已失效，請重新登入。'};return labels[cause.message]??cause.message??fallback}
