@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { LoginProviderButtons } from './LoginProviderButtons';
 import { WorklogApi } from './worklog-api';
 import './worklog.css';
+import './feedback.css';
 
 const SESSION_KEY = 'aftertrace.worklog.session';
 type FeedbackCategory = 'BUG' | 'FEATURE' | 'UX' | 'OTHER';
