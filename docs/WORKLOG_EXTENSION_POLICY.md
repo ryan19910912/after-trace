@@ -6,136 +6,98 @@ Durable product/development contract for the AFTERTRACE Chrome extension.
 
 The Chrome extension is a **fast capture surface**, not a second full AFTERTRACE application.
 
-Core principle:
-
-> Open in seconds, capture the useful work event, close it, and let the same AFTERTRACE account/timeline handle the rest.
-
-The extension must reuse the same authenticated account, Source/group authorization, manual Record API, AI entitlement/accounting, and durable Record model as Web/PWA. Do not create an extension-only Record domain.
+It reuses the same AFTERTRACE account, Record APIs, group authorization, AI entitlement and usage accounting as Web/PWA.
 
 ## Accepted capture scope
 
-The extension should support all of the following capture paths:
+The extension supports explicit user-initiated:
 
-1. **Quick text** — type a short Record directly in the popup.
-2. **Quick voice** — explicit microphone start/stop; free browser/device speech-to-text may be used when available without AFTERTRACE provider AI; paid AI voice may use the normal paid AI pipeline when explicitly selected/available.
-3. **Selected text** — save currently selected webpage text into a draft/Record through a context-menu or equivalent explicit user action.
-4. **Current page context** — optionally attach the active page `title` and `URL` to the Record. This should be explicit/visible before save and must not silently archive the full page.
-5. **Screenshot / image capture** — allow explicit visible-page or bounded screenshot/image capture for AI Pro processing. Do not continuously record or monitor the screen.
+1. quick text Record;
+2. browser/device speech-to-text;
+3. selected webpage text;
+4. optional current page title + URL context;
+5. visible-tab screenshot sent to image AI **only when the current user has an active AI Pro subscription**.
 
-All capture modes must preserve the selected destination Source/group and require normal backend authorization.
+The extension must not create an extension-only Record domain.
 
-## UX boundary
+## UX
 
-The extension should remain intentionally compact.
+Keep the popup compact:
 
-Recommended popup shape:
+- destination picker;
+- text area;
+- voice-to-text action;
+- optional page-information toggle;
+- screenshot action + preview;
+- save action;
+- clear status/error copy;
+- link to the full Web app.
 
-- current destination Source/group;
-- microphone action;
-- short text area;
-- optional `附上目前頁面` toggle showing title/URL;
-- save/submit action;
-- clear error/retry state;
-- link to open the full Web app when deeper management is needed.
+Do not build a full history manager, notification center, large sidebar workspace or open-ended AI chat inside the extension.
 
-Do not turn the extension into a large sidebar workspace, full notification center, full Record history manager, or open-ended AI chat surface for V1.
+## Selected text / page context
 
-## Selected-text capture
+Selected-text capture is explicit. Current page title/URL are bounded context and must be visible before save.
 
-Selected-text capture must be explicit and user initiated.
-
-Recommended behavior:
-
-- user selects text on a webpage;
-- chooses `儲存到 AFTERTRACE` from a context menu or extension action;
-- extension opens a compact draft containing the selected text;
-- user may add a short note and choose destination Source/group;
-- optional current page title/URL can be included;
-- user confirms before persistence.
-
-Do not automatically capture all page text, browsing history, or clipboard contents.
-
-## Current page title / URL
-
-Page metadata is context, not the Record body source of truth.
-
-Persist title/URL as bounded metadata when included. The UI should make inclusion visible before save.
-
-Do not crawl, summarize, or archive the full page merely because title/URL was attached. Any future page-content extraction requires an explicit product decision and clear user action.
+Do not silently capture full page content, clipboard, browsing history or tabs.
 
 ## Screenshot / image capture
 
-Screenshot/image capture is an explicit user action.
-
-V1 may start with the currently visible tab/viewport or another bounded capture implementation supported by Chrome extension APIs. If region-selection UX materially increases complexity, visible-page capture may ship first and region selection may follow.
+Screenshot capture requires an explicit click. Current implementation may use the visible tab/viewport.
 
 Rules:
 
 - never background-capture screenshots;
 - never continuously monitor screen content;
-- do not store original screenshots longer than needed unless an explicit durable attachment feature is later accepted;
-- AI Pro may analyze the image through the same provider/cost accounting path as other image input;
-- free users must not receive provider-backed image interpretation unless covered by eligible one-time AI trial points.
+- preview remains local until the user explicitly saves;
+- when saved, screenshot goes through `/api/v1/ai/capture/image` and the same backend authorization/accounting as Web image AI;
+- screenshot/image AI requires **active AI Pro**;
+- the one-time FREE text AI trial does **not** unlock screenshot/image AI;
+- the original screenshot is not a durable attachment unless a future product decision explicitly adds attachment storage.
 
-## Permissions / privacy
-
-Request the minimum Chrome extension permissions required for accepted functionality.
-
-Likely bounded permissions may include active tab access, context menus, storage for non-secret UI preferences, and screenshot capability. Avoid broad host permissions or browsing-history permissions unless technically necessary and separately reviewed.
-
-Never store provider API keys in the extension. Provider calls go through AFTERTRACE backend authorization/accounting.
+Current image defaults: one image per request and 5 MB per image.
 
 ## Authentication
 
-The extension must authenticate against the same AFTERTRACE account as Web/PWA. Google, LINE, or Apple are login providers for the account, not extension-specific identity systems.
+The extension authenticates against the same AFTERTRACE account as Web/PWA. It must not store Google/LINE/Apple provider credentials or AI provider keys.
 
-If an authenticated browser session cannot be reused safely across extension/browser boundaries, use a bounded explicit handoff/token flow rather than storing long-lived third-party credentials in extension storage.
+Use the bounded explicit Web-to-extension handoff flow for AFTERTRACE session connection.
 
 ## Free vs AI Pro
 
-Free users can use provider-free extension functions such as:
+FREE extension features:
 
 - manual text capture;
 - selected-text capture;
-- current page title/URL context;
-- free browser/device speech-to-text where supported;
-- normal Source/group selection and manual Record persistence.
+- optional current page title/URL;
+- browser/device speech-to-text;
+- authorized destination selection.
 
-AI Pro or eligible Free AI trial points may enable provider-backed capabilities such as:
+AI Pro-only extension media feature:
 
-- AI voice interpretation;
-- screenshot/image interpretation;
-- AI title/keywords/date/entity enrichment;
-- other paid AI processing explicitly initiated from the extension.
+- screenshot/image interpretation.
 
-The extension must use the same entitlement and cost caps as Web/PWA.
+Text-based AI functionality, when exposed in the extension later, may follow the same text AI entitlement used by Web. Media AI remains AI Pro-only unless the product policy is explicitly changed.
 
-## Explicitly out of scope for V1
+## Permissions/privacy
+
+Request the minimum Chrome permissions needed for accepted features. Avoid browsing-history permissions and broad host access unless separately reviewed.
+
+Never store AI provider keys in the extension. Provider calls go through AFTERTRACE backend.
+
+## Out of scope
 
 Do not add:
 
 - continuous browsing-history capture;
 - automatic full-page archiving;
-- always-on microphone recording;
+- always-on microphone/screen capture;
 - meeting-length background recording;
 - automatic tab monitoring;
-- RAG over every visited webpage;
-- a large persistent AI sidebar/agent;
+- RAG over all visited pages;
+- a persistent extension AI agent/sidebar;
 - separate extension-only subscription/accounting.
 
-## Delivery order
+## Validation
 
-The extension is built after the shared account/auth, Record APIs, AI entitlement/accounting and core Web/PWA flows are stable enough to reuse.
-
-Within extension implementation, preferred order is:
-
-1. popup shell + auth/session handoff;
-2. Source/group picker;
-3. quick text;
-4. current page title/URL;
-5. selected-text context-menu flow;
-6. quick voice;
-7. screenshot/image capture + AI Pro integration;
-8. permission/privacy/browser smoke and Chrome Web Store packaging.
-
-All tests must distinguish AUTHORED from actually executed PASS. Do not use GitHub Actions as validation unless explicitly requested by the user.
+Distinguish AUTHORED from actually executed PASS. Do not use GitHub Actions unless explicitly requested by the user.
