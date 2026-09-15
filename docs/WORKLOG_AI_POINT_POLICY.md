@@ -2,9 +2,9 @@
 
 ## Goal
 
-AI is primarily a **paid per-user subscription capability**, with one acquisition exception: a newly eligible FREE account receives a **one-time Admin-configured AI Search trial point allowance**.
+AFTERTRACE keeps the FREE product permanently useful without provider AI, while giving each newly eligible FREE account a **one-time Admin-configured free AI experience allowance** so users can try the real AI product before subscribing.
 
-FREE manual Web/PWA use remains fully available without provider AI. GROUP data authorization and each user's AI entitlement remain separate concerns.
+The one-time FREE allowance is shared across supported AI capabilities. AI Pro remains the recurring paid plan with monthly AI resources.
 
 Read together with `WORKLOG_SUBSCRIPTION_POLICY.md`.
 
@@ -16,7 +16,7 @@ Current launch commercial model:
 - AI Pro — NT$99/month;
 - no one-time AI top-up product at launch.
 
-Do not advertise mathematically unlimited provider compute.
+FREE receives one one-time AI experience allowance. It does not refresh monthly.
 
 Preferred paid wording:
 
@@ -28,14 +28,14 @@ Customer UI may show normal / approaching limit / limit reached and reset date. 
 
 AI entitlement belongs to the requesting user.
 
-- AI Pro user in an authorized PRIVATE/GROUP scope may use enabled AI Pro features;
-- FREE user with remaining one-time trial points may use **natural-language AI Search only**;
+- AI Pro user in an authorized PRIVATE/GROUP scope may use enabled AI features;
+- FREE user with remaining one-time trial points may use supported AI features from the same shared trial balance;
 - FREE user with exhausted/no trial points still has manual Record CRUD, deterministic search, groups, tasks/reminders and other normal FREE features;
 - no GROUP AI responsible-user binding exists in the target product.
 
-A generic `FREE_TRIAL` decision is not authority for arbitrary provider-backed operations. Every service must enforce its product capability boundary. At launch, only AI Search accepts `FREE_TRIAL`; all other provider AI requires `AI_PRO`.
+`FREE_TRIAL` and `AI_PRO` are both valid AI entitlement sources. Provider-backed services must still reserve/settle AI points and obey request/resource limits before provider work begins.
 
-## FREE one-time AI Search trial
+## FREE one-time AI experience
 
 FREE does **not** receive recurring monthly provider-backed AI allowance.
 
@@ -51,11 +51,12 @@ Rules:
 - later Admin template changes affect only users who have not yet received it;
 - already-issued trial balances are never resized retroactively;
 - browser/device speech-to-text remains provider-free and does not consume trial points;
-- natural-language AI Search uses the same reservation/settlement and provider-cost audit path as paid AI;
-- AI text capture/organization, image/audio/file AI, related Records, summaries, rewrite and AI task proposals must reject FREE_TRIAL;
-- when trial points reach zero, AI Search stops and the UI may offer AI Pro upgrade; normal FREE functions continue.
+- provider-backed AI Search, text organization, image/audio/file AI, summaries, rewrite and AI task proposals share the same trial balance and use the normal reservation/settlement path;
+- Chrome screenshot AI also consumes the same trial balance;
+- related-record lookup is entitlement-gated; while its current ranking is deterministic/PostgreSQL-based and does not call the provider, it does not invent fake provider usage or point charges;
+- when trial points reach zero, provider-backed AI stops and the UI may offer AI Pro; normal FREE functions continue.
 
-Admin customer-facing wording should prefer `免費 AI 搜尋體驗點數` rather than a generic `AI Pro 試用額度`.
+Customer/Admin wording should prefer `免費 AI 體驗` / `免費 AI 體驗額度`, not `AI Pro 試用` or `免費 AI 搜尋體驗`.
 
 ## AI Pro configuration
 
@@ -71,7 +72,7 @@ Admin/runtime supports:
 - media limits;
 - feature capability toggles.
 
-Recommended media defaults:
+Recommended AI Pro media defaults:
 
 - 1 image/request while single-image input is current; 4/request after multi-image ships;
 - 5 MB/image;
@@ -79,7 +80,7 @@ Recommended media defaults:
 - 10 MB/audio request;
 - 10 MB/file request.
 
-The application may keep higher absolute transport ceilings (currently 20 MB image and 30 MB audio/file) so the plan-level settings remain the effective configurable limits.
+FREE trial media uses conservative defaults of 1 image/request, 5 MB/image, 300 seconds/audio, 10 MB/audio and 10 MB/file. Absolute transport ceilings remain higher (20 MB image and 30 MB audio/file) and are not customer entitlements.
 
 ## Hard cap rule
 
@@ -87,7 +88,7 @@ Each provider-backed request must pass entitlement/resource checks before provid
 
 For AI Pro, runtime fails closed when either the internal resource/point cap or actual provider-cost cap is reached. Whichever is reached first blocks new provider work until the next entitled period or operator adjustment.
 
-For FREE AI Search trial, positive trial points are required before natural-language search provider work begins. Trial usage never becomes a recurring monthly FREE pool.
+For FREE trial, positive trial points are required before provider-backed AI work begins. A request that exceeds remaining points or the request cap is blocked before provider execution. Trial usage never becomes a recurring monthly FREE pool.
 
 ## Reservation / settlement
 
@@ -97,6 +98,7 @@ Rules:
 - do not start provider work when the request cannot be safely admitted;
 - settle against actual provider usage/cost after completion;
 - release unused reservation on failure/cancel where applicable;
+- all provider-backed FREE-trial AI and AI Pro operations use the same point ledger architecture;
 - customer-facing balance presentation must not become a raw provider-token/prepaid-cash UX.
 
 ## Actual provider cost
@@ -111,25 +113,22 @@ For every provider call retain enough immutable facts to calculate actual cost:
 - operation;
 - requesting user;
 - authorized source/group;
-- entitlement source (`FREE_TRIAL` only for AI Search, otherwise subscription period);
+- entitlement source (`FREE_TRIAL` or `AI_PRO`);
 - reservation/settlement references where used.
 
 ## AI operations
 
-AI Pro provider-backed operations include:
+Supported AI experience / AI Pro capabilities include:
 
 - natural-language Record create/organization;
-- AI voice interpretation;
-- image/file/PDF interpretation;
-- title/keyword/date enrichment for AI-created operations;
 - natural-language search interpretation;
+- image/audio/file/PDF interpretation;
+- Chrome visible-tab screenshot AI;
 - related-record features;
 - time-range summary;
 - AI rewrite;
-- AI Q&A when shipped;
-- task extraction/proposal.
-
-FREE trial supports only natural-language search interpretation.
+- task extraction/proposal;
+- future AI Q&A when shipped.
 
 Manual CRUD, deterministic search/date filtering and non-provider browser speech-to-text consume no AI allowance.
 
@@ -139,13 +138,13 @@ Subscribing to AI does not trigger automatic historical FREE Record enrichment. 
 
 ## Usage warnings
 
-Warn before hard stop where practical. Recommended AI Pro states: normal, approaching limit, limit reached. FREE AI Search trial may show remaining trial points without describing them as a TWD balance.
+Warn before hard stop where practical. Recommended AI Pro states: normal, approaching limit, limit reached. FREE AI experience may show remaining points without describing them as a TWD cash balance.
 
 ## Admin analytics
 
 Admin should expose at minimum:
 
-- FREE AI Search trial point configuration;
+- FREE one-time AI experience point configuration;
 - trial recipients/exhaustion/conversion;
 - subscription plan price/configuration;
 - current-period AI requests;
