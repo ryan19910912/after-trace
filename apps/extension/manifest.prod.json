@@ -11,11 +11,11 @@
   },
   "permissions": ["activeTab", "contextMenus", "storage"],
   "host_permissions": [
-    "https://after-trace-api-prod.a0955625660.workers.dev/*"
+    "https://after-trace-api-prod.after-lab.workers.dev/*"
   ],
   "externally_connectable": {
     "matches": [
-      "https://after-trace-web-prod.a0955625660.workers.dev/*"
+      "https://after-trace-web-prod.after-lab.workers.dev/*"
     ]
   },
   "background": {
