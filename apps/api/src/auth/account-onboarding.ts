@@ -28,11 +28,23 @@ export async function ensureAccountOnboarding(
 
   try {
     const freeTrialGrant = await grants.ensureInitialFreeGrant({ userId, privateSourceId, at });
-    await notifyFreeTrialIssued(
-      new NotificationService(new DrizzleNotificationRepository(database)),
-      userId,
-      freeTrialGrant.id,
-    );
+    try {
+      await notifyFreeTrialIssued(
+        new NotificationService(new DrizzleNotificationRepository(database)),
+        userId,
+        freeTrialGrant.id,
+      );
+    } catch (error) {
+      // Account/login onboarding must not fail because a non-critical notification could not
+      // be created. The durable grant has already been issued; log the notification failure
+      // for operators and let the authenticated session continue normally.
+      console.error(JSON.stringify({
+        event: 'free_ai_trial_notification_failed',
+        userId,
+        grantId: freeTrialGrant.id,
+        message: error instanceof Error ? error.message : 'unknown error',
+      }));
+    }
     return { workspaceId, privateSourceId, freeTrial: 'ISSUED_OR_EXISTING' };
   } catch (error) {
     if (error instanceof Error && error.message === 'FREE_AI_TRIAL_CONFIG_NOT_INITIALIZED') {
