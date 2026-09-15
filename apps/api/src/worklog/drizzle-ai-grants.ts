@@ -225,7 +225,8 @@ function numeric(value: unknown): number {
   return typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN;
 }
 
-function dateValue(value: Date | string, label: string): Date {
+function dateValue(value: unknown, label: string): Date {
+  if (!(value instanceof Date) && typeof value !== 'string') throw new Error(`invalid ${label}`);
   const parsed = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(parsed.getTime())) throw new Error(`invalid ${label}`);
   return parsed;
