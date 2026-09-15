@@ -27,15 +27,15 @@ export type AiRelatedRecordsEntitlementPort = {
 export type AiRelatedRecordsResult =
   | {
       status: 'RESULTS';
-      entitlementSource: 'AI_PRO';
+      entitlementSource: 'FREE_TRIAL' | 'AI_PRO';
       recordId: number;
       records: AiRelatedRecord[];
     }
   | { status: 'BLOCKED'; decision: AiEntitlementDecision }
   | { status: 'NOT_FOUND'; reason: 'RECORD_NOT_FOUND' }
-  | { status: 'FAILED'; reason: 'AI_PRO_REQUIRED' | 'AI_RELATED_RECORDS_DISABLED' | 'AI_RELATED_RECORDS_RETRIEVAL_FAILED' };
+  | { status: 'FAILED'; reason: 'AI_RELATED_RECORDS_DISABLED' | 'AI_RELATED_RECORDS_RETRIEVAL_FAILED' };
 
-/** Related-record recommendations are an AI Pro feature. Ranking currently stays inside PostgreSQL. */
+/** Related-record recommendations share the same FREE trial / AI Pro entitlement boundary. Ranking currently stays inside PostgreSQL. */
 export class AiRelatedRecordsService {
   constructor(
     private readonly repository: AiRelatedRecordsRepository,
@@ -57,7 +57,6 @@ export class AiRelatedRecordsService {
 
     const decision = await this.entitlement.resolve(userId, sourceId, referenceAt);
     if (!decision.allowed || decision.source === 'BLOCKED') return { status: 'BLOCKED', decision };
-    if (decision.source !== 'AI_PRO') return { status: 'FAILED', reason: 'AI_PRO_REQUIRED' };
     if (!(await this.repository.relatedEnabled())) {
       return { status: 'FAILED', reason: 'AI_RELATED_RECORDS_DISABLED' };
     }
@@ -67,7 +66,7 @@ export class AiRelatedRecordsService {
       if (!result.targetFound) return { status: 'NOT_FOUND', reason: 'RECORD_NOT_FOUND' };
       return {
         status: 'RESULTS',
-        entitlementSource: 'AI_PRO',
+        entitlementSource: decision.source,
         recordId,
         records: result.records,
       };
