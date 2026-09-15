@@ -6,7 +6,7 @@ Before substantive work, read the latest documents in the exact order defined by
 
 Default rule: do not run/dispatch/rerun/enable/modify GitHub Actions unless the user explicitly authorizes it. Every normal development commit contains `[skip ci]`.
 
-## Current checkpoint — 2026-09-13 validation PASS; clean Dev rebuild in progress
+## Current checkpoint — 2026-09-15 shared FREE AI experience authored; validation pending
 
 AFTERTRACE remains Web + PWA-first with a compact Chrome extension fast-capture surface. `/` remains the Record home page. Search remains independent. LINE is only provider-neutral LINE Login plus the external LINE OA support link.
 
@@ -16,42 +16,50 @@ Prelaunch Dev data is disposable. Canonical target database remains one generate
 
 FREE is a complete manual product with Record CRUD, latest 10, deterministic keyword/date search, groups, tasks/reminders, notifications and browser/device speech-to-text.
 
-FREE receives one Admin-configured one-time **AI Search trial**. Those points may be spent only by natural-language AI Search.
+FREE now receives one Admin-configured one-time **shared AI experience allowance**. It does not refresh monthly. While points remain, the same FREE trial entitlement may use the accepted AI feature set:
 
-AI Pro is required for every other provider-backed AI capability: AI text capture/organization, related Records, time-range summaries, rewrite suggestions, AI task proposals, image/audio/file AI and Chrome visible-tab screenshot AI.
+- AI text capture/organization;
+- natural-language AI Search;
+- image/audio/file/PDF AI;
+- Chrome screenshot AI;
+- related Records;
+- time-range summaries;
+- rewrite suggestions;
+- AI task proposals.
+
+Provider-backed operations share the same FREE trial point ledger/reservation/settlement path. Once the trial is exhausted, provider-backed AI stops while normal FREE functions remain available.
+
+AI Pro remains NT$99/month and provides recurring monthly AI resources for the complete AI feature set.
 
 ## Latest implementation
 
-- Record title is editable and revision history preserves `previous_title` / `new_title`.
-- Web/API Record CRUD is title-aware.
-- AI Search accepts FREE_TRIAL or AI_PRO; all non-search AI services require AI_PRO.
-- AI media plan limits are backend-configured; current recommended defaults are 5 MB/image, 300 sec + 10 MB/audio, 10 MB/file, one image/request until multi-image ships.
-- Audio duration is sent by Web, validated by API and enforced by the media service before provider work.
-- Transport ceilings remain above plan defaults: 20 MB image, 30 MB audio, 30 MB file.
-- Customer/Admin wording now describes the free allowance as an AI Search experience rather than an AI Pro trial.
+- AI text capture now accepts `FREE_TRIAL` or `AI_PRO` and settles usage through the shared ledger.
+- media AI now accepts `FREE_TRIAL`; trial media uses conservative limits: 1 image/request, 5 MB/image, 300 sec + 10 MB/audio, 10 MB/file. AI Pro continues to use plan-configured media limits.
+- summary, rewrite and AI task proposal now accept `FREE_TRIAL` or `AI_PRO` and settle provider usage normally.
+- related Records now accepts FREE trial entitlement; its current PostgreSQL ranking remains deterministic and does not fabricate provider cost/point usage.
+- Chrome screenshot AI now accepts any allowed AI entitlement rather than AI Pro only and uses the current `after-lab.workers.dev` origins.
+- Web Capture, AI Tools, AI Task and Subscription copy now describe a generic one-time `免費 AI 體驗` rather than a Search-only trial.
+- Admin FREE configuration now describes one shared AI experience balance and keeps the internal TWD-to-point calculator.
+- FREE trial notification now links to `/capture` and explains that the allowance works across AI features.
+- browser/device speech-to-text remains free and does not consume AI points.
 
-## Canonical baseline
+## Canonical baseline / Dev DB
 
-The baseline regeneration and guard now require:
+The canonical baseline regeneration and guard previously passed. No new database schema change is required for the shared FREE AI experience because the existing FREE_INITIAL grant and generic entitlement/ledger model already support the new capability boundary.
 
-- exactly one canonical `0000_worklog_baseline.sql`;
-- matching Drizzle snapshot/journal metadata;
-- `previous_title` / `new_title` on Record revisions;
-- PostgreSQL comments for every persistent table and column;
-- no PostgreSQL application-domain ENUM types;
-- no business/domain CHECK constraints.
+Accepted prelaunch clean-reset procedure remains:
 
-The user locally ran:
-
-```text
-pnpm db:baseline:regenerate --confirm-prelaunch-reset
+```sql
+DROP SCHEMA IF EXISTS drizzle CASCADE;
+DROP SCHEMA IF EXISTS public CASCADE;
+CREATE SCHEMA public;
 ```
 
-Result: canonical generation completed and the baseline guard passed.
+The Dev schema has since been rebuilt successfully. API deployment/migration completed and schema readiness advanced past `WORKLOG_TARGET_SCHEMA_UNAVAILABLE`; current first-environment bootstrap remains blocked until AI runtime/commercial configuration is initialized.
 
-## Executable validation
+## Last known executable validation
 
-Latest local run is PASS:
+Before the 2026-09-15 shared FREE AI refactor, the latest local run was PASS:
 
 - monorepo typecheck: PASS;
 - Admin tests: 20/20 PASS;
@@ -60,29 +68,9 @@ Latest local run is PASS:
 - lint: PASS;
 - Admin/API/Web/Extension builds: PASS.
 
+The current shared FREE AI refactor is **AUTHORED / NOT YET RUN**. Do not reuse the prior PASS as validation for this new batch.
+
 No GitHub Actions were run or modified.
-
-## Clean Dev rebuild finding
-
-A first reset removed only `public`. API migration then printed success, but `/health/ready` returned `WORKLOG_TARGET_SCHEMA_UNAVAILABLE` because Drizzle migration history still existed separately and caused the canonical `0000` migration to be skipped.
-
-Accepted prelaunch clean-reset procedure now clears both application tables and Drizzle migration history:
-
-```sql
-DROP SCHEMA IF EXISTS drizzle CASCADE;
-DROP SCHEMA IF EXISTS public CASCADE;
-CREATE SCHEMA public;
-```
-
-Then deploy API first:
-
-```text
-pnpm deploy:dev:api
-```
-
-The migration runner has been hardened to verify canonical core tables after Drizzle migration completion. It must fail if the migrator returns successfully but required public tables are missing.
-
-`WORKLOG_DEPLOYMENT.md` now documents this complete reset procedure and the active workers.dev subdomain `after-lab`.
 
 ## Database/schema rules
 
@@ -94,19 +82,28 @@ The migration runner has been hardened to verify canonical core tables after Dri
 - structural PK/FK/UNIQUE/NOT NULL/INDEX/DEFAULT stay in PostgreSQL;
 - statuses, feature rules, pricing, point/media limits and transitions remain application logic.
 
-## Runtime verification remaining
+## Validation/runtime remaining
 
-NOT YET RUNTIME VERIFIED for the current clean rebuild:
+Run locally after pulling the latest branch:
 
-- Dev API readiness after clearing both `drizzle` and `public`;
-- title-aware Record revision against rebuilt schema;
-- AI Search FREE trial depletion;
-- FREE blocked from non-search AI;
-- AI Pro full AI paths;
+```text
+pnpm typecheck
+pnpm test
+pnpm lint
+pnpm build
+```
+
+Then runtime-smoke at least:
+
+- FREE trial AI text organization;
+- FREE trial AI Search;
+- FREE trial image/audio/file and Chrome screenshot AI;
+- FREE trial summary/rewrite/task proposal;
+- trial depletion blocking provider-backed AI while manual functions continue;
+- AI Pro monthly AI path;
 - audio duration/media byte limits;
-- Chrome screenshot-to-AI-Pro path;
-- NewebPay TEST flow;
-- LINE Login real browser smoke;
-- Web/Admin deployment after API readiness.
+- AI Runtime + FREE/AI Pro bootstrap readiness;
+- NewebPay TEST flow and cancellation;
+- LINE Login real browser smoke.
 
-Next operator step: perform the complete disposable Dev reset, rerun `pnpm deploy:dev:api`, and confirm `/health/ready` passes before deploying Web/Admin.
+GitHub Actions remain disabled unless explicitly requested.
