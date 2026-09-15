@@ -14,7 +14,7 @@ export class SubscriptionLifecycleNotificationAdapter implements SubscriptionLif
   activated(input: {
     userId: number;
     subscriptionId: number;
-    planCode: 'AI_PRO';
+    planCode: string;
     periodStart: Date;
     periodEnd: Date | null;
   }) {
@@ -27,19 +27,21 @@ export class SubscriptionLifecycleNotificationAdapter implements SubscriptionLif
     });
   }
 
-  renewed(input: { userId: number; subscriptionId: number; periodStart: Date; periodEnd: Date | null }) {
+  renewed(input: { userId: number; subscriptionId: number; planCode: string; periodStart: Date; periodEnd: Date | null }) {
     return notifySubscriptionEvent(this.service, input.userId, {
       type: 'RENEWED',
       subscriptionId: input.subscriptionId,
+      planCode: input.planCode,
       periodStart: input.periodStart,
       periodEnd: input.periodEnd,
     });
   }
 
-  cancelled(input: { userId: number; subscriptionId: number; periodEnd: Date | null }) {
+  cancelled(input: { userId: number; subscriptionId: number; planCode: string; periodEnd: Date | null }) {
     return notifySubscriptionEvent(this.service, input.userId, {
       type: 'CANCELLED',
       subscriptionId: input.subscriptionId,
+      planCode: input.planCode,
       periodEnd: input.periodEnd,
     });
   }
