@@ -16,7 +16,7 @@ The extension supports explicit user-initiated:
 2. browser/device speech-to-text;
 3. selected webpage text;
 4. optional current page title + URL context;
-5. visible-tab screenshot sent to image AI **only when the current user has an active AI Pro subscription**.
+5. visible-tab screenshot sent to image AI when the current user has remaining FREE AI experience points or active AI Pro entitlement.
 
 The extension must not create an extension-only Record domain.
 
@@ -51,11 +51,12 @@ Rules:
 - never continuously monitor screen content;
 - preview remains local until the user explicitly saves;
 - when saved, screenshot goes through `/api/v1/ai/capture/image` and the same backend authorization/accounting as Web image AI;
-- screenshot/image AI requires **active AI Pro**;
-- the one-time FREE AI Search trial does **not** unlock screenshot/image AI;
+- screenshot/image AI may use remaining one-time FREE AI experience points or active AI Pro;
+- FREE trial screenshot AI consumes the same shared trial balance as the other AI features;
+- after FREE trial exhaustion, screenshot AI is blocked until the user has AI Pro;
 - the original screenshot is not a durable attachment unless a future product decision explicitly adds attachment storage.
 
-Current image defaults: one image per request and 5 MB per image.
+Current extension image ceiling is 5 MB per screenshot. Backend FREE trial media defaults are also 5 MB/image; paid plan limits may be configured independently below the absolute transport ceiling.
 
 ## Authentication
 
@@ -71,15 +72,12 @@ FREE extension features:
 - selected-text capture;
 - optional current page title/URL;
 - browser/device speech-to-text;
-- authorized destination selection.
+- authorized destination selection;
+- screenshot/image AI while one-time FREE AI experience points remain.
 
-FREE AI Search trial points are used only on the Web/PWA natural-language Search surface. They do not unlock provider-backed AI inside the extension.
+Browser/device speech-to-text consumes no AI points because it does not call AFTERTRACE provider AI.
 
-Any provider-backed extension feature requires active AI Pro, including:
-
-- screenshot/image interpretation;
-- future AI text organization inside the extension;
-- future AI voice interpretation or other provider-backed extension processing.
+Provider-backed extension AI uses the same shared entitlement and point ledger as Web/PWA. A future provider-backed extension text/voice capability may therefore use FREE trial points while available and AI Pro after subscription; do not create separate extension-only credits.
 
 ## Permissions/privacy
 
