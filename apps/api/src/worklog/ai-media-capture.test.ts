@@ -123,14 +123,13 @@ describe('AiMediaCaptureService', () => {
     expect(calls).toEqual(['resolve']);
   });
 
-  it('does not allow FREE trial points to unlock media AI', async () => {
+  it('allows FREE trial points to use bounded media AI without reading a paid plan', async () => {
     const calls: string[] = [];
     const service = new AiMediaCaptureService(repository(calls), entitled('FREE_TRIAL'), ledger(calls), provider(calls, 'IMAGE'));
 
-    expect(await service.captureImage({ userId: 7, sourceId: 12, image, captureContext: null })).toEqual({
-      status: 'FAILED', reason: 'AI_PRO_MEDIA_REQUIRED',
-    });
-    expect(calls).toEqual([]);
+    const result = await service.captureImage({ userId: 7, sourceId: 12, image, captureContext: null });
+    expect(result).toMatchObject({ status: 'CREATED', entitlementSource: 'FREE_TRIAL', record: { id: 99, inputType: 'IMAGE' } });
+    expect(calls).toEqual(['runtime', 'estimate:IMAGE', 'reserve:hold', 'provider:IMAGE', 'create-record:IMAGE', 'commit:IMAGE_RECORD_CREATE:99:0:12']);
   });
 
   it('fails before runtime/reservation/provider when the active plan disables media AI', async () => {
