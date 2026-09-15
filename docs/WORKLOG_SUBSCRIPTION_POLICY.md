@@ -15,13 +15,13 @@ Do not add one-time AI top-up products for launch. Additional subscription defin
 
 FREE remains a complete manual work-record product. It includes manual Record CRUD/search/date filters, native groups, tasks/reminders, notification center/PWA Push where supported, and provider-free browser/device speech-to-text where available.
 
-Manual Record input is user-entered text. Browser/device speech-to-text is allowed because it only turns speech into text locally/browser-side and does not use AFTERTRACE provider AI.
+Browser/device speech-to-text is free because it only turns speech into text locally/browser-side and does not use AFTERTRACE provider AI.
 
 FREE does not receive recurring monthly provider-backed AI allowance.
 
-## One-time Free AI Search Trial
+## One-time Free AI Experience
 
-A newly eligible FREE account receives a **one-time AI Search trial allowance** so the user can experience natural-language search before subscribing.
+A newly eligible FREE account receives a **one-time shared AI experience allowance** so the user can try the actual AI product before subscribing.
 
 The trial is controlled by **AI points**, not by a customer-facing TWD price/value.
 
@@ -29,29 +29,32 @@ Hard rules:
 
 - Admin configures the initial trial point amount;
 - the amount must not be hard-coded in source code;
-- customer UI does not describe the trial as `NT$X AI 額度`;
+- customer UI does not describe the trial as a cash balance;
 - the trial is issued once per eligible AFTERTRACE account;
 - it does not refresh monthly;
-- it does not roll over into a paid subscription as a cash-equivalent balance;
-- changing the Admin template affects only accounts that have not yet received the one-time trial;
+- it does not roll over into a paid subscription as cash-equivalent value;
+- changing the Admin template affects only accounts that have not yet received the trial;
 - historical issued trial grants are never resized retroactively;
-- **trial points may be consumed only by natural-language AI Search**;
-- normal keyword/date search consumes no AI points;
-- AI text capture/organization, media AI, related Records, summaries, rewrite and AI task proposals are not available from the free trial;
-- when the trial reaches zero, AI Search stops, while FREE manual/product features and deterministic search continue normally;
-- trial AI Search usage must use the same provider usage/cost audit and reservation/settlement path as paid AI.
+- trial points are shared by supported provider-backed AI functions: AI text organization, natural-language search, image/audio/file/PDF AI, time-range summary, rewrite and AI task proposals;
+- Chrome screenshot AI uses the same trial balance;
+- normal keyword/date search and browser speech-to-text consume no AI points;
+- related Records remains entitlement-gated; its current deterministic PostgreSQL ranking does not invent provider usage or point charges;
+- when trial points reach zero, provider-backed AI stops while FREE manual/product features continue normally;
+- trial provider-backed AI uses the same usage/cost audit and reservation/settlement path as paid AI.
+
+FREE media trial uses conservative safety limits: one image/request, 5 MB/image, 300 seconds/audio, 10 MB/audio and 10 MB/file.
 
 ## Admin configuration
 
-Admin exposes the one-time AI Search trial point quantity and enough aggregate context to operate it safely, including recipients, consumption and exhaustion where available.
+Admin exposes the one-time FREE AI experience point quantity and enough aggregate context to operate it safely, including recipients, consumption and exhaustion where available.
 
-Do not make the Admin enter a TWD trial price. The commercial control is the initial **point quantity**.
+Do not make the Admin enter a TWD trial price. A calculator may translate an internal target cost into a suggested point amount, but the durable commercial control is the initial **point quantity**.
 
 ## AI Pro
 
 AI Pro launch price is **NT$99/month**.
 
-AI Pro enables the complete accepted provider-backed feature set, including:
+AI Pro enables the complete accepted AI feature set with a recurring monthly AI resource allowance, including:
 
 - AI text capture/organization;
 - AI natural-language search;
@@ -61,11 +64,12 @@ AI Pro enables the complete accepted provider-backed feature set, including:
 - related Records;
 - time-range summaries;
 - rewrite/cleanup suggestions;
-- provider-backed task extraction/proposals.
+- provider-backed task extraction/proposals;
+- Chrome screenshot AI.
 
 Paid runtime retains internal resource/point limits plus a provider-cost hard cap in TWD to protect unit economics. The provider-cost hard cap is an internal operator safety boundary and is not presented to customers as a prepaid cash balance.
 
-Recommended initial media plan limits are:
+Recommended initial AI Pro media plan limits are:
 
 - 1 image/request while the API is single-image (4/request when multi-image ships);
 - 5 MB/image;
@@ -99,7 +103,7 @@ Missing NewebPay configuration disables paid checkout only; it must not break FR
 Prefer simple messaging:
 
 - FREE: `免費使用`;
-- trial: `免費 AI 搜尋體驗` / `尚有 AI 搜尋體驗額度`;
+- trial: `免費 AI 體驗` / `尚有免費 AI 體驗額度`;
 - AI Pro: `NT$99 / 月`;
 - paid usage: `AI 功能受公平使用原則與每月方案資源上限限制。`
 
@@ -110,11 +114,11 @@ Do not expose provider cost, raw provider token prices, or internal margin calcu
 Suggested flow:
 
 1. account starts on FREE;
-2. one-time configured AI Search trial points are issued idempotently;
-3. user can use natural-language AI Search until the trial allowance is exhausted;
-4. normal Record CRUD and deterministic search stay free throughout;
-5. once AI Search trial is exhausted, AI Search offers upgrade to AI Pro;
-6. AI Pro unlocks all accepted AI features;
+2. one-time configured FREE AI experience points are issued idempotently;
+3. user may spend them across supported AI features until exhausted;
+4. normal Record CRUD, deterministic search, groups, tasks and notifications stay free throughout;
+5. once trial is exhausted, provider-backed AI offers upgrade to AI Pro;
+6. AI Pro supplies a recurring monthly AI allowance and the complete AI feature set;
 7. customer completes NewebPay periodic-payment authorization;
 8. successful activation starts paid period accounting/caps;
 9. FREE manual features continue without interruption regardless of AI entitlement/payment state.
