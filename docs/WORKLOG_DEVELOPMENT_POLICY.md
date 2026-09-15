@@ -21,186 +21,125 @@ Latest docs are authoritative. When an older document conflicts with a later exp
 
 ## GitHub Actions / CI
 
-**Do not run, dispatch, rerun, enable, modify, or otherwise trigger GitHub Actions unless the user explicitly asks.**
-
-Every normal development commit on this branch includes `[skip ci]`.
-
-Do not claim tests or runtime validation passed unless they were actually executed.
+**Do not run, dispatch, rerun, enable, modify, or otherwise trigger GitHub Actions unless the user explicitly asks.** Every normal development commit includes `[skip ci]`. Do not claim tests or runtime validation passed unless they were actually executed.
 
 ## Current product architecture
 
 - Web + PWA first;
-- `/` remains the Record home page on desktop and installed PWA;
-- microphone/voice-to-text is available but does not need to be the dominant PWA action;
-- Search stays a separate page;
+- `/` remains the Record home page;
+- Search stays separate;
 - Chrome extension is a compact capture surface;
 - LINE is only LINE Login + external LINE OA support contact;
-- no LINE Messaging bot/webhook product runtime;
 - groups are native AFTERTRACE groups joined by invite link;
-- paid AI entitlement is per user;
+- AI entitlement is per user;
 - no automatic historical AI backfill.
 
 ## Record contract
 
-Manual Record fields:
-
-- optional user-entered `title`;
-- required `raw_text`/content;
-- optional `occurred_at`;
-- system `created_at` / `updated_at`.
-
-Manual CRUD must support create, edit title/content/time, delete-to-recycle-bin and restore. Mutations preserve revision history.
-
-The Record home page shows the latest 10 Records. Full browsing/filtering remains on the Search page.
-
-Customer UI displays title first. If stored title is null, use a bounded content preview without silently persisting a generated title.
+Manual Record fields are optional user-entered title, required content/raw_text, optional occurred_at, and system timestamps. CRUD supports create/edit/delete-to-recycle-bin/restore and preserves revision history. Home shows latest 10; full browsing/filtering remains on Search.
 
 ## FREE / AI boundary
 
-FREE is manual-first:
+FREE is a complete manual product: Record CRUD, deterministic search, groups, tasks/reminders, notifications and provider-free browser/device speech-to-text.
 
-- user-entered text Record CRUD;
-- deterministic keyword/date search;
-- native groups, tasks/reminders and notifications;
-- browser/device speech-to-text where supported, because it only produces text and does not call provider AI.
+Each eligible account receives one Admin-configured one-time FREE AI allowance. While points remain, the same shared balance may be used across supported AI capabilities:
 
-FREE receives one Admin-configured one-time AI allowance, but those points may be consumed **only by natural-language AI Search**.
-
-All other provider-backed AI capabilities require an active AI Pro subscription, including:
-
-- AI text capture/organization;
+- AI text organization;
+- natural-language AI Search;
+- image/audio/file/PDF AI;
 - related Records;
 - time-range summaries;
-- rewrite suggestions;
+- rewrite;
 - task proposals;
-- image AI;
-- audio AI;
-- file/PDF AI;
 - Chrome screenshot AI.
 
-Do not let a generic `FREE_TRIAL` entitlement accidentally unlock non-search AI services. Enforce this on the backend as well as in UI availability.
+The one-time FREE allowance does not refresh monthly. Backend services, not UI-only checks, enforce point admission/reservation/settlement. When FREE points are exhausted, normal FREE/manual features remain available.
+
+## Paid subscription architecture
+
+The commercial paid catalog is backend-driven.
+
+- Do not hard-code a purchasable plan code such as `AI_PRO` in customer plan filtering, checkout selection, subscription lifecycle, grant creation or paid entitlement SQL.
+- Do not hard-code a paid plan price such as NT$99 in checkout/callback validation.
+- Admin-created enabled `SUBSCRIPTION` plans are customer-visible automatically when commercially valid.
+- Customer checkout sends the selected `planCode`; the API resolves display name, price and limits from PostgreSQL.
+- Checkout intent durably stores the selected plan code.
+- Provider callback recovers the plan from the checkout intent and validates the charged amount against the selected plan price.
+- Lifecycle/history/subscription-period Grants preserve the actual plan code.
+- Paid entitlement and provider-cost admission read limits from the user's active paid plan.
+- Only one active paid subscription is allowed per user at a time.
+- Cancellation stops future renewal but keeps the already-paid period until its end. Re-subscription uses a new checkout after expiry.
+
+NewebPay periodic billing currently requires a positive integer TWD monthly amount. Customer checkout must fail closed / stay disabled for provider-incompatible prices rather than silently rounding.
+
+Internal compatibility names such as entitlement source `AI_PRO` or reason `AI_PRO_GRANT_NOT_READY` may remain to mean “active paid AI entitlement”; they must never be used as a commercial catalog filter by exact plan code.
+
+Do not implement one-time AI top-ups unless the user explicitly changes direction.
 
 ## AI media boundary
 
-Recommended current AI Pro media defaults:
+Recommended default limits are 1 image/request, 5 MB/image, 300 seconds/audio, 10 MB/audio and 10 MB/file. Plan limits live in application plan capabilities, not DB CHECK constraints. Runtime transport ceilings may be higher so plan limits remain authoritative below those ceilings.
 
-- 1 image/request while the API is single-image; 4/request is the preferred future multi-image default;
-- 5 MB/image;
-- 300 seconds/audio request;
-- 10 MB/audio request;
-- 10 MB/file request.
-
-Media plan limits live in application plan capabilities, not database CHECK constraints.
-
-Runtime transport ceilings may be higher (currently 20 MB image and 30 MB audio/file) so plan limits remain the effective configurable limits below those ceilings.
-
-Audio duration sent by the Web client must be passed through the API route and validated by the AI media service before provider work begins.
-
-The extension screenshot path is explicit user action only and must use the same AI Pro entitlement as Web media AI.
+Audio duration must traverse Web → API → service and be validated before provider work. Chrome screenshot capture is explicit user action and uses the same FREE/paid entitlement path as Web media AI.
 
 ## Customer copy policy
 
-Customer-facing text must use clear Traditional Chinese and avoid implementation vocabulary.
+Customer-facing text uses clear Traditional Chinese. Avoid exposing implementation vocabulary such as Source, Grant, runtime, ledger, metadata, optimistic locking or provider-cost internals. Customer plan names/prices come from backend plan definitions.
 
-Do not expose terms such as:
-
-- Source;
-- Record ID (say 紀錄編號 only when an identifier is genuinely required);
-- provider;
-- bounded dataset;
-- proposal;
-- Grant;
-- runtime;
-- ledger;
-- metadata;
-- optimistic locking/version/revision API.
-
-Admin is an internal surface, but still prefer plain Chinese. Technical accounting labels may remain only where they are necessary to understand cost/usage facts.
+Admin is internal but still prefers plain Chinese; technical accounting labels remain only where necessary.
 
 ## Account/authentication
 
-Follow `WORKLOG_ACCOUNT_IDENTITY_POLICY.md`.
+Follow `WORKLOG_ACCOUNT_IDENTITY_POLICY.md`:
 
 - provider-neutral AFTERTRACE account;
-- Google + LINE current launch priority;
-- Apple supported when operationally enabled;
-- no silent account merge by email;
-- customer-facing immutable opaque 帳號 ID;
-- Web/PWA account UI exposes notification bell, display name, 帳號 ID and copy action;
-- expired/missing database user sessions must clear local session state;
-- OAuth callback `#session` must be consumed/removed so logout cannot rehydrate the old session.
+- Google + LINE launch priority;
+- Apple when operationally enabled;
+- no silent email merge;
+- immutable opaque customer 帳號 ID;
+- expired/missing database-user sessions clear local state;
+- OAuth callback `#session` is consumed/removed so logout cannot rehydrate the old session.
 
-## Subscription architecture
-
-Current purchasable launch plan remains AI Pro NT$99/month via NewebPay.
-
-The Admin/backend plan catalog is allowed to contain additional future subscription definitions. Creating a plan in Admin does not make it purchasable until checkout, renewal, entitlement and customer plan exposure explicitly support that plan.
-
-Do not implement one-time AI top-ups unless the user changes the product direction.
-
-Customer AI usage UI should show plain states such as normal, approaching limit, reached limit and reset date. Never expose internal supplier cost or margin to customers.
+Login onboarding must not fail solely because a non-critical welcome/system notification cannot be created. Notification defects still require fixing; this tolerance is not a substitute for notification correctness.
 
 ## Database/schema policy
 
-AFTERTRACE remains prelaunch; Dev data is disposable and a clean rebuild is allowed until this document is explicitly changed after real production data exists.
+AFTERTRACE remains prelaunch; Dev data is disposable until production-data policy explicitly changes.
 
-Canonical target:
-
-- one prelaunch migration: `drizzle/0000_worklog_baseline.sql`;
-- Drizzle schema + baseline + metadata stay aligned.
+Canonical target is one `drizzle/0000_worklog_baseline.sql` with aligned Drizzle schema/metadata.
 
 Required rules:
 
-- every persistent table has `COMMENT ON TABLE`;
-- every persistent column has `COMMENT ON COLUMN`;
-- comments live in the canonical baseline and should be meaningful Traditional Chinese descriptions;
+- every persistent table/column has PostgreSQL COMMENT metadata;
 - no PostgreSQL ENUM for application-domain/status values;
-- no business/domain `CHECK` constraints;
-- legal statuses/categories/price rules/cross-field rules are validated in TypeScript/application services;
-- handwritten SQL should not add explicit named business `CONSTRAINT` clauses;
-- keep structural integrity in PostgreSQL: PRIMARY KEY, FOREIGN KEY, UNIQUE, NOT NULL, INDEX, DEFAULT and appropriate data types.
-
-If a future migration changes table/column structure, update comments at the same time.
+- no business/domain CHECK constraints;
+- no stale `::application_enum_type` casts in handwritten SQL after enum removal;
+- legal statuses/categories/price rules/cross-field rules live in TypeScript/application services;
+- structural PK/FK/UNIQUE/NOT NULL/INDEX/DEFAULT remain in PostgreSQL.
 
 ## SQL safety
 
-Avoid PostgreSQL reserved/command words as unquoted aliases/CTE names/identifiers. In particular never use `grant` as a SQL alias. Apply the same care to `user`, `group`, `order`, `limit`, `offset`, `constraint`, `table`, `column`, etc.
+Avoid PostgreSQL reserved/command words as unquoted aliases/CTE names/identifiers. Never use `grant` as a SQL alias. Apply the same care to `user`, `group`, `order`, `limit`, `offset`, `constraint`, `table`, `column`, etc.
 
 ## Notifications/tasks/support
 
-- notification categories remain ANNOUNCEMENT / SYSTEM / TASK internally;
+- internal notification categories remain ANNOUNCEMENT / SYSTEM / TASK;
 - customer labels are 公告通知 / 系統通知 / 待辦通知;
 - in-app notification remains durable even when push fails;
-- one shared scheduled worker handles reminders/announcements; no Cron per task;
-- AI task extraction produces a suggestion first and requires AI Pro; user confirms durable task creation;
+- one shared scheduled worker handles reminders/announcements;
+- AI task extraction is suggestion-first and consumes FREE trial or paid entitlement;
 - feedback is stored in AFTERTRACE and manageable from Admin;
 - LINE OA is support contact only.
 
 ## Retired code
 
-Do not restore retired LINE webhook/bot runtime, LINE group command flow, bot-entry auth, GROUP AI funding/responsible-user concepts, legacy Entity confirmation workflow, ONE_TIME/TOP_UP, or obsolete compatibility tests merely to preserve old behavior.
+Do not restore retired LINE webhook/bot runtime, LINE group command flow, bot-entry auth, GROUP AI funding/responsible-user concepts, legacy Entity confirmation workflow, ONE_TIME/TOP_UP, or obsolete compatibility behavior.
 
 ## Validation
 
-Use explicit status words:
+Use explicit status words: AUTHORED, NOT RUN, PASS, FAIL, RUNTIME VERIFIED. No validation claim without execution evidence.
 
-- AUTHORED;
-- NOT RUN;
-- PASS;
-- FAIL;
-- RUNTIME VERIFIED.
-
-No validation claim without execution evidence.
-
-## Development handoff
-
-Every substantial run updates `WORKLOG_REBUILD_PROGRESS.md` with:
-
-- current product decisions;
-- code/docs changed;
-- commit references;
-- validation status;
-- remaining runtime checks/blockers.
+Every substantial run updates `WORKLOG_REBUILD_PROGRESS.md` with current decisions, changed code/docs, commit references, validation status and remaining runtime checks/blockers.
 
 ## Commit discipline
 
