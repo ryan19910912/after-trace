@@ -13,19 +13,14 @@ export type WorklogAiPointReservationSnapshot = {
   pointsReserved: number;
   pointsCommitted: number;
   platformSubsidizedPoints: number;
-  /** Conservative AI Pro provider-cost hold while status=RESERVED. */
+  /** Conservative paid-subscription provider-cost hold while status=RESERVED. */
   providerCostHoldTwd?: number | null;
   status: WorklogAiPointReservationStatus;
   expiresAt: Date;
 };
 
 export interface WorklogAiPointLedgerRepository {
-  expireStaleReservations(input: {
-    chargedUserId: number;
-    sourceId: number;
-    at: Date;
-  }): Promise<number>;
-
+  expireStaleReservations(input: { chargedUserId: number; sourceId: number; at: Date }): Promise<number>;
   reservePointsAtomic(input: {
     token: string;
     chargedUserId: number;
@@ -37,56 +32,25 @@ export interface WorklogAiPointLedgerRepository {
     at: Date;
     expiresAt: Date;
   }): Promise<WorklogAiPointReservationSnapshot | null>;
-
   getReservation(token: string): Promise<WorklogAiPointReservationSnapshot | null>;
-
-  commitReservationAtomic(input: {
-    token: string;
-    usage: WorklogAiUsageCommit;
-    actualPoints: number;
-    at: Date;
-  }): Promise<WorklogAiPointReservationSnapshot | null>;
-
-  releaseReservationAtomic(
-    token: string,
-    at: Date,
-  ): Promise<WorklogAiPointReservationSnapshot | null>;
+  commitReservationAtomic(input: { token: string; usage: WorklogAiUsageCommit; actualPoints: number; at: Date }): Promise<WorklogAiPointReservationSnapshot | null>;
+  releaseReservationAtomic(token: string, at: Date): Promise<WorklogAiPointReservationSnapshot | null>;
 }
 
 export type AiPointReservationResult =
-  | {
-      status: 'RESERVED';
-      reservation: WorklogAiPointReservationSnapshot;
-      remainingAiPoints: number;
-    }
+  | { status: 'RESERVED'; reservation: WorklogAiPointReservationSnapshot; remainingAiPoints: number }
   | { status: 'AI_POINTS_EXHAUSTED' }
   | { status: 'AI_ENTITLEMENT_BLOCKED'; reason: string };
 
 export type AiPointCommitResult =
-  | {
-      status: 'COMMITTED';
-      reservation: WorklogAiPointReservationSnapshot;
-      actualPoints: number;
-    }
+  | { status: 'COMMITTED'; reservation: WorklogAiPointReservationSnapshot; actualPoints: number }
   | { status: 'RESERVATION_NOT_FOUND' | 'RESERVATION_NOT_ACTIVE' };
 
 export type AiPointReleaseResult =
   | { status: 'RELEASED'; reservation: WorklogAiPointReservationSnapshot }
   | { status: 'RESERVATION_NOT_FOUND' | 'RESERVATION_NOT_ACTIVE' };
 
-/**
- * Low-level exactly-once Grant reservation/settlement service.
- *
- * Product/provider admission belongs in AiEntitlementService (or the entitled wrapper)
- * before this ledger is called. This class intentionally retains generic Grant mechanics,
- * including bounded platform-subsidy settlement when actual provider usage exceeds a hold.
- * The entitlement layer activates and passes the exact selected user-owned Grant for the
- * requested Source before delegation reaches this ledger.
- *
- * For AI Pro, the caller additionally supplies a conservative providerCostHoldTwd. The
- * PostgreSQL repository evaluates that hold on the exact locked subscription-period Grant,
- * so concurrent requests serialize on one durable hard-cap counter.
- */
+/** Low-level exactly-once Grant reservation/settlement service. */
 export class WorklogAiPointLedgerService {
   constructor(
     private readonly repository: WorklogAiPointLedgerRepository,
@@ -116,15 +80,8 @@ export class WorklogAiPointLedgerService {
     let reservation: WorklogAiPointReservationSnapshot | null;
     try {
       reservation = await this.repository.reservePointsAtomic({
-        token: normalizeToken(this.tokenFactory()),
-        chargedUserId,
-        actorUserId,
-        sourceId,
-        requestedPoints,
-        entitlementGrantId,
-        providerCostHoldTwd,
-        at,
-        expiresAt: new Date(at.getTime() + ttlMs),
+        token: normalizeToken(this.tokenFactory()), chargedUserId, actorUserId, sourceId, requestedPoints,
+        entitlementGrantId, providerCostHoldTwd, at, expiresAt: new Date(at.getTime() + ttlMs),
       });
     } catch (error) {
       const reason = providerCostReservationBlockReason(error);
@@ -132,50 +89,25 @@ export class WorklogAiPointLedgerService {
       throw error;
     }
     if (!reservation || reservation.pointsReserved <= 0) return { status: 'AI_POINTS_EXHAUSTED' };
-
-    return {
-      status: 'RESERVED',
-      reservation,
-      remainingAiPoints: 0,
-    };
+    return { status: 'RESERVED', reservation, remainingAiPoints: 0 };
   }
 
-  async commitAiUsage(
-    token: string,
-    usage: WorklogAiUsageCommit,
-    at = new Date(),
-  ): Promise<AiPointCommitResult> {
+  async commitAiUsage(token: string, usage: WorklogAiUsageCommit, at = new Date()): Promise<AiPointCommitResult> {
     const normalizedToken = normalizeToken(token);
     const current = await this.repository.getReservation(normalizedToken);
     if (!current) return { status: 'RESERVATION_NOT_FOUND' };
-    if (current.status === 'COMMITTED') {
-      const actualPoints = providerCostToAiPoints({
-        providerCostUsd: nonNegativeFinite(usage.providerCostUsd, 'providerCostUsd'),
-        outputUsdPerMillion: positiveFinite(usage.outputUsdPerMillion, 'outputUsdPerMillion'),
-      });
-      return { status: 'COMMITTED', reservation: current, actualPoints };
-    }
-    if (current.status !== 'RESERVED' && current.status !== 'EXPIRED') {
-      return { status: 'RESERVATION_NOT_ACTIVE' };
-    }
-
     const actualPoints = providerCostToAiPoints({
       providerCostUsd: nonNegativeFinite(usage.providerCostUsd, 'providerCostUsd'),
       outputUsdPerMillion: positiveFinite(usage.outputUsdPerMillion, 'outputUsdPerMillion'),
     });
-    const committed = await this.repository.commitReservationAtomic({
-      token: normalizedToken,
-      usage,
-      actualPoints,
-      at: validDate(at, 'at'),
-    });
-    if (committed) return { status: 'COMMITTED', reservation: committed, actualPoints };
+    if (current.status === 'COMMITTED') return { status: 'COMMITTED', reservation: current, actualPoints };
+    if (current.status !== 'RESERVED' && current.status !== 'EXPIRED') return { status: 'RESERVATION_NOT_ACTIVE' };
 
+    const committed = await this.repository.commitReservationAtomic({ token: normalizedToken, usage, actualPoints, at: validDate(at, 'at') });
+    if (committed) return { status: 'COMMITTED', reservation: committed, actualPoints };
     const refreshed = await this.repository.getReservation(normalizedToken);
     if (!refreshed) return { status: 'RESERVATION_NOT_FOUND' };
-    if (refreshed.status === 'COMMITTED') {
-      return { status: 'COMMITTED', reservation: refreshed, actualPoints };
-    }
+    if (refreshed.status === 'COMMITTED') return { status: 'COMMITTED', reservation: refreshed, actualPoints };
     return { status: 'RESERVATION_NOT_ACTIVE' };
   }
 
@@ -184,13 +116,8 @@ export class WorklogAiPointLedgerService {
     const current = await this.repository.getReservation(normalizedToken);
     if (!current) return { status: 'RESERVATION_NOT_FOUND' };
     if (current.status !== 'RESERVED') return { status: 'RESERVATION_NOT_ACTIVE' };
-
-    const released = await this.repository.releaseReservationAtomic(
-      normalizedToken,
-      validDate(at, 'at'),
-    );
+    const released = await this.repository.releaseReservationAtomic(normalizedToken, validDate(at, 'at'));
     if (released) return { status: 'RELEASED', reservation: released };
-
     const refreshed = await this.repository.getReservation(normalizedToken);
     if (!refreshed) return { status: 'RESERVATION_NOT_FOUND' };
     return { status: 'RESERVATION_NOT_ACTIVE' };
@@ -199,6 +126,7 @@ export class WorklogAiPointLedgerService {
 
 function providerCostReservationBlockReason(error: unknown): string | null {
   if (!(error instanceof Error)) return null;
+  if (error.message === 'PAID_GRANT_NOT_READY') return 'AI_PRO_GRANT_NOT_READY';
   if (
     error.message === 'MONTHLY_PROVIDER_COST_CAP_REACHED'
     || error.message === 'PROVIDER_COST_ACCOUNTING_INCOMPLETE'
@@ -207,40 +135,10 @@ function providerCostReservationBlockReason(error: unknown): string | null {
   return null;
 }
 
-function positiveInteger(value: number | null | undefined, label: string): number {
-  if (!Number.isSafeInteger(value) || (value ?? 0) <= 0) {
-    throw new Error(`${label} must be a positive safe integer`);
-  }
-  return value as number;
-}
-
-function optionalPositiveInteger(value: number | null | undefined, label: string): number | null {
-  if (value === null || value === undefined) return null;
-  return positiveInteger(value, label);
-}
-
-function nonNegativeFinite(value: number, label: string): number {
-  if (!Number.isFinite(value) || value < 0) throw new Error(`${label} must be non-negative`);
-  return value;
-}
-
-function optionalNonNegativeFinite(value: number | null | undefined, label: string): number | null {
-  if (value === null || value === undefined) return null;
-  return nonNegativeFinite(value, label);
-}
-
-function positiveFinite(value: number, label: string): number {
-  if (!Number.isFinite(value) || value <= 0) throw new Error(`${label} must be positive`);
-  return value;
-}
-
-function validDate(value: Date, label: string): Date {
-  if (!(value instanceof Date) || Number.isNaN(value.getTime())) throw new Error(`${label} must be a valid date`);
-  return new Date(value.getTime());
-}
-
-function normalizeToken(value: string): string {
-  const normalized = value.trim();
-  if (!normalized || normalized.length > 64) throw new Error('invalid AI reservation token');
-  return normalized;
-}
+function positiveInteger(value: number | null | undefined, label: string): number { if (!Number.isSafeInteger(value) || (value ?? 0) <= 0) throw new Error(`${label} must be a positive safe integer`); return value as number; }
+function optionalPositiveInteger(value: number | null | undefined, label: string): number | null { return value == null ? null : positiveInteger(value, label); }
+function nonNegativeFinite(value: number, label: string): number { if (!Number.isFinite(value) || value < 0) throw new Error(`${label} must be non-negative`); return value; }
+function optionalNonNegativeFinite(value: number | null | undefined, label: string): number | null { return value == null ? null : nonNegativeFinite(value, label); }
+function positiveFinite(value: number, label: string): number { if (!Number.isFinite(value) || value <= 0) throw new Error(`${label} must be positive`); return value; }
+function validDate(value: Date, label: string): Date { if (!(value instanceof Date) || Number.isNaN(value.getTime())) throw new Error(`${label} must be a valid date`); return new Date(value.getTime()); }
+function normalizeToken(value: string): string { const normalized = value.trim(); if (!normalized || normalized.length > 64) throw new Error('invalid AI reservation token'); return normalized; }
