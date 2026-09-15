@@ -5,9 +5,8 @@ const SESSION_KEY = 'aftertrace.admin.session';
 const navItems = [
   { href: '/', label: '總覽', icon: '⌂', active: (path: string) => path === '/' },
   { href: '/accounts', label: '帳號查詢', icon: 'ID', active: (path: string) => path === '/accounts' },
-  { href: '/commercial', label: '商業方案', icon: '◇', active: (path: string) => path === '/commercial' },
+  { href: '/commercial', label: '商業方案', icon: '◇', active: (path: string) => path === '/commercial' || path === '/pricing-calculator' },
   { href: '/ai-runtime', label: '模型與價格', icon: 'AI', active: (path: string) => path === '/ai-runtime' },
-  { href: '/pricing-calculator', label: '成本試算', icon: '∑', active: (path: string) => path === '/pricing-calculator' },
   { href: '/profitability', label: '獲利分析', icon: '↗', active: (path: string) => path === '/profitability' },
   { href: '/announcements', label: '公告管理', icon: '◉', active: (path: string) => path === '/announcements' },
   { href: '/feedback-management', label: '意見回饋', icon: '✦', active: (path: string) => path === '/feedback-management' },
