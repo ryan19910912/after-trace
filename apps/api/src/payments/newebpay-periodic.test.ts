@@ -13,16 +13,19 @@ const config = {
 };
 
 describe('NewebPay periodic API version contracts', () => {
-  it('uses configured 1.5 version for periodic checkout', async () => {
+  it('uses configured version and plan-driven amount for periodic checkout', async () => {
     const request = await buildPeriodicCheckout({
       config,
       merchantOrderNo: 'ORDER_20260908',
       payerEmail: 'payer@example.com',
+      productDescription: 'AFTERTRACE AI Pro Plus',
+      amountTwd: 199,
       now: new Date('2026-09-08T00:00:00.000Z'),
     });
     const params = new URLSearchParams(await decryptHex(request.fields.PostData_, config.hashKey, config.hashIv));
     expect(params.get('Version')).toBe('1.5');
-    expect(params.get('PeriodAmt')).toBe('99');
+    expect(params.get('PeriodAmt')).toBe('199');
+    expect(params.get('ProdDesc')).toBe('AFTERTRACE AI Pro Plus');
   });
 
   it('uses AlterStatus API version 1.0 independently from checkout version', async () => {
