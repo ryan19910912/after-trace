@@ -12,7 +12,7 @@ export interface AiRewriteProvider { reservationPoints(input: AiRewriteProviderI
 export interface AiRecordRewriteRepository { rewriteEnabled(): Promise<boolean>; runtimeConfig(): Promise<WorklogAiRuntimeConfigSnapshot | null>; recordForRewrite(sourceId: number, recordId: number): Promise<AiRewriteRecord | null>; }
 export type AiRecordRewriteEntitlementPort = { resolve(userId: number, sourceId: number, at?: Date): Promise<AiEntitlementDecision> };
 export type AiRecordRewriteResult =
-  | { status: 'PROPOSAL'; entitlementSource: 'AI_PRO'; recordId: number; expectedVersion: number; originalText: string; proposedText: string }
+  | { status: 'PROPOSAL'; entitlementSource: 'FREE_TRIAL' | 'AI_PRO'; recordId: number; expectedVersion: number; originalText: string; proposedText: string }
   | { status: 'NOT_FOUND'; reason: 'RECORD_NOT_FOUND' }
   | { status: 'BLOCKED'; decision: AiEntitlementDecision }
   | { status: 'DEFERRED'; reason: 'AI_RUNTIME_CONFIG_MISSING' }
@@ -25,7 +25,6 @@ export class AiRecordRewriteService {
     const instruction = requiredText(input.instruction, 1000, 'AI_REWRITE_INSTRUCTION_REQUIRED'); const referenceAt = validDate(input.referenceAt ?? new Date());
     const preliminary = await this.entitlement.resolve(userId, sourceId, referenceAt);
     if (!preliminary.allowed || preliminary.source === 'BLOCKED') return { status: 'BLOCKED', decision: preliminary };
-    if (preliminary.source !== 'AI_PRO') return { status: 'BLOCKED', decision: aiProRequired(preliminary) };
     if (!(await this.repository.rewriteEnabled())) return { status: 'FAILED', reason: 'AI_REWRITE_DISABLED' };
     const record = await this.repository.recordForRewrite(sourceId, recordId); if (!record) return { status: 'NOT_FOUND', reason: 'RECORD_NOT_FOUND' };
     const config = await this.repository.runtimeConfig(); if (!config) return { status: 'DEFERRED', reason: 'AI_RUNTIME_CONFIG_MISSING' };
@@ -39,10 +38,9 @@ export class AiRecordRewriteService {
     const proposedText = response.proposedText.trim(); const usage = usageFromProvider(config, response, recordId);
     if (!proposedText || proposedText.length > 20_000) { if (!(await settleProviderSuccess(this.aiPoints, token, usage))) return { status: 'FAILED', reason: 'AI_USAGE_SETTLEMENT_FAILED' }; return { status: 'FAILED', reason: 'AI_REWRITE_OUTPUT_INVALID' }; }
     if ((await this.aiPoints.commitAiUsage(token, usage)).status !== 'COMMITTED') return { status: 'FAILED', reason: 'AI_USAGE_SETTLEMENT_FAILED' };
-    return { status: 'PROPOSAL', entitlementSource: 'AI_PRO', recordId, expectedVersion: record.version, originalText: record.rawText, proposedText };
+    return { status: 'PROPOSAL', entitlementSource: preliminary.source, recordId, expectedVersion: record.version, originalText: record.rawText, proposedText };
   }
 }
-function aiProRequired(value: AiEntitlementDecision): AiEntitlementDecision { return { ...value, source: 'BLOCKED', allowed: false, reason: 'AI_NOT_ENTITLED' }; }
 function usageFromProvider(config: WorklogAiRuntimeConfigSnapshot, response: AiRewriteProviderResponse, recordId: number): WorklogAiUsageCommit { return { operation: 'AI_RECORD_REWRITE_PROPOSAL', workspaceId: null, recordId, ...snapshotAiUsage({ provider: config.provider, model: config.model, inputUsdPerMillion: config.inputUsdPerMillion, outputUsdPerMillion: config.outputUsdPerMillion, audioUsdPerMillion: config.audioUsdPerMillion, imageUsdPerMillion: config.imageUsdPerMillion, usdTwdRate: config.usdTwdRate }, { inputTokens: response.inputTokens, outputTokens: response.outputTokens, audioInputUnits: 0, imageInputUnits: 0 }) }; }
 function blockedDecision(preliminary: AiEntitlementDecision, status: string, reservationReason: string | null): AiEntitlementDecision { const reason = status === 'AI_ENTITLEMENT_BLOCKED' ? entitlementReason(reservationReason ?? '') : 'MONTHLY_POINT_CAP_REACHED'; return { source: 'BLOCKED', allowed: false, reason, remainingPoints: reason === 'PER_REQUEST_POINT_CAP_EXCEEDED' ? preliminary.remainingPoints : 0, periodEndsAt: preliminary.periodEndsAt, perRequestAiPointCap: preliminary.perRequestAiPointCap }; }
 async function settleProviderSuccess(aiPoints: AiPointLedgerPort, token: string, usage: WorklogAiUsageCommit): Promise<boolean> { try { return (await aiPoints.commitAiUsage(token, usage)).status === 'COMMITTED'; } catch { return false; } }
