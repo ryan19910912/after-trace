@@ -60,49 +60,37 @@ describe('AiTimeRangeSummaryService', () => {
   it('checks entitlement before capability, Record retrieval or provider state', async () => {
     const calls: string[] = [];
     const service = new AiTimeRangeSummaryService(repository(calls), {
-      async resolve() {
-        calls.push('resolve');
-        return { source: 'BLOCKED', allowed: false, reason: 'SOURCE_NOT_AUTHORIZED', remainingPoints: null, periodEndsAt: null, perRequestAiPointCap: null };
-      },
+      async resolve() { calls.push('resolve'); return { source: 'BLOCKED', allowed: false, reason: 'SOURCE_NOT_AUTHORIZED', remainingPoints: null, periodEndsAt: null, perRequestAiPointCap: null }; },
     }, ledger(calls), {
       reservationPoints() { calls.push('estimate'); return 50; },
       async summarize() { calls.push('provider'); throw new Error('should not run'); },
     });
-
     const result = await service.summarize({ userId: 7, sourceId: 12, ...range });
     expect(result).toMatchObject({ status: 'BLOCKED', decision: { reason: 'SOURCE_NOT_AUTHORIZED' } });
     expect(calls).toEqual(['resolve']);
   });
 
-  it('does not allow FREE trial points to unlock time-range summaries', async () => {
+  it('allows FREE trial entitlement to reach time-range summary retrieval', async () => {
     const calls: string[] = [];
     const service = new AiTimeRangeSummaryService(repository(calls, []), {
-      async resolve() {
-        calls.push('resolve');
-        return { source: 'FREE_TRIAL', allowed: true, reason: 'FREE_TRIAL_AVAILABLE', remainingPoints: 100, periodEndsAt: null, perRequestAiPointCap: 100 };
-      },
+      async resolve() { calls.push('resolve'); return { source: 'FREE_TRIAL', allowed: true, reason: 'FREE_TRIAL_AVAILABLE', remainingPoints: 100, periodEndsAt: null, perRequestAiPointCap: 100 }; },
     }, ledger(calls), {
       reservationPoints() { calls.push('estimate'); return 50; },
       async summarize() { calls.push('provider'); throw new Error('should not run'); },
     });
-
     const result = await service.summarize({ userId: 7, sourceId: 12, ...range });
-    expect(result).toMatchObject({ status: 'BLOCKED', decision: { reason: 'AI_NOT_ENTITLED' } });
-    expect(calls).toEqual(['resolve']);
+    expect(result).toMatchObject({ status: 'NO_RECORDS' });
+    expect(calls).toEqual(['resolve', 'capability', 'records']);
   });
 
   it('returns NO_RECORDS for AI Pro without runtime lookup, reservation or provider cost', async () => {
     const calls: string[] = [];
     const service = new AiTimeRangeSummaryService(repository(calls, []), {
-      async resolve() {
-        calls.push('resolve');
-        return { source: 'AI_PRO', allowed: true, reason: 'AI_PRO_AVAILABLE', remainingPoints: 100, periodEndsAt: '2026-10-01T00:00:00.000Z', perRequestAiPointCap: 100 };
-      },
+      async resolve() { calls.push('resolve'); return { source: 'AI_PRO', allowed: true, reason: 'AI_PRO_AVAILABLE', remainingPoints: 100, periodEndsAt: '2026-10-01T00:00:00.000Z', perRequestAiPointCap: 100 }; },
     }, ledger(calls), {
       reservationPoints() { calls.push('estimate'); return 50; },
       async summarize() { calls.push('provider'); throw new Error('should not run'); },
     });
-
     const result = await service.summarize({ userId: 7, sourceId: 12, ...range });
     expect(result).toMatchObject({ status: 'NO_RECORDS' });
     expect(calls).toEqual(['resolve', 'capability', 'records']);
@@ -111,41 +99,21 @@ describe('AiTimeRangeSummaryService', () => {
   it('retrieves bounded Records before reservation and settles provider usage after summary success', async () => {
     const calls: string[] = [];
     const service = new AiTimeRangeSummaryService(repository(calls), {
-      async resolve() {
-        calls.push('resolve');
-        return { source: 'AI_PRO', allowed: true, reason: 'AI_PRO_AVAILABLE', remainingPoints: 500, periodEndsAt: '2026-10-01T00:00:00.000Z', perRequestAiPointCap: 200 };
-      },
+      async resolve() { calls.push('resolve'); return { source: 'AI_PRO', allowed: true, reason: 'AI_PRO_AVAILABLE', remainingPoints: 500, periodEndsAt: '2026-10-01T00:00:00.000Z', perRequestAiPointCap: 200 }; },
     }, ledger(calls), {
       reservationPoints(input) { calls.push(`estimate:${input.records.length}`); return 50; },
-      async summarize(input) {
-        calls.push(`provider:${input.records.length}`);
-        return { summary: '本週完成晴空案第一階段驗收。', inputTokens: 100, outputTokens: 20, providerResponseId: 'resp-summary', latencyMs: 10 };
-      },
+      async summarize(input) { calls.push(`provider:${input.records.length}`); return { summary: '本週完成晴空案第一階段驗收。', inputTokens: 100, outputTokens: 20, providerResponseId: 'resp-summary', latencyMs: 10 }; },
     });
-
     const result = await service.summarize({ userId: 7, sourceId: 12, ...range });
     expect(result).toMatchObject({ status: 'SUMMARY', entitlementSource: 'AI_PRO', recordCount: 1, truncated: false });
-    expect(calls).toEqual([
-      'resolve', 'capability', 'records', 'runtime', 'estimate:1', 'reserve:hold', 'provider:1',
-      'commit:AI_TIME_RANGE_SUMMARY:100:20',
-    ]);
+    expect(calls).toEqual(['resolve', 'capability', 'records', 'runtime', 'estimate:1', 'reserve:hold', 'provider:1', 'commit:AI_TIME_RANGE_SUMMARY:100:20']);
   });
 
   it('bounds provider text size even when fewer than 200 Records contain large manual content', async () => {
     const calls: string[] = [];
-    const largeRecords: AiTimeRangeSummaryRecord[] = Array.from({ length: 10 }, (_, index) => ({
-      id: index + 1,
-      inputType: 'TEXT',
-      title: null,
-      rawText: 'x'.repeat(20_000),
-      occurredAt: `2026-09-0${Math.min(index + 1, 9)}T02:00:00.000Z`,
-      createdAt: `2026-09-0${Math.min(index + 1, 9)}T02:01:00.000Z`,
-    }));
+    const largeRecords: AiTimeRangeSummaryRecord[] = Array.from({ length: 10 }, (_, index) => ({ id: index + 1, inputType: 'TEXT', title: null, rawText: 'x'.repeat(20_000), occurredAt: `2026-09-0${Math.min(index + 1, 9)}T02:00:00.000Z`, createdAt: `2026-09-0${Math.min(index + 1, 9)}T02:01:00.000Z` }));
     const service = new AiTimeRangeSummaryService(repository(calls, largeRecords), {
-      async resolve() {
-        calls.push('resolve');
-        return { source: 'AI_PRO', allowed: true, reason: 'AI_PRO_AVAILABLE', remainingPoints: 500, periodEndsAt: '2026-10-01T00:00:00.000Z', perRequestAiPointCap: 200 };
-      },
+      async resolve() { calls.push('resolve'); return { source: 'AI_PRO', allowed: true, reason: 'AI_PRO_AVAILABLE', remainingPoints: 500, periodEndsAt: '2026-10-01T00:00:00.000Z', perRequestAiPointCap: 200 }; },
     }, ledger(calls), {
       reservationPoints(input) { calls.push(`estimate:${input.records.length}`); return 50; },
       async summarize(input) {
@@ -155,7 +123,6 @@ describe('AiTimeRangeSummaryService', () => {
         return { summary: '大型資料集仍能依單次處理上限摘要。', inputTokens: 100, outputTokens: 20, providerResponseId: 'resp-summary-large', latencyMs: 10 };
       },
     });
-
     const result = await service.summarize({ userId: 7, sourceId: 12, ...range });
     expect(result).toMatchObject({ status: 'SUMMARY', recordCount: 6, truncated: true });
     expect(calls).toContain('estimate:6');
