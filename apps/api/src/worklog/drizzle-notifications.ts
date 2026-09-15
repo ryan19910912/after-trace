@@ -153,8 +153,7 @@ export class DrizzleNotificationRepository implements NotificationRepository {
           notification_id, user_id, read_at, push_status, created_at, updated_at
         )
         SELECT selected_notification.id, ${input.userId}, NULL,
-               CASE WHEN ${input.pushEnabled ?? true} THEN 'PENDING'::worklog_notification_delivery_status
-                    ELSE 'SKIPPED'::worklog_notification_delivery_status END,
+               CASE WHEN ${input.pushEnabled ?? true} THEN 'PENDING' ELSE 'SKIPPED' END,
                NOW(), NOW()
         FROM selected_notification
         ON CONFLICT (notification_id, user_id) DO NOTHING
@@ -249,8 +248,7 @@ export class DrizzleNotificationRepository implements NotificationRepository {
           notification_id, user_id, read_at, push_status, created_at, updated_at
         )
         SELECT claimed.id, audience_users.user_id, NULL,
-               CASE WHEN claimed.push_enabled THEN 'PENDING'::worklog_notification_delivery_status
-                    ELSE 'SKIPPED'::worklog_notification_delivery_status END,
+               CASE WHEN claimed.push_enabled THEN 'PENDING' ELSE 'SKIPPED' END,
                NOW(), NOW()
         FROM claimed
         CROSS JOIN audience_users
