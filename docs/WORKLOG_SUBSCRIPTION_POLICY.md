@@ -4,12 +4,14 @@ Durable product/development contract for the current prelaunch AFTERTRACE Web/PW
 
 ## Commercial model
 
-Current launch model is intentionally simple:
+AFTERTRACE uses a backend-driven plan catalog:
 
 - `FREE` — NT$0;
-- `AI_PRO` — NT$99 / month.
+- one or more enabled `SUBSCRIPTION` plans created and maintained in Admin.
 
-Do not add one-time AI top-up products for launch. Additional subscription definitions may exist in Admin for future preparation, but they are not customer-purchasable until payment/lifecycle support explicitly supports them.
+Admin subscription definitions are customer-visible automatically when they are enabled, AI-enabled and commercially valid. Customer Web/PWA must not hard-code a specific paid plan code, display name or price.
+
+Do not add one-time AI top-up products for launch.
 
 ## FREE plan
 
@@ -23,8 +25,6 @@ FREE does not receive recurring monthly provider-backed AI allowance.
 
 A newly eligible FREE account receives a **one-time shared AI experience allowance** so the user can try the actual AI product before subscribing.
 
-The trial is controlled by **AI points**, not by a customer-facing TWD price/value.
-
 Hard rules:
 
 - Admin configures the initial trial point amount;
@@ -32,13 +32,9 @@ Hard rules:
 - customer UI does not describe the trial as a cash balance;
 - the trial is issued once per eligible AFTERTRACE account;
 - it does not refresh monthly;
-- it does not roll over into a paid subscription as cash-equivalent value;
 - changing the Admin template affects only accounts that have not yet received the trial;
-- historical issued trial grants are never resized retroactively;
-- trial points are shared by supported provider-backed AI functions: AI text organization, natural-language search, image/audio/file/PDF AI, time-range summary, rewrite and AI task proposals;
-- Chrome screenshot AI uses the same trial balance;
+- trial points are shared by supported provider-backed AI functions, including AI text organization, natural-language search, image/audio/file/PDF AI, time-range summary, rewrite, task proposals and Chrome screenshot AI;
 - normal keyword/date search and browser speech-to-text consume no AI points;
-- related Records remains entitlement-gated; its current deterministic PostgreSQL ranking does not invent provider usage or point charges;
 - when trial points reach zero, provider-backed AI stops while FREE manual/product features continue normally;
 - trial provider-backed AI uses the same usage/cost audit and reservation/settlement path as paid AI.
 
@@ -46,38 +42,30 @@ FREE media trial uses conservative safety limits: one image/request, 5 MB/image,
 
 ## Admin configuration
 
-Admin exposes the one-time FREE AI experience point quantity and enough aggregate context to operate it safely, including recipients, consumption and exhaustion where available.
+Admin provides two commercial surfaces:
 
-Do not make the Admin enter a TWD trial price. A calculator may translate an internal target cost into a suggested point amount, but the durable commercial control is the initial **point quantity**.
+- FREE plan: one-time AI experience points plus internal trial-cost calculator;
+- Subscription plans: create, list, inspect, edit, enable/disable and configure price, AI point/cost caps, feature switches and media limits.
 
-## AI Pro
+An enabled subscription plan becomes part of the customer plan catalog without a code release. The plan code is a durable internal identifier and does not change when the operator later edits its display name or price.
 
-AI Pro launch price is **NT$99/month**.
+## Paid subscription plans
 
-AI Pro enables the complete accepted AI feature set with a recurring monthly AI resource allowance, including:
+Each paid plan stores its own:
 
-- AI text capture/organization;
-- AI natural-language search;
-- AI voice interpretation;
-- image AI;
-- supported file/PDF AI;
-- related Records;
-- time-range summaries;
-- rewrite/cleanup suggestions;
-- provider-backed task extraction/proposals;
-- Chrome screenshot AI.
+- plan code;
+- customer display name;
+- monthly TWD price;
+- enabled / AI-enabled state;
+- monthly AI point cap;
+- monthly provider-cost cap;
+- optional per-request point cap;
+- AI feature switches;
+- image/audio/file limits.
 
-Paid runtime retains internal resource/point limits plus a provider-cost hard cap in TWD to protect unit economics. The provider-cost hard cap is an internal operator safety boundary and is not presented to customers as a prepaid cash balance.
+The customer plan page renders these values from the backend. It must not assume `AI_PRO`, `NT$99`, or any other fixed paid plan code/price.
 
-Recommended initial AI Pro media plan limits are:
-
-- 1 image/request while the API is single-image (4/request when multi-image ships);
-- 5 MB/image;
-- 300 seconds audio/request;
-- 10 MB audio/request;
-- 10 MB file/request.
-
-Transport safety ceilings may be higher than plan limits so Admin-configured plan limits remain authoritative below the hard runtime ceiling.
+A user may have only one active paid subscription at a time. While an active paid period exists, another paid checkout is blocked. After cancellation and paid-period expiry, the user may start a new checkout normally.
 
 ## Payment provider — NewebPay / 藍新
 
@@ -85,46 +73,62 @@ Current paid subscription provider is **NewebPay / 藍新信用卡定期定額**
 
 Product/runtime rules:
 
-- current purchasable plan is AI Pro NT$99/month;
-- checkout is initiated from AFTERTRACE but card entry/authorization occurs on the NewebPay-hosted periodic-payment page;
-- AFTERTRACE must not receive/store raw card numbers or CVV;
-- merchant id/hash key/hash IV and callback URLs are API Worker secrets/config, never `VITE_*` frontend variables;
-- successful first periodic authorization maps to normalized `ACTIVATE` lifecycle processing;
-- successful later periodic charges map to `RENEW`;
+- checkout receives the selected backend plan code;
+- the API resolves the selected plan from PostgreSQL and uses its current display name and price when constructing the NewebPay periodic checkout;
+- the checkout intent durably stores the selected plan code;
+- callbacks recover the selected plan through the checkout intent and validate the provider authorization amount against the plan price associated with that checkout;
+- successful first periodic authorization maps to normalized `ACTIVATE` lifecycle processing for the selected plan code;
+- successful later periodic charges map to `RENEW` for that plan;
 - cancellation/termination maps to `CANCEL` and stops future renewal while preserving already-paid access through the current period end;
-- provider callback retries must remain idempotent through provider event keys plus the shared subscription lifecycle boundary;
-- a failed recurring charge must not erase an already-paid current period;
-- the core subscription lifecycle remains provider-neutral even though the current transport adapter is NewebPay.
+- subscription lifecycle, history and monthly AI Grant creation preserve the actual paid plan code;
+- provider callback retries remain idempotent through provider event keys plus the shared subscription lifecycle boundary;
+- AFTERTRACE never receives/stores raw card numbers or CVV;
+- merchant id/hash key/hash IV and callback URLs are API Worker secrets/config, never frontend variables.
+
+NewebPay Period currently uses an integer TWD monthly amount. Therefore a paid plan may be displayed in Admin with finer precision, but customer checkout is enabled only for a positive integer-TWD subscription price. Operators should use integer monthly prices for purchasable launch plans.
 
 Missing NewebPay configuration disables paid checkout only; it must not break FREE/manual product behavior.
 
+## Subscription lifecycle and AI allowance
+
+The lifecycle is plan-driven rather than tied to a special code:
+
+1. customer selects an enabled paid plan;
+2. checkout stores the selected `plan_code`;
+3. successful provider authorization activates that exact plan;
+4. the active subscription row stores that plan code;
+5. the monthly `SUBSCRIPTION_PERIOD` AI Grant uses that plan's configured point cap and period;
+6. AI entitlement/provider-cost admission reads limits from the user's active paid plan;
+7. renewal starts the next paid period for the same plan;
+8. cancellation stops renewal but preserves the current paid period until its end.
+
+Internal compatibility names such as `AI_PRO` may still appear in generic entitlement reason/source enums. They represent “active paid AI subscription” semantics and must not be used to filter the commercial plan catalog by code or price.
+
 ## Customer-facing wording
 
-Prefer simple messaging:
+Prefer backend plan display names and prices. Generic customer wording may use:
 
 - FREE: `免費使用`;
 - trial: `免費 AI 體驗` / `尚有免費 AI 體驗額度`;
-- AI Pro: `NT$99 / 月`;
+- paid CTA: `訂閱 <方案名稱>`;
 - paid usage: `AI 功能受公平使用原則與每月方案資源上限限制。`
 
 Do not expose provider cost, raw provider token prices, or internal margin calculations to customers.
 
 ## Upgrade flow
 
-Suggested flow:
-
 1. account starts on FREE;
 2. one-time configured FREE AI experience points are issued idempotently;
 3. user may spend them across supported AI features until exhausted;
 4. normal Record CRUD, deterministic search, groups, tasks and notifications stay free throughout;
-5. once trial is exhausted, provider-backed AI offers upgrade to AI Pro;
-6. AI Pro supplies a recurring monthly AI allowance and the complete AI feature set;
-7. customer completes NewebPay periodic-payment authorization;
-8. successful activation starts paid period accounting/caps;
-9. FREE manual features continue without interruption regardless of AI entitlement/payment state.
+5. customer plan page lists currently enabled paid plans from the backend;
+6. user selects one paid plan and completes NewebPay periodic authorization;
+7. successful activation starts that plan's paid period, monthly AI allowance and cost caps;
+8. cancellation stops the next renewal while preserving the current paid period;
+9. after expiry, the user may choose any currently available paid plan through a new checkout.
 
 ## No one-time top-up at launch
 
-Do not ship one-time AI point purchases at launch. If real users repeatedly hit AI Pro limits and show willingness to pay more, evaluate a higher subscription tier or top-up product later using actual usage data.
+Do not ship one-time AI point purchases at launch. If real users repeatedly hit paid-plan limits and show willingness to pay more, evaluate a higher subscription tier or top-up product later using actual usage data.
 
 GitHub Actions must not be used as validation unless explicitly requested by the user.
