@@ -12,11 +12,11 @@ const root = path.resolve(scriptDir, '..');
 const outDir = path.join(root, `dist-${mode}`);
 const manifestPath = path.join(root, `manifest.${mode}.json`);
 const webAppUrl = mode === 'dev'
-  ? 'https://after-trace-web-dev.a0955625660.workers.dev'
-  : 'https://after-trace-web-prod.a0955625660.workers.dev';
+  ? 'https://after-trace-web-dev.after-lab.workers.dev'
+  : 'https://after-trace-web-prod.after-lab.workers.dev';
 const apiBaseUrl = mode === 'dev'
-  ? 'https://after-trace-api-dev.a0955625660.workers.dev'
-  : 'https://after-trace-api-prod.a0955625660.workers.dev';
+  ? 'https://after-trace-api-dev.after-lab.workers.dev'
+  : 'https://after-trace-api-prod.after-lab.workers.dev';
 
 await rm(outDir, { recursive: true, force: true });
 await mkdir(outDir, { recursive: true });
@@ -48,7 +48,7 @@ await writeFile(backgroundPath, background, 'utf8');
 const popupHtmlPath = path.join(outDir, 'popup.html');
 let popupHtml = await readFile(popupHtmlPath, 'utf8');
 popupHtml = popupHtml.replace(
-  /href="https:\/\/after-trace-web-(?:dev|prod)\.a0955625660\.workers\.dev\/"/,
+  /href="https:\/\/after-trace-web-(?:dev|prod)\.(?:a0955625660|after-lab)\.workers\.dev\/"/,
   `href="${webAppUrl}/"`,
 );
 await writeFile(popupHtmlPath, popupHtml, 'utf8');
