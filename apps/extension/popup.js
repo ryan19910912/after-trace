@@ -2,10 +2,10 @@ const AUTH_KEY = 'aftertraceAuth';
 const SELECTED_SOURCE_KEY = 'aftertraceSelectedSource';
 const PENDING_CONNECT_KEY = 'aftertracePendingConnectNonce';
 const LAST_WEB_APP_KEY = 'aftertraceLastWebAppUrl';
-const DEFAULT_WEB_APP_URL = 'https://after-trace-web-prod.a0955625660.workers.dev';
+const DEFAULT_WEB_APP_URL = 'https://after-trace-web-prod.after-lab.workers.dev';
 const WEB_APP_ORIGINS = new Set([
-  'https://after-trace-web-dev.a0955625660.workers.dev',
-  'https://after-trace-web-prod.a0955625660.workers.dev',
+  'https://after-trace-web-dev.after-lab.workers.dev',
+  'https://after-trace-web-prod.after-lab.workers.dev',
 ]);
 
 const authState = document.querySelector('#authState');
@@ -155,7 +155,7 @@ screenshotButton.addEventListener('click', async () => {
   try {
     screenshotDataUrl = await chrome.tabs.captureVisibleTab(undefined, { format: 'png' });
     screenshotPreview.src = screenshotDataUrl; screenshotPreview.classList.remove('hidden');
-    setStatus('已擷取目前可見畫面。按「儲存紀錄」後會使用 AI Pro 整理成紀錄。');
+    setStatus('已擷取目前可見畫面。按「儲存紀錄」後會使用可用 AI 額度整理成紀錄。');
   } catch { screenshotDataUrl = null; screenshotPreview.classList.add('hidden'); setStatus('無法擷取目前畫面，請確認這個頁面允許擴充功能使用。'); }
   updateSaveState();
 });
@@ -188,8 +188,8 @@ async function saveManualRecord(target, rawText) {
 async function saveScreenshotWithAi(target, instruction) {
   const entitlementResponse = await authenticatedFetch(`/api/v1/ai/entitlement?sourceId=${encodeURIComponent(String(target.sourceId))}`);
   const entitlementBody = await entitlementResponse.json();
-  if (!entitlementResponse.ok) throw apiError(entitlementResponse, entitlementBody, '無法確認 AI Pro 狀態');
-  if (entitlementBody?.entitlement?.source !== 'AI_PRO' || entitlementBody?.entitlement?.allowed !== true) throw new Error('AI_PRO_SCREENSHOT_REQUIRED');
+  if (!entitlementResponse.ok) throw apiError(entitlementResponse, entitlementBody, '無法確認 AI 使用狀態');
+  if (entitlementBody?.entitlement?.allowed !== true || entitlementBody?.entitlement?.source === 'BLOCKED') throw new Error(entitlementBody?.entitlement?.reason || 'AI_NOT_ENTITLED');
 
   const media = dataUrlMedia(screenshotDataUrl);
   if (!media || media.byteLength > 5 * 1024 * 1024) throw new Error('AI_IMAGE_TOO_LARGE');
@@ -199,7 +199,7 @@ async function saveScreenshotWithAi(target, instruction) {
   const response = await authenticatedFetch('/api/v1/ai/capture/image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
   const body = await response.json(); if (!response.ok) throw apiError(response, body, '截圖整理失敗');
   screenshotDataUrl = null; screenshotPreview.removeAttribute('src'); screenshotPreview.classList.add('hidden');
-  setStatus('截圖已由 AI Pro 整理並儲存成紀錄。');
+  setStatus('截圖已由 AI 整理並儲存成紀錄。');
 }
 
 function dataUrlMedia(value) {
@@ -218,7 +218,7 @@ async function authenticatedFetch(path, init = {}) {
 }
 
 function selectedSource() { const [type, sourceIdText] = source.value.split(':'); const sourceId = Number(sourceIdText); if (!['PERSONAL', 'GROUP'].includes(type) || !Number.isSafeInteger(sourceId) || sourceId <= 0) return null; return { type, sourceId }; }
-function updateSaveState() { const connected = Boolean(auth) && validAuth(auth); const target = selectedSource(); saveButton.disabled = saving || !connected || !target || (!content.value.trim() && !screenshotDataUrl); saveButton.textContent = saving ? '處理中…' : !connected ? '請先連接 AFTERTRACE' : screenshotDataUrl ? '用 AI Pro 儲存截圖' : '儲存紀錄'; }
+function updateSaveState() { const connected = Boolean(auth) && validAuth(auth); const target = selectedSource(); saveButton.disabled = saving || !connected || !target || (!content.value.trim() && !screenshotDataUrl); saveButton.textContent = saving ? '處理中…' : !connected ? '請先連接 AFTERTRACE' : screenshotDataUrl ? '用 AI 儲存截圖' : '儲存紀錄'; }
 async function clearAuth() { const currentWeb = auth?.webAppUrl; await chrome.storage.local.remove([AUTH_KEY, SELECTED_SOURCE_KEY]); if (currentWeb) await chrome.storage.local.set({ [LAST_WEB_APP_KEY]: currentWeb }); renderDisconnected(); }
 async function preferredWebAppUrl() { const activeOrigin = safeHttpOrigin(activeTab?.url); if (activeOrigin && WEB_APP_ORIGINS.has(activeOrigin)) return activeOrigin; const stored = await chrome.storage.local.get(LAST_WEB_APP_KEY); const remembered = safeHttpOrigin(stored[LAST_WEB_APP_KEY]); return remembered && WEB_APP_ORIGINS.has(remembered) ? remembered : DEFAULT_WEB_APP_URL; }
 
@@ -233,7 +233,7 @@ function renderPageContext(context) { pageTitle.textContent = context?.title ?? 
 function validAuth(value) { if (!value || typeof value !== 'object') return false; const apiBaseUrl = safeHttpOrigin(value.apiBaseUrl); const webAppUrl = safeHttpOrigin(value.webAppUrl); const expiresAt = typeof value.sessionExpiresAt === 'string' ? new Date(value.sessionExpiresAt) : null; return typeof value.sessionToken === 'string' && value.sessionToken.trim().length > 0 && value.sessionToken.length <= 8192 && expiresAt instanceof Date && Number.isFinite(expiresAt.getTime()) && expiresAt.getTime() > Date.now() && expiresAt.getTime() <= Date.now() + 60 * 60 * 24 * 7 * 1000 + 60_000 && Boolean(apiBaseUrl) && Boolean(webAppUrl) && WEB_APP_ORIGINS.has(webAppUrl); }
 function apiError(response, body, fallback) { const code = typeof body?.error === 'string' ? body.error : `${fallback} (${response.status})`; const error = new Error(code); error.status = response.status; return error; }
 function sessionExpired(error) { return error?.status === 401 || /INVALID_WEB_SESSION|WEB_SESSION_REQUIRED|WORKLOG_USER_NOT_FOUND/.test(error?.message ?? ''); }
-function extensionErrorMessage(error) { const code = error instanceof Error ? error.message : ''; if (code === 'AI_PRO_SCREENSHOT_REQUIRED' || code === 'AI_PRO_MEDIA_REQUIRED') return '截圖 AI 整理僅提供 AI Pro 訂閱使用者。'; if (code === 'AI_IMAGE_TOO_LARGE') return '截圖超過目前單次圖片大小上限。'; return code || '儲存失敗'; }
+function extensionErrorMessage(error) { const code = error instanceof Error ? error.message : ''; if (code === 'TRIAL_EXHAUSTED') return '免費 AI 體驗額度已用完；可升級 AI Pro 繼續使用截圖 AI。'; if (code === 'AI_NOT_ENTITLED') return '目前沒有可用 AI 額度；可升級 AI Pro 繼續使用截圖 AI。'; if (code === 'AI_IMAGE_TOO_LARGE') return '截圖超過目前單次圖片大小上限。'; return code || '儲存失敗'; }
 function safeHttpOrigin(value) { if (typeof value !== 'string') return null; try { const url = new URL(value.trim()); return url.protocol === 'https:' ? url.origin : null; } catch { return null; } }
 function randomNonce() { const bytes = crypto.getRandomValues(new Uint8Array(24)); let binary = ''; for (const byte of bytes) binary += String.fromCharCode(byte); return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''); }
 
