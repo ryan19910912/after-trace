@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { issueWebSessionToken } from '../auth/token';
 import { createWorklogSubscriptionRoutes } from './subscription-routes';
 
 const env = {
@@ -8,34 +7,16 @@ const env = {
   WEB_APP_ORIGIN: 'https://web.example.test',
 };
 
-async function authorization() {
-  const token = await issueWebSessionToken({
-    userId: 42,
-    secret: env.WEB_AUTH_SECRET,
-    ttlSeconds: 3600,
-  });
-  return `Bearer ${token}`;
-}
-
-describe('subscription route launch boundary', () => {
-  it('accepts a durable user-id session and still fails closed before persistence while checkout is disabled', async () => {
-    const response = await createWorklogSubscriptionRoutes().request('/checkout-intents', {
-      method: 'POST',
-      headers: {
-        authorization: await authorization(),
-        origin: env.WEB_APP_ORIGIN,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        planCode: 'PRO',
-        requestKey: 'web_0123456789abcdef0123456789abcdef',
-      }),
+describe('subscription route boundary', () => {
+  it('requires a valid web session before exposing backend-driven plans', async () => {
+    const response = await createWorklogSubscriptionRoutes().request('/plans', {
+      headers: { origin: env.WEB_APP_ORIGIN },
     }, env);
 
-    expect(response.status).toBe(503);
+    expect(response.status).toBe(401);
     await expect(response.json()).resolves.toMatchObject({
       ok: false,
-      error: 'CHECKOUT_NOT_ENABLED',
+      error: 'WEB_SESSION_REQUIRED',
     });
   });
 });
