@@ -41,12 +41,16 @@ export async function buildPeriodicCheckout(input: {
   config: NewebPayPeriodicConfig;
   merchantOrderNo: string;
   payerEmail: string;
+  productDescription: string;
+  amountTwd: number;
   now?: Date;
 }): Promise<NewebPayCheckoutForm> {
   const config = validateConfig(input.config);
   const now = validDate(input.now ?? new Date());
   const merchantOrderNo = orderNo(input.merchantOrderNo);
   const payerEmail = email(input.payerEmail);
+  const productDescription = description(input.productDescription);
+  const amountTwd = positiveAmount(input.amountTwd);
   const day = taipeiParts(now).day.toString().padStart(2, '0');
   const inner = new URLSearchParams({
     RespondType: 'JSON',
@@ -54,8 +58,8 @@ export async function buildPeriodicCheckout(input: {
     Version: config.version,
     LangType: 'zh-Tw',
     MerOrderNo: merchantOrderNo,
-    ProdDesc: 'AFTERTRACE AI Pro',
-    PeriodAmt: '99',
+    ProdDesc: productDescription,
+    PeriodAmt: String(amountTwd),
     PeriodType: 'M',
     PeriodPoint: day,
     PeriodStartType: '2',
@@ -88,8 +92,6 @@ export async function buildAlterStatusRequest(input: {
   const now = validDate(input.now ?? new Date());
   const inner = new URLSearchParams({
     RespondType: 'JSON',
-    // NewebPay Period checkout currently uses 1.5, while the AlterStatus endpoint
-    // has its own API contract/version. Do not reuse the checkout version here.
     Version: ALTER_STATUS_VERSION,
     TimeStamp: String(Math.floor(now.getTime() / 1000)),
     MerOrderNo: orderNo(input.merchantOrderNo),
@@ -102,10 +104,6 @@ export async function buildAlterStatusRequest(input: {
   };
 }
 
-/**
- * NewebPay Period callbacks carry an AES-protected payload. Decryption success, strict JSON/query parsing,
- * expected merchant id and bounded Result fields form the adapter authenticity/integrity boundary.
- */
 export async function parsePeriodicCallback(input: {
   encryptedPeriod: string;
   config: NewebPayPeriodicConfig;
@@ -126,7 +124,6 @@ export async function parseAlterStatusResponse(input: {
   const trimmed = input.responseText.trim();
   if (!trimmed) throw new Error('NEWEBPAY_EMPTY_RESPONSE');
   let decoded = trimmed;
-  // Some period APIs return encrypted response content while others return outer JSON.
   if (/^[0-9a-f]+$/i.test(trimmed) && trimmed.length % 32 === 0) {
     decoded = await aesDecryptHex(trimmed, config.hashKey, config.hashIv);
   }
@@ -249,6 +246,8 @@ function orderNo(value: string) { const normalized = value.trim(); if (!/^[A-Za-
 function periodNoValue(value: string) { const normalized = value.trim(); if (!/^[A-Za-z0-9_-]{1,32}$/.test(normalized)) throw new Error('NEWEBPAY_PERIOD_NO_INVALID'); return normalized; }
 function email(value: string) { const normalized = value.trim(); if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) || normalized.length > 254) throw new Error('NEWEBPAY_PAYER_EMAIL_INVALID'); return normalized; }
 function identifier(value: string, max: number, error: string) { const normalized = value.trim(); if (!normalized || normalized.length > max || /[\u0000-\u001f\u007f]/.test(normalized)) throw new Error(error); return normalized; }
+function description(value: string) { const normalized = value.trim(); if (!normalized || normalized.length > 50 || /[\u0000-\u001f\u007f]/.test(normalized)) throw new Error('NEWEBPAY_PRODUCT_DESCRIPTION_INVALID'); return normalized; }
+function positiveAmount(value: number) { if (!Number.isSafeInteger(value) || value <= 0 || value > 99999999) throw new Error('NEWEBPAY_PERIOD_AMOUNT_INVALID'); return value; }
 function httpsUrl(value: string, error: string) { try { const url = new URL(value.trim()); if (url.protocol !== 'https:' || url.username || url.password) throw new Error(error); return url.toString(); } catch { throw new Error(error); } }
 function stringField(record: Record<string, unknown>, names: string[]) { for (const name of names) { const value = record[name]; if (typeof value === 'string' && value.trim()) return value.trim().slice(0, 500); if (typeof value === 'number' && Number.isFinite(value)) return String(value); } return null; }
 function validDate(value: Date) { if (!(value instanceof Date) || Number.isNaN(value.getTime())) throw new Error('NEWEBPAY_DATE_INVALID'); return new Date(value.getTime()); }
