@@ -34,7 +34,7 @@ export type AiImageInput = { mimeType: 'image/png' | 'image/jpeg' | 'image/webp'
 export type AiAudioInput = { mimeType: 'audio/webm' | 'audio/ogg' | 'audio/mpeg' | 'audio/mp4' | 'audio/wav' | 'audio/x-wav'; byteLength: number; dataBase64: string };
 export type AiFileInput = { mimeType: 'application/pdf' | 'application/json' | 'application/xml' | 'text/plain' | 'text/markdown' | 'text/csv' | 'text/xml'; byteLength: number; dataBase64: string };
 export type AiMediaCaptureResult =
-  | { status: 'CREATED'; entitlementSource: 'AI_PRO'; record: AiMediaCaptureRecord }
+  | { status: 'CREATED'; entitlementSource: 'FREE_TRIAL' | 'AI_PRO'; record: AiMediaCaptureRecord }
   | { status: 'BLOCKED'; decision: AiEntitlementDecision }
   | { status: 'DEFERRED'; reason: 'AI_RUNTIME_CONFIG_MISSING' }
   | { status: 'FAILED'; reason: string };
@@ -42,6 +42,14 @@ export type AiMediaCaptureResult =
 const HARD_MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const HARD_MAX_AUDIO_BYTES = 30 * 1024 * 1024;
 const HARD_MAX_FILE_BYTES = 30 * 1024 * 1024;
+const FREE_TRIAL_MEDIA_LIMITS: AiMediaPlanLimits = {
+  enabled: true,
+  maxImagesPerRequest: 1,
+  maxImageBytes: 5 * 1024 * 1024,
+  maxAudioSeconds: 300,
+  maxAudioBytes: 10 * 1024 * 1024,
+  maxFileBytes: 10 * 1024 * 1024,
+};
 const IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 const AUDIO_MIME_TYPES = new Set(['audio/webm', 'audio/ogg', 'audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/x-wav']);
 const FILE_MIME_TYPES = new Set(['application/pdf', 'application/json', 'application/xml', 'text/plain', 'text/markdown', 'text/csv', 'text/xml']);
@@ -67,9 +75,8 @@ export class AiMediaCaptureService {
 
     const preliminary = await this.entitlement.resolve(userId, sourceId, referenceAt);
     if (!preliminary.allowed || preliminary.source === 'BLOCKED') return { status: 'BLOCKED', decision: preliminary };
-    if (preliminary.source !== 'AI_PRO') return { status: 'FAILED', reason: 'AI_PRO_MEDIA_REQUIRED' };
 
-    const plan = await this.repository.mediaPlan(userId);
+    const plan = preliminary.source === 'FREE_TRIAL' ? FREE_TRIAL_MEDIA_LIMITS : await this.repository.mediaPlan(userId);
     if (!plan?.enabled) return { status: 'FAILED', reason: 'AI_MEDIA_DISABLED' };
     const planError = validatePlanLimits(input.inputType, media, input.audioDurationSeconds, plan);
     if (planError) return { status: 'FAILED', reason: planError };
@@ -111,7 +118,7 @@ export class AiMediaCaptureService {
 
     const settled = await this.aiPoints.commitAiUsage(token, { ...usage, workspaceId: created.workspaceId, recordId: created.record.id });
     if (settled.status !== 'COMMITTED') return { status: 'FAILED', reason: 'AI_USAGE_SETTLEMENT_FAILED' };
-    return { status: 'CREATED', entitlementSource: 'AI_PRO', record: created.record };
+    return { status: 'CREATED', entitlementSource: preliminary.source, record: created.record };
   }
 }
 
