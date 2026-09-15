@@ -5,7 +5,7 @@ export type SubscriptionLifecycleEvent = {
   externalEventKey: string;
   type: SubscriptionLifecycleEventType;
   userId: number;
-  planCode: 'AI_PRO';
+  planCode: string;
   occurredAt: Date;
   periodStart?: Date | null;
   periodEnd?: Date | null;
@@ -15,6 +15,7 @@ export type SubscriptionLifecycleEvent = {
 export type SubscriptionLifecycleApplied = {
   subscriptionId: number;
   userId: number;
+  planCode: string;
   type: SubscriptionLifecycleEventType;
   periodStart: Date | null;
   periodEnd: Date | null;
@@ -24,16 +25,12 @@ export type SubscriptionLifecycleApplyResult =
   | ({ status: 'APPLIED' } & SubscriptionLifecycleApplied)
   | {
       status: 'DUPLICATE';
-      /**
-       * Present when the original event was applied. The service intentionally replays the
-       * deterministic/idempotent SYSTEM notification so a transient notification failure on
-       * the first webhook attempt can heal on provider retry.
-       */
       applied: SubscriptionLifecycleApplied | null;
     }
   | {
       status: 'IGNORED_STALE';
       userId: number;
+      planCode: string;
       type: SubscriptionLifecycleEventType;
     };
 
@@ -45,21 +42,26 @@ export interface SubscriptionLifecycleNotificationPort {
   activated(input: {
     userId: number;
     subscriptionId: number;
-    planCode: 'AI_PRO';
+    planCode: string;
     periodStart: Date;
     periodEnd: Date | null;
   }): Promise<void>;
-  renewed(input: { userId: number; subscriptionId: number; periodStart: Date; periodEnd: Date | null }): Promise<void>;
-  cancelled(input: { userId: number; subscriptionId: number; periodEnd: Date | null }): Promise<void>;
+  renewed(input: {
+    userId: number;
+    subscriptionId: number;
+    planCode: string;
+    periodStart: Date;
+    periodEnd: Date | null;
+  }): Promise<void>;
+  cancelled(input: {
+    userId: number;
+    subscriptionId: number;
+    planCode: string;
+    periodEnd: Date | null;
+  }): Promise<void>;
 }
 
-/**
- * Payment-provider-neutral subscription lifecycle boundary.
- *
- * Provider adapters must verify their own webhook authenticity first, then translate the
- * external event into this small AFTERTRACE contract. Core subscription/Grant/notification
- * behavior does not depend on Stripe, ECPay, LINE Pay, or any other payment vendor.
- */
+/** Payment-provider-neutral subscription lifecycle boundary. */
 export class SubscriptionLifecycleService {
   constructor(
     private readonly repository: SubscriptionLifecycleRepository,
@@ -86,7 +88,7 @@ export class SubscriptionLifecycleService {
       await this.notifications.activated({
         userId: result.userId,
         subscriptionId: result.subscriptionId,
-        planCode: 'AI_PRO',
+        planCode: result.planCode,
         periodStart: result.periodStart,
         periodEnd: result.periodEnd,
       });
@@ -95,6 +97,7 @@ export class SubscriptionLifecycleService {
       await this.notifications.renewed({
         userId: result.userId,
         subscriptionId: result.subscriptionId,
+        planCode: result.planCode,
         periodStart: result.periodStart,
         periodEnd: result.periodEnd,
       });
@@ -102,6 +105,7 @@ export class SubscriptionLifecycleService {
       await this.notifications.cancelled({
         userId: result.userId,
         subscriptionId: result.subscriptionId,
+        planCode: result.planCode,
         periodEnd: result.periodEnd,
       });
     }
@@ -111,8 +115,8 @@ export class SubscriptionLifecycleService {
 function normalizeEvent(input: SubscriptionLifecycleEvent): SubscriptionLifecycleEvent {
   const provider = normalizedIdentifier(input.provider, 64, 'SUBSCRIPTION_PROVIDER_INVALID').toUpperCase();
   const externalEventKey = normalizedIdentifier(input.externalEventKey, 255, 'SUBSCRIPTION_EVENT_KEY_INVALID');
+  const planCode = normalizedIdentifier(input.planCode, 64, 'SUBSCRIPTION_PLAN_CODE_INVALID').toUpperCase();
   const userId = positiveInteger(input.userId, 'SUBSCRIPTION_USER_ID_INVALID');
-  if (input.planCode !== 'AI_PRO') throw new Error('V1_ONLY_AI_PRO_SUBSCRIPTION');
   if (input.type !== 'ACTIVATE' && input.type !== 'RENEW' && input.type !== 'CANCEL') {
     throw new Error('SUBSCRIPTION_EVENT_TYPE_INVALID');
   }
@@ -125,9 +129,6 @@ function normalizeEvent(input: SubscriptionLifecycleEvent): SubscriptionLifecycl
       throw new Error('SUBSCRIPTION_PERIOD_INVALID');
     }
   } else if (periodEnd) {
-    // A scheduled cancel belongs to one exact paid billing period. Requiring both period
-    // boundaries prevents a delayed prior-period cancel webhook from shortening a newer
-    // renewal. Immediate cancellation remains represented by periodEnd = null.
     if (!periodStart || periodStart.getTime() >= periodEnd.getTime() || periodEnd.getTime() < occurredAt.getTime()) {
       throw new Error('SUBSCRIPTION_CANCEL_PERIOD_INVALID');
     }
@@ -138,7 +139,7 @@ function normalizeEvent(input: SubscriptionLifecycleEvent): SubscriptionLifecycl
     externalEventKey,
     type: input.type,
     userId,
-    planCode: 'AI_PRO',
+    planCode,
     occurredAt,
     periodStart,
     periodEnd,
