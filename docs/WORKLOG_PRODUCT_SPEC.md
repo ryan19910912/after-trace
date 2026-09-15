@@ -16,7 +16,7 @@ LINE is not a Record/group/AI product surface. LINE Login remains an authenticat
 
 ### Web / PWA
 
-The Web/PWA home route `/` opens the **紀錄** page. Do not force a separate microphone-first landing page. Voice-to-text remains a convenient capture method, but it does not need to dominate the interface.
+The Web/PWA home route `/` opens the **紀錄** page. Voice-to-text remains a convenient capture method, but it does not dominate the interface.
 
 The authenticated product contains:
 
@@ -31,13 +31,7 @@ Search remains its own page. The home page shows the latest 10 Records rather th
 
 ### Chrome extension
 
-The extension is a compact capture surface. It may:
-
-- create text Records;
-- use browser speech-to-text;
-- capture explicitly selected page text;
-- optionally attach the current page title + URL as bounded context;
-- explicitly capture the visible tab screenshot and send it to image AI when the user has remaining FREE AI experience points or active AI Pro entitlement.
+The extension is a compact capture surface. It may create text Records, use browser speech-to-text, capture explicitly selected page text, attach bounded page context, and explicitly capture the visible tab screenshot for image AI while the user has remaining FREE AI experience points or an active paid AI subscription.
 
 It must not silently capture browsing history, tabs, clipboard, full-page content, screen or microphone.
 
@@ -53,56 +47,17 @@ Provider identities attach to one AFTERTRACE user. Do not silently merge account
 
 Every user has an immutable, unique, opaque/non-sequential `public_account_id`, displayed to the customer as **帳號 ID**. It is the preferred support lookup identifier and must not be the database primary key or a provider-specific identity.
 
-Authenticated Web/PWA headers expose notification bell/unread count, display name, 帳號 ID and copy action.
-
 ## Records
 
-### Manual Record fields
+A manually created Record has optional `title` (max 255), required `raw_text`, optional `occurred_at`, plus system timestamps.
 
-A manually created Record has:
+FREE users can create/edit/delete/restore Records, view recent Records and search title/content by keyword/date. Every mutation uses optimistic versioning and preserves revision history.
 
-- `title` — optional user-entered title, maximum 255 characters;
-- `content` / persisted `raw_text` — required;
-- `occurred_at` — optional business/event date-time;
-- `created_at` — system creation timestamp;
-- `updated_at` — system last-modified timestamp.
-
-Manual Records do **not** require AI-generated title, keywords or entities.
-
-If title is empty, customer UI may show a short content preview as the display heading; the stored title remains null.
-
-### Record CRUD
-
-FREE users can:
-
-- create Records;
-- edit title, content and occurred time;
-- delete to recycle bin;
-- restore from recycle bin;
-- view latest Records;
-- search title/content by keyword and date.
-
-Every mutation uses optimistic versioning and preserves revision history. User-facing copy should say “修改紀錄” or equivalent; do not expose implementation terms such as optimistic locking/revision API.
-
-### Home page
-
-The `/` Record page contains:
-
-1. quick capture form: destination, optional title, optional occurred time, required content, optional browser speech-to-text;
-2. latest 10 Records for the selected destination;
-3. clear Edit/Delete actions on active Records;
-4. link to the independent Search page for full history/filtering.
-
-Record list/search cards show title first and content second. When title is null, use a bounded content preview as the heading.
+The `/` page contains quick capture, latest 10 Records, edit/delete actions and a link to the independent Search page.
 
 ## Sources / groups
 
-AFTERTRACE supports:
-
-- PRIVATE/personal Source;
-- GROUP Source created inside AFTERTRACE.
-
-MVP group roles: `OWNER`, `MEMBER`. Backend authorization is checked for every group operation.
+AFTERTRACE supports PRIVATE/personal and GROUP Sources created inside AFTERTRACE. MVP group roles are `OWNER` and `MEMBER`; backend authorization is checked for every group operation.
 
 Customer UI should say “紀錄範圍”, “我的紀錄”, or the group name. Avoid exposing the internal word `Source`.
 
@@ -110,7 +65,7 @@ Customer UI should say “紀錄範圍”, “我的紀錄”, or the group name
 
 FREE is a complete manual Record product.
 
-FREE users manually create/edit text Records. Provider-free browser/device speech-to-text may turn speech into text where supported; this remains a manual text path and does not consume AI points.
+Provider-free browser/device speech-to-text remains free and consumes no AI points.
 
 FREE includes one idempotent, Admin-configured, one-time **shared AI experience allowance**. It does not refresh monthly.
 
@@ -129,26 +84,31 @@ While points remain, the FREE user may use the accepted AI feature set from the 
 
 Provider-backed operations reserve and settle against the shared FREE trial point balance. When those points are exhausted, provider-backed AI stops, while deterministic keyword/date search and all normal FREE manual functions remain available.
 
-Related Records is currently entitlement-gated deterministic PostgreSQL ranking rather than a provider call. It must not fabricate provider usage/cost merely to make it look like an AI charge.
-
 FREE trial media uses conservative limits: one image/request, 5 MB/image, 300 seconds/audio request, 10 MB/audio request and 10 MB/file request.
 
 ## Subscription plans
 
-Current launch offering:
+Paid plans are **backend-driven**.
 
-- FREE — NT$0;
-- AI Pro — NT$99/month, billed through NewebPay periodic card billing.
+- FREE remains the single zero-price base plan.
+- Admin may create one or more paid `SUBSCRIPTION` plans.
+- An enabled, AI-enabled, commercially valid subscription plan is automatically returned by the customer `/subscription/plans` API and rendered on the Web/PWA plan page.
+- Customer Web/PWA must not hard-code a paid plan code, display name or price.
+- The plan code is the durable identifier used by checkout, lifecycle, subscription history and monthly AI Grants.
+- Editing a plan display name or price does not rename its existing plan code.
+- A customer may have only one active paid plan at a time.
 
-The schema and Admin configuration support adding additional subscription plan definitions later. Admin plan creation does not by itself make a new plan purchasable; payment checkout/renewal support must explicitly support that plan before it is exposed to customers for purchase.
+Current payment transport is NewebPay periodic card billing. The selected plan code is sent to the API; the API loads the selected plan from PostgreSQL and uses its current display name and price to build checkout.
+
+NewebPay periodic checkout currently requires a positive integer TWD monthly price. Non-integer paid plan prices must not be offered as online-purchasable plans until the provider contract/adapter supports them.
 
 No one-time top-up is part of the current product.
 
 AI entitlement is per user, not per group.
 
-## AI Pro features
+## Paid AI features
 
-AI Pro provides the complete accepted AI feature set with recurring monthly AI resources after the one-time FREE experience is exhausted:
+Every active paid AI subscription can expose the complete accepted AI feature set subject to its plan switches and resource limits:
 
 - AI text capture/organization;
 - natural-language AI search;
@@ -161,114 +121,70 @@ AI Pro provides the complete accepted AI feature set with recurring monthly AI r
 - task suggestions/proposals;
 - Chrome screenshot AI.
 
-Current recommended AI Pro media defaults:
+Recommended initial media defaults are 1 image/request, 5 MB/image, 300 seconds audio/request, 10 MB audio/request and 10 MB file/request. Transport/runtime ceilings may be higher so Admin-configured plan limits remain authoritative below hard runtime ceilings.
 
-- images per request: **1** while the current client/API is single-image; when multi-image input ships, recommended default is **4 images/request**;
-- image size: **5 MB per image**;
-- audio duration: **300 seconds (5 minutes) per request**;
-- audio size: **10 MB per request**;
-- file size: **10 MB per file/request**.
+## Paid subscription lifecycle
 
-“Images per request” means the maximum number of images in one AI operation. It is **not** a lifetime or monthly image-count quota.
+The lifecycle preserves the selected plan code end-to-end:
 
-Transport/runtime absolute ceilings may be higher (currently 20 MB image, 30 MB audio/file) so Admin-configured per-plan limits remain authoritative below those safety ceilings.
+1. customer selects a backend plan;
+2. checkout intent stores that `plan_code`;
+3. NewebPay checkout amount/product name come from the selected DB plan;
+4. callback recovers the selected plan through the checkout intent;
+5. callback amount is validated against that plan price;
+6. successful first payment activates that exact plan;
+7. the subscription row and history keep that plan code;
+8. monthly `SUBSCRIPTION_PERIOD` AI Grant uses that plan's configured point cap;
+9. entitlement/provider-cost admission reads the active plan limits;
+10. cancellation stops future renewal while preserving the already-paid period;
+11. after expiry, the customer may start a new checkout for any currently available plan.
 
-These limits belong to application-level plan capabilities/configuration. Database CHECK constraints must not encode them.
+## AI enrichment / search / tools
 
-## AI enrichment
+AI-created/enriched Records may add nullable title, search terms, resolved event time when expressed by the user and bounded extracted facts useful for retrieval. AI must not invent an event time the user did not express.
 
-AI-created/enriched Records may add nullable metadata:
+General deterministic search is permanently FREE. AI Search and other AI tools use remaining FREE trial points or active paid-plan entitlement.
 
-- title;
-- search terms/keywords;
-- resolved event time when expressed by the user;
-- bounded extracted facts useful for retrieval.
+AI rewrite and task creation are proposal-first: the user explicitly confirms before durable content/task creation.
 
-Do not automatically AI-backfill historical manual Records when a user subscribes.
-
-AI must not invent an event time that the user did not express.
-
-## Search
-
-### General search
-
-FREE deterministic search covers stored title/content, date range and authorized Record scope. Search is an independent page.
-
-### AI search
-
-The one-time FREE AI experience or AI Pro may interpret natural-language requests and search authorized Records. PostgreSQL remains authoritative retrieval. AI must not fabricate stored facts.
-
-AI Search consumes the same shared FREE trial balance as the other provider-backed AI capabilities.
-
-## AI tools
-
-Customer-facing AI tools include:
-
-- related Records;
-- time-range summary;
-- rewrite suggestion;
-- task suggestion.
-
-These tools are available while one-time FREE AI experience entitlement remains and under AI Pro. AI rewrite and task creation are **proposal first**. The user explicitly confirms before durable content/task creation.
-
-Customer copy must be plain Traditional Chinese. Do not show engineering terms such as `Source`, `Record ID`, `provider`, `bounded dataset`, `proposal`, `Grant`, `runtime`, `ledger`, `metadata`, `optimistic version`, or `revision API` unless the context is explicitly an internal Admin/developer screen where the term is necessary.
+Customer copy must be plain Traditional Chinese. Do not expose engineering terms unless an internal Admin/developer screen genuinely needs them.
 
 ## Tasks / reminders
 
-Tasks support title, optional body, optional due/remind times, status and optional source/record relation.
-
-Reminder scheduling is deterministic stored data. AI may interpret a task/time only as a suggestion before confirmation. AI task suggestion may use remaining FREE AI experience points or AI Pro entitlement.
+Tasks support title, optional body, optional due/remind times, status and optional source/record relation. Reminder scheduling is deterministic stored data; AI interpretation remains a suggestion before confirmation.
 
 ## Notifications
 
-Notification categories:
-
-- 公告通知;
-- 系統通知;
-- 待辦通知.
-
-Channels:
-
-- in-app notification;
-- optional Web Push.
-
-Notification permission is requested only after an explicit user action. Push failure must not remove the in-app notification.
+Notification categories are 公告通知, 系統通知 and 待辦通知. Channels are in-app and optional Web Push. Notification permission is requested only after explicit user action. Push failure must not remove the in-app notification.
 
 ## AI usage / customer experience
 
 Customer UI must not expose internal provider cost or margin.
 
-FREE AI experience should show remaining one-time points where helpful. It does not have a monthly reset date.
+FREE AI experience may show remaining one-time points. Paid users should see a friendly usage state such as 使用狀況正常 / 接近本期上限 / 已達本期上限 and period end/reset time when known.
 
-AI Pro should show a friendly usage state:
+When AI is blocked by exhausted FREE points or paid plan limits, manual/free features remain available.
 
-- 使用狀況正常;
-- 接近本期上限;
-- 已達本期上限;
-- next reset/period date when known.
-
-When AI is blocked by an exhausted FREE trial or monthly paid limit, manual/free features remain available.
+Internal entitlement source/reason names may retain `AI_PRO` as compatibility terminology for “active paid AI subscription”; they must not be used to filter the commercial plan catalog by exact plan code or price.
 
 ## Admin
 
 Admin supports:
 
 - exact user lookup by customer-facing 帳號 ID;
-- one-time FREE AI experience point configuration;
-- internal cost-to-point calculator for trial configuration;
-- subscription plan list supplied by backend;
-- adding and editing future subscription plan definitions;
-- monthly AI point cap;
-- monthly AI supplier-cost cap;
-- optional per-request AI point cap;
+- one-time FREE AI experience point configuration and cost-to-point calculator;
+- subscription plan create/list/detail/edit/enable/disable;
+- editable monthly plan price;
+- integrated plan price/margin → AI point/cost calculator;
+- monthly AI point/provider-cost caps and optional per-request cap;
 - AI feature switches;
-- media limits: images/request, image bytes, audio seconds, audio bytes, file bytes;
-- AI model/price/FX runtime settings;
-- AI cost calculator/reporting;
+- media limits;
+- AI model/price/FX settings;
+- profitability/reporting;
 - announcements;
 - feedback management.
 
-Admin customer/operations copy should still prefer plain Chinese. Technical accounting terms are allowed only where they are necessary for internal cost diagnosis.
+Admin-created paid plans are not merely placeholders: enabled plans are customer-visible and may be purchased through the generalized NewebPay/lifecycle path when their price is provider-compatible.
 
 ## Database/schema policy
 
@@ -276,40 +192,35 @@ The canonical schema is application-owned and optimized for a prelaunch clean re
 
 Rules:
 
-- canonical prelaunch migration is a single `drizzle/0000_worklog_baseline.sql`;
-- every persistent product table must have a PostgreSQL `COMMENT ON TABLE` description;
-- every persistent product column must have a PostgreSQL `COMMENT ON COLUMN` description;
-- comments are schema metadata and must be included in the canonical baseline;
-- do not use PostgreSQL ENUM for application-domain values; use ordinary varchar/text and validate legal values in TypeScript/application services;
-- do not encode business/domain rules in database `CHECK` constraints;
-- handwritten SQL should not add explicit named `CONSTRAINT` clauses for business logic;
-- structural integrity remains in the database: PRIMARY KEY, FOREIGN KEY, UNIQUE, NOT NULL, INDEX and appropriate DEFAULT/type constraints;
-- status transitions, category allowlists, pricing rules, point limits and cross-field business rules belong to application services.
+- one canonical `drizzle/0000_worklog_baseline.sql`;
+- every persistent product table/column has PostgreSQL COMMENT metadata;
+- no PostgreSQL ENUM for application-domain values;
+- no business/domain CHECK constraints;
+- structural PK/FK/UNIQUE/NOT NULL/INDEX/DEFAULT remain in PostgreSQL;
+- status transitions, pricing, plan capability rules and point/media limits belong to TypeScript/application services.
 
 ## Product priorities
 
 ### Current high priority
 
 - stable Google + LINE login;
-- Record title/content/time CRUD;
-- latest 10 Record preview + independent Search page;
+- Record CRUD + latest 10 + search;
 - groups + invites;
 - tasks/reminders + notifications;
 - one-time shared FREE AI experience;
-- AI Pro full text/image/audio/file/tool features with recurring monthly allowance;
-- Chrome extension screenshot through the same FREE_TRIAL/AI_PRO entitlement path;
-- NewebPay AI Pro payment lifecycle;
+- backend-driven paid subscription catalog and NewebPay lifecycle;
+- paid AI text/image/audio/file/tool features with monthly plan-specific allowance;
+- Chrome extension screenshot through the same FREE_TRIAL/paid entitlement path;
 - friendly AI usage state;
-- backend-driven Admin subscription plan management;
 - plain-language customer/Admin UI;
 - feedback + LINE OA support.
 
 ### Later / conditional
 
 - Apple launch enablement;
-- safe provider account linking/merge UX;
-- multi-image AI input (recommended 4/request when introduced);
-- additional purchasable paid tiers after payment lifecycle supports them;
+- account-linking UX;
+- multi-image AI input;
+- additional payment providers or non-integer billing models;
 - Calendar integration;
 - vector/embedding retrieval;
 - richer screenshot region selection.
