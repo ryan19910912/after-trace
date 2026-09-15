@@ -103,7 +103,8 @@ export function AiTaskRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
       localStorage.removeItem(SESSION_KEY); setSession(null); setSurfaces(null); setSourceId(null);
       setError('登入已過期，請重新登入。'); return;
     }
-    if (/TRIAL_EXHAUSTED|AI_NOT_ENTITLED/.test(code)) { setError('AI 待辦建議需要 AI Pro；你仍可到待辦頁手動建立待辦。'); return; }
+    if (code === 'TRIAL_EXHAUSTED') { setError('免費 AI 體驗額度已用完；可升級 AI Pro 繼續使用 AI 待辦建議，或手動建立待辦。'); return; }
+    if (code === 'AI_NOT_ENTITLED') { setError('目前沒有可用 AI 額度；你仍可到待辦頁手動建立待辦。'); return; }
     if (/MONTHLY_POINT_CAP|MONTHLY_PROVIDER_COST_CAP/.test(code)) { setError('本期 AI 使用量已達上限；手動待辦仍可正常使用。'); return; }
     if (code === 'AI_TASK_PROPOSAL_DISABLED') { setError('AI 待辦建議目前暫停使用；手動待辦仍可正常使用。'); return; }
     if (code === 'RECORD_NOT_FOUND') { setError('找不到這筆紀錄，或它不在目前選擇的紀錄範圍。'); return; }
@@ -112,13 +113,13 @@ export function AiTaskRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
 
   if (!session) return <main className="shell fatal-shell"><section className="fatal-card">
     <p className="eyebrow">AFTERTRACE AI</p><h1>AI 待辦建議</h1>
-    <p className="muted">AI Pro 可以先整理待辦內容與時間；你確認後才會真正建立待辦。</p>
+    <p className="muted">免費 AI 體驗額度或 AI Pro 都可以先整理待辦內容與時間；你確認後才會真正建立待辦。</p>
     {error ? <div className="error">{error}</div> : null}
     <LoginProviderButtons apiBaseUrl={apiBaseUrl} returnTo={loginReturn} />
   </section></main>;
 
   return <main className="shell worklog-shell">
-    <div className="topbar"><div><p className="eyebrow">AFTERTRACE AI</p><h1>AI 待辦建議</h1><p className="muted">這項功能需要 AI Pro。AI 只會先產生建議，你確認後才會建立待辦。</p></div><div className="filter-actions"><button className="ghost" onClick={() => { location.href = '/tasks'; }}>我的待辦</button><button className="ghost" onClick={() => { location.href = '/'; }}>回紀錄</button></div></div>
+    <div className="topbar"><div><p className="eyebrow">AFTERTRACE AI</p><h1>AI 待辦建議</h1><p className="muted">免費 AI 體驗與 AI Pro 都能使用。AI 只會先產生建議，你確認後才會建立待辦。</p></div><div className="filter-actions"><button className="ghost" onClick={() => { location.href = '/tasks'; }}>我的待辦</button><button className="ghost" onClick={() => { location.href = '/'; }}>回紀錄</button></div></div>
     {error ? <div className="error">{error}</div> : null}
     {notice ? <div className="worklog-notice">{notice}</div> : null}
     <section className="panel stack">
@@ -128,7 +129,7 @@ export function AiTaskRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
       </select></label>
       <label>參考紀錄編號（選填）<input inputMode="numeric" value={recordId} onChange={(event) => setRecordId(event.target.value)} placeholder="例如 123" /></label>
       <label>想做什麼？<textarea rows={5} maxLength={5000} value={text} onChange={(event) => setText(event.target.value)} placeholder="例如：下週三提醒我回王先生晴空案的報價" /></label>
-      <p className="muted">AI 只會解讀你明確寫出的時間；沒有時間資訊時，不會自行補上提醒時間。</p>
+      <p className="muted">AI 只會解讀你明確寫出的時間；沒有時間資訊時，不會自行補上提醒時間。本次處理會從可用 AI 額度扣除用量。</p>
       <button disabled={busy || !sourceId || !text.trim()} onClick={() => void propose()}>{busy ? '整理中…' : '產生待辦建議'}</button>
     </section>
 
