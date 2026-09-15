@@ -2,8 +2,8 @@ import { NotificationService } from './notifications';
 
 export type SubscriptionSystemEvent =
   | { type: 'ACTIVATED'; subscriptionId: number; planCode: string; periodStart: Date; periodEnd?: Date | null }
-  | { type: 'RENEWED'; subscriptionId: number; periodStart: Date; periodEnd?: Date | null }
-  | { type: 'CANCELLED'; subscriptionId: number; periodEnd?: Date | null }
+  | { type: 'RENEWED'; subscriptionId: number; planCode: string; periodStart: Date; periodEnd?: Date | null }
+  | { type: 'CANCELLED'; subscriptionId: number; planCode: string; periodEnd?: Date | null }
   | { type: 'AI_LIMIT_REACHED'; periodKey: string };
 
 export async function notifyFreeTrialIssued(
@@ -34,8 +34,8 @@ export async function notifySubscriptionEvent(
       await service.createSystemNotification({
         eventKey: `subscription:${event.subscriptionId}:activated:${event.periodStart.toISOString()}`,
         userId,
-        title: 'AI Pro 已啟用',
-        body: '你的 AI Pro 訂閱已啟用。AI 功能受公平使用原則與每月方案資源上限限制。',
+        title: 'AI 訂閱已啟用',
+        body: '你的 AI 訂閱已啟用。AI 功能受公平使用原則與每月方案資源上限限制。',
         deepLink: '/subscription',
         referenceType: 'SUBSCRIPTION',
         referenceId: event.subscriptionId,
@@ -51,12 +51,12 @@ export async function notifySubscriptionEvent(
       await service.createSystemNotification({
         eventKey: `subscription:${event.subscriptionId}:renewed:${event.periodStart.toISOString()}`,
         userId,
-        title: 'AI Pro 已續訂',
-        body: '新的 AI Pro 使用週期已開始。',
+        title: 'AI 訂閱已續訂',
+        body: '新的 AI 訂閱使用週期已開始。',
         deepLink: '/subscription',
         referenceType: 'SUBSCRIPTION',
         referenceId: event.subscriptionId,
-        metadata: { periodStart: event.periodStart.toISOString(), periodEnd: iso(event.periodEnd) },
+        metadata: { planCode: event.planCode, periodStart: event.periodStart.toISOString(), periodEnd: iso(event.periodEnd) },
         pushEnabled: true,
       });
       return;
@@ -65,14 +65,14 @@ export async function notifySubscriptionEvent(
       await service.createSystemNotification({
         eventKey: `subscription:${event.subscriptionId}:cancelled:${periodKey}`,
         userId,
-        title: 'AI Pro 訂閱狀態已更新',
+        title: 'AI 訂閱狀態已更新',
         body: event.periodEnd
-          ? `你的 AI Pro 已取消續訂，目前方案可使用至 ${formatTaipei(event.periodEnd)}。`
-          : '你的 AI Pro 訂閱已取消。',
+          ? `你的 AI 訂閱已取消續訂，目前方案可使用至 ${formatTaipei(event.periodEnd)}。`
+          : '你的 AI 訂閱已取消。',
         deepLink: '/subscription',
         referenceType: 'SUBSCRIPTION',
         referenceId: event.subscriptionId,
-        metadata: { periodEnd: iso(event.periodEnd) },
+        metadata: { planCode: event.planCode, periodEnd: iso(event.periodEnd) },
         pushEnabled: true,
       });
       return;
