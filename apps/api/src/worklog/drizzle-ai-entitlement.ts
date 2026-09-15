@@ -49,12 +49,13 @@ export class DrizzleAiEntitlementRepository implements AiEntitlementRepository {
             )
         ) AS authorized
       ),
-      ai_pro_template AS (
-        SELECT enabled, ai_enabled, per_request_ai_point_cap
+      paid_template AS (
+        SELECT per_request_ai_point_cap
         FROM worklog_subscription_plans
-        WHERE code = 'AI_PRO'
-          AND plan_type = 'SUBSCRIPTION'
-          AND price_twd = 99
+        WHERE plan_type = 'SUBSCRIPTION'
+          AND enabled = TRUE
+          AND ai_enabled = TRUE
+        ORDER BY rank, price_twd, code
         LIMIT 1
       ),
       active_subscription AS (
@@ -67,15 +68,14 @@ export class DrizzleAiEntitlementRepository implements AiEntitlementRepository {
                plan.monthly_provider_cost_cap_twd,
                plan.per_request_ai_point_cap
         FROM worklog_user_subscriptions AS subscription
-        INNER JOIN worklog_subscription_plans AS plan
-          ON plan.code = subscription.plan_code
+        INNER JOIN worklog_subscription_plans AS plan ON plan.code = subscription.plan_code
         WHERE subscription.user_id = ${userId}
           AND subscription.status = 'ACTIVE'
-          AND subscription.plan_code = 'AI_PRO'
           AND subscription.effective_at <= ${at}
           AND subscription.current_period_start <= ${at}
           AND subscription.current_period_end IS NOT NULL
           AND subscription.current_period_end > ${at}
+          AND plan.plan_type = 'SUBSCRIPTION'
         LIMIT 1
       ),
       paid_grant AS (
@@ -116,7 +116,7 @@ export class DrizzleAiEntitlementRepository implements AiEntitlementRepository {
         (SELECT authorized FROM source_access) AS source_authorized,
         free_trial.id::text AS trial_grant_id,
         free_trial.remaining_points AS trial_remaining_points,
-        ai_pro_template.per_request_ai_point_cap AS trial_per_request_ai_point_cap,
+        paid_template.per_request_ai_point_cap AS trial_per_request_ai_point_cap,
         active_subscription.plan_enabled,
         active_subscription.ai_enabled,
         paid_grant.id::text AS subscription_grant_id,
@@ -129,7 +129,7 @@ export class DrizzleAiEntitlementRepository implements AiEntitlementRepository {
         period_usage.provider_cost_twd,
         period_usage.missing_provider_cost_twd_requests
       FROM source_access
-      LEFT JOIN ai_pro_template ON TRUE
+      LEFT JOIN paid_template ON TRUE
       LEFT JOIN free_trial ON TRUE
       LEFT JOIN active_subscription ON TRUE
       LEFT JOIN paid_grant ON TRUE
@@ -150,10 +150,7 @@ export class DrizzleAiEntitlementRepository implements AiEntitlementRepository {
           perRequestAiPointCap: optionalPositiveInteger(row.per_request_ai_point_cap),
           pointsUsed: nonNegativeInteger(row.points_used ?? 0, 'period points used'),
           providerCostTwd: nonNegativeFinite(row.provider_cost_twd ?? 0, 'period provider cost'),
-          missingProviderCostTwdRequests: nonNegativeInteger(
-            row.missing_provider_cost_twd_requests ?? 0,
-            'missing provider cost requests',
-          ),
+          missingProviderCostTwdRequests: nonNegativeInteger(row.missing_provider_cost_twd_requests ?? 0, 'missing provider cost requests'),
         }
       : null;
     const freeTrial = row.trial_grant_id
@@ -175,10 +172,8 @@ export class DrizzleAiEntitlementRepository implements AiEntitlementRepository {
         LIMIT 1
       ), disabled_other_scopes AS (
         UPDATE worklog_ai_grant_scopes AS scope_row
-        SET enabled = FALSE,
-            updated_at = ${at}
-        FROM worklog_ai_grants AS other_grant,
-             selected_grant
+        SET enabled = FALSE, updated_at = ${at}
+        FROM worklog_ai_grants AS other_grant, selected_grant
         WHERE scope_row.grant_id = other_grant.id
           AND scope_row.source_id = ${sourceId}
           AND other_grant.owner_user_id = selected_grant.owner_user_id
@@ -192,8 +187,7 @@ export class DrizzleAiEntitlementRepository implements AiEntitlementRepository {
         SELECT selected_grant.id, ${sourceId}, NULL, 0, 0, TRUE, ${at}, ${at}
         FROM selected_grant
         ON CONFLICT (grant_id, source_id) DO UPDATE
-        SET enabled = TRUE,
-            updated_at = GREATEST(worklog_ai_grant_scopes.updated_at, EXCLUDED.updated_at)
+        SET enabled = TRUE, updated_at = GREATEST(worklog_ai_grant_scopes.updated_at, EXCLUDED.updated_at)
         RETURNING id
       )
       SELECT id::text AS id FROM selected_scope
@@ -202,35 +196,10 @@ export class DrizzleAiEntitlementRepository implements AiEntitlementRepository {
   }
 }
 
-function numeric(value: unknown): number {
-  return typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN;
-}
-function positiveInteger(value: unknown, label: string): number {
-  const parsed = numeric(value);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`invalid ${label}`);
-  return parsed;
-}
-function optionalPositiveInteger(value: unknown): number | null {
-  if (value === null || value === undefined) return null;
-  return positiveInteger(value, 'optional positive integer');
-}
-function nonNegativeInteger(value: unknown, label: string): number {
-  const parsed = numeric(value);
-  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error(`invalid ${label}`);
-  return parsed;
-}
-function positiveFinite(value: unknown, label: string): number {
-  const parsed = numeric(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) throw new Error(`invalid ${label}`);
-  return parsed;
-}
-function nonNegativeFinite(value: unknown, label: string): number {
-  const parsed = numeric(value);
-  if (!Number.isFinite(parsed) || parsed < 0) throw new Error(`invalid ${label}`);
-  return parsed;
-}
-function dateValue(value: Date | string): Date {
-  const parsed = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(parsed.getTime())) throw new Error('invalid entitlement date');
-  return parsed;
-}
+function numeric(value: unknown): number { return typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN; }
+function positiveInteger(value: unknown, label: string): number { const parsed = numeric(value); if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`invalid ${label}`); return parsed; }
+function optionalPositiveInteger(value: unknown): number | null { if (value === null || value === undefined) return null; return positiveInteger(value, 'optional positive integer'); }
+function nonNegativeInteger(value: unknown, label: string): number { const parsed = numeric(value); if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error(`invalid ${label}`); return parsed; }
+function positiveFinite(value: unknown, label: string): number { const parsed = numeric(value); if (!Number.isFinite(parsed) || parsed <= 0) throw new Error(`invalid ${label}`); return parsed; }
+function nonNegativeFinite(value: unknown, label: string): number { const parsed = numeric(value); if (!Number.isFinite(parsed) || parsed < 0) throw new Error(`invalid ${label}`); return parsed; }
+function dateValue(value: Date | string): Date { const parsed = value instanceof Date ? value : new Date(value); if (Number.isNaN(parsed.getTime())) throw new Error('invalid entitlement date'); return parsed; }
