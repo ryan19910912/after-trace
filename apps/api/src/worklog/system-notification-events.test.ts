@@ -13,6 +13,8 @@ function systemNotificationHarness() {
   return { inputs, service: new NotificationService(repository) };
 }
 
+const planCode = 'AI_PRO_99';
+
 describe('subscription SYSTEM notification event keys', () => {
   it('scopes activation and renewal keys to the paid period', async () => {
     const { inputs, service } = systemNotificationHarness();
@@ -22,16 +24,18 @@ describe('subscription SYSTEM notification event keys', () => {
     const secondEnd = new Date('2026-11-01T00:00:00.000Z');
 
     await notifySubscriptionEvent(service, 7, {
-      type: 'ACTIVATED', subscriptionId: 12, planCode: 'AI_PRO', periodStart: firstStart, periodEnd: firstEnd,
+      type: 'ACTIVATED', subscriptionId: 12, planCode, periodStart: firstStart, periodEnd: firstEnd,
     });
     await notifySubscriptionEvent(service, 7, {
-      type: 'RENEWED', subscriptionId: 12, periodStart: secondStart, periodEnd: secondEnd,
+      type: 'RENEWED', subscriptionId: 12, planCode, periodStart: secondStart, periodEnd: secondEnd,
     });
 
     expect(inputs.map((input) => input.eventKey)).toEqual([
       'subscription:12:activated:2026-09-01T00:00:00.000Z',
       'subscription:12:renewed:2026-10-01T00:00:00.000Z',
     ]);
+    expect(inputs[0]?.metadata).toMatchObject({ planCode });
+    expect(inputs[1]?.metadata).toMatchObject({ planCode });
   });
 
   it('keeps retry keys stable while allowing cancellation of a later period to be a different event', async () => {
@@ -39,9 +43,9 @@ describe('subscription SYSTEM notification event keys', () => {
     const firstEnd = new Date('2026-10-01T00:00:00.000Z');
     const secondEnd = new Date('2026-11-01T00:00:00.000Z');
 
-    await notifySubscriptionEvent(service, 7, { type: 'CANCELLED', subscriptionId: 12, periodEnd: firstEnd });
-    await notifySubscriptionEvent(service, 7, { type: 'CANCELLED', subscriptionId: 12, periodEnd: firstEnd });
-    await notifySubscriptionEvent(service, 7, { type: 'CANCELLED', subscriptionId: 12, periodEnd: secondEnd });
+    await notifySubscriptionEvent(service, 7, { type: 'CANCELLED', subscriptionId: 12, planCode, periodEnd: firstEnd });
+    await notifySubscriptionEvent(service, 7, { type: 'CANCELLED', subscriptionId: 12, planCode, periodEnd: firstEnd });
+    await notifySubscriptionEvent(service, 7, { type: 'CANCELLED', subscriptionId: 12, planCode, periodEnd: secondEnd });
 
     expect(inputs.map((input) => input.eventKey)).toEqual([
       'subscription:12:cancelled:2026-10-01T00:00:00.000Z',
