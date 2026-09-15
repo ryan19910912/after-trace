@@ -21,7 +21,6 @@ export type TargetReadinessBindings = {
   WEB_PUSH_SUBJECT?: string;
 };
 
-/** V1 target readiness. Retired LINE webhook/group/funding schema is intentionally not required. */
 export async function targetReadinessResponse(env: TargetReadinessBindings): Promise<Response> {
   const missing = targetConfigErrors(env);
   if (missing.length > 0) {
@@ -82,17 +81,24 @@ export async function targetReadinessResponse(env: TargetReadinessBindings): Pro
       SELECT code, plan_type, price_twd, enabled, ai_enabled,
              monthly_ai_point_cap, monthly_provider_cost_cap_twd
       FROM worklog_subscription_plans
-      WHERE code IN ('FREE','AI_PRO')
+      WHERE enabled = TRUE
+      ORDER BY rank, price_twd, code
     `);
     const rows = result.rows as Record<string, unknown>[];
     const free = rows.find((row) => row.code === 'FREE');
-    const pro = rows.find((row) => row.code === 'AI_PRO');
-    if (!free || free.plan_type !== 'FREE' || Number(free.price_twd) !== 0 || free.enabled !== true) {
+    const paid = rows.filter((row) => row.plan_type === 'SUBSCRIPTION');
+    if (!free || free.plan_type !== 'FREE' || Number(free.price_twd) !== 0) {
       return Response.json({ service: 'after-trace-api', product: 'worklog', status: 'not_ready', error: 'FREE_PLAN_NOT_INITIALIZED' }, { status: 503 });
     }
-    if (!pro || pro.plan_type !== 'SUBSCRIPTION' || Number(pro.price_twd) !== 99 || pro.enabled !== true || pro.ai_enabled !== true
-      || Number(pro.monthly_ai_point_cap) <= 0 || Number(pro.monthly_provider_cost_cap_twd) <= 0) {
-      return Response.json({ service: 'after-trace-api', product: 'worklog', status: 'not_ready', error: 'AI_PRO_PLAN_NOT_INITIALIZED' }, { status: 503 });
+    const validPaid = paid.some((row) =>
+      Number(row.price_twd) > 0
+      && Number.isInteger(Number(row.price_twd))
+      && row.ai_enabled === true
+      && Number(row.monthly_ai_point_cap) > 0
+      && Number(row.monthly_provider_cost_cap_twd) > 0,
+    );
+    if (!validPaid) {
+      return Response.json({ service: 'after-trace-api', product: 'worklog', status: 'not_ready', error: 'SUBSCRIPTION_PLAN_NOT_INITIALIZED' }, { status: 503 });
     }
     const trial = await database.execute(sql`SELECT free_initial_ai_trial_points FROM worklog_commercial_config WHERE id = 1 LIMIT 1`);
     if (Number((trial.rows[0] as Record<string, unknown> | undefined)?.free_initial_ai_trial_points ?? 0) <= 0) {
