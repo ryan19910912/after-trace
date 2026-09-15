@@ -12,7 +12,7 @@ export interface AiTaskProposalProvider { reservationPoints(input: AiTaskProposa
 export interface AiTaskProposalRepository { taskProposalEnabled(): Promise<boolean>; runtimeConfig(): Promise<WorklogAiRuntimeConfigSnapshot | null>; recordContext(sourceId: number, recordId: number): Promise<AiTaskProposalRecord | null>; }
 export type AiTaskProposalEntitlementPort = { resolve(userId: number, sourceId: number, at?: Date): Promise<AiEntitlementDecision> };
 export type AiTaskProposalResult =
-  | { status: 'PROPOSAL'; entitlementSource: 'AI_PRO'; sourceId: number; recordId: number | null; title: string; body: string | null; dueAt: string | null; remindAt: string | null }
+  | { status: 'PROPOSAL'; entitlementSource: 'FREE_TRIAL' | 'AI_PRO'; sourceId: number; recordId: number | null; title: string; body: string | null; dueAt: string | null; remindAt: string | null }
   | { status: 'NOT_FOUND'; reason: 'RECORD_NOT_FOUND' }
   | { status: 'BLOCKED'; decision: AiEntitlementDecision }
   | { status: 'DEFERRED'; reason: 'AI_RUNTIME_CONFIG_MISSING' }
@@ -27,7 +27,6 @@ export class AiTaskProposalService {
     const timeZone = validTimeZone(input.timeZone); const referenceAt = validDate(input.referenceAt ?? new Date());
     const preliminary = await this.entitlement.resolve(userId, sourceId, referenceAt);
     if (!preliminary.allowed || preliminary.source === 'BLOCKED') return { status: 'BLOCKED', decision: preliminary };
-    if (preliminary.source !== 'AI_PRO') return { status: 'BLOCKED', decision: aiProRequired(preliminary) };
     if (!(await this.repository.taskProposalEnabled())) return { status: 'FAILED', reason: 'AI_TASK_PROPOSAL_DISABLED' };
     const record = recordId === null ? null : await this.repository.recordContext(sourceId, recordId);
     if (recordId !== null && !record) return { status: 'NOT_FOUND', reason: 'RECORD_NOT_FOUND' };
@@ -42,11 +41,10 @@ export class AiTaskProposalService {
     try { response = await this.provider.propose(providerInput, config); } catch (error) { await safeRelease(this.aiPoints, token); return { status: 'FAILED', reason: errorCode(error, 'AI_PROVIDER_FAILED') }; }
     const normalized = normalizeProposal(response); const usage = usageFromProvider(config, response, recordId); const settled = await settleProviderSuccess(this.aiPoints, token, usage);
     if (!settled) return { status: 'FAILED', reason: 'AI_USAGE_SETTLEMENT_FAILED' }; if (!normalized) return { status: 'FAILED', reason: 'AI_TASK_PROPOSAL_OUTPUT_INVALID' };
-    return { status: 'PROPOSAL', entitlementSource: 'AI_PRO', sourceId, recordId, ...normalized };
+    return { status: 'PROPOSAL', entitlementSource: preliminary.source, sourceId, recordId, ...normalized };
   }
 }
 
-function aiProRequired(value: AiEntitlementDecision): AiEntitlementDecision { return { ...value, source: 'BLOCKED', allowed: false, reason: 'AI_NOT_ENTITLED' }; }
 function normalizeProposal(response: AiTaskProposalProviderResponse) { const title = response.title.trim(); const body = response.body?.trim() || null; if (!title || title.length > 255 || (body?.length ?? 0) > 10_000) return null; const dueAt = normalizedIsoOrNull(response.dueAt); const remindAt = normalizedIsoOrNull(response.remindAt); if (response.dueAt && !dueAt) return null; if (response.remindAt && !remindAt) return null; return { title, body, dueAt, remindAt }; }
 function usageFromProvider(config: WorklogAiRuntimeConfigSnapshot, response: AiTaskProposalProviderResponse, recordId: number | null): WorklogAiUsageCommit { return { operation: 'AI_TASK_PROPOSAL', workspaceId: null, recordId, ...snapshotAiUsage({ provider: config.provider, model: config.model, inputUsdPerMillion: config.inputUsdPerMillion, outputUsdPerMillion: config.outputUsdPerMillion, audioUsdPerMillion: config.audioUsdPerMillion, imageUsdPerMillion: config.imageUsdPerMillion, usdTwdRate: config.usdTwdRate }, { inputTokens: response.inputTokens, outputTokens: response.outputTokens, audioInputUnits: 0, imageInputUnits: 0 }) }; }
 function blockedDecision(preliminary: AiEntitlementDecision, status: string, reservationReason: string | null): AiEntitlementDecision { const reason = status === 'AI_ENTITLEMENT_BLOCKED' ? entitlementReason(reservationReason ?? '') : 'MONTHLY_POINT_CAP_REACHED'; return { source: 'BLOCKED', allowed: false, reason, remainingPoints: reason === 'PER_REQUEST_POINT_CAP_EXCEEDED' ? preliminary.remainingPoints : 0, periodEndsAt: preliminary.periodEndsAt, perRequestAiPointCap: preliminary.perRequestAiPointCap }; }
