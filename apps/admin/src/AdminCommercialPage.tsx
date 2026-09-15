@@ -66,11 +66,11 @@ export function AdminCommercialPage({ api, runtimeApi }: { api: AdminCommercialA
 
   async function saveTrial() {
     const parsed = Number(trialPoints);
-    if (!Number.isSafeInteger(parsed) || parsed <= 0) { setError('一次性 AI 搜尋體驗額度必須是大於 0 的整數。'); return; }
-    if (!window.confirm(`確定將之後符合資格的新帳號 AI 搜尋體驗設為 ${parsed.toLocaleString()} 點？\n已經發放的帳號不會被修改。`)) return;
+    if (!Number.isSafeInteger(parsed) || parsed <= 0) { setError('一次性免費 AI 體驗額度必須是大於 0 的整數。'); return; }
+    if (!window.confirm(`確定將之後符合資格的新帳號免費 AI 體驗設為 ${parsed.toLocaleString()} 點？\n已經發放的帳號不會被修改。`)) return;
     setSaving(true); setError(null); setNotice(null);
-    try { const next = await api.setFreeAiTrial(parsed); setTrial(next); setTrialPoints(String(next.freeInitialAiTrialPoints)); setNotice('一次性 AI 搜尋體驗額度已更新，只影響之後符合資格的新帳號。'); }
-    catch (cause) { setError(friendlyError(cause, '免費 AI 搜尋體驗設定更新失敗')); }
+    try { const next = await api.setFreeAiTrial(parsed); setTrial(next); setTrialPoints(String(next.freeInitialAiTrialPoints)); setNotice('一次性免費 AI 體驗額度已更新，只影響之後符合資格的新帳號。'); }
+    catch (cause) { setError(friendlyError(cause, '免費 AI 體驗設定更新失敗')); }
     finally { setSaving(false); }
   }
 
@@ -92,7 +92,7 @@ export function AdminCommercialPage({ api, runtimeApi }: { api: AdminCommercialA
   }
 
   return <main className="shell">
-    <header className="topbar admin-hero"><div><p className="eyebrow">AFTERTRACE ADMIN</p><h1>商業方案設定</h1><p className="muted">管理免費體驗額度與訂閱方案；AI 模型與官方價格另外在「模型與價格設定」維護。</p></div><div className="header-actions"><a href="/ai-runtime"><button className="ghost">模型與價格設定</button></a><button disabled={loading || saving} onClick={() => void load()}>重新整理</button></div></header>
+    <header className="topbar admin-hero"><div><p className="eyebrow">AFTERTRACE ADMIN</p><h1>商業方案設定</h1><p className="muted">管理免費 AI 體驗額度與訂閱方案；AI 模型與官方價格另外在「模型與價格設定」維護。</p></div><div className="header-actions"><a href="/ai-runtime"><button className="ghost">模型與價格設定</button></a><button disabled={loading || saving} onClick={() => void load()}>重新整理</button></div></header>
     {error && <div className="banner error">{error}</div>}{notice && <div className="banner success">{notice}</div>}
 
     <div className="commercial-tabs" role="tablist" aria-label="方案類型">
@@ -102,19 +102,19 @@ export function AdminCommercialPage({ api, runtimeApi }: { api: AdminCommercialA
 
     {tab === 'FREE' ? <section className="stack commercial-stack">
       <article className="card plan-card">
-        <div className="plan-section-head"><span className="plan-badge free">免費方案</span><p className="muted">一般紀錄、一般搜尋與其他免費功能可持續使用；新帳號另提供一次性的 AI 搜尋體驗。</p></div>
+        <div className="plan-section-head"><span className="plan-badge free">免費方案</span><p className="muted">一般紀錄、一般搜尋與其他免費功能可持續使用；新帳號另提供一次性的免費 AI 體驗額度。</p></div>
         <div className="commercial-grid two-col">
-          <div className="settings-block"><label>一次性 AI 搜尋體驗額度<input type="number" min="1" step="1" value={trialPoints} disabled={loading || saving} onChange={(event) => setTrialPoints(event.target.value)} placeholder="尚未設定" /></label><p className="muted compact-copy">每個符合資格的新帳號只會取得一次，額度只能用於自然語言 AI 搜尋，不會每月重新發放。</p><button disabled={loading || saving} onClick={() => void saveTrial()}>{saving ? '儲存中…' : '儲存體驗額度'}</button></div>
-          <div className="settings-block trial-status-block"><h3>發放狀態</h3>{!trial ? <><strong>目前尚未啟用</strong><p className="muted">設定額度後，新符合資格的帳號才會收到一次性 AI 搜尋體驗。</p></> : <><strong>目前已啟用</strong><p className="muted">新符合資格的免費用戶會依目前設定取得一次性 AI 搜尋體驗額度。</p></>}</div>
+          <div className="settings-block"><label>一次性免費 AI 體驗額度<input type="number" min="1" step="1" value={trialPoints} disabled={loading || saving} onChange={(event) => setTrialPoints(event.target.value)} placeholder="尚未設定" /></label><p className="muted compact-copy">每個符合資格的新帳號只會取得一次，可共用於 AI 搜尋、整理、圖片、音訊、檔案、摘要、改寫與待辦建議等功能，不會每月重新發放。</p><button disabled={loading || saving} onClick={() => void saveTrial()}>{saving ? '儲存中…' : '儲存體驗額度'}</button></div>
+          <div className="settings-block trial-status-block"><h3>發放狀態</h3>{!trial ? <><strong>目前尚未啟用</strong><p className="muted">設定額度後，新符合資格的帳號才會收到一次性免費 AI 體驗。</p></> : <><strong>目前已啟用</strong><p className="muted">新符合資格的免費用戶會依目前設定取得一次性免費 AI 體驗額度。</p></>}</div>
         </div>
         {trial && <div className="metric-grid compact-metrics"><Metric name="單一帳號發放量" value={trial.freeInitialAiTrialPoints}/><Metric name="已發放帳號" value={trial.recipients}/><Metric name="已用完帳號" value={trial.exhaustedRecipients}/><Metric name="累計已發放" value={trial.issuedPoints}/><Metric name="尚未使用點數" value={trial.remainingPoints}/><Metric name="累計已使用" value={trial.consumedPoints}/></div>}
       </article>
 
       <article className="card plan-card">
-        <div className="plan-section-head"><span className="plan-badge free">免費額度試算</span><p className="muted">輸入你願意負擔的 AI 成本，例如 NT$5，系統會依目前模型價格換算成建議點數。</p></div>
+        <div className="plan-section-head"><span className="plan-badge free">免費額度試算</span><p className="muted">輸入你願意負擔的 AI 成本，例如 NT$5，系統會依目前模型價格換算成建議體驗點數。</p></div>
         <div className="commercial-grid two-col">
           <div className="settings-block"><label>預計贈送成本（TWD）<input inputMode="decimal" value={trialBudgetTwd} onChange={(event) => setTrialBudgetTwd(event.target.value)} placeholder="例如 5" /></label><p className="muted compact-copy">試算會使用目前設定的模型輸出價格與 USD/TWD 匯率，不會自動修改免費方案。</p></div>
-          <div className="settings-block trial-calculator-result"><h3>建議體驗額度</h3>{trialEstimate ? <><strong>{trialEstimate.recommendedPoints.toLocaleString('zh-TW')} 點</strong><p className="muted">約對應 NT${Number(trialBudgetTwd).toLocaleString('zh-TW', { maximumFractionDigits: 2 })} 的 AI 輸出成本。</p><button className="ghost" onClick={() => setTrialPoints(String(trialEstimate.recommendedPoints))}>帶入上方額度</button></> : <><strong>尚無法試算</strong><p className="muted">請先完成 AI 模型價格與 USD/TWD 匯率設定。</p><a href="/ai-runtime"><button className="ghost">前往模型與價格設定</button></a></>}</div>
+          <div className="settings-block trial-calculator-result"><h3>建議體驗額度</h3>{trialEstimate ? <><strong>{trialEstimate.recommendedPoints.toLocaleString('zh-TW')} 點</strong><p className="muted">約對應 NT${Number(trialBudgetTwd).toLocaleString('zh-TW', { maximumFractionDigits: 2 })} 的 AI 輸出成本，可作為共用 AI 體驗額度。</p><button className="ghost" onClick={() => setTrialPoints(String(trialEstimate.recommendedPoints))}>帶入上方額度</button></> : <><strong>尚無法試算</strong><p className="muted">請先完成 AI 模型價格與 USD/TWD 匯率設定。</p><a href="/ai-runtime"><button className="ghost">前往模型與價格設定</button></a></>}</div>
         </div>
       </article>
     </section> : <section className="stack commercial-stack">
