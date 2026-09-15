@@ -134,7 +134,7 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
     <div className="topbar"><div><p className="eyebrow">AFTERTRACE</p><h1>方案</h1><p className="muted">目前使用：{aiProActive ? 'AI Pro' : '免費版'}</p></div></div>
     {!checkoutOpen && error ? <div className="error">{error}</div> : null}{notice ? <div className="worklog-notice">{notice}</div> : null}
 
-    {!aiProActive ? <section className="panel stack subscription-trial"><h2>免費 AI 搜尋體驗</h2>{trial?.status === 'AVAILABLE' ? <p>你目前還有 <strong>{trial.remainingPoints.toLocaleString('zh-TW')}</strong> 點 AI 搜尋體驗額度，可在搜尋頁使用自然語言找紀錄。</p> : trial?.status === 'EXHAUSTED' ? <p>AI 搜尋體驗額度已使用完畢；工作紀錄、一般搜尋、群組與待辦仍可繼續免費使用。</p> : <p>AI 搜尋體驗額度尚未發放；其他免費功能仍可正常使用。</p>}<p className="muted">體驗額度只發放一次，不會每月刷新。AI 整理、圖片、音訊、檔案、摘要、改寫與待辦建議僅提供 AI Pro。</p></section> : null}
+    {!aiProActive ? <section className="panel stack subscription-trial"><h2>免費 AI 體驗</h2>{trial?.status === 'AVAILABLE' ? <p>你目前還有 <strong>{trial.remainingPoints.toLocaleString('zh-TW')}</strong> 點免費 AI 體驗額度，可用於 AI 搜尋、文字整理、圖片、音訊、檔案、摘要、改寫與待辦建議等功能。</p> : trial?.status === 'EXHAUSTED' ? <p>免費 AI 體驗額度已使用完畢；工作紀錄、一般搜尋、群組與待辦仍可繼續免費使用。</p> : <p>免費 AI 體驗額度尚未發放；其他免費功能仍可正常使用。</p>}<p className="muted">體驗額度每個帳號只發放一次，不會每月刷新。額度用完後可升級 AI Pro 繼續使用完整 AI 功能。</p></section> : null}
 
     {aiProActive ? <AiUsageStatus usage={usage} plan={aiProPlan} /> : null}
 
@@ -147,13 +147,13 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
         <strong className="subscription-price">{!paid ? 'NT$0' : `NT$${Number(plan.price_twd || 99).toLocaleString('zh-TW')} / 月`}</strong>
         <p>{!paid ? '日常工作紀錄需要的基本功能都可以免費使用。' : '使用完整 AI 功能快速整理、搜尋與理解工作紀錄。'}</p>
         <small>✓ 工作紀錄、新增、編輯與一般搜尋</small><small>✓ 群組、待辦與通知</small>
-        {!paid ? <small>✓ 一次 AI 搜尋體驗額度</small> : <><small>✓ AI 自然語言搜尋</small><small>✓ AI 文字整理</small><small>✓ 圖片、音訊與檔案整理</small><small>✓ 相關紀錄、摘要、改寫與待辦建議</small><small>✓ AI 使用受方案資源上限保護</small></>}
+        {!paid ? <><small>✓ 一次性免費 AI 體驗額度</small><small>✓ 體驗期間可使用完整 AI 功能</small></> : <><small>✓ AI 自然語言搜尋</small><small>✓ AI 文字整理</small><small>✓ 圖片、音訊與檔案整理</small><small>✓ 相關紀錄、摘要、改寫與待辦建議</small><small>✓ AI 使用受方案資源上限保護</small></>}
         {capabilitySummary(plan.capabilities).map((item) => <small key={item}>✓ {item}</small>)}
         <button disabled={disabled} onClick={() => openCheckout(plan)}>{buttonLabel}</button>
       </article>;
     })}</section>
 
-    {!aiProActive && !paymentAvailable ? <div className="worklog-notice">目前尚未開放線上升級；免費功能與 AI 搜尋體驗不受影響。</div> : null}
+    {!aiProActive && !paymentAvailable ? <div className="worklog-notice">目前尚未開放線上升級；免費功能與一次性 AI 體驗不受影響。</div> : null}
     {aiProActive ? <section className="panel stack subscription-renewal">
       <strong>AI Pro 訂閱管理</strong>
       {renewalState === 'TERMINATED'
