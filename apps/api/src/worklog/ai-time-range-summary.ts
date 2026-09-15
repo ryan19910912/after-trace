@@ -12,7 +12,7 @@ export interface AiTimeRangeSummaryProvider { reservationPoints(input: AiTimeRan
 export interface AiTimeRangeSummaryRepository { summaryEnabled(): Promise<boolean>; runtimeConfig(): Promise<WorklogAiRuntimeConfigSnapshot | null>; recordsForRange(input: { sourceId: number; from: Date; to: Date; limit: number }): Promise<AiTimeRangeSummaryRecord[]>; }
 export type AiTimeRangeSummaryEntitlementPort = { resolve(userId: number, sourceId: number, at?: Date): Promise<AiEntitlementDecision> };
 export type AiTimeRangeSummaryResult =
-  | { status: 'SUMMARY'; entitlementSource: 'AI_PRO'; summary: string; recordCount: number; truncated: boolean; from: string; to: string }
+  | { status: 'SUMMARY'; entitlementSource: 'FREE_TRIAL' | 'AI_PRO'; summary: string; recordCount: number; truncated: boolean; from: string; to: string }
   | { status: 'NO_RECORDS'; from: string; to: string }
   | { status: 'BLOCKED'; decision: AiEntitlementDecision }
   | { status: 'DEFERRED'; reason: 'AI_RUNTIME_CONFIG_MISSING' }
@@ -27,7 +27,6 @@ export class AiTimeRangeSummaryService {
     const from = validDate(input.from, 'AI_SUMMARY_FROM_INVALID'); const to = validDate(input.to, 'AI_SUMMARY_TO_INVALID'); if (from.getTime() >= to.getTime()) throw new Error('AI_SUMMARY_RANGE_INVALID'); if (to.getTime() - from.getTime() > 366 * 24 * 60 * 60_000) throw new Error('AI_SUMMARY_RANGE_TOO_LARGE');
     const timeZone = validTimeZone(input.timeZone ?? 'Asia/Taipei'); const preliminary = await this.entitlement.resolve(userId, sourceId, referenceAt);
     if (!preliminary.allowed || preliminary.source === 'BLOCKED') return { status: 'BLOCKED', decision: preliminary };
-    if (preliminary.source !== 'AI_PRO') return { status: 'BLOCKED', decision: aiProRequired(preliminary) };
     if (!(await this.repository.summaryEnabled())) return { status: 'FAILED', reason: 'AI_TIME_RANGE_SUMMARY_DISABLED' };
     let fetched: AiTimeRangeSummaryRecord[]; try { fetched = await this.repository.recordsForRange({ sourceId, from, to, limit: MAX_RECORDS + 1 }); } catch (error) { return { status: 'FAILED', reason: errorCode(error, 'AI_SUMMARY_RETRIEVAL_FAILED') }; }
     if (fetched.length === 0) return { status: 'NO_RECORDS', from: from.toISOString(), to: to.toISOString() };
@@ -39,10 +38,9 @@ export class AiTimeRangeSummaryService {
     const token = reservation.reservation.token; let response: AiTimeRangeSummaryProviderResponse; try { response = await this.provider.summarize(providerInput, config); } catch (error) { await safeRelease(this.aiPoints, token); return { status: 'FAILED', reason: errorCode(error, 'AI_PROVIDER_FAILED') }; }
     const summary = response.summary.trim(); const usage = usageFromProvider(config, response); if (!summary || summary.length > 12_000) { if (!(await settleProviderSuccess(this.aiPoints, token, usage))) return { status: 'FAILED', reason: 'AI_USAGE_SETTLEMENT_FAILED' }; return { status: 'FAILED', reason: 'AI_SUMMARY_OUTPUT_INVALID' }; }
     if ((await this.aiPoints.commitAiUsage(token, usage)).status !== 'COMMITTED') return { status: 'FAILED', reason: 'AI_USAGE_SETTLEMENT_FAILED' };
-    return { status: 'SUMMARY', entitlementSource: 'AI_PRO', summary, recordCount: records.length, truncated, from: from.toISOString(), to: to.toISOString() };
+    return { status: 'SUMMARY', entitlementSource: preliminary.source, summary, recordCount: records.length, truncated, from: from.toISOString(), to: to.toISOString() };
   }
 }
-function aiProRequired(value: AiEntitlementDecision): AiEntitlementDecision { return { ...value, source: 'BLOCKED', allowed: false, reason: 'AI_NOT_ENTITLED' }; }
 function boundedProviderRecords(fetched: AiTimeRangeSummaryRecord[]) { const candidates = fetched.slice(0, MAX_RECORDS); const records: AiTimeRangeSummaryRecord[] = []; let chars = 0; let truncated = false; for (const record of candidates) { const title = record.title ?? ''; const fixedChars = title.length + PROVIDER_RECORD_OVERHEAD_CHARS; const remaining = MAX_PROVIDER_RECORD_CHARS - chars; if (remaining <= fixedChars) { truncated = true; break; } const maxRawTextChars = remaining - fixedChars; const rawText = record.rawText.length > maxRawTextChars ? record.rawText.slice(0, maxRawTextChars) : record.rawText; records.push(rawText === record.rawText ? record : { ...record, rawText }); chars += rawText.length + fixedChars; if (rawText.length < record.rawText.length) { truncated = true; break; } } if (records.length < candidates.length) truncated = true; return { records, truncated }; }
 function usageFromProvider(config: WorklogAiRuntimeConfigSnapshot, response: AiTimeRangeSummaryProviderResponse): WorklogAiUsageCommit { return { operation: 'AI_TIME_RANGE_SUMMARY', workspaceId: null, recordId: null, ...snapshotAiUsage({ provider: config.provider, model: config.model, inputUsdPerMillion: config.inputUsdPerMillion, outputUsdPerMillion: config.outputUsdPerMillion, audioUsdPerMillion: config.audioUsdPerMillion, imageUsdPerMillion: config.imageUsdPerMillion, usdTwdRate: config.usdTwdRate }, { inputTokens: response.inputTokens, outputTokens: response.outputTokens, audioInputUnits: 0, imageInputUnits: 0 }) }; }
 function blockedDecision(preliminary: AiEntitlementDecision, status: string, reservationReason: string | null): AiEntitlementDecision { const reason = status === 'AI_ENTITLEMENT_BLOCKED' ? entitlementReason(reservationReason ?? '') : 'MONTHLY_POINT_CAP_REACHED'; return { source: 'BLOCKED', allowed: false, reason, remainingPoints: reason === 'PER_REQUEST_POINT_CAP_EXCEEDED' ? preliminary.remainingPoints : 0, periodEndsAt: preliminary.periodEndsAt, perRequestAiPointCap: preliminary.perRequestAiPointCap }; }
