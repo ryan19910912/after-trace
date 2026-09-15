@@ -13,6 +13,7 @@ type ApplyRow = {
   processing_result?: unknown;
   subscription_id?: unknown;
   user_id?: unknown;
+  plan_code?: unknown;
   period_start?: unknown;
   period_end?: unknown;
 };
@@ -29,14 +30,13 @@ export class DrizzleSubscriptionLifecycleRepository implements SubscriptionLifec
     const periodStart = requiredDate(event.periodStart, 'SUBSCRIPTION_PERIOD_START_MISSING');
     const periodEnd = requiredDate(event.periodEnd, 'SUBSCRIPTION_PERIOD_END_MISSING');
     const metadata = JSON.stringify(event.metadata ?? {});
-    const grantOrigin = `ai-pro-period:${periodStart.toISOString()}`;
+    const grantOrigin = `subscription-period:${event.planCode}:${periodStart.toISOString()}`.slice(0, 255);
     const result = await this.db.execute(sql`
       WITH plan_row AS MATERIALIZED (
-        SELECT monthly_ai_point_cap
+        SELECT code, monthly_ai_point_cap
         FROM worklog_subscription_plans
-        WHERE code = 'AI_PRO'
+        WHERE code = ${event.planCode}
           AND plan_type = 'SUBSCRIPTION'
-          AND price_twd = 99
           AND enabled = TRUE
           AND ai_enabled = TRUE
           AND monthly_ai_point_cap IS NOT NULL
@@ -48,11 +48,11 @@ export class DrizzleSubscriptionLifecycleRepository implements SubscriptionLifec
           period_start, period_end, occurred_at, processing_result, processed_at, metadata, created_at
         )
         SELECT
-          ${event.provider}, ${event.externalEventKey}, ${event.type}, ${event.userId}, 'AI_PRO',
+          ${event.provider}, ${event.externalEventKey}, ${event.type}, ${event.userId}, plan_row.code,
           ${periodStart}, ${periodEnd}, ${event.occurredAt}, 'PENDING', NOW(), ${metadata}::jsonb, NOW()
         FROM plan_row
         ON CONFLICT (provider, external_event_key) DO NOTHING
-        RETURNING id
+        RETURNING id, plan_code
       ), previous_subscription AS MATERIALIZED (
         SELECT plan_code
         FROM worklog_user_subscriptions
@@ -64,11 +64,11 @@ export class DrizzleSubscriptionLifecycleRepository implements SubscriptionLifec
           current_period_start, current_period_end, created_at, updated_at
         )
         SELECT
-          ${event.userId}, 'AI_PRO', 'ACTIVE', 'PAYMENT', ${periodStart},
+          ${event.userId}, event_insert.plan_code, 'ACTIVE', 'PAYMENT', ${periodStart},
           ${periodStart}, ${periodEnd}, ${event.occurredAt}, ${event.occurredAt}
         FROM event_insert
         ON CONFLICT (user_id) DO UPDATE
-        SET plan_code = 'AI_PRO',
+        SET plan_code = EXCLUDED.plan_code,
             status = 'ACTIVE',
             source = 'PAYMENT',
             effective_at = LEAST(worklog_user_subscriptions.effective_at, EXCLUDED.effective_at),
@@ -80,7 +80,7 @@ export class DrizzleSubscriptionLifecycleRepository implements SubscriptionLifec
             worklog_user_subscriptions.current_period_start IS NULL
             OR EXCLUDED.current_period_start >= worklog_user_subscriptions.current_period_start
           )
-        RETURNING id, user_id, current_period_start, current_period_end
+        RETURNING id, user_id, plan_code, current_period_start, current_period_end
       ), history_insert AS (
         INSERT INTO worklog_subscription_history (
           user_id, previous_plan_code, next_plan_code, source, actor, metadata, created_at
@@ -88,7 +88,7 @@ export class DrizzleSubscriptionLifecycleRepository implements SubscriptionLifec
         SELECT
           subscription_upsert.user_id,
           previous_subscription.plan_code,
-          'AI_PRO',
+          subscription_upsert.plan_code,
           'PAYMENT',
           ${`payment:${event.provider}`},
           jsonb_build_object(
@@ -119,7 +119,7 @@ export class DrizzleSubscriptionLifecycleRepository implements SubscriptionLifec
           ${periodEnd},
           ${grantOrigin},
           jsonb_build_object(
-            'planCode', 'AI_PRO',
+            'planCode', plan_row.code,
             'provider', ${event.provider}::text,
             'externalEventKey', ${event.externalEventKey}::text,
             'periodStart', ${periodStart}::timestamptz,
@@ -141,10 +141,11 @@ export class DrizzleSubscriptionLifecycleRepository implements SubscriptionLifec
         FROM event_insert
         LEFT JOIN subscription_upsert ON TRUE
         WHERE lifecycle_event.id = event_insert.id
-        RETURNING lifecycle_event.id, lifecycle_event.processing_result
+        RETURNING lifecycle_event.id, lifecycle_event.processing_result, lifecycle_event.plan_code
       )
       SELECT event_finalize.id::text AS event_id,
              event_finalize.processing_result,
+             event_finalize.plan_code,
              subscription_upsert.id::text AS subscription_id,
              subscription_upsert.user_id::text AS user_id,
              subscription_upsert.current_period_start AS period_start,
@@ -164,10 +165,10 @@ export class DrizzleSubscriptionLifecycleRepository implements SubscriptionLifec
     const periodEnd = event.periodEnd ?? null;
     const result = await this.db.execute(sql`
       WITH current_subscription AS MATERIALIZED (
-        SELECT id, user_id, current_period_start, current_period_end, updated_at
+        SELECT id, user_id, plan_code, current_period_start, current_period_end, updated_at
         FROM worklog_user_subscriptions
         WHERE user_id = ${event.userId}
-          AND plan_code = 'AI_PRO'
+          AND plan_code = ${event.planCode}
           AND status = 'ACTIVE'
         LIMIT 1
       ), event_insert AS MATERIALIZED (
@@ -176,19 +177,19 @@ export class DrizzleSubscriptionLifecycleRepository implements SubscriptionLifec
           period_start, period_end, occurred_at, processing_result, processed_at, metadata, created_at
         )
         SELECT
-          ${event.provider}, ${event.externalEventKey}, 'CANCEL', ${event.userId}, 'AI_PRO',
+          ${event.provider}, ${event.externalEventKey}, 'CANCEL', ${event.userId}, current_subscription.plan_code,
           COALESCE(${periodStart}::timestamptz, current_subscription.current_period_start),
           ${periodEnd},
           ${event.occurredAt}, 'PENDING', NOW(), ${metadata}::jsonb, NOW()
         FROM current_subscription
         ON CONFLICT (provider, external_event_key) DO NOTHING
-        RETURNING id
+        RETURNING id, plan_code
       ), subscription_update AS (
         UPDATE worklog_user_subscriptions AS subscription_row
         SET status = CASE
               WHEN ${periodEnd}::timestamptz IS NULL OR ${periodEnd}::timestamptz <= ${event.occurredAt}
-                THEN 'CANCELED'::worklog_subscription_status
-              ELSE 'ACTIVE'::worklog_subscription_status
+                THEN 'CANCELED'
+              ELSE 'ACTIVE'
             END,
             current_period_end = CASE
               WHEN ${periodEnd}::timestamptz IS NULL THEN ${event.occurredAt}
@@ -198,7 +199,7 @@ export class DrizzleSubscriptionLifecycleRepository implements SubscriptionLifec
             updated_at = ${event.occurredAt}
         FROM event_insert
         WHERE subscription_row.user_id = ${event.userId}
-          AND subscription_row.plan_code = 'AI_PRO'
+          AND subscription_row.plan_code = event_insert.plan_code
           AND subscription_row.updated_at <= ${event.occurredAt}
           AND (
             ${periodEnd}::timestamptz IS NULL
@@ -207,7 +208,7 @@ export class DrizzleSubscriptionLifecycleRepository implements SubscriptionLifec
               AND subscription_row.current_period_start = ${periodStart}
             )
           )
-        RETURNING subscription_row.id, subscription_row.user_id,
+        RETURNING subscription_row.id, subscription_row.user_id, subscription_row.plan_code,
                   subscription_row.current_period_start, subscription_row.current_period_end
       ), grant_update AS (
         UPDATE worklog_ai_grants AS g
@@ -225,8 +226,8 @@ export class DrizzleSubscriptionLifecycleRepository implements SubscriptionLifec
         )
         SELECT
           subscription_update.user_id,
-          'AI_PRO',
-          'AI_PRO',
+          subscription_update.plan_code,
+          subscription_update.plan_code,
           'PAYMENT',
           ${`payment:${event.provider}`},
           jsonb_build_object(
@@ -257,10 +258,11 @@ export class DrizzleSubscriptionLifecycleRepository implements SubscriptionLifec
         LEFT JOIN subscription_update ON TRUE
         WHERE lifecycle_event.id = event_insert.id
         RETURNING lifecycle_event.id, lifecycle_event.processing_result,
-                  lifecycle_event.period_start, lifecycle_event.period_end
+                  lifecycle_event.plan_code, lifecycle_event.period_start, lifecycle_event.period_end
       )
       SELECT event_finalize.id::text AS event_id,
              event_finalize.processing_result,
+             event_finalize.plan_code,
              subscription_update.id::text AS subscription_id,
              subscription_update.user_id::text AS user_id,
              event_finalize.period_start,
@@ -279,12 +281,14 @@ export class DrizzleSubscriptionLifecycleRepository implements SubscriptionLifec
       SELECT lifecycle_event.processing_result,
              lifecycle_event.event_type,
              lifecycle_event.user_id::text AS user_id,
+             lifecycle_event.plan_code,
              lifecycle_event.period_start,
              lifecycle_event.period_end,
              subscription_row.id::text AS subscription_id
       FROM worklog_subscription_lifecycle_events AS lifecycle_event
       LEFT JOIN worklog_user_subscriptions AS subscription_row
         ON subscription_row.user_id = lifecycle_event.user_id
+       AND subscription_row.plan_code = lifecycle_event.plan_code
       WHERE lifecycle_event.provider = ${event.provider}
         AND lifecycle_event.external_event_key = ${event.externalEventKey}
       LIMIT 1
@@ -299,6 +303,7 @@ export class DrizzleSubscriptionLifecycleRepository implements SubscriptionLifec
           applied: appliedFromRow({
             subscriptionId: row.subscription_id,
             userId: row.user_id,
+            planCode: row.plan_code,
             type: row.event_type,
             periodStart: row.period_start,
             periodEnd: row.period_end,
@@ -307,13 +312,13 @@ export class DrizzleSubscriptionLifecycleRepository implements SubscriptionLifec
       }
       throw new Error('SUBSCRIPTION_EVENT_PROCESSING_INCOMPLETE');
     }
-    throw new Error(event.type === 'CANCEL' ? 'AI_PRO_SUBSCRIPTION_NOT_ACTIVE' : 'AI_PRO_PLAN_NOT_READY');
+    throw new Error(event.type === 'CANCEL' ? 'SUBSCRIPTION_NOT_ACTIVE' : 'SUBSCRIPTION_PLAN_NOT_READY');
   }
 }
 
 function firstApplyResult(event: SubscriptionLifecycleEvent, row: ApplyRow): SubscriptionLifecycleApplyResult {
   if (row.processing_result === 'IGNORED_STALE') {
-    return { status: 'IGNORED_STALE', userId: event.userId, type: event.type };
+    return { status: 'IGNORED_STALE', userId: event.userId, planCode: event.planCode, type: event.type };
   }
   if (row.processing_result !== 'APPLIED' || !row.subscription_id) {
     throw new Error('SUBSCRIPTION_EVENT_PROCESSING_INCOMPLETE');
@@ -323,6 +328,7 @@ function firstApplyResult(event: SubscriptionLifecycleEvent, row: ApplyRow): Sub
     ...appliedFromRow({
       subscriptionId: row.subscription_id,
       userId: row.user_id,
+      planCode: row.plan_code ?? event.planCode,
       type: event.type,
       periodStart: row.period_start,
       periodEnd: row.period_end,
@@ -333,6 +339,7 @@ function firstApplyResult(event: SubscriptionLifecycleEvent, row: ApplyRow): Sub
 function appliedFromRow(input: {
   subscriptionId: unknown;
   userId: unknown;
+  planCode: unknown;
   type: unknown;
   periodStart: unknown;
   periodEnd: unknown;
@@ -340,6 +347,7 @@ function appliedFromRow(input: {
   return {
     subscriptionId: positiveInteger(input.subscriptionId, 'subscription id'),
     userId: positiveInteger(input.userId, 'user id'),
+    planCode: requiredText(input.planCode, 'plan code'),
     type: lifecycleEventType(input.type),
     periodStart: optionalDate(input.periodStart),
     periodEnd: optionalDate(input.periodEnd),
@@ -367,4 +375,9 @@ function positiveInteger(value: unknown, label: string): number {
   const parsed = typeof value === 'number' ? value : Number(value);
   if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`invalid ${label}`);
   return parsed;
+}
+
+function requiredText(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !value.trim()) throw new Error(`invalid ${label}`);
+  return value.trim();
 }
