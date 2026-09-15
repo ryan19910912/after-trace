@@ -47,62 +47,43 @@ function ledger(calls: string[]): AiPointLedgerPort {
   };
 }
 
+function rewriteProvider(calls: string[]) {
+  return {
+    reservationPoints() { calls.push('estimate'); return 40; },
+    async rewrite() {
+      calls.push('provider');
+      return { proposedText: '晴空案第一階段今日完成。', inputTokens: 40, outputTokens: 12, providerResponseId: 'rewrite-resp', latencyMs: 5 };
+    },
+  };
+}
+
 describe('AiRecordRewriteService', () => {
   it('checks entitlement before target Record existence to avoid cross-Source enumeration', async () => {
     const calls: string[] = [];
     const service = new AiRecordRewriteService(repository(calls), {
-      async resolve() {
-        calls.push('resolve');
-        return { source: 'BLOCKED', allowed: false, reason: 'SOURCE_NOT_AUTHORIZED', remainingPoints: null, periodEndsAt: null, perRequestAiPointCap: null };
-      },
-    }, ledger(calls), {
-      reservationPoints() { calls.push('estimate'); return 40; },
-      async rewrite() { calls.push('provider'); throw new Error('should not run'); },
-    });
-    expect(await service.propose({ userId: 7, sourceId: 12, recordId: 99, instruction: '改得更精簡' }))
-      .toMatchObject({ status: 'BLOCKED', decision: { reason: 'SOURCE_NOT_AUTHORIZED' } });
+      async resolve() { calls.push('resolve'); return { source: 'BLOCKED', allowed: false, reason: 'SOURCE_NOT_AUTHORIZED', remainingPoints: null, periodEndsAt: null, perRequestAiPointCap: null }; },
+    }, ledger(calls), rewriteProvider(calls));
+    expect(await service.propose({ userId: 7, sourceId: 12, recordId: 99, instruction: '改得更精簡' })).toMatchObject({ status: 'BLOCKED', decision: { reason: 'SOURCE_NOT_AUTHORIZED' } });
     expect(calls).toEqual(['resolve']);
   });
 
-  it('does not allow FREE trial points to unlock AI rewrite', async () => {
+  it('allows FREE trial points to unlock AI rewrite', async () => {
     const calls: string[] = [];
     const service = new AiRecordRewriteService(repository(calls), {
-      async resolve() {
-        calls.push('resolve');
-        return { source: 'FREE_TRIAL', allowed: true, reason: 'FREE_TRIAL_AVAILABLE', remainingPoints: 100, periodEndsAt: null, perRequestAiPointCap: 100 };
-      },
-    }, ledger(calls), {
-      reservationPoints() { calls.push('estimate'); return 40; },
-      async rewrite() { calls.push('provider'); throw new Error('should not run'); },
-    });
-
-    expect(await service.propose({ userId: 7, sourceId: 12, recordId: 99, instruction: '改得更精簡' }))
-      .toMatchObject({ status: 'BLOCKED', decision: { reason: 'AI_NOT_ENTITLED' } });
-    expect(calls).toEqual(['resolve']);
+      async resolve() { calls.push('resolve'); return { source: 'FREE_TRIAL', allowed: true, reason: 'FREE_TRIAL_AVAILABLE', remainingPoints: 100, periodEndsAt: null, perRequestAiPointCap: 100 }; },
+    }, ledger(calls), rewriteProvider(calls));
+    const result = await service.propose({ userId: 7, sourceId: 12, recordId: 99, instruction: '改得更精簡' });
+    expect(result).toMatchObject({ status: 'PROPOSAL', entitlementSource: 'FREE_TRIAL', recordId: 99 });
+    expect(calls).toEqual(['resolve', 'capability', 'record:12:99', 'runtime', 'estimate', 'reserve:hold', 'provider', 'commit:AI_RECORD_REWRITE_PROPOSAL:99']);
   });
 
   it('returns an AI Pro proposal and expectedVersion without mutating a Record', async () => {
     const calls: string[] = [];
     const service = new AiRecordRewriteService(repository(calls), {
-      async resolve() {
-        calls.push('resolve');
-        return { source: 'AI_PRO', allowed: true, reason: 'AI_PRO_AVAILABLE', remainingPoints: 100, periodEndsAt: '2026-10-01T00:00:00.000Z', perRequestAiPointCap: 100 };
-      },
-    }, ledger(calls), {
-      reservationPoints() { calls.push('estimate'); return 40; },
-      async rewrite() {
-        calls.push('provider');
-        return { proposedText: '晴空案第一階段今日完成。', inputTokens: 40, outputTokens: 12, providerResponseId: 'rewrite-resp', latencyMs: 5 };
-      },
-    });
+      async resolve() { calls.push('resolve'); return { source: 'AI_PRO', allowed: true, reason: 'AI_PRO_AVAILABLE', remainingPoints: 100, periodEndsAt: '2026-10-01T00:00:00.000Z', perRequestAiPointCap: 100 }; },
+    }, ledger(calls), rewriteProvider(calls));
     const result = await service.propose({ userId: 7, sourceId: 12, recordId: 99, instruction: '改得更精簡' });
-    expect(result).toMatchObject({
-      status: 'PROPOSAL', entitlementSource: 'AI_PRO', recordId: 99, expectedVersion: 4,
-      originalText: '今天完成晴空案第一階段。', proposedText: '晴空案第一階段今日完成。',
-    });
-    expect(calls).toEqual([
-      'resolve', 'capability', 'record:12:99', 'runtime', 'estimate', 'reserve:hold', 'provider',
-      'commit:AI_RECORD_REWRITE_PROPOSAL:99',
-    ]);
+    expect(result).toMatchObject({ status: 'PROPOSAL', entitlementSource: 'AI_PRO', recordId: 99, expectedVersion: 4, originalText: '今天完成晴空案第一階段。', proposedText: '晴空案第一階段今日完成。' });
+    expect(calls).toEqual(['resolve', 'capability', 'record:12:99', 'runtime', 'estimate', 'reserve:hold', 'provider', 'commit:AI_RECORD_REWRITE_PROPOSAL:99']);
   });
 });
