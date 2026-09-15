@@ -4,16 +4,14 @@
 
 AFTERTRACE keeps the FREE product permanently useful without provider AI, while giving each newly eligible FREE account a **one-time Admin-configured free AI experience allowance** so users can try the real AI product before subscribing.
 
-The one-time FREE allowance is shared across supported AI capabilities. AI Pro remains the recurring paid plan with monthly AI resources.
+The one-time FREE allowance is shared across supported AI capabilities. Paid subscriptions provide recurring monthly AI resources according to each backend plan definition.
 
 Read together with `WORKLOG_SUBSCRIPTION_POLICY.md`.
 
 ## Customer-facing model
 
-Current launch commercial model:
-
 - FREE — NT$0;
-- AI Pro — NT$99/month;
+- one or more enabled paid subscription plans supplied by the backend;
 - no one-time AI top-up product at launch.
 
 FREE receives one one-time AI experience allowance. It does not refresh monthly.
@@ -28,136 +26,102 @@ Customer UI may show normal / approaching limit / limit reached and reset date. 
 
 AI entitlement belongs to the requesting user.
 
-- AI Pro user in an authorized PRIVATE/GROUP scope may use enabled AI features;
-- FREE user with remaining one-time trial points may use supported AI features from the same shared trial balance;
-- FREE user with exhausted/no trial points still has manual Record CRUD, deterministic search, groups, tasks/reminders and other normal FREE features;
-- no GROUP AI responsible-user binding exists in the target product.
+- a user with an active paid AI subscription may use enabled AI features within that plan's configured limits;
+- FREE user with remaining one-time trial points may use supported AI features from the shared trial balance;
+- FREE user with exhausted/no trial points still has manual Record CRUD, deterministic search, groups, tasks/reminders and normal FREE features;
+- no GROUP AI responsible-user binding exists.
 
-`FREE_TRIAL` and `AI_PRO` are both valid AI entitlement sources. Provider-backed services must still reserve/settle AI points and obey request/resource limits before provider work begins.
+Internal entitlement source `AI_PRO` is retained as compatibility terminology meaning “active paid AI subscription”; it must not imply or require a commercial plan whose actual code is exactly `AI_PRO`.
 
 ## FREE one-time AI experience
 
 FREE does **not** receive recurring monthly provider-backed AI allowance.
 
-A newly eligible FREE account receives one idempotent trial grant configured by Admin.
-
 Rules:
 
 - Admin configures the initial point quantity;
 - do not configure the trial as a TWD selling price;
-- do not hard-code the point amount in source;
+- do not hard-code the point amount;
 - trial is issued once per AFTERTRACE account;
 - trial does not refresh monthly;
 - later Admin template changes affect only users who have not yet received it;
 - already-issued trial balances are never resized retroactively;
-- browser/device speech-to-text remains provider-free and does not consume trial points;
-- provider-backed AI Search, text organization, image/audio/file AI, summaries, rewrite and AI task proposals share the same trial balance and use the normal reservation/settlement path;
-- Chrome screenshot AI also consumes the same trial balance;
-- related-record lookup is entitlement-gated; while its current ranking is deterministic/PostgreSQL-based and does not call the provider, it does not invent fake provider usage or point charges;
-- when trial points reach zero, provider-backed AI stops and the UI may offer AI Pro; normal FREE functions continue.
+- browser/device speech-to-text remains provider-free;
+- provider-backed AI Search, text organization, image/audio/file AI, summaries, rewrite, task proposals and Chrome screenshot AI share the same trial balance;
+- related-record lookup remains entitlement-gated and must not fabricate fake provider usage;
+- when trial points reach zero, provider-backed AI stops while normal FREE functions continue.
 
-Customer/Admin wording should prefer `免費 AI 體驗` / `免費 AI 體驗額度`, not `AI Pro 試用` or `免費 AI 搜尋體驗`.
+## Paid plan configuration
 
-## AI Pro configuration
+Each enabled paid `SUBSCRIPTION` plan may configure:
 
-AI Pro launch price is NT$99/month.
-
-Admin/runtime supports:
-
-- `price_twd`;
-- `ai_enabled`;
-- monthly AI resource/point cap;
+- stable `plan_code`;
+- display name;
+- monthly TWD price;
+- AI enabled state;
+- monthly AI point cap;
 - monthly provider-cost cap in TWD;
 - optional per-request cap;
 - media limits;
 - feature capability toggles.
 
-Recommended AI Pro media defaults:
+The active subscription plan, not a hard-coded `AI_PRO` row, is authoritative for paid point/cost admission.
 
-- 1 image/request while single-image input is current; 4/request after multi-image ships;
-- 5 MB/image;
-- 300 seconds/audio request;
-- 10 MB/audio request;
-- 10 MB/file request.
-
-FREE trial media uses conservative defaults of 1 image/request, 5 MB/image, 300 seconds/audio, 10 MB/audio and 10 MB/file. Absolute transport ceilings remain higher (20 MB image and 30 MB audio/file) and are not customer entitlements.
+Recommended media defaults are 1 image/request, 5 MB/image, 300 seconds/audio, 10 MB/audio and 10 MB/file. FREE trial uses the same conservative defaults unless explicitly changed in product policy. Transport ceilings remain higher and are not customer entitlements.
 
 ## Hard cap rule
 
 Each provider-backed request must pass entitlement/resource checks before provider execution.
 
-For AI Pro, runtime fails closed when either the internal resource/point cap or actual provider-cost cap is reached. Whichever is reached first blocks new provider work until the next entitled period or operator adjustment.
+For paid subscriptions, runtime fails closed when either the plan point cap or actual provider-cost cap is reached. Whichever is reached first blocks new provider work until the next entitled period or operator adjustment.
 
-For FREE trial, positive trial points are required before provider-backed AI work begins. A request that exceeds remaining points or the request cap is blocked before provider execution. Trial usage never becomes a recurring monthly FREE pool.
+For FREE trial, positive trial points are required before provider work begins. A request exceeding remaining points/request cap is blocked before execution.
 
 ## Reservation / settlement
-
-Rules:
 
 - reserve bounded capacity before provider execution;
 - do not start provider work when the request cannot be safely admitted;
 - settle against actual provider usage/cost after completion;
 - release unused reservation on failure/cancel where applicable;
-- all provider-backed FREE-trial AI and AI Pro operations use the same point ledger architecture;
-- customer-facing balance presentation must not become a raw provider-token/prepaid-cash UX.
+- FREE-trial and paid operations use the same point ledger architecture;
+- paid provider-cost guard resolves the user's actual active plan and matching `SUBSCRIPTION_PERIOD` Grant;
+- customer-facing balance must not become a raw provider-token/prepaid-cash UX.
+
+## Paid period Grant
+
+On successful subscription activation/renewal:
+
+- lifecycle preserves the selected plan code;
+- a `SUBSCRIPTION_PERIOD` Grant is created for that billing period;
+- its point quantity comes from that selected plan's monthly AI point cap;
+- its effective/expiry dates match the paid period;
+- provider-cost admission reads the selected plan's monthly provider-cost cap;
+- cancellation may shorten/terminate future Grant eligibility only according to the paid-period lifecycle rules.
 
 ## Actual provider cost
 
-For every provider call retain enough immutable facts to calculate actual cost:
-
-- provider/model;
-- input/output/media usage;
-- pricing snapshot;
-- FX snapshot where relevant;
-- actual provider cost USD/TWD;
-- operation;
-- requesting user;
-- authorized source/group;
-- entitlement source (`FREE_TRIAL` or `AI_PRO`);
-- reservation/settlement references where used.
+For every provider call retain enough immutable facts to calculate actual cost: provider/model, input/output/media usage, pricing/FX snapshots, actual provider cost, operation, user/source, entitlement source and reservation/settlement references.
 
 ## AI operations
 
-Supported AI experience / AI Pro capabilities include:
-
-- natural-language Record create/organization;
-- natural-language search interpretation;
-- image/audio/file/PDF interpretation;
-- Chrome visible-tab screenshot AI;
-- related-record features;
-- time-range summary;
-- AI rewrite;
-- task extraction/proposal;
-- future AI Q&A when shipped.
+Supported FREE experience / paid AI capabilities include natural-language Record organization, AI Search, image/audio/file/PDF interpretation, Chrome screenshot AI, related-record features, time-range summary, rewrite and task proposal.
 
 Manual CRUD, deterministic search/date filtering and non-provider browser speech-to-text consume no AI allowance.
 
 ## Historical data
 
-Subscribing to AI does not trigger automatic historical FREE Record enrichment. Old Records remain unchanged and searchable from raw content; new provider-backed operations may carry richer metadata.
+Subscribing does not trigger automatic historical Record enrichment. Old Records remain unchanged and searchable from raw content.
 
 ## Usage warnings
 
-Warn before hard stop where practical. Recommended AI Pro states: normal, approaching limit, limit reached. FREE AI experience may show remaining points without describing them as a TWD cash balance.
+Warn before hard stop where practical. Paid states: normal, approaching limit, limit reached. FREE AI experience may show remaining points without describing them as a cash balance.
 
 ## Admin analytics
 
-Admin should expose at minimum:
-
-- FREE one-time AI experience point configuration;
-- trial recipients/exhaustion/conversion;
-- subscription plan price/configuration;
-- current-period AI requests;
-- internal point/resource use;
-- actual provider cost USD/TWD;
-- provider-cost cap and utilization;
-- average provider cost per request/user;
-- model/operation/modality breakdown;
-- blocked users/requests;
-- durable revenue facts where successful-payment records exist.
+Admin should expose FREE trial configuration/usage, paid plan price/configuration, current-period AI use, actual provider cost, cap utilization, operation/model breakdown, blocked requests and durable revenue facts where successful payment records exist.
 
 ## No one-time top-up at launch
 
-Do not ship one-time AI point purchases at launch. Revisit only after real launch data shows repeated limit exhaustion plus willingness to pay more.
+Do not ship one-time AI point purchases at launch. Revisit only after real data shows repeated limit exhaustion plus willingness to pay more.
 
 GitHub Actions must not be used as validation unless explicitly requested by the user.
