@@ -30,7 +30,11 @@ export class DrizzleWorklogAiGrantRepository implements WorklogAiGrantRepository
       LIMIT 1
     `);
     const value = (result.rows[0] as { free_initial_ai_trial_points?: unknown } | undefined)?.free_initial_ai_trial_points;
-    if (value === undefined) return null;
+    // A fresh environment may already have the commercial-config row while the
+    // FREE AI trial amount is still NULL. Treat that the same as "not configured"
+    // so post-login onboarding can continue and report CONFIG_PENDING instead of
+    // failing the OAuth callback with an unhandled 500.
+    if (value === undefined || value === null) return null;
     return nonNegativeInteger(value, 'FREE initial AI trial points');
   }
 
@@ -218,11 +222,11 @@ function nonNegativeInteger(value: unknown, label: string): number {
 }
 
 function numeric(value: unknown): number {
-  return typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  return typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN;
 }
 
-function dateValue(value: unknown, label: string): Date {
-  const parsed = value instanceof Date ? value : new Date(String(value));
+function dateValue(value: Date | string, label: string): Date {
+  const parsed = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(parsed.getTime())) throw new Error(`invalid ${label}`);
   return parsed;
 }
@@ -233,7 +237,7 @@ function requiredText(value: unknown, label: string): string {
 }
 
 function safeAdd(left: number, right: number): number {
-  const value = left + right;
-  if (!Number.isSafeInteger(value) || value < 0) throw new Error('AI point balance exceeds safe integer range');
-  return value;
+  const result = left + right;
+  if (!Number.isSafeInteger(result)) throw new Error('AI grant point total overflow');
+  return result;
 }
