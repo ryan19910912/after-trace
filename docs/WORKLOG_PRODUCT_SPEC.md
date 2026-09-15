@@ -37,7 +37,7 @@ The extension is a compact capture surface. It may:
 - use browser speech-to-text;
 - capture explicitly selected page text;
 - optionally attach the current page title + URL as bounded context;
-- explicitly capture the visible tab screenshot and send it to image AI **only for an active AI Pro subscription**.
+- explicitly capture the visible tab screenshot and send it to image AI when the user has remaining FREE AI experience points or active AI Pro entitlement.
 
 It must not silently capture browsing history, tabs, clipboard, full-page content, screen or microphone.
 
@@ -106,28 +106,32 @@ MVP group roles: `OWNER`, `MEMBER`. Backend authorization is checked for every g
 
 Customer UI should say “紀錄範圍”, “我的紀錄”, or the group name. Avoid exposing the internal word `Source`.
 
-## Free product and AI search trial
+## Free product and one-time AI experience
 
 FREE is a complete manual Record product.
 
 FREE users manually create/edit text Records. Provider-free browser/device speech-to-text may turn speech into text where supported; this remains a manual text path and does not consume AI points.
 
-FREE includes one idempotent, Admin-configured, one-time **AI search trial**. It does not refresh monthly.
+FREE includes one idempotent, Admin-configured, one-time **shared AI experience allowance**. It does not refresh monthly.
 
-The Free AI trial points may be consumed **only by natural-language AI Search**. When those points are exhausted, deterministic keyword/date search and all normal FREE manual functions remain available.
+While points remain, the FREE user may use the accepted AI feature set from the same balance:
 
-The Free AI trial does **not** unlock:
-
-- AI text capture/automatic organization;
+- AI text capture/organization;
+- natural-language AI search;
 - image AI;
 - audio AI;
 - file/PDF AI;
-- related-record AI tools;
+- Chrome screenshot AI;
+- related Records;
 - time-range summaries;
 - AI rewrite;
 - AI task proposals.
 
-Those provider-backed capabilities require an active AI Pro subscription.
+Provider-backed operations reserve and settle against the shared FREE trial point balance. When those points are exhausted, provider-backed AI stops, while deterministic keyword/date search and all normal FREE manual functions remain available.
+
+Related Records is currently entitlement-gated deterministic PostgreSQL ranking rather than a provider call. It must not fabricate provider usage/cost merely to make it look like an AI charge.
+
+FREE trial media uses conservative limits: one image/request, 5 MB/image, 300 seconds/audio request, 10 MB/audio request and 10 MB/file request.
 
 ## Subscription plans
 
@@ -144,7 +148,7 @@ AI entitlement is per user, not per group.
 
 ## AI Pro features
 
-AI Pro unlocks the complete accepted AI feature set:
+AI Pro provides the complete accepted AI feature set with recurring monthly AI resources after the one-time FREE experience is exhausted:
 
 - AI text capture/organization;
 - natural-language AI search;
@@ -154,9 +158,10 @@ AI Pro unlocks the complete accepted AI feature set:
 - related Records;
 - time-range summaries;
 - rewrite suggestions;
-- task suggestions/proposals.
+- task suggestions/proposals;
+- Chrome screenshot AI.
 
-Current recommended media defaults:
+Current recommended AI Pro media defaults:
 
 - images per request: **1** while the current client/API is single-image; when multi-image input ships, recommended default is **4 images/request**;
 - image size: **5 MB per image**;
@@ -191,9 +196,9 @@ FREE deterministic search covers stored title/content, date range and authorized
 
 ### AI search
 
-The one-time FREE AI search trial or AI Pro may interpret natural-language requests and search authorized Records. PostgreSQL remains authoritative retrieval. AI must not fabricate stored facts.
+The one-time FREE AI experience or AI Pro may interpret natural-language requests and search authorized Records. PostgreSQL remains authoritative retrieval. AI must not fabricate stored facts.
 
-FREE trial points are consumed only here.
+AI Search consumes the same shared FREE trial balance as the other provider-backed AI capabilities.
 
 ## AI tools
 
@@ -204,7 +209,7 @@ Customer-facing AI tools include:
 - rewrite suggestion;
 - task suggestion.
 
-These tools require AI Pro. AI rewrite and task creation are **proposal first**. The user explicitly confirms before durable content/task creation.
+These tools are available while one-time FREE AI experience entitlement remains and under AI Pro. AI rewrite and task creation are **proposal first**. The user explicitly confirms before durable content/task creation.
 
 Customer copy must be plain Traditional Chinese. Do not show engineering terms such as `Source`, `Record ID`, `provider`, `bounded dataset`, `proposal`, `Grant`, `runtime`, `ledger`, `metadata`, `optimistic version`, or `revision API` unless the context is explicitly an internal Admin/developer screen where the term is necessary.
 
@@ -212,7 +217,7 @@ Customer copy must be plain Traditional Chinese. Do not show engineering terms s
 
 Tasks support title, optional body, optional due/remind times, status and optional source/record relation.
 
-Reminder scheduling is deterministic stored data. AI may interpret a task/time only as a suggestion before confirmation, and that AI suggestion requires AI Pro.
+Reminder scheduling is deterministic stored data. AI may interpret a task/time only as a suggestion before confirmation. AI task suggestion may use remaining FREE AI experience points or AI Pro entitlement.
 
 ## Notifications
 
@@ -233,6 +238,8 @@ Notification permission is requested only after an explicit user action. Push fa
 
 Customer UI must not expose internal provider cost or margin.
 
+FREE AI experience should show remaining one-time points where helpful. It does not have a monthly reset date.
+
 AI Pro should show a friendly usage state:
 
 - 使用狀況正常;
@@ -240,14 +247,15 @@ AI Pro should show a friendly usage state:
 - 已達本期上限;
 - next reset/period date when known.
 
-When AI is blocked by a monthly limit, manual/free features remain available.
+When AI is blocked by an exhausted FREE trial or monthly paid limit, manual/free features remain available.
 
 ## Admin
 
 Admin supports:
 
 - exact user lookup by customer-facing 帳號 ID;
-- free one-time AI search trial point configuration;
+- one-time FREE AI experience point configuration;
+- internal cost-to-point calculator for trial configuration;
 - subscription plan list supplied by backend;
 - adding and editing future subscription plan definitions;
 - monthly AI point cap;
@@ -255,6 +263,7 @@ Admin supports:
 - optional per-request AI point cap;
 - AI feature switches;
 - media limits: images/request, image bytes, audio seconds, audio bytes, file bytes;
+- AI model/price/FX runtime settings;
 - AI cost calculator/reporting;
 - announcements;
 - feedback management.
@@ -286,9 +295,9 @@ Rules:
 - latest 10 Record preview + independent Search page;
 - groups + invites;
 - tasks/reminders + notifications;
-- FREE one-time AI search trial;
-- AI Pro full text/image/audio/file/tool features;
-- Chrome extension screenshot-to-AI-Pro path;
+- one-time shared FREE AI experience;
+- AI Pro full text/image/audio/file/tool features with recurring monthly allowance;
+- Chrome extension screenshot through the same FREE_TRIAL/AI_PRO entitlement path;
 - NewebPay AI Pro payment lifecycle;
 - friendly AI usage state;
 - backend-driven Admin subscription plan management;
