@@ -124,7 +124,7 @@ describe('AiTextCaptureService', () => {
     expect(calls).toEqual(['resolve']);
   });
 
-  it('does not allow the one-time FREE AI trial to create AI-normalized Records', async () => {
+  it('uses the one-time FREE AI experience for AI-normalized Records', async () => {
     const calls: string[] = [];
     const entitlement: AiTextCaptureEntitlementPort = {
       async resolve() {
@@ -139,8 +139,8 @@ describe('AiTextCaptureService', () => {
 
     const result = await service.capture({ userId: 7, sourceId: 12, text: '今天晴空案收到款項' });
 
-    expect(result).toEqual({ status: 'FAILED', reason: 'AI_PRO_REQUIRED' });
-    expect(calls).toEqual(['resolve']);
+    expect(result).toMatchObject({ status: 'CREATED', entitlementSource: 'FREE_TRIAL', record: { id: 91 } });
+    expect(calls).toEqual(['resolve', 'runtime', 'estimate', 'reserve', 'provider', 'create-record', 'commit:91:AI_TEXT_CAPTURE']);
   });
 
   it('uses resolve -> runtime -> estimate -> entitled reservation -> provider -> Record -> settlement for AI Pro', async () => {
