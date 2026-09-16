@@ -37,12 +37,24 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 });
 
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
+  const diagnostics = connectDiagnostics(message, sender);
+  console.info('[AFTERTRACE extension connect] received', diagnostics);
+
   void acceptWebSessionHandoff(message, sender)
-    .then(() => sendResponse({ ok: true }))
-    .catch((error) => sendResponse({
-      ok: false,
-      error: error instanceof Error ? error.message : 'EXTENSION_CONNECT_FAILED',
-    }));
+    .then(() => {
+      console.info('[AFTERTRACE extension connect] accepted', diagnostics);
+      sendResponse({ ok: true });
+    })
+    .catch((error) => {
+      const code = error instanceof Error ? error.message : 'EXTENSION_CONNECT_FAILED';
+      console.error('[AFTERTRACE extension connect] rejected', code, diagnostics);
+      sendResponse({
+        ok: false,
+        error: code === 'EXTENSION_CONNECT_ORIGIN_FORBIDDEN'
+          ? `${code} | ${diagnosticText(diagnostics)}`
+          : code,
+      });
+    });
   return true;
 });
 
@@ -52,10 +64,12 @@ async function acceptWebSessionHandoff(message, sender) {
   }
 
   const claimedWebAppUrl = origin(message.webAppUrl);
-  // externally_connectable in the manifest already restricts which web origins can
-  // reach this listener. Some Chrome builds do not expose sender.origin/url here,
-  // so use the validated message webAppUrl as the final fallback.
-  const senderOrigin = safeOrigin(sender?.origin) ?? safeOrigin(sender?.url) ?? claimedWebAppUrl;
+  const candidates = [
+    safeOrigin(sender?.origin),
+    safeOrigin(sender?.url),
+    claimedWebAppUrl,
+  ].filter(Boolean);
+  const senderOrigin = candidates.find((candidate) => WEB_TO_API.has(candidate)) ?? null;
   const expectedApiBaseUrl = senderOrigin ? WEB_TO_API.get(senderOrigin) : null;
   if (!senderOrigin || !expectedApiBaseUrl) throw new Error('EXTENSION_CONNECT_ORIGIN_FORBIDDEN');
 
@@ -82,6 +96,28 @@ async function acceptWebSessionHandoff(message, sender) {
     },
   });
   await chrome.storage.session.remove(PENDING_CONNECT_KEY);
+}
+
+function connectDiagnostics(message, sender) {
+  return {
+    senderOrigin: safeOrigin(sender?.origin),
+    senderUrlOrigin: safeOrigin(sender?.url),
+    claimedWebAppUrl: origin(message?.webAppUrl),
+    claimedApiBaseUrl: origin(message?.apiBaseUrl),
+    allowedWebOrigins: [...WEB_TO_API.keys()],
+    runtimeId: chrome.runtime.id,
+  };
+}
+
+function diagnosticText(value) {
+  return [
+    `sender.origin=${value.senderOrigin ?? 'null'}`,
+    `sender.url=${value.senderUrlOrigin ?? 'null'}`,
+    `message.webAppUrl=${value.claimedWebAppUrl ?? 'null'}`,
+    `message.apiBaseUrl=${value.claimedApiBaseUrl ?? 'null'}`,
+    `allowed=${value.allowedWebOrigins.join(',')}`,
+    `extensionId=${value.runtimeId}`,
+  ].join(' | ');
 }
 
 function safeOrigin(value) {
