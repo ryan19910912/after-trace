@@ -21,7 +21,7 @@ const apiBaseUrl = mode === 'dev'
 await rm(outDir, { recursive: true, force: true });
 await mkdir(outDir, { recursive: true });
 
-for (const file of ['background.js', 'popup.html', 'popup.js', 'screenshot-ai.js']) {
+for (const file of ['background.js', 'popup.html', 'popup.js']) {
   await cp(path.join(root, file), path.join(outDir, file));
 }
 await cp(path.join(root, 'icons'), path.join(outDir, 'icons'), { recursive: true });
