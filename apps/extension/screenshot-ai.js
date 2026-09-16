@@ -80,7 +80,7 @@ screenshotAction?.addEventListener('click', async () => {
       }
       if (code === 'TRIAL_EXHAUSTED' || code === 'AI_NOT_ENTITLED' || code === 'MONTHLY_POINT_CAP_REACHED'
         || code === 'MONTHLY_POINT_CAP_WOULD_BE_EXCEEDED' || code === 'MONTHLY_PROVIDER_COST_CAP_REACHED') {
-        throw new Error('目前 AI 額度已用完。FREE 手動紀錄仍可正常使用；可到 AFTERTRACE Web 升級 AI Pro。');
+        throw new Error('目前 AI 額度已用完。FREE 手動紀錄仍可正常使用；可到 AFTERTRACE Web 升級訂閱方案。');
       }
       if (code === 'PER_REQUEST_POINT_CAP_EXCEEDED') {
         throw new Error('這張截圖超過目前單次 AI 使用上限，請縮小畫面後再試。');
@@ -90,7 +90,7 @@ screenshotAction?.addEventListener('click', async () => {
 
     screenshotPreviewElement.src = '';
     screenshotPreviewElement.classList.add('hidden');
-    setScreenshotStatus(`已用 ${body?.entitlementSource === 'FREE_TRIAL' ? 'AI 試用額度' : 'AI Pro'} 整理截圖並儲存到 AFTERTRACE。`);
+    setScreenshotStatus(`已用 ${body?.entitlementSource === 'FREE_TRIAL' ? 'AI 體驗額度' : '訂閱方案 AI 額度'} 整理截圖並儲存到 AFTERTRACE。`);
   } catch (error) {
     setScreenshotStatus(error instanceof Error ? error.message : '截圖 AI 儲存失敗，請稍後再試。');
   } finally {
@@ -135,7 +135,7 @@ function validScreenshotAuth(value) {
   if (!value || typeof value !== 'object') return null;
   if (typeof value.sessionToken !== 'string' || !value.sessionToken.trim() || value.sessionToken.length > 8192) return null;
   const apiBaseUrl = safeHttpsOrigin(value.apiBaseUrl);
-  if (!apiBaseUrl || !/^https:\/\/after-trace-api-(?:dev|prod)\.a0955625660\.workers\.dev$/.test(apiBaseUrl)) return null;
+  if (!apiBaseUrl || !/^https:\/\/after-trace-api-(?:dev|prod)\.after-lab\.workers\.dev$/.test(apiBaseUrl)) return null;
   const expiresAt = typeof value.sessionExpiresAt === 'string' ? new Date(value.sessionExpiresAt) : null;
   if (!(expiresAt instanceof Date) || !Number.isFinite(expiresAt.getTime())) return null;
   const remainingMs = expiresAt.getTime() - Date.now();
