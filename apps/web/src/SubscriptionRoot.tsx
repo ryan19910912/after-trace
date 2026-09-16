@@ -117,7 +117,7 @@ export function SubscriptionRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
   }
 
   async function cancelRenewal() {
-    if (!session || data?.currentPlanCode === 'FREE' || renewalState !== 'ACTIVE' || !paymentAvailable || busy) return;
+    if (!session || !data || data.currentPlanCode === 'FREE' || renewalState !== 'ACTIVE' || !paymentAvailable || busy) return;
     const currentPlan = data.plans.find((plan) => plan.code === data.currentPlanCode);
     const planName = currentPlan?.display_name ?? '目前訂閱方案';
     if (!window.confirm(`確定取消 ${planName} 自動續訂？取消後不會再自動扣款，已付款的本期仍可使用到週期結束。`)) return;
