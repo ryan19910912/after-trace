@@ -24,6 +24,7 @@ export type GeminiWorklogAttachmentOptions = {
 };
 
 const THINKING_LEVEL = 'low';
+const IMAGE_RESERVATION_INPUT_UNITS = 8_000;
 
 const outputSchema = z.object({
   raw_text: z.string().trim().min(1).max(20_000),
@@ -71,7 +72,15 @@ export class GeminiWorklogAttachmentNormalizer implements AiMediaProvider {
   reservationPoints(content: AiMediaProviderContent, config: WorklogAiRuntimeConfigSnapshot): number {
     this.assertConfig(config);
     const outputBudget = this.maxOutputTokens;
-    const upperBoundUnits = content.byteLength + 8_000 + outputBudget + outputBudget;
+    const inputType = attachmentType(content.mimeType);
+    // Encoded image bytes are not Gemini billing units. Treating a PNG/JPEG byte size as
+    // tokens made ordinary screenshots reserve hundreds of thousands of points and falsely
+    // block FREE users with remaining allowance. Use a conservative image-token ceiling;
+    // keep byte-based estimation for audio/files until those inputs expose richer metadata.
+    const inputBudgetUnits = inputType === 'IMAGE'
+      ? IMAGE_RESERVATION_INPUT_UNITS
+      : content.byteLength + 8_000;
+    const upperBoundUnits = inputBudgetUnits + outputBudget + outputBudget;
     if (!Number.isSafeInteger(upperBoundUnits) || upperBoundUnits <= 0) {
       throw new WorklogAttachmentProviderError('AI_RESERVATION_ESTIMATE_INVALID', 'attachment reservation estimate invalid');
     }
