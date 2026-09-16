@@ -3,8 +3,8 @@ const AUTH_KEY = 'aftertraceAuth';
 const PENDING_CONNECT_KEY = 'aftertracePendingConnectNonce';
 
 const WEB_TO_API = new Map([
-  ['https://after-trace-web-dev.a0955625660.workers.dev', 'https://after-trace-api-dev.a0955625660.workers.dev'],
-  ['https://after-trace-web-prod.a0955625660.workers.dev', 'https://after-trace-api-prod.a0955625660.workers.dev'],
+  ['https://after-trace-web-dev.after-lab.workers.dev', 'https://after-trace-api-dev.after-lab.workers.dev'],
+  ['https://after-trace-web-prod.after-lab.workers.dev', 'https://after-trace-api-prod.after-lab.workers.dev'],
 ]);
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -51,7 +51,9 @@ async function acceptWebSessionHandoff(message, sender) {
     throw new Error('EXTENSION_CONNECT_MESSAGE_INVALID');
   }
 
-  const senderOrigin = safeOrigin(sender.url);
+  // Chrome MV3 may populate MessageSender.origin while sender.url can be missing
+  // for externally-connectable messages. Prefer origin, then fall back to url.
+  const senderOrigin = safeOrigin(sender?.origin) ?? safeOrigin(sender?.url);
   const expectedApiBaseUrl = senderOrigin ? WEB_TO_API.get(senderOrigin) : null;
   if (!senderOrigin || !expectedApiBaseUrl) throw new Error('EXTENSION_CONNECT_ORIGIN_FORBIDDEN');
 
@@ -81,9 +83,9 @@ async function acceptWebSessionHandoff(message, sender) {
 }
 
 function safeOrigin(value) {
-  if (!value) return null;
+  if (typeof value !== 'string' || !value.trim()) return null;
   try {
-    return new URL(value).origin;
+    return new URL(value.trim()).origin;
   } catch {
     return null;
   }
