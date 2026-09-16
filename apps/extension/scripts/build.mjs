@@ -43,6 +43,10 @@ background = background.replace(
   /const WEB_TO_API = new Map\(\[[\s\S]*?\]\);/,
   `const WEB_TO_API = new Map([[\n  ['${webAppUrl}', '${apiBaseUrl}'],\n]]);`,
 );
+background = background.replace(
+  /const senderOrigin = safeOrigin\(sender\?\.origin\) \?\? safeOrigin\(sender\?\.url\) \?\? claimedWebAppUrl;\s*const expectedApiBaseUrl = senderOrigin \? WEB_TO_API\.get\(senderOrigin\) : null;/,
+  `const candidateOrigins = [safeOrigin(sender?.origin), safeOrigin(sender?.url), claimedWebAppUrl].filter(Boolean);\n  const senderOrigin = candidateOrigins.find((candidate) => WEB_TO_API.has(candidate)) ?? null;\n  const expectedApiBaseUrl = senderOrigin ? WEB_TO_API.get(senderOrigin) : null;`,
+);
 await writeFile(backgroundPath, background, 'utf8');
 
 const popupHtmlPath = path.join(outDir, 'popup.html');
