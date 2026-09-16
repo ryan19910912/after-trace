@@ -24,7 +24,7 @@ export type GeminiWorklogAttachmentOptions = {
 };
 
 const THINKING_LEVEL = 'low';
-const IMAGE_RESERVATION_INPUT_UNITS = 8_000;
+const IMAGE_RESERVATION_INPUT_UNITS = 12_000;
 
 const outputSchema = z.object({
   raw_text: z.string().trim().min(1).max(20_000),
@@ -72,15 +72,10 @@ export class GeminiWorklogAttachmentNormalizer implements AiMediaProvider {
   reservationPoints(content: AiMediaProviderContent, config: WorklogAiRuntimeConfigSnapshot): number {
     this.assertConfig(config);
     const outputBudget = this.maxOutputTokens;
-    const inputType = attachmentType(content.mimeType);
-    // Encoded image bytes are not Gemini billing units. Treating a PNG/JPEG byte size as
-    // tokens made ordinary screenshots reserve hundreds of thousands of points and falsely
-    // block FREE users with remaining allowance. Use a conservative image-token ceiling;
-    // keep byte-based estimation for audio/files until those inputs expose richer metadata.
-    const inputBudgetUnits = inputType === 'IMAGE'
+    const inputUnits = content.mimeType.toLowerCase().startsWith('image/')
       ? IMAGE_RESERVATION_INPUT_UNITS
       : content.byteLength + 8_000;
-    const upperBoundUnits = inputBudgetUnits + outputBudget + outputBudget;
+    const upperBoundUnits = inputUnits + outputBudget + outputBudget;
     if (!Number.isSafeInteger(upperBoundUnits) || upperBoundUnits <= 0) {
       throw new WorklogAttachmentProviderError('AI_RESERVATION_ESTIMATE_INVALID', 'attachment reservation estimate invalid');
     }
@@ -106,17 +101,22 @@ export class GeminiWorklogAttachmentNormalizer implements AiMediaProvider {
     const inputType = attachmentType(content.mimeType);
     const request = buildRequest(content, inputType, instruction, this.maxOutputTokens);
     const startedAt = Date.now();
+    const requestUrl = `${this.endpoint}/models/${encodeURIComponent(config.model.trim())}:generateContent`;
     let response: Response;
     try {
-      response = await this.fetchFn(`${this.endpoint}/models/${encodeURIComponent(config.model.trim())}:generateContent`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-goog-api-key': this.options.apiKey.trim(),
-        },
-        body: JSON.stringify(request),
-      });
-    } catch {
+      response = await this.fetchGemini(requestUrl, request);
+    } catch (error) {
+      const detail = networkErrorDetail(error);
+      console.error(JSON.stringify({
+        event: 'gemini_attachment_network_error',
+        endpoint: this.endpoint,
+        model: config.model.trim(),
+        inputType,
+        mimeType: content.mimeType,
+        byteLength: content.byteLength,
+        errorName: detail.name,
+        errorMessage: detail.message,
+      }));
       throw new WorklogAttachmentProviderError('GEMINI_NETWORK_ERROR', 'Gemini attachment request failed before response');
     }
     if (!response.ok) {
@@ -161,6 +161,28 @@ export class GeminiWorklogAttachmentNormalizer implements AiMediaProvider {
       providerResponseId: body.responseId?.slice(0, 255) ?? null,
       latencyMs: Math.max(0, Date.now() - startedAt),
     };
+  }
+
+  private async fetchGemini(requestUrl: string, request: unknown): Promise<Response> {
+    const init: RequestInit = {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-goog-api-key': this.options.apiKey.trim(),
+      },
+      body: JSON.stringify(request),
+    };
+    try {
+      return await this.fetchFn(requestUrl, init);
+    } catch (firstError) {
+      console.warn(JSON.stringify({
+        event: 'gemini_attachment_network_retry',
+        endpoint: this.endpoint,
+        errorName: networkErrorDetail(firstError).name,
+        errorMessage: networkErrorDetail(firstError).message,
+      }));
+      return await this.fetchFn(requestUrl, init);
+    }
   }
 
   private assertConfig(config: WorklogAiRuntimeConfigSnapshot) {
@@ -296,6 +318,16 @@ function safeAddTokens(left: number, right: number, label: string): number {
     throw new WorklogAttachmentProviderError('GEMINI_INVALID_RESPONSE', `Gemini ${label} usage overflow`);
   }
   return total;
+}
+
+function networkErrorDetail(error: unknown): { name: string; message: string } {
+  if (error instanceof Error) {
+    return {
+      name: error.name || 'Error',
+      message: error.message.slice(0, 500),
+    };
+  }
+  return { name: 'UnknownError', message: String(error).slice(0, 500) };
 }
 
 function positiveInteger(value: number, label: string) {
