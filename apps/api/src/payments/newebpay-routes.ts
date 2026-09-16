@@ -35,15 +35,6 @@ export type NewebPayBindings = {
 };
 
 type Env = { Bindings: NewebPayBindings; Variables: { userId: number; database: Database } };
-type AdapterRow = {
-  user_id?: unknown;
-  status?: unknown;
-  period_no?: unknown;
-  merchant_order_no?: unknown;
-  current_period_start?: unknown;
-  current_period_end?: unknown;
-  checkout_intent_id?: unknown;
-};
 type CheckoutPlan = { code: string; displayName: string; amountTwd: number };
 
 export function createNewebPayRoutes() {
