@@ -63,6 +63,20 @@ describe('GeminiWorklogAttachmentNormalizer modality usage', () => {
     expect(String(fetchFn.mock.calls[0]?.[0])).toContain('/models/gemini-3.5-flash-lite:generateContent');
   });
 
+  it('does not price a screenshot by encoded byte size when reserving points', () => {
+    const normalizer = new GeminiWorklogAttachmentNormalizer({ apiKey: 'test-key' });
+    const screenshot: AiMediaProviderContent = {
+      mimeType: 'image/png',
+      byteLength: 1_000_000,
+      dataBase64: 'YWJj',
+    };
+
+    const points = normalizer.reservationPoints(screenshot, config);
+
+    expect(points).toBeLessThan(50_000);
+    expect(points).toBe(normalizer.reservationPoints({ ...screenshot, byteLength: 4_000_000 }, config));
+  });
+
   it('does not invent a media split when Gemini omits promptTokensDetails', async () => {
     const normalizer = new GeminiWorklogAttachmentNormalizer({
       apiKey: 'test-key',
