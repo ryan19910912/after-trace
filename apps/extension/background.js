@@ -51,9 +51,11 @@ async function acceptWebSessionHandoff(message, sender) {
     throw new Error('EXTENSION_CONNECT_MESSAGE_INVALID');
   }
 
-  // Chrome MV3 may populate MessageSender.origin while sender.url can be missing
-  // for externally-connectable messages. Prefer origin, then fall back to url.
-  const senderOrigin = safeOrigin(sender?.origin) ?? safeOrigin(sender?.url);
+  const claimedWebAppUrl = origin(message.webAppUrl);
+  // externally_connectable in the manifest already restricts which web origins can
+  // reach this listener. Some Chrome builds do not expose sender.origin/url here,
+  // so use the validated message webAppUrl as the final fallback.
+  const senderOrigin = safeOrigin(sender?.origin) ?? safeOrigin(sender?.url) ?? claimedWebAppUrl;
   const expectedApiBaseUrl = senderOrigin ? WEB_TO_API.get(senderOrigin) : null;
   if (!senderOrigin || !expectedApiBaseUrl) throw new Error('EXTENSION_CONNECT_ORIGIN_FORBIDDEN');
 
@@ -61,7 +63,7 @@ async function acceptWebSessionHandoff(message, sender) {
   const sessionToken = text(message.sessionToken, 8192);
   const sessionExpiresAt = futureIso(message.sessionExpiresAt, 60 * 60 * 24 * 7);
   const apiBaseUrl = origin(message.apiBaseUrl);
-  const webAppUrl = origin(message.webAppUrl);
+  const webAppUrl = claimedWebAppUrl;
   if (!nonce || !sessionToken || !sessionExpiresAt || !apiBaseUrl || !webAppUrl) {
     throw new Error('EXTENSION_CONNECT_PAYLOAD_INVALID');
   }
