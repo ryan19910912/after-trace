@@ -4,6 +4,26 @@ AFTERTRACE 是一個結合 AI 的工作紀錄與知識整理平台，協助使�
 
 透過網頁、PWA 與 Chrome 擴充功能，使用者可以記錄文字、語音和網頁內容，再利用搜尋、摘要與待辦建議整理工作資訊。
 
+## 介面預覽
+
+### 前台登入
+
+透過 Google 或 LINE 登入，開始使用工作紀錄功能。
+
+![AFTERTRACE 前台登入畫面](docs/images/frontend-login.png)
+
+### 後台營運總覽
+
+管理帳號、商業方案、AI 模型與價格、公告及使用者回饋。
+
+![AFTERTRACE 後台營運總覽](docs/images/admin-overview.png)
+
+### Chrome 擴充功能
+
+快速輸入文字或語音紀錄，並可附上目前頁面資訊及擷取可見畫面。下圖為尚未連接帳號的介面。
+
+<img src="docs/images/chrome-extension.png" alt="AFTERTRACE Chrome 擴充功能快速紀錄介面" width="420" />
+
 ## 主要功能
 
 - **工作紀錄**：新增、編輯與刪除紀錄，以時間軸、關鍵字及日期篩選查找內容。
