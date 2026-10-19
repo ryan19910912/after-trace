@@ -14,3 +14,6 @@ coverage/
 aftertrace-schema.sql
 aftertrace-extension-dev.zip
 aftertrace-extension-prod.zip
+
+# Local IDE settings
+.idea/

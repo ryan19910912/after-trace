@@ -77,6 +77,13 @@ export function createWebAuthRoutes() {
     return c.body(null, 204);
   });
 
+  app.use('/google/*', async (c, next) => {
+    c.header('Cache-Control', 'no-store');
+    c.header('Pragma', 'no-cache');
+    c.header('Referrer-Policy', 'no-referrer');
+    await next();
+  });
+
   app.get('/providers', (c) => c.json({ ok: true, providers: loginProviderAvailability(c.env) }));
 
   app.get('/google/start', async (c) => {
@@ -95,7 +102,9 @@ export function createWebAuthRoutes() {
     authorizeUrl.searchParams.set('code_challenge', await createPkceChallenge(verifier));
     authorizeUrl.searchParams.set('code_challenge_method', 'S256');
     authorizeUrl.searchParams.set('prompt', 'select_account');
-    c.header('Set-Cookie', oauthCookie(GOOGLE_OAUTH_COOKIE, '/api/v1/auth/google', `${state}|${verifier}`, c.req.url, 600));
+    // A host-only, transaction-specific cookie avoids stale parent-domain cookies and
+    // concurrent login attempts overwriting each other's PKCE verifier.
+    c.header('Set-Cookie', oauthCookie(googleOauthCookieName(state, c.req.url), '/', `${state}|${verifier}`, c.req.url, 600));
     return c.redirect(authorizeUrl.toString(), 302);
   });
 
@@ -105,19 +114,31 @@ export function createWebAuthRoutes() {
     if (!secret || !config) return c.json({ ok: false, error: 'GOOGLE_LOGIN_NOT_CONFIGURED' }, 503);
     const code = c.req.query('code')?.trim();
     const state = c.req.query('state')?.trim();
-    const stored = storedOauthState(cookieValue(c.req.header('cookie'), GOOGLE_OAUTH_COOKIE));
-    c.header('Set-Cookie', oauthCookie(GOOGLE_OAUTH_COOKIE, '/api/v1/auth/google', '', c.req.url, 0));
-    if (!code || !state || !stored || state !== stored.state || !(await verifyGoogleLoginState(state, secret))) {
-      return c.json({ ok: false, error: 'INVALID_GOOGLE_LOGIN_CALLBACK' }, 400);
+    const validState = Boolean(state && await verifyGoogleLoginState(state, secret));
+    const transactionCookie = validState ? googleOauthCookieName(state!, c.req.url) : null;
+    const header = c.req.header('cookie');
+    const currentCookie = transactionCookie ? cookieValue(header, transactionCookie) : null;
+    // Accept existing in-flight logins for one TTL after deployment. Search all legacy
+    // cookies, rather than trusting the first cookie when multiple paths/domains exist.
+    const stored = storedOauthState(currentCookie) ?? (validState ? matchingLegacyGoogleState(header, state!) : null);
+    const reason = !code ? 'MISSING_CODE' : !state ? 'MISSING_STATE'
+      : !validState ? 'INVALID_OR_EXPIRED_STATE' : !stored ? 'MISSING_LOGIN_COOKIE'
+      : state !== stored.state ? 'STATE_COOKIE_MISMATCH' : null;
+    if (reason) {
+      // Never log query strings, OAuth codes, state values, cookies, or secrets.
+      console.warn(JSON.stringify({ event: 'google_login_callback_rejected', reason }));
+      return c.json({ ok: false, error: 'INVALID_GOOGLE_LOGIN_CALLBACK', reason }, 400);
     }
+    c.header('Set-Cookie', oauthCookie(transactionCookie!, '/', '', c.req.url, 0));
+    c.header('Set-Cookie', oauthCookie(GOOGLE_OAUTH_COOKIE, '/api/v1/auth/google', '', c.req.url, 0), { append: true });
 
     const redirectUri = new URL('/api/v1/auth/google/callback', c.req.url).toString();
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
-        grant_type: 'authorization_code', code, redirect_uri: redirectUri,
-        client_id: config.clientId, client_secret: config.clientSecret, code_verifier: stored.verifier,
+        grant_type: 'authorization_code', code: code!, redirect_uri: redirectUri,
+        client_id: config.clientId, client_secret: config.clientSecret, code_verifier: stored!.verifier,
       }),
     });
     if (!tokenResponse.ok) return c.json({ ok: false, error: 'GOOGLE_LOGIN_EXCHANGE_FAILED' }, 502);
@@ -132,13 +153,22 @@ export function createWebAuthRoutes() {
     const profile = await profileResponse.json() as GoogleUserInfo;
     if (typeof profile.sub !== 'string' || !profile.sub.trim()) return c.json({ ok: false, error: 'GOOGLE_PROFILE_FAILED' }, 502);
 
-    const account = await provision(c.env.DATABASE_URL, {
-      provider: 'GOOGLE',
-      subject: profile.sub,
-      emailSnapshot: typeof profile.email === 'string' ? profile.email : null,
-      displayNameSnapshot: typeof profile.name === 'string' ? profile.name : null,
-    });
-    return c.redirect(webSessionRedirect(config.webAppUrl, await issueWebSessionToken({ userId: account.userId, secret })), 302);
+    try {
+      const account = await provision(c.env.DATABASE_URL, {
+        provider: 'GOOGLE',
+        subject: profile.sub,
+        emailSnapshot: typeof profile.email === 'string' ? profile.email : null,
+        displayNameSnapshot: typeof profile.name === 'string' ? profile.name : null,
+      });
+      return c.redirect(webSessionRedirect(config.webAppUrl, await issueWebSessionToken({ userId: account.userId, secret })), 302);
+    } catch (error) {
+      const quotaExceeded = isDatabaseQuotaError(error);
+      const code = quotaExceeded ? 'DATABASE_QUOTA_EXCEEDED' : 'GOOGLE_ACCOUNT_SETUP_FAILED';
+      console.error(JSON.stringify({ event: 'google_login_account_setup_failed', code }));
+      return c.json({ ok: false, error: code,
+        message: quotaExceeded ? '資料庫服務額度已用盡，請聯絡管理員恢復資料庫服務後再登入。' : '登入帳號初始化失敗，請稍後再試。',
+      }, quotaExceeded ? 503 : 500);
+    }
   });
 
   app.get('/line/start', async (c) => {
@@ -177,7 +207,7 @@ export function createWebAuthRoutes() {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
-        grant_type: 'authorization_code', code, redirect_uri: redirectUri,
+        grant_type: 'authorization_code', code: code!, redirect_uri: redirectUri,
         client_id: config.channelId, client_secret: config.channelSecret, code_verifier: stored.verifier,
       }),
     });
@@ -250,7 +280,7 @@ export function createWebAuthRoutes() {
     try {
       tokenResponse = await fetch('https://appleid.apple.com/auth/token', {
         method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: redirectUri, client_id: config.clientId, client_secret: clientSecret }),
+        body: new URLSearchParams({ grant_type: 'authorization_code', code: code!, redirect_uri: redirectUri, client_id: config.clientId, client_secret: clientSecret }),
       });
     } catch {
       return c.json({ ok: false, error: 'APPLE_LOGIN_EXCHANGE_FAILED' }, 502);
@@ -324,6 +354,23 @@ function validWebUrl(value: string | undefined, httpsOnly = false): string | nul
   } catch { return null; }
 }
 
+
+function googleOauthCookieName(state: string, requestUrl: string): string {
+  const signature = state.split('.')[1];
+  if (!signature || !/^[A-Za-z0-9_-]{43}$/.test(signature)) throw new Error('Invalid signed Google state');
+  const prefix = new URL(requestUrl).protocol === 'https:' ? '__Host-' : '';
+  return `${prefix}${GOOGLE_OAUTH_COOKIE}_${signature}`;
+}
+
+function matchingLegacyGoogleState(header: string | undefined, state: string): { state: string; verifier: string } | null {
+  if (!header) return null;
+  for (const part of header.split(';')) {
+    const candidate = storedOauthState(cookieValue(part, GOOGLE_OAUTH_COOKIE));
+    if (candidate?.state === state) return candidate;
+  }
+  return null;
+}
+
 function cookieValue(header: string | undefined, name: string): string | null {
   if (!header) return null;
   for (const part of header.split(';')) {
@@ -352,4 +399,15 @@ function webSessionRedirect(webAppUrl: string, sessionToken: string): string {
   const webUrl = new URL(webAppUrl);
   webUrl.hash = new URLSearchParams({ session: sessionToken }).toString();
   return webUrl.toString();
+}
+
+// Drizzle wraps provider errors in `cause`; do not expose SQL, parameters or connection URLs.
+function isDatabaseQuotaError(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 6 && current && typeof current === 'object'; depth++) {
+    const value = current as { message?: unknown; cause?: unknown };
+    if (typeof value.message === 'string' && /(?:exceeded.{0,40}quota|quota.{0,40}(?:exceeded|exhausted))/i.test(value.message)) return true;
+    current = value.cause;
+  }
+  return false;
 }

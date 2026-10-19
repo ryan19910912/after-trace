@@ -9,7 +9,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const environment = String(process.argv[2] ?? '').trim().toLowerCase();
 const component = String(process.argv[3] ?? 'all').trim().toLowerCase();
 const wranglerConfig = {
-  api: resolve(root, 'apps/api/wrangler.toml'),
+  api: resolve(root, environment === 'dev' ? 'apps/api/wrangler.dev.toml' : 'apps/api/wrangler.toml'),
   web: resolve(root, 'apps/web/wrangler.toml'),
   admin: resolve(root, 'apps/admin/wrangler.toml'),
 };
