@@ -1,62 +1,27 @@
 # AFTERTRACE
 
-AFTERTRACE is a **Web + PWA-first work-memory product** with a compact Chrome extension for fast desktop capture.
+AFTERTRACE 是一個結合 AI 的工作紀錄與知識整理平台，協助使用者快速保存工作中發生的事情，並在需要時找回相關資訊。
 
-Core promise:
+透過網頁、PWA 與 Chrome 擴充功能，使用者可以記錄文字、語音和網頁內容，再利用搜尋、摘要與待辦建議整理工作資訊。
 
-> 快速留下工作發生過的事，需要時找得到。
+## 主要功能
 
-Development for the current V1 rebuild is on `revive/line-worklog`.
+- **工作紀錄**：新增、編輯與刪除紀錄，以時間軸、關鍵字及日期篩選查找內容。
+- **AI 輔助整理**：處理文字、圖片與支援的音訊、文件輸入，提供自然語言搜尋、摘要、相關紀錄及待辦建議。
+- **個人與群組空間**：區分私人紀錄與群組資料，透過邀請連結及成員權限管理協作。
+- **待辦與通知**：管理待辦事項、提醒與通知中心，支援 Web Push 推播。
+- **快速擷取**：使用 Chrome 擴充功能保存選取文字、網頁標題、網址與截圖。
+- **帳號與管理後台**：整合第三方登入，提供帳號查詢、公告、使用者回饋及 AI 額度管理。
 
-## V1 product
+## 使用技術
 
-- Web/PWA manual Record CRUD, timeline, deterministic search and date filtering.
-- Provider-free browser/device speech-to-text for quick voice input where supported.
-- PRIVATE Sources and AFTERTRACE-native GROUP Sources with invite links and server-side membership authorization.
-- Google Login, LINE Login and Apple Login as provider-neutral authentication providers.
-- Immutable opaque customer-facing `帳號 ID` for support lookup.
-- FREE manual product plus one idempotent Admin-configured one-time AI trial allowance.
-- AI Pro at **NT$99/month** with per-user entitlement, monthly resource limits, provider-cost hard cap and optional per-request cap.
-- Provider-backed AI text, voice/audio, image, supported file/PDF input, natural-language search, Related Records, bounded time-range summaries, explicit rewrite proposals and AI Task proposals.
-- Native Tasks/reminders, durable notification center, Web/PWA Push and Admin announcements.
-- In-product Feedback with Admin workflow.
-- NewebPay / 藍新信用卡定期定額 for AI Pro subscription transport.
-- Chrome extension quick text, selected text, browser speech-to-text, optional page title/URL context and explicit visible-tab screenshot/image AI.
-
-## LINE boundary
-
-LINE is **not** a Record/group/AI product surface.
-
-- LINE Login remains a supported login provider.
-- The official LINE OA remains an external customer-support contact channel.
-- LINE webhook product commands, bot GROUP authorization, `小跡`, GROUP AI funding/responsible-user flows, LINE Reply caches and LINE attachment ingestion are retired and must not be rebuilt without a new explicit product decision.
-
-## Commercial model
-
-V1 has exactly two customer plans:
-
-- `FREE` — NT$0
-- `AI_PRO` — NT$99/month
-
-There is no ONE_TIME top-up and no third paid tier in V1.
-
-FREE remains a complete manual product. New eligible FREE accounts may receive one configured AI trial grant. Trial points are not a TWD cash balance and do not refresh monthly.
-
-## Deployment
-
-AFTERTRACE uses Cloudflare Workers only:
-
-- Dev: `after-trace-api-dev`, `after-trace-web-dev`, `after-trace-admin-dev`
-- Prod: `after-trace-api-prod`, `after-trace-web-prod`, `after-trace-admin-prod`
-
-Deployment is manual. PostgreSQL is the durable data store. The API Worker owns one shared approximately five-minute Cron for scheduled announcements, Task reminders and pending Push delivery.
-
-The current prelaunch canonical `drizzle/0000` is known stale and must be regenerated from the current TypeScript schema before clean database rebuild/deployment. Existing prelaunch Dev/current Prod data are disposable until real customer data exists.
-
-## Development contract
-
-Read the current documents in the exact order defined by `docs/WORKLOG_DEVELOPMENT_POLICY.md`.
-
-The authoritative product documents describe only the Web/PWA/Chrome V1 target. Historical LINE-first behavior is not a compatibility requirement.
-
-Do not run or modify GitHub Actions unless the user explicitly requests it. Do not claim tests passed unless they were actually executed successfully.
+| 類別 | 技術 |
+| --- | --- |
+| 前端 | React、TypeScript、Vite、PWA |
+| 後端 | TypeScript、Hono、Cloudflare Workers |
+| 資料庫 | PostgreSQL、Neon、Drizzle ORM |
+| AI | Google Gemini API |
+| 登入驗證 | Google／LINE／Apple 登入、OAuth 2.0、PKCE |
+| 瀏覽器整合 | Chrome Extension、Web Speech API、Web Push |
+| 訂閱付款 | 藍新金流定期定額串接 |
+| 測試與開發工具 | Vitest、ESLint、pnpm、Wrangler、Git |
