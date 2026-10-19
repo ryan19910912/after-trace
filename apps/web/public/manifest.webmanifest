@@ -1,19 +1,34 @@
 {
-  "name": "AFTERTRACE 運動場地空位雷達",
+  "name": "AFTERTRACE 工作紀錄",
   "short_name": "AFTERTRACE",
-  "description": "跨場館搜尋公共運動場地空位，沒位時用 Radar 持續追蹤。",
+  "description": "快速留下工作發生過的事，需要時找得到。",
+  "lang": "zh-Hant",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#f3f7f4",
-  "theme_color": "#15221b",
-  "lang": "zh-Hant",
+  "background_color": "#06111f",
+  "theme_color": "#06111f",
   "icons": [
     {
-      "src": "/icon.svg",
+      "src": "/aftertrace-icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "any"
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "快速紀錄",
+      "short_name": "紀錄",
+      "description": "開啟 AFTERTRACE 紀錄列表並快速輸入文字或語音。",
+      "url": "/",
+      "icons": [
+        {
+          "src": "/aftertrace-icon.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
+        }
+      ]
     }
   ]
 }

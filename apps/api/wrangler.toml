@@ -1,10 +1,26 @@
-name = "after-trace-api"
-main = "src/index.ts"
+name = "after-trace-api-prod"
+main = "src/worker.ts"
 compatibility_date = "2026-08-29"
 compatibility_flags = ["nodejs_compat"]
+keep_vars = true
+workers_dev = true
+preview_urls = false
 
+# Runtime Variables/Secrets are configured separately on each Cloudflare Worker.
+# Local development reads them from .env.local. Dev/prod deployment does not share
+# database bindings, Web/Admin origins, auth secrets, provider credentials or payment secrets.
+# Manual deployment scripts always pass the exact --name target so Dev and Prod
+# map to after-trace-api-dev / after-trace-api-prod respectively.
+
+# One shared notification/reminder scheduler for the whole API Worker. It scans bounded
+# scheduled ANNOUNCEMENTs, due TASK reminders, then pending PUSH recipients. Never create
+# one Cron Trigger per task/reminder.
 [triggers]
-crons = ["* * * * *"]
+crons = ["*/5 * * * *"]
 
 [observability]
 enabled = true
+
+[observability.logs]
+enabled = true
+invocation_logs = true

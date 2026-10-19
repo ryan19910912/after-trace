@@ -1,0 +1,67 @@
+.at-app-shell{min-height:100vh;background:radial-gradient(circle at 78% -10%,rgba(25,113,224,.14),transparent 32rem),radial-gradient(circle at 30% 10%,rgba(31,92,163,.09),transparent 28rem),linear-gradient(180deg,#07111f 0%,#07101c 54%,#06101b 100%)}
+.at-sidebar{position:fixed;inset:0 auto 0 0;z-index:50;width:240px;padding:24px 20px;border-right:1px solid rgba(74,124,184,.24);background:radial-gradient(circle at 18% 0%,rgba(45,132,236,.12),transparent 16rem),linear-gradient(180deg,rgba(5,16,29,.99),rgba(4,13,24,.99));box-shadow:16px 0 48px rgb(0 0 0 / 15%)}
+.at-sidebar-brand{display:flex;align-items:center;gap:12px;min-height:52px;padding:4px 7px}
+.at-sidebar-brand img{width:44px;height:44px;flex:0 0 44px;border:1px solid rgba(71,145,232,.35);border-radius:12px;box-shadow:0 0 26px rgba(37,135,246,.18),0 8px 20px rgb(0 0 0 / 24%)}
+.at-sidebar-brand span{font-size:16px;font-weight:800;letter-spacing:.13em}
+.at-sidebar-nav{display:flex!important;flex-direction:column;align-items:stretch!important;gap:9px!important;width:100%!important;max-width:none!important;margin-top:38px!important;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important}
+.at-sidebar-nav a{display:flex!important;align-items:center!important;gap:13px!important;min-width:0!important;min-height:52px!important;padding:13px 14px!important;border:1px solid transparent!important;border-radius:12px!important;background:transparent!important;color:#a9bdd3!important;font-size:16px!important;font-weight:780!important;text-align:left!important;box-shadow:none!important}
+.at-sidebar-nav a:hover{border-color:rgba(68,126,190,.22)!important;background:rgba(26,67,109,.28)!important;color:#fff!important}
+.at-sidebar-nav a.active{border-color:rgba(91,167,255,.52)!important;background:linear-gradient(180deg,rgba(38,111,183,.88),rgba(24,75,126,.9))!important;color:#fff!important;box-shadow:inset 0 0 0 1px rgba(177,218,255,.13),0 10px 22px rgba(12,68,126,.18),0 0 24px rgba(43,136,238,.08)!important}
+.at-nav-icon{display:grid;width:23px;height:23px;place-items:center;color:#88bdf7;font-size:20px;line-height:1}
+.at-topbar{position:fixed;top:0;right:0;left:240px;z-index:55;display:flex;align-items:center;justify-content:flex-end;height:74px;padding:11px 32px;border-bottom:1px solid rgba(74,124,184,.22);background:rgba(5,14,25,.88);box-shadow:0 12px 30px rgb(0 0 0 / 12%);backdrop-filter:blur(22px)}
+.at-mobile-header{display:none}
+.at-app-content{min-height:100vh;margin-left:240px;padding-top:74px}
+.at-app-content>.shell{width:min(1420px,calc(100vw - 304px));max-width:none;margin:0 auto;padding:34px 32px 82px;font-size:16px}
+.at-app-content>.fatal-shell{min-height:calc(100vh - 74px)}
+.at-topbar .account-chrome-actions{position:static!important;display:flex!important;gap:10px!important;min-height:46px!important;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important}
+.at-topbar .help-menu-trigger,.at-topbar .notification-bell,.at-topbar .account-trigger{min-height:44px!important;font-size:15px!important}
+.at-topbar .notification-bell{min-width:44px!important}
+.at-topbar .account-display-name{font-size:15px!important}
+.at-topbar .help-menu,.at-topbar .account-menu,.at-topbar .notification-center{top:calc(100% + 8px)!important}
+.at-app-content>.shell>.topbar>div>.eyebrow{display:none!important}
+.at-app-content>.shell>.topbar>div>.muted{color:#77f2a5!important;font-size:16px!important;font-weight:700!important;line-height:1.6!important;text-shadow:0 0 16px rgba(119,242,165,.12)}
+.at-app-content>.shell>.topbar h1{margin-top:0}
+.at-app-content>.shell input,.at-app-content>.shell select,.at-app-content>.shell textarea,.at-app-content>.shell button{font-size:15px}
+@media(max-width:760px){
+  body{padding-bottom:104px!important}
+  .at-app-shell{min-height:100vh}
+  .at-sidebar,.at-topbar{display:none}
+  .at-mobile-header{position:sticky;top:0;z-index:60;display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 12px;border-bottom:1px solid rgba(74,124,184,.22);background:rgba(5,14,25,.94);backdrop-filter:blur(18px)}
+  .at-mobile-header>.brand-home{gap:7px;min-width:0;min-height:42px}
+  .at-mobile-header>.brand-home img{width:32px;height:32px;flex-basis:32px;border-radius:9px}
+  .at-mobile-header>.brand-home span{min-height:42px;font-size:12px;letter-spacing:.08em}
+  .at-mobile-header .account-chrome-actions{position:static!important;display:flex!important;width:auto!important;min-width:0!important;min-height:42px!important;gap:6px!important;padding:0!important;border:0!important;background:transparent!important;box-shadow:none!important}
+  .at-mobile-header .help-menu-trigger{min-width:auto!important;padding-inline:10px!important;white-space:nowrap!important}
+  .at-mobile-header .help-menu-trigger span{display:inline!important}
+  .at-mobile-header .notification-bell{min-width:42px!important;width:42px!important;padding:0!important}
+  .at-mobile-header .account-trigger{min-width:0!important;padding-inline:8px!important}
+  .at-mobile-header .account-display-name{max-width:82px!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .at-app-content{margin-left:0;padding-top:0;min-width:0;overflow-x:hidden}
+  .at-app-content>.shell{width:100%;max-width:100%;min-width:0;margin:0;padding:22px 18px 40px;font-size:17px;overflow-x:hidden}
+  .at-app-content>.fatal-shell{width:100%;max-width:100%;padding-inline:18px}
+  .at-app-content>.fatal-shell .fatal-card{width:100%;max-width:100%;min-width:0;overflow:hidden}
+  .at-app-content>.fatal-shell .fatal-card *{max-width:100%;min-width:0}
+  .at-app-content>.fatal-shell .fatal-card p,.at-app-content>.fatal-shell .fatal-card .worklog-notice,.at-app-content>.fatal-shell .fatal-card strong{overflow-wrap:anywhere;word-break:break-word}
+  .at-app-content>.shell>.topbar{justify-content:center!important;align-items:center!important;margin-bottom:28px!important;text-align:center!important}
+  .at-app-content>.shell>.topbar>div{width:100%;text-align:center!important}
+  .at-app-content>.shell>.topbar h1{font-size:clamp(38px,10vw,46px)!important;line-height:1.08!important}
+  .at-app-content>.shell>.topbar>div>.muted{max-width:620px;margin:18px auto 0!important;color:#77f2a5!important;font-size:18px!important;font-weight:760!important;line-height:1.65!important;text-align:center!important}
+  .at-mobile-header .help-menu{position:fixed;top:62px;right:12px;width:min(260px,calc(100vw - 24px))}
+  .at-mobile-header .notification-center{position:fixed;top:62px;right:12px;left:12px;width:auto;max-height:calc(100vh - 156px)}
+  .at-mobile-header .account-menu{width:min(280px,calc(100vw - 24px))}
+  .mobile-bottom-nav{min-height:92px!important;padding:7px 8px calc(7px + env(safe-area-inset-bottom))!important;background:rgba(4,13,24,.98)!important;border-top:1px solid rgba(74,124,184,.32)!important;box-shadow:0 -10px 30px rgb(0 0 0 / 28%)!important}
+  .mobile-bottom-nav a{min-height:76px!important;padding:8px 4px!important;border-radius:16px!important;font-size:15px!important;font-weight:800!important;gap:5px!important}
+  .mobile-bottom-nav-icon{font-size:24px!important;line-height:1!important}
+  .mobile-bottom-nav a>span:last-child{font-size:15px!important;line-height:1.15!important}
+  .mobile-bottom-nav a.active{background:rgba(24,67,111,.48)!important;color:#fff!important;box-shadow:inset 0 2px 0 #5aaaff!important}
+}
+@media(max-width:380px){
+  .at-mobile-header>.brand-home span{display:none}
+  .at-mobile-header .account-display-name{max-width:68px!important}
+  .at-mobile-header .help-menu-trigger{padding-inline:8px!important}
+  .at-mobile-header .help-menu-trigger .account-chevron{width:14px;height:14px}
+  .mobile-bottom-nav a{font-size:14px!important}
+  .mobile-bottom-nav a>span:last-child{font-size:14px!important}
+  .mobile-bottom-nav-icon{font-size:22px!important}
+}
+@media(max-width:340px){.at-mobile-header .account-display-name{max-width:54px!important}}

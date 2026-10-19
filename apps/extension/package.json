@@ -1,0 +1,15 @@
+{
+  "name": "@aftertrace/extension",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "echo \"static extension package: no TypeScript yet\"",
+    "build": "pnpm run build:prod",
+    "build:dev": "node scripts/build.mjs dev",
+    "build:prod": "node scripts/build.mjs prod",
+    "pack:dev": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/pack.ps1 dev",
+    "pack:prod": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/pack.ps1 prod",
+    "test": "echo \"extension browser smoke required\""
+  }
+}

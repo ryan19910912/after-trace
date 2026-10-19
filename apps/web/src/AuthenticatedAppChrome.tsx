@@ -1,0 +1,331 @@
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { AccountNotificationApi, notificationCategoryLabel, safeNotificationHref, type AccountProfile, type NotificationCenter, type NotificationCenterItem } from './account-notification-api';
+import { PushNotificationSettings } from './PushNotificationSettings';
+import './account-notification.css';
+import './reference-shell.css';
+
+const SESSION_KEY = 'aftertrace.worklog.session';
+type Props = { apiBaseUrl: string; children: ReactNode };
+
+const desktopNav = [
+  { href: '/', label: '紀錄', icon: '▤', active: (path: string) => path === '/' || path.startsWith('/worklog') },
+  { href: '/tasks', label: '待辦', icon: '✓', active: (path: string) => path.startsWith('/tasks') },
+  { href: '/ai-search', label: '搜尋', icon: '⌕', active: (path: string) => path === '/ai-search' || path.startsWith('/ai-tools') || path.startsWith('/ai-task') },
+  { href: '/subscription', label: '方案', icon: '◇', active: (path: string) => path === '/subscription' },
+];
+
+export function AuthenticatedAppChrome({ apiBaseUrl, children }: Props) {
+  const api = useMemo(() => new AccountNotificationApi(apiBaseUrl), [apiBaseUrl]);
+  const loadGeneration = useRef(0);
+  const accountAnchorRef = useRef<HTMLDivElement | null>(null);
+  const helpAnchorRef = useRef<HTMLDivElement | null>(null);
+  const [session, setSession] = useState<string | null>(() => currentSessionToken());
+  const [profile, setProfile] = useState<AccountProfile | null>(null);
+  const [center, setCenter] = useState<NotificationCenter | null>(null);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [copyState, setCopyState] = useState<'IDLE' | 'COPIED' | 'FAILED'>('IDLE');
+  const [notificationError, setNotificationError] = useState<string | null>(null);
+  const [busyNotificationId, setBusyNotificationId] = useState<number | 'ALL' | null>(null);
+
+  const clearExpiredSession = useCallback((cause: unknown) => {
+    if (!isSessionError(cause)) return false;
+    clearStoredSession();
+    setSession(null);
+    return true;
+  }, []);
+
+  useEffect(() => {
+    let timer: number | null = null;
+    const sync = () => setSession(currentSessionToken());
+    const scheduleSync = () => {
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(sync, 0);
+    };
+    window.addEventListener('storage', sync);
+    window.addEventListener('hashchange', sync);
+    window.addEventListener('pageshow', sync);
+    window.addEventListener('focus', sync);
+    document.addEventListener('click', scheduleSync);
+    return () => {
+      if (timer !== null) window.clearTimeout(timer);
+      window.removeEventListener('storage', sync);
+      window.removeEventListener('hashchange', sync);
+      window.removeEventListener('pageshow', sync);
+      window.removeEventListener('focus', sync);
+      document.removeEventListener('click', scheduleSync);
+    };
+  }, []);
+
+  useEffect(() => {
+    loadGeneration.current += 1;
+    const generation = loadGeneration.current;
+    setNotificationsOpen(false);
+    setAccountOpen(false);
+    setHelpOpen(false);
+    setCopyState('IDLE');
+    setNotificationError(null);
+    if (!session) {
+      setProfile(null);
+      setCenter(null);
+      return;
+    }
+    void loadAuthenticatedChrome(session, generation);
+  }, [session, api]);
+
+  useEffect(() => {
+    if (!accountOpen && !helpOpen) return;
+    const close = (event: MouseEvent) => {
+      const target = event.target;
+      const element = target instanceof Element ? target : null;
+      if (accountOpen && !element?.closest('.account-menu-anchor')) setAccountOpen(false);
+      if (helpOpen && !element?.closest('.help-menu-anchor')) setHelpOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [accountOpen, helpOpen]);
+
+  async function loadAuthenticatedChrome(token: string, generation = loadGeneration.current) {
+    try {
+      const nextProfile = await api.profile(token);
+      if (generation !== loadGeneration.current) return;
+      setProfile(nextProfile);
+    } catch (cause) {
+      if (generation !== loadGeneration.current) return;
+      if (clearExpiredSession(cause)) return;
+      setProfile(null);
+      setNotificationError(message(cause, '帳號資料載入失敗'));
+    }
+    try {
+      const nextCenter = await api.notifications(token);
+      if (generation !== loadGeneration.current) return;
+      setCenter(nextCenter);
+    } catch (cause) {
+      if (generation !== loadGeneration.current) return;
+      if (clearExpiredSession(cause)) return;
+      setCenter(null);
+      setNotificationError((current) => current ?? message(cause, '通知載入失敗'));
+    }
+  }
+
+  async function copyAccountId() {
+    if (!profile) return;
+    try {
+      await copyText(profile.publicAccountId);
+      setCopyState('COPIED');
+      window.setTimeout(() => setCopyState('IDLE'), 1800);
+    } catch {
+      setCopyState('FAILED');
+      window.setTimeout(() => setCopyState('IDLE'), 2200);
+    }
+  }
+
+  function logout() {
+    clearStoredSession();
+    setNotificationsOpen(false);
+    setAccountOpen(false);
+    setHelpOpen(false);
+    setProfile(null);
+    setCenter(null);
+    setSession(null);
+    window.location.replace('/');
+  }
+
+  async function markRead(item: NotificationCenterItem, navigateAfter = false) {
+    if (!session) return;
+    const href = safeNotificationHref(item.deepLink);
+    setBusyNotificationId(item.id);
+    setNotificationError(null);
+    try {
+      let readAt = item.readAt;
+      if (!readAt) readAt = await api.markNotificationRead(session, item.id);
+      setCenter((current) => current ? {
+        ...current,
+        items: current.items.map((candidate) => candidate.id === item.id ? { ...candidate, readAt } : candidate),
+        unreadCount: item.readAt ? current.unreadCount : Math.max(0, current.unreadCount - 1),
+      } : current);
+      if (navigateAfter && href) window.location.href = href;
+    } catch (cause) {
+      if (!clearExpiredSession(cause)) setNotificationError(message(cause, '通知已讀狀態更新失敗'));
+    } finally {
+      setBusyNotificationId(null);
+    }
+  }
+
+  async function markAllRead() {
+    if (!session || !center?.unreadCount) return;
+    setBusyNotificationId('ALL');
+    setNotificationError(null);
+    try {
+      await api.markAllNotificationsRead(session);
+      const readAt = new Date().toISOString();
+      setCenter((current) => current ? {
+        ...current,
+        unreadCount: 0,
+        items: current.items.map((item) => item.readAt ? item : { ...item, readAt }),
+      } : current);
+    } catch (cause) {
+      if (!clearExpiredSession(cause)) setNotificationError(message(cause, '通知已讀狀態更新失敗'));
+    } finally {
+      setBusyNotificationId(null);
+    }
+  }
+
+  if (!session) return <>{children}</>;
+
+  const path = typeof window === 'undefined' ? '/' : window.location.pathname;
+
+  const utilityActions = <div className="account-chrome-actions">
+    <div className="help-menu-anchor" ref={helpAnchorRef}>
+      <button className="help-menu-trigger" aria-expanded={helpOpen} onClick={() => {
+        setAccountOpen(false);
+        setNotificationsOpen(false);
+        setHelpOpen((value) => !value);
+      }}>
+        <span>幫助</span>
+        <svg className="account-chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg>
+      </button>
+      {helpOpen ? <div className="help-menu" role="menu">
+        <a href="/mobile-shortcut" role="menuitem">手機桌面捷徑</a>
+        <a href="/extension/connect" role="menuitem">Chrome 擴充元件</a>
+        <a href="/help" role="menuitem">使用說明</a>
+        <a href="/feedback" role="menuitem">意見回饋</a>
+        <a href="/about" role="menuitem">關於我們</a>
+      </div> : null}
+    </div>
+
+    <div className="notification-anchor">
+      <button className="notification-bell" aria-label={center?.unreadCount ? `通知，${center.unreadCount} 則未讀` : '通知'} aria-expanded={notificationsOpen} onClick={() => {
+        setAccountOpen(false);
+        setHelpOpen(false);
+        setNotificationsOpen((value) => !value);
+      }}>
+        <span aria-hidden="true">🔔</span>
+        {center?.unreadCount ? <span className="notification-badge">{center.unreadCount > 99 ? '99+' : center.unreadCount}</span> : null}
+      </button>
+      {notificationsOpen ? <NotificationCenterPanel api={api} sessionToken={session} center={center} error={notificationError} busyNotificationId={busyNotificationId} onSessionError={clearExpiredSession} onMarkRead={(item) => void markRead(item)} onOpen={(item) => void markRead(item, true)} onMarkAll={() => void markAllRead()} onClose={() => setNotificationsOpen(false)} /> : null}
+    </div>
+
+    <div className="account-menu-anchor" ref={accountAnchorRef}>
+      <button className="account-trigger" aria-expanded={accountOpen} onClick={() => {
+        setNotificationsOpen(false);
+        setHelpOpen(false);
+        setAccountOpen((value) => !value);
+      }}>
+        <span className="account-display-name">{profile ? (profile.displayName ?? 'AFTERTRACE 使用者') : '帳號載入中…'}</span>
+        <svg className="account-chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg>
+      </button>
+      {accountOpen ? <div className="account-menu" role="menu">
+        {profile ? <div className="account-menu-id">
+          <span>帳號 ID</span>
+          <strong>{profile.publicAccountId}</strong>
+          <button className="ghost compact" onClick={() => void copyAccountId()}>{copyState === 'COPIED' ? '已複製' : copyState === 'FAILED' ? '重試' : '複製'}</button>
+        </div> : null}
+        <button className="account-menu-logout" role="menuitem" onClick={logout}>登出</button>
+      </div> : null}
+    </div>
+  </div>;
+
+  return <div className="at-app-shell">
+    <aside className="at-sidebar" aria-label="AFTERTRACE 主要導覽">
+      <a className="brand-home at-sidebar-brand" href="/" aria-label="AFTERTRACE 首頁">
+        <img src="/aftertrace-icon.svg" alt="" />
+        <span>AFTERTRACE</span>
+      </a>
+      <nav className="desktop-primary-nav at-sidebar-nav" aria-label="主要導覽">
+        {desktopNav.map((item) => <a key={item.href} href={item.href} className={item.active(path) ? 'active' : ''} aria-current={item.active(path) ? 'page' : undefined}>
+          <span className="at-nav-icon" aria-hidden="true">{item.icon}</span>
+          <span>{item.label}</span>
+        </a>)}
+      </nav>
+    </aside>
+
+    <header className="at-topbar" aria-label="帳號與工具">{utilityActions}</header>
+
+    <div className="at-mobile-header">
+      <a className="brand-home" href="/" aria-label="AFTERTRACE 首頁"><img src="/aftertrace-icon.svg" alt="" /><span>AFTERTRACE</span></a>
+      {utilityActions}
+    </div>
+
+    <main className="at-app-content">{children}</main>
+  </div>;
+}
+
+function NotificationCenterPanel({ api, sessionToken, center, error, busyNotificationId, onSessionError, onMarkRead, onOpen, onMarkAll, onClose }: { api: AccountNotificationApi; sessionToken: string; center: NotificationCenter | null; error: string | null; busyNotificationId: number | 'ALL' | null; onSessionError: (cause: unknown) => boolean; onMarkRead: (item: NotificationCenterItem) => void; onOpen: (item: NotificationCenterItem) => void; onMarkAll: () => void; onClose: () => void }) {
+  return <section className="notification-center" aria-label="通知中心">
+    <div className="notification-center-head">
+      <div><strong>通知</strong><span>{center ? `${center.unreadCount} 則未讀` : '載入中…'}</span></div>
+      <div className="notification-center-head-actions">
+        {center?.unreadCount ? <button className="ghost compact" disabled={busyNotificationId !== null} onClick={onMarkAll}>全部已讀</button> : null}
+        <button className="ghost compact" onClick={onClose}>關閉</button>
+      </div>
+    </div>
+    {error ? <div className="notification-inline-error">{error}</div> : null}
+    <PushNotificationSettings api={api} sessionToken={sessionToken} onSessionError={onSessionError} />
+    {!center && !error ? <div className="notification-empty">通知載入中…</div> : null}
+    {center && center.items.length === 0 ? <div className="notification-empty">目前沒有通知。</div> : null}
+    {center?.items.length ? <div className="notification-list">{center.items.map((item) => {
+      const href = safeNotificationHref(item.deepLink);
+      return <article key={item.id} className={`notification-item${item.readAt ? '' : ' unread'}`}>
+        <div className="notification-item-meta"><span>{notificationCategoryLabel(item.category)}</span><time>{formatNotificationTime(item.sentAt ?? item.createdAt)}</time></div>
+        <strong>{item.title}</strong><p>{item.body}</p>
+        <div className="notification-item-actions">
+          {!item.readAt ? <button className="ghost compact" disabled={busyNotificationId !== null} onClick={() => onMarkRead(item)}>標為已讀</button> : <span className="notification-read-label">已讀</span>}
+          {href ? <button className="compact" disabled={busyNotificationId !== null} onClick={() => onOpen(item)}>開啟</button> : null}
+        </div>
+      </article>;
+    })}</div> : null}
+  </section>;
+}
+
+function currentSessionToken() {
+  if (typeof window === 'undefined') return null;
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  const callbackSession = hash.get('session')?.trim() || null;
+  if (callbackSession) {
+    window.localStorage.setItem(SESSION_KEY, callbackSession);
+    hash.delete('session');
+    const nextHash = hash.toString();
+    window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}${nextHash ? `#${nextHash}` : ''}`);
+    return callbackSession;
+  }
+  return window.localStorage.getItem(SESSION_KEY)?.trim() || null;
+}
+
+function clearStoredSession() {
+  window.localStorage.removeItem(SESSION_KEY);
+  window.localStorage.removeItem('aftertrace.worklog.scope');
+  window.localStorage.removeItem('aftertrace.worklog.returnTo');
+  if (window.location.hash) window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`);
+}
+
+async function copyText(value: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const textarea = document.createElement('textarea');
+  textarea.value = value;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand('copy');
+  textarea.remove();
+}
+
+function isSessionError(cause: unknown) {
+  const text = cause instanceof Error ? cause.message : String(cause ?? '');
+  return /INVALID_WEB_SESSION|WEB_SESSION_REQUIRED|WORKLOG_USER_NOT_FOUND/.test(text);
+}
+
+function message(cause: unknown, fallback: string) {
+  return cause instanceof Error && cause.message ? cause.message : fallback;
+}
+
+function formatNotificationTime(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false });
+}

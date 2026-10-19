@@ -1,5 +1,7 @@
 node_modules/
 dist/
+dist-dev/
+dist-prod/
 .wrangler/
 .dev.vars
 .env
@@ -10,3 +12,8 @@ coverage/
 *.log
 *.tsbuildinfo
 aftertrace-schema.sql
+aftertrace-extension-dev.zip
+aftertrace-extension-prod.zip
+
+# Local IDE settings
+.idea/

@@ -1,0 +1,127 @@
+param(
+    [switch]$SkipInstall,
+    [switch]$AllowDirty,
+    [switch]$AllowNonMain,
+    [string]$ApiOrigin = $env:VITE_API_BASE_URL,
+    [string]$ExpectedUrl = ''
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+$RepoRoot = $PSScriptRoot
+$WranglerCmd = Join-Path $RepoRoot 'apps\api\node_modules\.bin\wrangler.cmd'
+$WranglerConfig = Join-Path $RepoRoot 'apps\admin\wrangler.toml'
+
+function Write-Step([string]$Message) {
+    Write-Host ''
+    Write-Host "==> $Message" -ForegroundColor Cyan
+}
+
+function Invoke-CommandChecked {
+    param(
+        [Parameter(Mandatory = $true)] [string]$Name,
+        [Parameter(Mandatory = $true)] [scriptblock]$Command
+    )
+
+    Write-Step $Name
+    & $Command
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Name failed with exit code $LASTEXITCODE"
+    }
+}
+
+function Assert-HttpsOrigin([string]$Value, [string]$Name) {
+    if (-not $Value.Trim()) {
+        throw "$Name is required. Set VITE_API_BASE_URL or pass -ApiOrigin explicitly."
+    }
+    $uri = [Uri]$Value
+    if ($uri.Scheme -ne 'https' -or -not $uri.Host) {
+        throw "$Name must be an absolute https URL"
+    }
+    return $uri.GetLeftPart([System.UriPartial]::Authority)
+}
+
+function Assert-AdminPath([string]$Origin, [string]$Path) {
+    $response = Invoke-WebRequest "$Origin$Path" -Method Get -UseBasicParsing
+    if ($response.StatusCode -lt 200 -or $response.StatusCode -ge 400) {
+        throw "Admin Worker check failed for $Path with HTTP $($response.StatusCode)"
+    }
+    Write-Host "Admin $Path HTTP: $($response.StatusCode)" -ForegroundColor Green
+}
+
+Push-Location $RepoRoot
+try {
+    Write-Host 'AFTERTRACE Admin Worker production deployment' -ForegroundColor Green
+
+    Invoke-CommandChecked 'Check Git branch' {
+        $branch = (git branch --show-current).Trim()
+        if (-not $AllowNonMain -and $branch -ne 'main') {
+            Write-Error "Production deployment must run from main. Current branch: $branch"
+            exit 1
+        }
+        Write-Host "Branch: $branch"
+    }
+
+    Invoke-CommandChecked 'Check working tree' {
+        $status = git status --porcelain
+        if (-not $AllowDirty -and $status) {
+            Write-Host $status
+            Write-Error 'Working tree is not clean. Commit/stash changes first, or use -AllowDirty intentionally.'
+            exit 1
+        }
+        Write-Host 'Working tree: clean'
+    }
+
+    Invoke-CommandChecked 'Update main from origin' {
+        git pull --ff-only
+    }
+
+    if (-not $SkipInstall) {
+        Invoke-CommandChecked 'Install dependencies from lockfile' {
+            pnpm install --frozen-lockfile
+        }
+    }
+
+    if (-not (Test-Path $WranglerCmd)) {
+        throw "Wrangler executable not found: $WranglerCmd"
+    }
+
+    $env:VITE_API_BASE_URL = Assert-HttpsOrigin $ApiOrigin 'ApiOrigin'
+
+    Invoke-CommandChecked 'Admin TypeScript typecheck' {
+        pnpm --filter @aftertrace/admin typecheck
+    }
+
+    Invoke-CommandChecked 'Admin ESLint' {
+        pnpm --filter @aftertrace/admin lint
+    }
+
+    Invoke-CommandChecked 'Admin tests' {
+        pnpm --filter @aftertrace/admin test
+    }
+
+    Invoke-CommandChecked 'Admin production build' {
+        pnpm --filter @aftertrace/admin build
+    }
+
+    Invoke-CommandChecked 'Deploy after-trace-admin Worker' {
+        & $WranglerCmd deploy --config $WranglerConfig
+    }
+
+    if ($ExpectedUrl.Trim()) {
+        $url = Assert-HttpsOrigin $ExpectedUrl 'ExpectedUrl'
+        Write-Step 'Verify Admin Worker and SPA deep links'
+        Assert-AdminPath $url '/'
+        Assert-AdminPath $url '/profitability'
+        Assert-AdminPath $url '/pricing-calculator'
+    }
+
+    Write-Host ''
+    Write-Host 'Admin Worker deployment completed successfully.' -ForegroundColor Green
+    Write-Host "API  : $($env:VITE_API_BASE_URL)"
+    if ($ExpectedUrl.Trim()) { Write-Host "Admin: $ExpectedUrl" }
+}
+finally {
+    Pop-Location
+}

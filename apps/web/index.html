@@ -2,15 +2,26 @@
 <html lang="zh-Hant">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#15221b" />
-    <meta name="description" content="跨場館搜尋公共運動場地空位，沒位時用 Radar 持續追蹤。" />
-    <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="/icon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b1016" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <title>AFTERTRACE｜運動場地空位雷達</title>
+    <meta name="apple-mobile-web-app-title" content="AFTERTRACE" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/aftertrace-icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/aftertrace-icon.svg" />
+    <style>
+      .brand-home > span,
+      .eyebrow.brand-wordmark {
+        color: transparent !important;
+        background: linear-gradient(90deg, #f7f9fc 0 49.5%, #3fa7ff 50.5% 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+      }
+      .aftertrace-after { color: #f7f9fc; }
+      .aftertrace-trace { color: #3fa7ff; }
+    </style>
+    <title>工作紀錄｜AFTERTRACE</title>
   </head>
   <body>
     <div id="root"></div>

@@ -1,19 +1,33 @@
 {
   "name": "after-trace",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.1.0",
   "packageManager": "pnpm@10.15.0",
   "scripts": {
     "dev:api": "pnpm --filter @aftertrace/api dev",
     "dev:web": "pnpm --filter @aftertrace/web dev",
+    "dev:admin": "pnpm --filter @aftertrace/admin dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
-    "db:schema:check": "pnpm --filter @aftertrace/api exec drizzle-kit export --dialect=postgresql --schema=src/db/schema-all.ts > aftertrace-schema.sql"
+    "release:preflight": "node scripts/release-preflight.mjs",
+    "deploy:dev": "node scripts/deploy-workers.mjs dev all",
+    "deploy:dev:api": "node scripts/deploy-workers.mjs dev api",
+    "deploy:dev:web": "node scripts/deploy-workers.mjs dev web",
+    "deploy:dev:admin": "node scripts/deploy-workers.mjs dev admin",
+    "deploy:prod": "node scripts/deploy-workers.mjs prod all",
+    "deploy:prod:api": "node scripts/deploy-workers.mjs prod api",
+    "deploy:prod:web": "node scripts/deploy-workers.mjs prod web",
+    "deploy:prod:admin": "node scripts/deploy-workers.mjs prod admin",
+    "db:migrate": "pnpm --filter @aftertrace/api run db:deploy:migrate",
+    "db:integrity": "pnpm --filter @aftertrace/api run db:integrity",
+    "db:schema:check": "pnpm --filter @aftertrace/api exec drizzle-kit export --dialect=postgresql --schema=src/db/schema-all.ts > aftertrace-schema.sql",
+    "db:baseline:guard": "node scripts/check-worklog-baseline.mjs",
+    "db:baseline:regenerate": "node scripts/regenerate-worklog-baseline.mjs"
   },
   "devDependencies": {
-    "eslint": "^9.34.0",
+    "eslint": "^10.9.1",
     "typescript-eslint": "^8.41.0"
   }
 }

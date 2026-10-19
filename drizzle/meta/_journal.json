@@ -5,29 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1788120000000,
-      "tag": "0000_aftertrace_rebuild",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1788122400000,
-      "tag": "0001_radar_watch_foundation",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1788130800000,
-      "tag": "0002_web_push_delivery_runtime",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1788137400000,
-      "tag": "0003_source_metadata_runtime",
+      "when": 1788528481453,
+      "tag": "0000_worklog_baseline",
       "breakpoints": true
     }
   ]

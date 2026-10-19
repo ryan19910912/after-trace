@@ -1,86 +1,42 @@
 import { Hono } from 'hono';
-import { cors } from 'hono/cors';
-import { createAvailabilityRoutes } from './availability/routes';
-import { createIdentityRoutes } from './auth/routes';
-import { createDatabase } from './db/client';
-import { sports } from './db/schema';
-import type { Bindings } from './env';
-import { WebPushDispatcher } from './notifications/dispatcher';
-import { DrizzlePendingDeliveryReconciler } from './notifications/reconciler';
-import { DrizzleNotificationRepository } from './notifications/repository';
-import { createNotificationRoutes } from './notifications/routes';
-import { WebPushScheduledStage } from './notifications/stage';
-import { DrizzlePollingDemandReconciler } from './polling/demand';
-import { PollingOrchestrator } from './polling/orchestrator';
-import { MetadataRefreshingPollingStage } from './polling/stage';
-import { evaluateRuntimeReadiness } from './readiness';
-import { ScheduledRadarRunner } from './scheduled/run';
-import { createDefaultSourceRegistry } from './sources/registry';
-import { DrizzleAvailabilitySyncRepository } from './sources/sync-repository';
-import { SourceSynchronizationService } from './sources/sync-service';
-import { DrizzleRadarMatcher } from './watch/matcher';
-import { createWatchRoutes } from './watch/routes';
+import { createWebAuthRoutes } from './auth/routes';
+import { targetReadinessResponse } from './target-readiness';
+
+export type Bindings = {
+  DATABASE_URL: string;
+  GEMINI_API_KEY: string;
+  WEB_APP_URL?: string;
+  WEB_APP_ORIGIN?: string;
+  WEB_AUTH_SECRET?: string;
+  LINE_LOGIN_CHANNEL_ID?: string;
+  LINE_LOGIN_CHANNEL_SECRET?: string;
+  GOOGLE_LOGIN_CLIENT_ID?: string;
+  GOOGLE_LOGIN_CLIENT_SECRET?: string;
+  APPLE_LOGIN_CLIENT_ID?: string;
+  APPLE_LOGIN_TEAM_ID?: string;
+  APPLE_LOGIN_KEY_ID?: string;
+  APPLE_LOGIN_PRIVATE_KEY_P8_BASE64?: string;
+  ADMIN_USERNAME?: string;
+  ADMIN_PASSWORD?: string;
+  ADMIN_SESSION_SECRET?: string;
+  ADMIN_WEB_ORIGIN?: string;
+  WEB_PUSH_PUBLIC_KEY?: string;
+  WEB_PUSH_PRIVATE_KEY?: string;
+  WEB_PUSH_SUBJECT?: string;
+  NEWEBPAY_MERCHANT_ID?: string;
+  NEWEBPAY_HASH_KEY?: string;
+  NEWEBPAY_HASH_IV?: string;
+  NEWEBPAY_MODE?: string;
+  NEWEBPAY_PERIOD_VERSION?: string;
+  NEWEBPAY_PERIOD_TIMES?: string;
+  NEWEBPAY_NOTIFY_URL?: string;
+  NEWEBPAY_RETURN_URL?: string;
+};
 
 const app = new Hono<{ Bindings: Bindings }>();
 
-app.use('/api/*', cors({
-  origin: '*',
-  allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key'],
-}));
-app.get('/health', (c) => c.json({ service: 'after-trace-api', product: 'sports-availability-radar', status: 'ok' }));
-app.get('/ready', async (c) => {
-  const databaseUrl = c.env.DATABASE_URL?.trim();
-  const readiness = await evaluateRuntimeReadiness(c.env, async () => {
-    if (!databaseUrl) throw new Error('DATABASE_NOT_CONFIGURED');
-    const database = createDatabase(databaseUrl);
-    await database.select({ id: sports.id }).from(sports).limit(1);
-  });
+app.route('/api/v1/auth', createWebAuthRoutes());
+app.get('/health', (c) => c.json({ service: 'after-trace-api', product: 'worklog', status: 'ok' }));
+app.get('/health/ready', (c) => targetReadinessResponse(c.env));
 
-  if (readiness.status === 'ready') return c.json(readiness, 200);
-  return c.json(readiness, 503);
-});
-app.route('/api/v1', createAvailabilityRoutes());
-app.route('/api/v1/session', createIdentityRoutes());
-app.route('/api/v1/watch-rules', createWatchRoutes());
-app.route('/api/v1/push', createNotificationRoutes());
-
-async function runScheduledRadar(env: Bindings) {
-  const database = createDatabase(env.DATABASE_URL);
-  const repository = new DrizzleAvailabilitySyncRepository(database);
-  const registry = createDefaultSourceRegistry();
-  const synchronizer = new SourceSynchronizationService(repository, registry);
-  const notificationRepository = new DrizzleNotificationRepository(database);
-  const runner = new ScheduledRadarRunner(
-    new MetadataRefreshingPollingStage(
-      database,
-      synchronizer,
-      new DrizzlePollingDemandReconciler(database),
-      new PollingOrchestrator(repository, synchronizer),
-      registry.list().map((adapter) => adapter.code),
-    ),
-    new DrizzleRadarMatcher(database),
-    new WebPushScheduledStage(
-      new DrizzlePendingDeliveryReconciler(database),
-      new WebPushDispatcher(notificationRepository, env),
-    ),
-  );
-  return runner.run();
-}
-
-export type { Bindings } from './env';
-export { app };
-
-export default {
-  fetch: app.fetch,
-  scheduled(_controller: ScheduledController, env: Bindings, ctx: ExecutionContext) {
-    ctx.waitUntil(
-      runScheduledRadar(env).then((summary) => {
-        console.log(JSON.stringify({
-          event: 'scheduled_radar_completed',
-          ...summary,
-        }));
-      }),
-    );
-  },
-} satisfies ExportedHandler<Bindings>;
+export default app;
