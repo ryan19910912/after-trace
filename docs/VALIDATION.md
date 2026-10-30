@@ -43,3 +43,11 @@ node scripts/integration/pwa-media-test.mjs
 ```
 
 結果：.test-artifacts/pwa/functional-results.json、.test-artifacts/pwa-media/results.json，截圖及瀏覽器模型快取位於相同目錄，均不提交 Git。媒體測試結果 network=[]、failures=[]；沒有應用程式 API、雲端推論或媒體上傳。
+
+## Dev 部署驗證補充
+
+已在 https://after-trace-web-dev.after-lab.workers.dev 重新完成 13 組操作與 8 組真實模型流程，包含離線文字／圖片／繁中語音解析及確認保存；network=[]、failures=[]。
+
+修正 Cloudflare 靜態資產將 /index.html 轉址至 / 的差異：快取回應保留 redirected=true，直接作為離線導航回應會被瀏覽器拒絕。Service Worker 現在以新的 Response 包裝快取 HTML，避免沿用轉址旗標。本地靜態伺服器也模擬相同轉址，回歸測試確認快取確為 redirected=true 但離線仍可開啟。
+
+Dev 舊 API 與後台入口改為 410 停用提示，取消背景排程；沒有刪除舊資料庫與還原設定。prod 未變更。切回留存分支並重新部署可恢復舊服務。

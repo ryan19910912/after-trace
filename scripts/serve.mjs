@@ -29,6 +29,11 @@ http
         response.end();
         return;
       }
+      if (path === "/index.html") {
+        response.writeHead(302, { Location: "/" });
+        response.end();
+        return;
+      }
       const file =
         existsSync(target) && statSync(target).isFile()
           ? target

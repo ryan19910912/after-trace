@@ -232,6 +232,16 @@ try {
   await p.goto(base);
   await p.evaluate(() => navigator.serviceWorker.ready);
   await p.waitForFunction(() => !!navigator.serviceWorker.controller);
+  console.log(
+    "OFFLINE_SHELL_CACHE",
+    await p.evaluate(async () => {
+      const key = (await caches.keys()).find((k) =>
+        k.startsWith("aftertrace-app-"),
+      );
+      const r = await (await caches.open(key)).match("/index.html");
+      return { cached: !!r, redirected: r?.redirected };
+    }),
+  );
   await c.setOffline(true);
   await p.reload();
   await p.getByRole("heading", { name: "我的紀錄", exact: true }).waitFor();
@@ -311,7 +321,11 @@ try {
   await browser.close();
   writeFileSync(
     ".test-artifacts/pwa/functional-results.json",
-    JSON.stringify({ passed: results.length, results, errors }, null, 2),
+    JSON.stringify(
+      { origin: base, passed: results.length, results, errors },
+      null,
+      2,
+    ),
   );
 }
 console.log("PWA_FUNCTIONAL_PASS", results.length);

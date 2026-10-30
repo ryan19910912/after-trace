@@ -58,20 +58,23 @@ function audioFixture(id) {
   throw Error("Invalid audio");
 }
 async function launch(audio) {
-  const context = await chromium.launchPersistentContext(process.env.PWA_MEDIA_PROFILE ?? root + "/browser", {
-    executablePath: "C:/Program Files/Google/Chrome/Application/chrome.exe",
-    headless: true,
-    timezoneId: "Asia/Taipei",
-    viewport: { width: 1440, height: 1000 },
-    args: audio
-      ? [
-          "--use-fake-device-for-media-stream",
-          "--use-fake-ui-for-media-stream",
-          "--use-file-for-fake-audio-capture=" + audio.path,
-        ]
-      : [],
-    permissions: audio ? ["microphone"] : [],
-  });
+  const context = await chromium.launchPersistentContext(
+    process.env.PWA_MEDIA_PROFILE ?? root + "/browser",
+    {
+      executablePath: "C:/Program Files/Google/Chrome/Application/chrome.exe",
+      headless: true,
+      timezoneId: "Asia/Taipei",
+      viewport: { width: 1440, height: 1000 },
+      args: audio
+        ? [
+            "--use-fake-device-for-media-stream",
+            "--use-fake-ui-for-media-stream",
+            "--use-file-for-fake-audio-capture=" + audio.path,
+          ]
+        : [],
+      permissions: audio ? ["microphone"] : [],
+    },
+  );
   const page = await context.newPage();
   page.setDefaultTimeout(30000);
   page.on("dialog", (d) => d.accept());
@@ -185,24 +188,20 @@ try {
             return Array.from(new Uint8Array(await blob.arrayBuffer()));
           const dt = new DataTransfer();
           dt.items.add(new File([blob], "case.png", { type: "image/png" }));
-          document
-            .querySelector("textarea")
-            .dispatchEvent(
-              new ClipboardEvent("paste", {
-                clipboardData: dt,
-                bubbles: true,
-                cancelable: true,
-              }),
-            );
+          document.querySelector("textarea").dispatchEvent(
+            new ClipboardEvent("paste", {
+              clipboardData: dt,
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
         }, item);
         if (bytes)
-          await page
-            .locator("input[type=file]")
-            .setInputFiles({
-              name: "case.png",
-              mimeType: "image/png",
-              buffer: Buffer.from(bytes),
-            });
+          await page.locator("input[type=file]").setInputFiles({
+            name: "case.png",
+            mimeType: "image/png",
+            buffer: Buffer.from(bytes),
+          });
         await page.getByAltText("待解析圖片").waitFor();
       }
       if (item.kind === "speech") {
@@ -288,7 +287,10 @@ try {
       await page.getByText("紀錄已保存。", { exact: true }).waitFor();
       const list = await records(page);
       assert.equal(list.length, before + 1);
-      const saved = list.find((r) => r.rawText === confirmed);
+      const saved = list.find(
+        (r) => r.id === Math.max(...list.map((v) => v.id)),
+      );
+      assert.equal(saved?.rawText, confirmed);
       assert.ok(saved);
       assert.equal(saved.title, result.draft.title.trim() || null);
       const expected = result.draft.time
@@ -323,7 +325,7 @@ try {
       results.push(result);
       writeFileSync(
         root + "/results.json",
-        JSON.stringify({ results, network, failures }, null, 2),
+        JSON.stringify({ origin: base, results, network, failures }, null, 2),
       );
     }
   }
@@ -332,6 +334,7 @@ try {
   clearInterval(timer);
   current = null;
   try {
+    if (!ui.page.url().startsWith(base)) await ui.page.goto(base + "/capture");
     await ui.page.evaluate(
       () =>
         new Promise((resolve, reject) => {
@@ -355,7 +358,7 @@ try {
   writeFileSync(
     root + "/results.json",
     JSON.stringify(
-      { results, network, failures, testDataCleared: true },
+      { origin: base, results, network, failures, testDataCleared: true },
       null,
       2,
     ),

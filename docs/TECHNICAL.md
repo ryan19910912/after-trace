@@ -33,3 +33,7 @@ sw.js 更新先等待；使用者選擇更新時才觸發 ACTIVATE_UPDATE、skip
 原版：archive/server-backed-main-2026-10-30，e3d0e12。切回並安裝該分支依賴可恢復伺服器架構。原雲端資料庫並未因原始碼改造而刪除；本機 IndexedDB 與舊雲端資料沒有隱含轉換或合併。不要以新版空白本機紀錄推論舊資料已遺失。
 
 本機啟動只需 pnpm dev；部署只需 apps/web/dist。遠端舊 API／後台的下線與雲端資源清理需明確記錄，不以刪除舊資料庫方式降低成本。
+
+## Dev 舊入口下線
+
+Dev 前台已發布純前端版。原 after-trace-api-dev／after-trace-admin-dev 回傳 410 停用提示，不再執行登入、資料庫查詢或排程。原資料庫與設定保留供留存分支重新部署，prod 沒有變更。
