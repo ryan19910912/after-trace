@@ -10,5 +10,5 @@ export async function localModelCacheInfo() {
 }
 export async function clearLocalModelCache() {
   if (!('caches' in globalThis)) throw new Error('此瀏覽器不支援模型快取管理。');
-  releaseLocalAi(); await caches.delete(CACHE);
+  releaseLocalAi(); await caches.delete(CACHE); await caches.delete('aftertrace-runtime-v1');
 }

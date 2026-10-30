@@ -24,7 +24,7 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Typecheck
         run: pnpm typecheck
@@ -37,6 +37,3 @@ jobs:
 
       - name: Build
         run: pnpm build
-
-      - name: Drizzle schema
-        run: pnpm db:schema:check

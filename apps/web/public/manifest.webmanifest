@@ -1,7 +1,7 @@
 {
-  "name": "AFTERTRACE 工作紀錄",
+  "name": "AFTERTRACE 本機紀錄",
   "short_name": "AFTERTRACE",
-  "description": "快速留下工作發生過的事，需要時找得到。",
+  "description": "免登入、本機 AI、離線紀錄與備份。",
   "lang": "zh-Hant",
   "start_url": "/",
   "scope": "/",
@@ -9,6 +9,18 @@
   "background_color": "#06111f",
   "theme_color": "#06111f",
   "icons": [
+    {
+      "src": "/aftertrace-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/aftertrace-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
     {
       "src": "/aftertrace-icon.svg",
       "sizes": "any",

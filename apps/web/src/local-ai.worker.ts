@@ -24,6 +24,7 @@ self.onmessage = async ({ data }: MessageEvent<LocalRequest>) => {
     postMessage({ type: 'progress', text: '準備本機模型，首次使用需要下載，可能需要數分鐘。' });
     if (!data.models) throw new Error('缺少模型設定，請重新整理後重試。');
     const selected = data.models;
+    env.fetch=createModelDownloadFetch(fetch.bind(globalThis),{[selected.visionModel]:selected.visionRevision,[selected.speechModel]:selected.speechRevision});
     if (data.audio) {
       // Release the vision/text model before loading speech to bound GPU memory.
       await model?.dispose(); model = null; processor = null; loadedModelKey = '';

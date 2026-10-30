@@ -1,57 +1,67 @@
-# AFTERTRACE
+# AFTERTRACE 本機 PWA
 
-AFTERTRACE 是一個結合 AI 的工作紀錄與知識整理平台，協助使用者快速保存工作中發生的事情，並在需要時找回相關資訊。
+免登入的本機紀錄工具。文字、圖片、短語音在用戶裝置上的 WebGPU 模型解析，核對並修改草稿後才寫入 IndexedDB；不需要 API、資料庫伺服器、Docker、金流或後台。
 
-透過網頁、PWA 與 Chrome 擴充功能，使用者可以記錄文字、圖片與短語音。所有 AI 推論都在使用者裝置執行，沒有雲端 AI 備援；首次使用需要下載模型，並要求支援 WebGPU 的瀏覽器。AI 先產生可編輯草稿，使用者確認後才保存文字紀錄。
+## 本地啟動
 
-不支援 PDF、文件或音訊檔上傳；截圖可作為圖片貼上或選擇。圖片與錄音不傳送至後端。詳見 [本機 AI 規範](docs/WORKLOG_LOCAL_AI_POLICY.md)。
+需要 Node.js 22 與 pnpm 10.15.0。
 
-## 介面預覽
+```powershell
+cd D:\Project\after-trace
+pnpm install --frozen-lockfile
+pnpm dev
+```
 
-### 前台登入
+前台 http://localhost:15173。若此埠已有背景服務，先停止該服務再執行 dev，或改用 `pnpm --filter @aftertrace/web dev --port 15175`。
 
-透過 Google 或 LINE 登入，開始使用工作紀錄功能。
+正式建置預覽：
 
-![AFTERTRACE 前台登入畫面](docs/images/frontend-login.png)
+```powershell
+pnpm build
+pnpm preview
+```
 
-### 管理後台
+只有正式建置會註冊 PWA Service Worker。前台不需要任何 `.env` 或 VITE_API_BASE_URL；既有 `.env.dev/.env.prod` 不會被拿來連線。
 
-提供用戶列表與保存歷史、AI 提示詞及模型設定、公告、回饋、角色、每頁權限與管理帳號。目前無訂閱與金流。
+## 使用方式
 
-現行介面與驗證見 [後台驗證報告](docs/ADMIN_MANAGEMENT_VALIDATION.md)；舊營運總覽已移除。
+- 紀錄：本機搜尋、編輯、修改歷史、移至已刪除／還原。
+- 新增：文字、貼上／上傳 PNG、JPEG、WebP（5 MB），或最長 60 秒語音；人工確認後只保存文字。
+- 待辦：本機建立與完成，不做背景推播。
+- AI 整理：本機搜尋、摘要、相關紀錄、改寫與待辦建議；改寫／待辦需明確確認。
+- 備份：匯出 JSON；匯入先預覽，支援去重、保留本機版本或保留兩份，不清空現有資料。
+- 設定：查看／清除模型快取、重設語音備援選擇、申請持久儲存與匯出本機診斷。
 
-### Chrome 擴充功能
+資料只在目前網站來源、瀏覽器設定檔及裝置。手機與電腦不自動同步。清除網站資料、改用不同網域、移除瀏覽器設定檔或裝置故障都可能遺失紀錄；請定期匯出並保存到網站之外。PWA 不提供雲端救援。
 
-保存文字與目前頁面資訊，圖片及短語音則開啟網頁本機解析。下圖為舊版介面參考。
+首次下載模型／推論執行環境需要網路。完成快取後，已驗證可離線解析文字、圖片及繁中語音。裝置仍需支援 WebGPU 且有足夠記憶體／空間；可隨時手動編輯保存。
 
-<img src="docs/images/chrome-extension.png" alt="AFTERTRACE Chrome 擴充功能快速紀錄介面" width="420" />
+## 模型與提示詞
 
-## 主要功能
+設定隨版本發布：`config/local-ai-models.seed.json`、`config/local-ai-prompts.seed.json`。預設 Qwen3.5-0.8B ONNX OPT；語音 large-v3 ONNX 優先、turbo 為用戶明確選用的備援。下載自 Hugging Face／版本固定的 ONNX Runtime CDN，不呼叫雲端 AI。
 
-- **工作紀錄**：新增、編輯與刪除紀錄，以時間軸、關鍵字及日期篩選查找內容。
-- **AI 輔助整理**：在本機處理文字、圖片與最多 60 秒的錄音，提供自然語言搜尋、摘要、相關紀錄及待辦建議。
-- **個人與群組空間**：區分私人紀錄與群組資料，透過邀請連結及成員權限管理協作。
-- **待辦與通知**：管理待辦事項、提醒與通知中心，支援 Web Push 推播。
-- **快速擷取**：使用 Chrome 擴充功能保存選取文字、網頁標題與網址；圖片與語音開啟網頁本機解析流程。
-- **帳號與管理後台**：整合第三方登入，提供用戶列表、公告、回饋、AI 提示詞／模型設定，以及角色、權限和管理帳號。
+## 驗證與部署
 
-## 使用技術
+```powershell
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm build
+node scripts/serve.mjs
+# 另一個終端：
+node scripts/integration/pwa-functional-test.mjs
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/integration/prepare-pwa-audio.ps1
+node scripts/integration/pwa-media-test.mjs
+```
 
-| 類別 | 技術 |
-| --- | --- |
-| 前端 | React、TypeScript、Vite、PWA |
-| 後端 | TypeScript、Hono、Cloudflare Workers |
-| 資料庫 | PostgreSQL、Neon、Drizzle ORM |
-| AI | Transformers.js、ONNX Runtime Web、WebGPU、Qwen3.5、Whisper（全部裝置本機推論） |
-| 登入驗證 | Google／LINE／Apple 登入、OAuth 2.0、PKCE |
-| 瀏覽器整合 | Chrome Extension、MediaRecorder、Web Audio、Web Push |
-| 訂閱／金流 | 已停用；結帳、取消、付款回呼與訂閱 API 均回傳 410，歷史資料保留 |
-| 測試與開發工具 | Vitest、ESLint、pnpm、Wrangler、Git |
+整合測試目前以 Windows Chrome／WebGPU 為目標。語音使用 Windows 離線繁中合成音經假麥克風進入真正 MediaRecorder、Web Audio 與 Whisper；不是以固定輸出替代模型。
 
-## 規格與本機開發
+`pnpm deploy:dev`／`pnpm deploy:prod` 只發布靜態前台 Worker。一般靜態空間亦可部署 apps/web/dist，需將前台路由 fallback 到 index.html。
 
-- [現行產品規格](docs/WORKLOG_PRODUCT_SPEC.md)
-- [本機 AI](docs/WORKLOG_LOCAL_AI_POLICY.md)／[後台管理](docs/WORKLOG_ADMIN_POLICY.md)
-- [本機 Docker 環境](docs/DOCKER_LOCAL_INTEGRATION.md)／[部署規範](docs/WORKLOG_DEPLOYMENT.md)
+## 原版留存
 
-登入後前台頁首可複製用戶 ID，供客服在後台反查。管理帳號 admin 的首次亂數密碼在初始化回條，不能使用舊版固定測試帳密。
+原本含登入、後台及雲端資料庫的版本已推送到 [`archive/server-backed-main-2026-10-30`](https://github.com/ryan19910912/after-trace/tree/archive/server-backed-main-2026-10-30)，留存提交 e3d0e12（包含原 main 17574d6 與既有 dev 驗證文件）。
+
+切換前先保存目前修改：`git switch archive/server-backed-main-2026-10-30`，再按該分支 README／文件安裝與部署。舊雲端資料不會自動下載到本機，舊版 SQL／API 匯出不屬於新版備份格式。
+
+詳見 [產品規格](docs/PRODUCT.md)、[技術與備份格式](docs/TECHNICAL.md)、[驗證結果](docs/VALIDATION.md)。

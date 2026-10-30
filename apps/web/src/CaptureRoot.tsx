@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { inferOccurrenceTime } from './occurrence-time';
-import { LoginProviderButtons } from './LoginProviderButtons';
+
 import { cancelLocalAi, preloadLocalAi, organizeLocal, validateImage, type LocalDraft } from './local-ai';
-import { WorklogApi, type RecordScope, type WorklogSurfaces } from './worklog-api';
-import './worklog.css';
+import { WorklogApi, type RecordScope } from './worklog-api';
+
 import './capture.css';
 import { transcribeLocalSpeech, SpeechFallbackError, resetSpeechModelChoice } from './speech-runtime';
 
 export function CaptureRoot({ apiBaseUrl, embedded = false, onSaved, onScopeChange }: { apiBaseUrl: string; embedded?: boolean; onSaved?: (scope: RecordScope) => void; onScopeChange?: (scope: RecordScope) => void }) {
   const api = useMemo(() => new WorklogApi(apiBaseUrl), [apiBaseUrl]);
-  const [session] = useState(() => localStorage.getItem('aftertrace.worklog.session'));
-  const [surfaces, setSurfaces] = useState<WorklogSurfaces | null>(null);
+  const session = 'local-device';
+
   const [scope, setScope] = useState<RecordScope | null>(null);
   const [input, setInput] = useState('');
   const [image, setImage] = useState<File | null>(null);
@@ -56,7 +56,7 @@ export function CaptureRoot({ apiBaseUrl, embedded = false, onSaved, onScopeChan
     mounted.current = true;
     if (session) void api.surfaces(session).then((value) => {
       if (!mounted.current) return;
-      setSurfaces(value);
+
       let remembered: RecordScope | null = null;
       try { remembered = JSON.parse(localStorage.getItem('aftertrace.worklog.scope') ?? 'null') as RecordScope | null; } catch { /* Ignore invalid remembered scope. */ }
       const valid = remembered && ((remembered.type === 'PERSONAL' && value.personal?.sourceId === remembered.sourceId) || (remembered.type === 'GROUP' && value.groups.some((group) => group.sourceId === remembered?.sourceId)));
@@ -143,16 +143,13 @@ export function CaptureRoot({ apiBaseUrl, embedded = false, onSaved, onScopeChan
     } catch (cause) { setError(captureSaveError(cause)); }
     finally { lock.current = false; setBusy(false); setSaving(false); }
   }
-  if (!session) return <section className="panel"><h1>快速紀錄</h1><LoginProviderButtons apiBaseUrl={apiBaseUrl} returnTo="/capture" /></section>;
+
   const content = <section className="panel stack local-capture">
     {embedded ? <h2>留下紀錄</h2> : <h1>留下紀錄</h1>}<p>文字、圖片與短語音都在此裝置解析；確認內容後才保存。</p><details><summary>首次使用與裝置需求</summary><p>首次使用需下載數百 MB 至數 GB 的模型資源，建議使用 Wi-Fi。可在「本機 AI」頁面查看或清除快取。此裝置需支援 WebGPU，無法使用時仍可手動保存。</p></details>
     {error && <div className="error" role="alert">{error}</div>}
     {modelStatus && <div className="capture-status"><p aria-live="polite">{modelStatus}</p>{preparingModel && <button className="ghost" onClick={cancelLocalAi}>暫停準備模型</button>}</div>}
     {status && <p className="capture-status" role="status" aria-live="polite">{status}</p>}
-    <label>保存範圍<select disabled={busy || recording || !!draft} value={scope ? `${scope.type}:${scope.sourceId}` : ''} onChange={(event) => { const [type, id] = event.target.value.split(':'); const next = { type: type as RecordScope['type'], sourceId: Number(id) }; setScope(next); localStorage.setItem('aftertrace.worklog.scope', JSON.stringify(next)); onScopeChange?.(next); }}>
-      {surfaces?.personal && <option value={`PERSONAL:${surfaces.personal.sourceId}`}>我的紀錄</option>}
-      {surfaces?.groups.map((group) => <option key={group.sourceId} value={`GROUP:${group.sourceId}`}>{group.name}</option>)}
-    </select></label>
+    <p className="muted">保存位置：此裝置的本機紀錄</p>
     <label>輸入內容或貼上圖片<textarea aria-label="輸入內容或貼上圖片" maxLength={20000} rows={draft ? 3 : 6} value={input} disabled={busy || recording || !!draft} onChange={(event) => setInput(event.target.value)} onPaste={(event) => {
       const files = Array.from(event.clipboardData.files);
       if (files.length) { event.preventDefault(); if (files.length > 1) setError('一次只能處理一張圖片。'); else pickImage(files[0]); }
@@ -188,8 +185,8 @@ export function captureSaveError(cause: unknown): string {
   const labels: Record<string, string> = {
     GROUP_ACCESS_FORBIDDEN: '你已無法存取這個群組，草稿已保留。請返回輸入並改選保存範圍。',
     SOURCE_NOT_AUTHORIZED: '你沒有這個紀錄範圍的權限，草稿已保留。',
-    INVALID_WEB_SESSION: '登入已過期，請重新登入。',
-    WEB_SESSION_REQUIRED: '請先登入後再保存。',
+
+
     RECORD_TEXT_REQUIRED: '請輸入要保存的內容，最多 20,000 字。',
   };
   return labels[code] ?? (code || '保存失敗，草稿仍保留。');

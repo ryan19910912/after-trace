@@ -1,4 +1,4 @@
-const routes = new Set(['/', '/capture', '/tasks', '/ai-search', '/ai-tools', '/ai-task', '/subscription', '/feedback', '/help', '/about', '/mobile-shortcut', '/worklog']);
+const routes = new Set(['/', '/capture', '/tasks', '/backup', '/settings', '/ai-search', '/ai-tools', '/ai-task', '/subscription', '/feedback', '/help', '/about', '/mobile-shortcut', '/worklog']);
 export function installNavigation(onNavigate: () => void): () => void {
   let previous = location.pathname + location.search;
   const pop = () => {

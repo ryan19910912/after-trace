@@ -1,4 +1,34 @@
-import {noticeApiFailure} from './diagnostics';
-export type LocalModelConfiguration={visionModel:string;visionRevision:string;speechModel:string;speechRevision:string;speechFallbackModel?:string|null;speechFallbackRevision?:string|null;speechDownloadBytes?:number;speechFallbackDownloadBytes?:number;version:number};
-const previous=new Map<string,{etag:string;model:LocalModelConfiguration}>(),pending=new Map<string,Promise<LocalModelConfiguration>>();
-export function getModelConfiguration(baseUrl=import.meta.env.VITE_API_BASE_URL?.trim()??''):Promise<LocalModelConfiguration>{const base=baseUrl.replace(/\/$/,''),active=pending.get(base);if(active)return active;const cached=previous.get(base);const request=(async()=>{const response=await fetch(base+'/api/v1/local-ai/models',{signal:AbortSignal.timeout(15000),cache:'no-store',headers:cached?.etag?{'If-None-Match':cached.etag}:{}});if(response.status===304&&cached)return cached.model;noticeApiFailure(response);if(!response.ok)throw Error();const body=await response.json()as{model:LocalModelConfiguration};const m=body.model,id=/^[A-Za-z0-9][A-Za-z0-9_.-]{0,95}\/[A-Za-z0-9][A-Za-z0-9_.-]{0,95}$/,revision=/^[a-f0-9]{40}$/;if(!m||!id.test(m.visionModel)||!id.test(m.speechModel)||!revision.test(m.visionRevision)||!revision.test(m.speechRevision)||!Number.isSafeInteger(m.version)||m.version<1)throw Error();if((m.speechFallbackModel!=null||m.speechFallbackRevision!=null)&&(!id.test(m.speechFallbackModel??'')||!revision.test(m.speechFallbackRevision??'')))throw Error();if([m.speechDownloadBytes,m.speechFallbackDownloadBytes].some(v=>v!==undefined&&(!Number.isSafeInteger(v)||v<=0)))throw Error();previous.set(base,{etag:response.headers.get('ETag')??'',model:m});return m;})().catch(()=>{throw new Error('模型設定暫時無法取得，請稍後重試；仍可手動保存。');}).finally(()=>pending.delete(base));pending.set(base,request);return request;}
+import seeds from "../../../config/local-ai-models.seed.json";
+export type LocalModelConfiguration = {
+  visionModel: string;
+  visionRevision: string;
+  speechModel: string;
+  speechRevision: string;
+  speechFallbackModel?: string | null;
+  speechFallbackRevision?: string | null;
+  speechDownloadBytes?: number;
+  speechFallbackDownloadBytes?: number;
+  version: number;
+};
+export async function getModelConfiguration(
+  _baseUrl?: string,
+): Promise<LocalModelConfiguration> {
+  const vision = seeds.find((m) => m.kind === "vision")!,
+    speech = seeds.find(
+      (m) => m.id === "onnx-community/whisper-large-v3-ONNX",
+    )!,
+    fallback = seeds.find(
+      (m) => m.id === "onnx-community/whisper-large-v3-turbo",
+    )!;
+  return {
+    visionModel: vision.id,
+    visionRevision: vision.revision,
+    speechModel: speech.id,
+    speechRevision: speech.revision,
+    speechFallbackModel: fallback.id,
+    speechFallbackRevision: fallback.revision,
+    speechDownloadBytes: speech.downloadBytes,
+    speechFallbackDownloadBytes: fallback.downloadBytes,
+    version: 1,
+  };
+}
