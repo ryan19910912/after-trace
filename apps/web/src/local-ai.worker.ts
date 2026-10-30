@@ -1,9 +1,11 @@
+import { createModelDownloadFetch } from './model-download';
 import { AutoProcessor, Qwen3_5ForConditionalGeneration, RawImage, pipeline, env, type Tensor } from '@huggingface/transformers';
 import type { LocalRequest } from './local-ai';
 
 // Remote access is used only to download static model/runtime assets. Inference is local.
 env.allowLocalModels = false;
 env.useBrowserCache = true;
+env.fetch = createModelDownloadFetch(fetch.bind(globalThis));
 // Download static runtime assets only. No text, image or audio is sent here.
 const ortVersion = env.backends.onnx.versions!.web;
 env.backends.onnx.wasm!.wasmPaths = {

@@ -48,13 +48,13 @@ export function cancelLocalAi(): void {
 export function preloadLocalAi(progress: (message: string) => void = () => {}): Promise<void> {
   if (modelReady) { progress('本機 AI 已準備好。'); return Promise.resolve(); }
   if (preloadPromise) return preloadPromise;
-  preloadPromise = executeLocalAi({ prompt: '', preload: true }, progress).then(() => {}).catch(error=>{if(error instanceof Error&&!/取消|WebGPU|此裝置無法/.test(error.message))reportLocalError('AI_MODEL_FAILED','VISION');throw error;}).finally(() => { preloadPromise = null; });
+  preloadPromise = executeLocalAi({ prompt: '', preload: true }, progress).then(() => {}).catch(error=>{if(error instanceof Error&&!/取消|WebGPU|此裝置無法/.test(error.message))reportLocalError(/模型資源下載失敗/.test(error.message)?'AI_DOWNLOAD_FAILED':'AI_MODEL_FAILED','VISION');throw error;}).finally(() => { preloadPromise = null; });
   return preloadPromise;
 }
 export async function runLocalAi(request: LocalRequest, progress: (message: string) => void = () => {}, signal?: AbortSignal): Promise<string> {
   const check=()=>{if(signal?.aborted)throw new Error('已取消本機 AI 處理，原有內容仍保留。');};check();
   if (preloadPromise) { progress('模型正在背景準備，完成後立即解析…'); try { await preloadPromise; } catch(error) { if(!request.audio)throw error; } }
-  check();try{return await executeLocalAi(request, progress);}catch(error){const message=error instanceof Error?error.message:'';if(!signal?.aborted&&!/取消|沒有收到聲音|錄音資料|語音長度|WebGPU|此裝置無法|請先輸入|內容太長|只接受|圖片必須|正在處理/.test(message))reportLocalError(/memory|記憶體/i.test(message)?'AI_MEMORY_LIMIT':'AI_MODEL_FAILED',request.audio?(request.diagnosticModelChoice??'PRIMARY'):'VISION');throw error;}
+  check();try{return await executeLocalAi(request, progress);}catch(error){const message=error instanceof Error?error.message:'';if(!signal?.aborted&&!/取消|沒有收到聲音|錄音資料|語音長度|WebGPU|此裝置無法|請先輸入|內容太長|只接受|圖片必須|正在處理/.test(message))reportLocalError(/模型資源下載失敗/.test(message)?'AI_DOWNLOAD_FAILED':/memory|記憶體/i.test(message)?'AI_MEMORY_LIMIT':'AI_MODEL_FAILED',request.audio?(request.diagnosticModelChoice??'PRIMARY'):'VISION');throw error;}
 }
 async function executeLocalAi(request: LocalRequest, progress: (message: string) => void): Promise<string> {
   if (rejectPending || initializing) throw new Error('本機 AI 正在處理另一項工作，請稍候。');
