@@ -30,7 +30,7 @@ Conceptual identity record:
 
 Do not silently merge accounts merely because two providers expose the same email address. Explicit account-linking requires a separately accepted, authenticated linking flow.
 
-## Public Account ID / 帳號 ID
+## Public Account ID / 用戶 ID
 
 Every AFTERTRACE account has a separate customer-facing support identifier.
 
@@ -45,7 +45,7 @@ Requirements:
 
 Example presentation only:
 
-`AT-7K4M2P`
+`AT-7K4M2P8Q9R2S`
 
 The exact generation alphabet/length may change before launch, but it must provide sufficient collision resistance and must not leak database sequence information.
 
@@ -55,12 +55,12 @@ The authenticated top-right account area contains:
 
 - notification bell and unread count;
 - user display name;
-- `帳號 ID` using the public account id;
+- `用戶 ID` using the public account id;
 - one-tap copy action for the account id.
 
 Copy success should have lightweight visible confirmation such as `已複製`.
 
-On narrow PWA layouts, the account details may live inside the account/profile popover, but they must remain easy to find and copy.
+Desktop and narrow PWA layouts show the public user ID directly in the authenticated header with a copy button. The account popover repeats it. Copy failure must not report success; users can select and manually copy the visible identifier.
 
 ## Support lookup
 

@@ -219,3 +219,21 @@ describe('manual record routes', () => {
     await expect(restored.json()).resolves.toMatchObject({ record: { status: 'ACTIVE', version: 3 } });
   });
 });
+describe('authorized single-record reads', () => {
+  it('returns a private record only within its authorized scope', async () => {
+    const repository = new FakeRepository(); const app = routes(repository);
+    const authorized = headers(await authorization());
+    const response = await app.request('/records/100', { headers: authorized }, env);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ record: { id: 100, version: 1 } });
+    repository.records.set(100, record({ sourceId: 999 }));
+    expect((await app.request('/records/100', { headers: authorized }, env)).status).toBe(403);
+  });
+  it('rejects deleted and missing records without returning their content', async () => {
+    const repository = new FakeRepository(); const app = routes(repository);
+    const authorized = headers(await authorization());
+    repository.records.set(100, record({ status: 'DELETED' }));
+    expect((await app.request('/records/100', { headers: authorized }, env)).status).toBe(409);
+    expect((await app.request('/records/999', { headers: authorized }, env)).status).toBe(404);
+  });
+});

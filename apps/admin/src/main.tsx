@@ -1,63 +1,14 @@
-import { StrictMode } from 'react';
-import { createRoot } from 'react-dom/client';
-import { AdminApi } from './api';
-import { AdminAnnouncementApi } from './announcement-api';
-import { AdminAiRuntimePage } from './AdminAiRuntimePage';
-import { AdminAnnouncementsPage } from './AdminAnnouncementsPage';
-import { AdminAccountsPage } from './AdminAccountsPage';
-import { AdminAppChrome } from './AdminAppChrome';
-import { AdminCommercialPage } from './AdminCommercialPage';
-import { AdminFeedbackPage } from './AdminFeedbackPage';
-import { AdminHomePage } from './AdminHomePage';
-import { AdminCommercialApi } from './commercial-api';
-import { PricingCalculatorPage } from './PricingCalculatorPage';
-import { ProfitabilityPage } from './ProfitabilityPage';
-import { installTaipeiDateDisplayPolicy } from './time-display';
-import './styles.css';
-import './admin-modern.css';
-import './admin-shell.css';
-import './commercial-page.css';
-
-installTaipeiDateDisplayPolicy();
-
-const root = createRoot(document.getElementById('root')!);
-const baseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
-const hasAdminSession = Boolean(sessionStorage.getItem('aftertrace.admin.session'));
-
-if (!baseUrl) {
-  root.render(
-    <StrictMode>
-      <main className="shell">
-        <section className="panel">
-          <h1>AFTERTRACE Admin</h1>
-          <p>系統設定不完整：缺少 VITE_API_BASE_URL。</p>
-        </section>
-      </main>
-    </StrictMode>,
-  );
-} else {
-  const api = new AdminApi(baseUrl);
-  const announcementApi = new AdminAnnouncementApi(baseUrl);
-  const commercialApi = new AdminCommercialApi(baseUrl);
-  const page = window.location.pathname === '/profitability'
-    ? <ProfitabilityPage api={api} />
-    : window.location.pathname === '/pricing-calculator'
-      ? <PricingCalculatorPage api={api} />
-      : window.location.pathname === '/ai-runtime'
-        ? <AdminAiRuntimePage api={api} />
-        : window.location.pathname === '/announcements'
-          ? <AdminAnnouncementsPage api={api} announcementApi={announcementApi} />
-          : window.location.pathname === '/accounts'
-            ? <AdminAccountsPage api={api} />
-            : window.location.pathname === '/commercial'
-              ? <AdminCommercialPage api={commercialApi} runtimeApi={api} />
-              : window.location.pathname === '/feedback-management'
-                ? <AdminFeedbackPage apiBaseUrl={baseUrl} />
-                : <AdminHomePage api={api} />;
-
-  root.render(
-    <StrictMode>
-      {hasAdminSession ? <AdminAppChrome>{page}</AdminAppChrome> : page}
-    </StrictMode>,
-  );
-}
+import{lazy,Suspense,useEffect,useMemo,useState}from'react';import{createRoot}from'react-dom/client';import{AdminApi}from'./api';import{AdminAnnouncementApi}from'./announcement-api';import{AdminAppChrome}from'./AdminAppChrome';import{AdminSessionContext}from'./admin-session';import{ManagementApi,type AdminSession}from'./management-api';import{PasswordForm}from'./AdminShared';import{installTaipeiDateDisplayPolicy}from'./time-display';import './styles.css';import './admin-modern.css';import './admin-shell.css';import './admin-management.css';
+const Errors=lazy(()=>import('./AdminErrorsPage'));
+const Users=lazy(()=>import('./AdminUsersPage')),Ai=lazy(()=>import('./AdminAiPage')),Access=lazy(()=>import('./AdminAccessPage'));const Feedback=lazy(()=>import('./AdminFeedbackPage').then(m=>({default:m.AdminFeedbackPage}))),Announcements=lazy(()=>import('./AdminAnnouncementsPage').then(m=>({default:m.AdminAnnouncementsPage})));
+installTaipeiDateDisplayPolicy();const base=import.meta.env.VITE_API_BASE_URL?.trim()??'',api=new AdminApi(base),announcementApi=new AdminAnnouncementApi(base);
+const routes=[{path:'/users',permissions:['users.read']},{path:'/error-logs',permissions:['errors.read']},{path:'/ai',permissions:['ai_prompts.read','ai_models.read']},{path:'/feedback-management',permissions:['feedback.read']},{path:'/announcements',permissions:['announcements.read']},{path:'/roles',permissions:['roles.read']},{path:'/permissions',permissions:['permissions.read']},{path:'/admin-accounts',permissions:['admin_accounts.read']}];
+function AdminRoot(){const management=useMemo(()=>new ManagementApi(base),[]),[session,setSession]=useState<AdminSession|null>(null),[loading,setLoading]=useState(!!sessionStorage.getItem('aftertrace.admin.session')),[error,setError]=useState('');async function refresh(){const next=await management.request<AdminSession>('/session');setSession(next);api.setSessionToken(sessionStorage.getItem('aftertrace.admin.session'));announcementApi.setSessionToken(sessionStorage.getItem('aftertrace.admin.session'));}
+useEffect(()=>{const expired=()=>{setSession(null);setLoading(false);};const changed=()=>{void refresh().catch((e:Error)=>setError(e.message));};window.addEventListener('aftertrace:admin-expired',expired);window.addEventListener('aftertrace:admin-permissions-changed',changed);if(sessionStorage.getItem('aftertrace.admin.session'))void refresh().catch((e:Error)=>setError(e.message)).finally(()=>setLoading(false));return()=>{window.removeEventListener('aftertrace:admin-expired',expired);window.removeEventListener('aftertrace:admin-permissions-changed',changed);};},[management]);
+if(!base)return <main className="shell"><h1>後台設定不完整</h1></main>;if(loading)return <main className="shell"><p role="status">正在確認登入與頁面權限…</p></main>;if(!session)return <Login apiBaseUrl={base} error={error} onLogin={profile=>{setSession(profile);setError('');api.setSessionToken(sessionStorage.getItem('aftertrace.admin.session'));announcementApi.setSessionToken(sessionStorage.getItem('aftertrace.admin.session'));}}/>;
+const can=(permission:string)=>session.isSuperAdmin||session.permissions.includes(permission);if(session.mustChangePassword)return <main className="shell auth-shell"><section className="login-card"><h1>請先修改臨時密碼</h1><PasswordForm apiBaseUrl={base} onDone={()=>void refresh()}/></section></main>;
+const first=routes.find(r=>r.permissions.some(can));const path=location.pathname;if(path==='/'||['/accounts','/ai-prompts','/ai-runtime','/commercial','/pricing-calculator','/profitability'].includes(path)){const next=path==='/ai-prompts'&&can('ai_prompts.read')?'/ai?tab=prompts':first?.path; if(next){location.replace(next);return <p role="status">正在開啟管理頁面…</p>;}}
+const route=routes.find(r=>r.path===path);let content;if(!route||!route.permissions.some(can))content=<main className="shell"><h1>無法使用此頁面</h1><p>你的角色沒有這個頁面的權限，請聯絡管理者。</p>{first&&<a href={first.path}>前往可使用的頁面</a>}</main>;else content=path==='/error-logs'?<Errors apiBaseUrl={base}/>:path==='/users'?<Users apiBaseUrl={base}/>:path==='/ai'?<Ai apiBaseUrl={base}/>:path==='/feedback-management'?<Feedback apiBaseUrl={base}/>:path==='/announcements'?<Announcements api={api} announcementApi={announcementApi}/>:<Access apiBaseUrl={base} kind={path==='/roles'?'roles':path==='/permissions'?'permissions':'staff'}/>;
+return <AdminSessionContext.Provider value={{session,refresh}}><AdminAppChrome apiBaseUrl={base}><Suspense fallback={<main className="shell"><p role="status">正在載入管理頁面…</p></main>}>{content}</Suspense></AdminAppChrome></AdminSessionContext.Provider>;}
+function Login({apiBaseUrl,error:externalError,onLogin}:{apiBaseUrl:string;error:string;onLogin:(session:AdminSession)=>void}){const[username,setUsername]=useState(''),[password,setPassword]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');return <main className="shell auth-shell"><form className="login-card" onSubmit={async e=>{e.preventDefault();setBusy(true);setError('');try{const result=await new ManagementApi(apiBaseUrl).request<AdminSession&{sessionToken:string}>('/login','POST',{username,password});sessionStorage.setItem('aftertrace.admin.session',result.sessionToken);setPassword('');onLogin(result);}catch(cause){setError(cause instanceof Error?cause.message:'登入失敗');}finally{setBusy(false);}}}><img className="admin-login-logo" src="/aftertrace-icon.svg" alt=""/><p className="eyebrow">AFTERTRACE ADMIN</p><h1>管理後台</h1><p className="muted">依角色權限管理用戶、AI、客服與後台帳號。</p>{(error||externalError)&&<p role="alert" className="banner error">{error||externalError}</p>}<label>管理員帳號<input autoComplete="username" maxLength={64} disabled={busy} value={username} onChange={e=>setUsername(e.target.value)}/></label><label>密碼<input type="password" autoComplete="current-password" maxLength={128} disabled={busy} value={password} onChange={e=>setPassword(e.target.value)}/></label><button disabled={busy||!username.trim()||!password}>{busy?'登入中…':'登入'}</button></form></main>;}
+createRoot(document.getElementById('root')!).render(<AdminRoot/>);

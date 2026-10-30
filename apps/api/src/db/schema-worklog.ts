@@ -26,6 +26,7 @@ export const worklogFeedbackChannelEnum = (name: string) => varchar(name, { leng
 export const worklogUsers = pgTable('worklog_users', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
   displayName: varchar('display_name', { length: 255 }),
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
@@ -165,7 +166,7 @@ export const worklogFeedback = pgTable(
     context: jsonb('context'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
-  (table) => [index('worklog_feedback_created_idx').on(table.createdAt)],
+  (table) => [index('worklog_feedback_created_idx').on(table.createdAt),index('worklog_feedback_user_id_idx').on(table.userId,table.id.desc())],
 );
 
 export const worklogAuditLogs = pgTable(

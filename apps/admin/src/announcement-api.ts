@@ -1,3 +1,4 @@
+import { adminFetch } from './admin-fetch';
 import { normalizeAdminApiTimestamps, type AdminApi, type Row } from './api';
 
 export type AdminAnnouncementStatus = 'DRAFT' | 'SCHEDULED' | 'SENDING' | 'SENT' | 'CANCELLED' | 'FAILED';
@@ -101,7 +102,7 @@ export class AdminAnnouncementApi {
     const headers = new Headers(init?.headers);
     if (init?.body) headers.set('Content-Type', 'application/json');
     if (this.sessionToken) headers.set('Authorization', `Bearer ${this.sessionToken}`);
-    const response = await fetch(`${this.baseUrl.replace(/\/$/, '')}/api/v1/admin${path}`, { ...init, headers });
+    const response = await adminFetch(`${this.baseUrl.replace(/\/$/, '')}/api/v1/admin${path}`, { ...init, headers });
     const text = await response.text();
     let body: ({ ok?: boolean; error?: string } & T) | null = null;
     try {

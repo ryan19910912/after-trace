@@ -1,3 +1,4 @@
+import { adminFetch } from './admin-fetch';
 export type Row = Record<string, unknown>;
 
 export type AdminProfitabilityPeriod = 'TODAY' | '7D' | '30D' | 'BILLING_MONTH';
@@ -128,7 +129,7 @@ export class AdminApi {
     const headers = new Headers(init?.headers);
     if (init?.body) headers.set('Content-Type', 'application/json');
     if (authenticated && this.sessionToken) headers.set('Authorization', `Bearer ${this.sessionToken}`);
-    const response = await fetch(`${this.baseUrl.replace(/\/$/, '')}/api/v1/admin${path}`, { ...init, headers });
+    const response = await adminFetch(`${this.baseUrl.replace(/\/$/, '')}/api/v1/admin${path}`, { ...init, headers });
     const text = await response.text();
     let body: ({ ok?: boolean; error?: string } & T);
     try { body = text ? JSON.parse(text) as { ok?: boolean; error?: string } & T : {} as { ok?: boolean; error?: string } & T; }

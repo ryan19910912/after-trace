@@ -160,6 +160,7 @@ async function json<T>(response: Response, fallback: string): Promise<T & { erro
     throw new Error(`${fallback} (${response.status})`);
   }
   if (!response.ok) {
+    const id=response.headers.get('X-Request-ID');if(response.status>=500&&id&&typeof window!=='undefined')window.dispatchEvent(new CustomEvent('aftertrace:diagnostic',{detail:{id,kind:'requestId'}}));
     const error = body.error || `${fallback} (${response.status})`;
     if (response.status === 401 && /^(?:INVALID_WEB_SESSION|WEB_SESSION_REQUIRED)$/.test(error)) {
       recoverExpiredWebSession();
@@ -188,8 +189,10 @@ function recoverRecordVersionConflict(): void {
   window.setTimeout(() => window.location.reload(), 0);
 }
 
+const pendingSurfaces = new Map<string, Promise<WorklogSurfaces>>();
+
 export class WorklogApi {
-  constructor(private readonly baseUrl: string) {}
+  constructor(readonly baseUrl: string) {}
 
   private base(path: string) {
     return `${this.baseUrl.replace(/\/$/, '')}${path}`;
@@ -216,11 +219,20 @@ export class WorklogApi {
   }
 
   async surfaces(sessionToken: string): Promise<WorklogSurfaces> {
-    const body = await json<{ surfaces: Record<string, unknown> }>(
-      await this.request(sessionToken, '/api/v1/worklog/surfaces'),
-      '紀錄範圍載入失敗',
-    );
-    return surfacesFromApi(body.surfaces);
+    const key = this.baseUrl + ':' + sessionToken;
+    const existing = pendingSurfaces.get(key);
+    if (existing) return existing;
+    const pending = this.request(sessionToken, '/api/v1/worklog/surfaces')
+      .then((response) => json<{ surfaces: Record<string, unknown> }>(response, '紀錄範圍載入失敗'))
+      .then((body) => surfacesFromApi(body.surfaces));
+    pendingSurfaces.set(key, pending);
+    try { return await pending; }
+    finally { if (pendingSurfaces.get(key) === pending) pendingSurfaces.delete(key); }
+  }
+
+  async record(sessionToken: string, recordId: number): Promise<WorklogRecord> {
+    const body = await json<{ record: Record<string, unknown> }>(await this.request(sessionToken, '/api/v1/worklog/records/' + recordId), '紀錄載入失敗');
+    return recordFromApi(body.record);
   }
 
   async personalRecords(
@@ -347,12 +359,17 @@ export class WorklogApi {
     return { status: body.status, group: nativeGroupFromApi(body.group) };
   }
 
+  async ownFeedback(sessionToken:string,before:string|null=null){
+    const query=new URLSearchParams({limit:'10'});if(before)query.set('before',before);
+    return json<{feedback:Array<{id:string;text:string;category:string;status:string;created_at:string;updated_at:string}>;page:{hasMore:boolean;nextCursor:string|null}}>(await this.request(sessionToken,'/api/v1/worklog/feedback?'+query),'回饋紀錄載入失敗');
+  }
+
   async submitFeedback(
     sessionToken: string,
     text: string,
     context: Record<string, string | number>,
   ) {
-    await json(
+    return json<{feedback:{id:string;created_at:string}}>(
       await this.request(sessionToken, '/api/v1/worklog/feedback', this.body('POST', { text, context })),
       '意見送出失敗',
     );

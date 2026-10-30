@@ -16,6 +16,9 @@ if (existsSync(baselinePath)) baseline = readFileSync(baselinePath, 'utf8');
 else failures.push('missing drizzle/0000_worklog_baseline.sql');
 
 for (const marker of [
+  'CREATE TABLE "worklog_local_ai_prompts"',
+  'CREATE TABLE "worklog_local_ai_prompt_revisions"',
+  'COMMENT ON TABLE "worklog_local_ai_prompts"',
   'CREATE TABLE "worklog_users"',
   'CREATE TABLE "worklog_records"',
   'CREATE TABLE "worklog_record_revisions"',
@@ -35,6 +38,8 @@ for (const marker of [
 }
 
 if (baseline) checkCompleteSchemaComments(baseline);
+const additive=readFileSync(resolve(drizzleDir,'0001_error_logs.sql'),'utf8');checkCompleteSchemaComments(additive);if(/DROP\s|TRUNCATE\s/i.test(additive))failures.push('error migration must be additive');
+for(const m of additive.matchAll(/CREATE TABLE "([^"]+)"/g))if(!m[1].startsWith('worklog_error_'))failures.push('error migration may only create error tables');
 
 if (/CREATE\s+TYPE\s+[^;]+\s+AS\s+ENUM/i.test(baseline)) {
   failures.push('baseline must not create PostgreSQL ENUM types; domain validation belongs to the application layer');
@@ -52,9 +57,11 @@ else {
 
 if (journal) {
   if (journal.dialect !== 'postgresql') failures.push('Drizzle journal dialect must be postgresql');
-  if (!Array.isArray(journal.entries) || journal.entries.length !== 1) {
-    failures.push('Drizzle journal must contain exactly one canonical baseline entry');
+  if (!Array.isArray(journal.entries) || journal.entries.length !== 3) {
+    failures.push('Drizzle journal must contain the preserved baseline and additive error_logs migration');
   } else {
+    if(journal.entries[1]?.idx!==1||journal.entries[1]?.tag!=='0001_error_logs')failures.push('Invalid additive error migration journal entry');
+    if(journal.entries[2]?.idx!==2||journal.entries[2]?.tag!=='0002_browser_ai_admin_upgrade')failures.push('Invalid browser AI admin upgrade journal entry');
     const entry = journal.entries[0];
     if (entry?.idx !== 0 || entry?.tag !== '0000_worklog_baseline') {
       failures.push('Drizzle journal baseline entry must be idx=0 and tag=0000_worklog_baseline');
@@ -68,7 +75,7 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log('AFTERTRACE canonical single database baseline guard passed.');
+console.log('AFTERTRACE preserved baseline and additive migration guard passed.');
 
 function checkCompleteSchemaComments(sql) {
   const commentTargets = new Set();
@@ -98,7 +105,7 @@ function checkArtifactShape() {
   }
 
   const rootEntries = readdirSync(drizzleDir).sort();
-  const expectedRoot = ['0000_worklog_baseline.sql', 'meta'];
+  const expectedRoot = ['0000_worklog_baseline.sql','0001_error_logs.sql','0002_browser_ai_admin_upgrade.sql','meta'];
   if (!sameEntries(rootEntries, expectedRoot)) {
     failures.push(`drizzle directory must contain exactly ${expectedRoot.join(', ')}; found ${rootEntries.join(', ') || '(empty)'}`);
   }
@@ -109,7 +116,7 @@ function checkArtifactShape() {
   }
 
   const metaEntries = readdirSync(metaDir).sort();
-  const expectedMeta = ['0000_snapshot.json', '_journal.json'];
+  const expectedMeta = ['0000_snapshot.json','0001_snapshot.json','0002_snapshot.json','_journal.json'];
   if (!sameEntries(metaEntries, expectedMeta)) {
     failures.push(`drizzle/meta must contain exactly ${expectedMeta.join(', ')}; found ${metaEntries.join(', ') || '(empty)'}`);
   }

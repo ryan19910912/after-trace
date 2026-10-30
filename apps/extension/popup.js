@@ -112,23 +112,6 @@ async function renderSources(surfaces) {
   updateSaveState();
 }
 
-function createRecognition() {
-  const Constructor = globalThis.SpeechRecognition ?? globalThis.webkitSpeechRecognition;
-  if (!Constructor) return null;
-  const instance = new Constructor();
-  instance.lang = 'zh-TW'; instance.interimResults = true; instance.continuous = false;
-  let committedPrefix = '';
-  instance.onstart = () => { recognizing = true; committedPrefix = content.value.trim(); voiceButton.textContent = '⏹️ 停止'; setStatus('正在聆聽…語音會先轉成文字，不會直接使用 AI。'); };
-  instance.onresult = (event) => {
-    let finalText = ''; let interimText = '';
-    for (let i = event.resultIndex; i < event.results.length; i += 1) { const transcript = event.results[i]?.[0]?.transcript ?? ''; if (event.results[i].isFinal) finalText += transcript; else interimText += transcript; }
-    content.value = [committedPrefix, finalText || interimText].filter(Boolean).join(committedPrefix ? ' ' : ''); updateSaveState();
-  };
-  instance.onerror = (event) => setStatus(`語音輸入失敗（${event.error ?? 'unknown'}），可以直接改用文字。`);
-  instance.onend = () => { recognizing = false; voiceButton.textContent = '🎙️ 語音'; if (!status.textContent.includes('失敗')) setStatus('語音輸入完成，可以再編輯後儲存。'); updateSaveState(); };
-  return instance;
-}
-
 connectButton.addEventListener('click', async () => {
   const nonce = randomNonce(); await chrome.storage.session.set({ [PENDING_CONNECT_KEY]: nonce });
   const webAppUrl = await preferredWebAppUrl(); const url = new URL('/extension/connect', webAppUrl);
@@ -149,16 +132,13 @@ includePage.addEventListener('change', async () => {
   } else pageContext.classList.add('hidden');
 });
 
-voiceButton.addEventListener('click', () => { if (!recognition) recognition = createRecognition(); if (!recognition) { setStatus('目前環境不支援語音輸入，可以直接輸入文字。'); return; } if (recognizing) recognition.stop(); else recognition.start(); });
-
-screenshotButton.addEventListener('click', async () => {
-  try {
-    screenshotDataUrl = await chrome.tabs.captureVisibleTab(undefined, { format: 'png' });
-    screenshotPreview.src = screenshotDataUrl; screenshotPreview.classList.remove('hidden');
-    setStatus('已擷取目前可見畫面。按「儲存」後會使用可用 AI 額度整理成紀錄。');
-  } catch { screenshotDataUrl = null; screenshotPreview.classList.add('hidden'); setStatus('無法擷取目前畫面，請確認這個頁面允許擴充功能使用。'); }
-  updateSaveState();
-});
+async function openLocalCapture() {
+  const webAppUrl = auth?.webAppUrl ?? await preferredWebAppUrl();
+  await chrome.tabs.create({ url: new URL('/capture', webAppUrl).toString() });
+}
+voiceButton.addEventListener('click', openLocalCapture);
+screenshotButton.textContent = '圖片／語音紀錄';
+screenshotButton.addEventListener('click', openLocalCapture);
 
 saveButton.addEventListener('click', async () => {
   if (!auth || saving) return;
@@ -185,32 +165,6 @@ async function saveManualRecord(target, rawText) {
   setStatus(requestBody.captureContext ? '紀錄與來源頁面資訊已儲存。' : '紀錄已儲存。');
 }
 
-async function saveScreenshotWithAi(target, instruction) {
-  const entitlementResponse = await authenticatedFetch(`/api/v1/ai/entitlement?sourceId=${encodeURIComponent(String(target.sourceId))}`);
-  const entitlementBody = await entitlementResponse.json();
-  if (!entitlementResponse.ok) throw apiError(entitlementResponse, entitlementBody, '無法確認 AI 使用狀態');
-  if (entitlementBody?.entitlement?.allowed !== true || entitlementBody?.entitlement?.source === 'BLOCKED') throw new Error(entitlementBody?.entitlement?.reason || 'AI_NOT_ENTITLED');
-
-  const media = dataUrlMedia(screenshotDataUrl);
-  if (!media || media.byteLength > 5 * 1024 * 1024) throw new Error('AI_IMAGE_TOO_LARGE');
-  const requestBody = { sourceId: target.sourceId, image: media };
-  if (instruction) requestBody.instruction = instruction;
-  if (includePage.checked && draftPageContext) requestBody.captureContext = { page: { title: draftPageContext.title, url: draftPageContext.url } };
-  const response = await authenticatedFetch('/api/v1/ai/capture/image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
-  const body = await response.json(); if (!response.ok) throw apiError(response, body, '截圖整理失敗');
-  screenshotDataUrl = null; screenshotPreview.removeAttribute('src'); screenshotPreview.classList.add('hidden');
-  setStatus('截圖已整理並儲存成紀錄。');
-}
-
-function dataUrlMedia(value) {
-  if (typeof value !== 'string') return null;
-  const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]+={0,2})$/.exec(value);
-  if (!match) return null;
-  const base64 = match[2]; const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
-  const byteLength = (base64.length / 4) * 3 - padding;
-  return Number.isSafeInteger(byteLength) && byteLength > 0 ? { mimeType: match[1], byteLength, dataBase64: base64 } : null;
-}
-
 async function authenticatedFetch(path, init = {}) {
   if (!auth || !validAuth(auth)) { await clearAuth(); throw new Error('INVALID_WEB_SESSION'); }
   const headers = new Headers(init.headers ?? {}); headers.set('Authorization', `Bearer ${auth.sessionToken}`); headers.set('Accept', 'application/json');
@@ -233,7 +187,7 @@ function renderPageContext(context) { pageTitle.textContent = context?.title ?? 
 function validAuth(value) { if (!value || typeof value !== 'object') return false; const apiBaseUrl = safeHttpOrigin(value.apiBaseUrl); const webAppUrl = safeHttpOrigin(value.webAppUrl); const expiresAt = typeof value.sessionExpiresAt === 'string' ? new Date(value.sessionExpiresAt) : null; return typeof value.sessionToken === 'string' && value.sessionToken.trim().length > 0 && value.sessionToken.length <= 8192 && expiresAt instanceof Date && Number.isFinite(expiresAt.getTime()) && expiresAt.getTime() > Date.now() && expiresAt.getTime() <= Date.now() + 60 * 60 * 24 * 7 * 1000 + 60_000 && Boolean(apiBaseUrl) && Boolean(webAppUrl) && WEB_APP_ORIGINS.has(webAppUrl); }
 function apiError(response, body, fallback) { const code = typeof body?.error === 'string' ? body.error : `${fallback} (${response.status})`; const error = new Error(code); error.status = response.status; return error; }
 function sessionExpired(error) { return error?.status === 401 || /INVALID_WEB_SESSION|WEB_SESSION_REQUIRED|WORKLOG_USER_NOT_FOUND/.test(error?.message ?? ''); }
-function extensionErrorMessage(error) { const code = error instanceof Error ? error.message : ''; if (code === 'TRIAL_EXHAUSTED') return '免費 AI 體驗額度已用完；可選擇訂閱方案繼續使用截圖整理。'; if (code === 'AI_NOT_ENTITLED') return '目前沒有可用 AI 額度；可選擇訂閱方案繼續使用截圖整理。'; if (code === 'AI_IMAGE_TOO_LARGE') return '截圖超過目前單次圖片大小上限。'; return code || '儲存失敗'; }
+function extensionErrorMessage(error) { return error instanceof Error ? error.message : '儲存失敗'; }
 function safeHttpOrigin(value) { if (typeof value !== 'string') return null; try { const url = new URL(value.trim()); return url.protocol === 'https:' ? url.origin : null; } catch { return null; } }
 function randomNonce() { const bytes = crypto.getRandomValues(new Uint8Array(24)); let binary = ''; for (const byte of bytes) binary += String.fromCharCode(byte); return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''); }
 

@@ -1,53 +1,68 @@
+import {withRequestDiagnostics} from './diagnostics/capture';
+import {errorIngestion,errorAdminRoutes} from './diagnostics/routes';
+import {cleanupErrors,bindErrorAdmin} from './diagnostics/store';
+import { bearerToken, verifyAdminSessionToken } from './admin/auth';
+import { permissionForAdminPath } from './admin/permissions';
+import { createAdminManagementRoutes } from './admin/management-routes';
+import { createLocalModelRoutes } from './admin/model-routes';
+import { createLocalPromptRoutes } from './admin/local-prompt-routes';
 import app, { type Bindings } from './index';
-import { createAdminAccountLookupRoutes } from './admin/account-lookup-routes';
-import { createAdminCommercialConfigRoutes } from './admin/commercial-config-routes';
 import { createAdminFeedbackManagementRoutes } from './admin/feedback-management-routes';
 import { createAdminNotificationRoutes } from './admin/notification-routes';
-import { createAdminProfitabilityRoutes } from './admin/profitability-routes';
-import { createAdminRoutes } from './admin/routes';
 import { createAccountRoutes } from './auth/account-routes';
-import { createNewebPayRoutes } from './payments/newebpay-routes';
-import { createAiEntitlementRoutes } from './worklog/ai-entitlement-routes';
-import { createAiTaskProposalRoutes } from './worklog/ai-task-proposal-routes';
-import { createAiTextCaptureRoutes } from './worklog/ai-text-capture-routes';
 import { createFeedbackRoutes } from './worklog/feedback-routes';
 import { createManualRecordRoutes } from './worklog/manual-record-routes';
 import { createNativeGroupRoutes } from './worklog/native-group-routes';
 import { createNotificationRoutes } from './worklog/notification-routes';
 import { deliverPendingPushBatch } from './worklog/push-runtime';
 import { runScheduledNotificationBatch } from './worklog/scheduled-notifications';
-import { createWorklogSubscriptionRoutes } from './worklog/subscription-routes';
 import { createTaskRoutes } from './worklog/task-routes';
 
 type ExecutionContextLike = { waitUntil(promise: Promise<unknown>): void };
 type ApiBoundary = 'ADMIN_API' | 'SUBSCRIPTION_API' | 'WORKLOG_WEB_API';
 
-const adminRoutes = createAdminRoutes();
-const adminAccountLookupRoutes = createAdminAccountLookupRoutes();
-const adminCommercialConfigRoutes = createAdminCommercialConfigRoutes();
+const diagnosticWeb=errorIngestion(),diagnosticAdmin=errorIngestion(true),diagnosticManagement=errorAdminRoutes();
+const managementRoutes = createAdminManagementRoutes();
+const adminModelRoutes = createLocalModelRoutes(true);
+const publicModelRoutes = createLocalModelRoutes();
+const adminPromptRoutes = createLocalPromptRoutes(true);
+const publishedPromptRoutes = createLocalPromptRoutes();
 const adminFeedbackManagementRoutes = createAdminFeedbackManagementRoutes();
 const adminNotificationRoutes = createAdminNotificationRoutes();
-const adminProfitabilityRoutes = createAdminProfitabilityRoutes();
 const accountRoutes = createAccountRoutes();
-const aiEntitlementRoutes = createAiEntitlementRoutes();
-const aiTaskProposalRoutes = createAiTaskProposalRoutes();
-const aiTextCaptureRoutes = createAiTextCaptureRoutes();
 const feedbackRoutes = createFeedbackRoutes();
-const newebPayRoutes = createNewebPayRoutes();
 const nativeGroupRoutes = createNativeGroupRoutes();
 const notificationRoutes = createNotificationRoutes();
 const taskRoutes = createTaskRoutes();
 const manualRecordRoutes = createManualRecordRoutes();
-const subscriptionRoutes = createWorklogSubscriptionRoutes();
 
-export default {
+const worker = {
   async fetch(request: Request, env: Bindings, executionContext: ExecutionContextLike) {
     const url = new URL(request.url);
     const path = url.pathname;
-
-    if (path === '/api/v1/admin/accounts') {
-      return routed(adminAccountLookupRoutes, request, env, executionContext, '/api/v1/admin/accounts', 'ADMIN_API');
+    if (path.startsWith('/api/v1/admin/') && path !== '/api/v1/admin/login' && request.method !== 'OPTIONS') {
+      const origin = request.headers.get('origin');
+      const failure = (error: string, status: number) => { const headers = new Headers({'Content-Type':'application/json','Cache-Control':'no-store'}); if (origin === env.ADMIN_WEB_ORIGIN) { headers.set('Access-Control-Allow-Origin',origin!); headers.set('Vary','Origin'); } return new Response(JSON.stringify({error}),{status,headers}); };
+      if (origin && origin !== env.ADMIN_WEB_ORIGIN) return failure('ORIGIN_NOT_ALLOWED',403);
+      const token = bearerToken(request.headers.get('authorization') ?? undefined); if (!token) return failure('ADMIN_SESSION_REQUIRED',401);
+      let identity; try { identity = await verifyAdminSessionToken(token,env); } catch { return failure('ADMIN_AUTH_UNAVAILABLE',503); }
+      if (!identity) return failure('ADMIN_SESSION_INVALID',401);
+      if(identity.id)bindErrorAdmin(request,identity.id);
+      const permission = permissionForAdminPath(path,request.method);
+      if (permission === 'RETIRED_ADMIN_PAGE') return failure('ADMIN_PAGE_RETIRED',410);
+      if (identity.mustChangePassword && !['/api/v1/admin/session','/api/v1/admin/password'].includes(path)) return failure('PASSWORD_CHANGE_REQUIRED',403);
+      if (permission && !identity.isSuperAdmin && !identity.permissions?.includes(permission)) return failure('ADMIN_PERMISSION_DENIED',403);
+      env = {...env,__verifiedAdminToken:token,__verifiedAdmin:identity} as typeof env;
     }
+    if(path==='/api/v1/diagnostics/errors')return routed(diagnosticWeb,request,env,executionContext,'/api/v1/diagnostics/errors','WORKLOG_WEB_API');
+    if(path==='/api/v1/admin/client-errors')return routed(diagnosticAdmin,request,env,executionContext,'/api/v1/admin/client-errors','ADMIN_API');
+    if(path==='/api/v1/admin/error-logs'||path.startsWith('/api/v1/admin/error-logs/'))return routed(diagnosticManagement,request,env,executionContext,'/api/v1/admin/error-logs','ADMIN_API');
+    if (path === '/api/v1/local-ai/models') return routed(publicModelRoutes,request,env,executionContext,'/api/v1/local-ai/models','WORKLOG_WEB_API');
+    if (path === '/api/v1/admin/local-ai-models') return routed(adminModelRoutes,request,env,executionContext,'/api/v1/admin/local-ai-models','ADMIN_API');
+    if (/^\/api\/v1\/admin\/(login|session|password|users|roles|permissions|staff)(?:\/|$)/.test(path)) return routed(managementRoutes,request,env,executionContext,'/api/v1/admin','ADMIN_API');
+
+    if (path === '/api/v1/local-ai/prompts') return routed(publishedPromptRoutes, request, env, executionContext, '/api/v1/local-ai/prompts', 'WORKLOG_WEB_API');
+    if (path === '/api/v1/admin/local-ai-prompts' || path.startsWith('/api/v1/admin/local-ai-prompts/')) return routed(adminPromptRoutes, request, env, executionContext, '/api/v1/admin/local-ai-prompts', 'ADMIN_API');
     if (path === '/api/v1/admin/feedback-management' || path.startsWith('/api/v1/admin/feedback-management/')) {
       return routed(adminFeedbackManagementRoutes, request, env, executionContext, '/api/v1/admin/feedback-management', 'ADMIN_API');
     }
@@ -56,33 +71,32 @@ export default {
       if (await shouldKickPushAfterAdminAnnouncement(request, response)) schedulePushDelivery(env, executionContext);
       return response;
     }
-    if (path === '/api/v1/admin/commercial-config' || path.startsWith('/api/v1/admin/commercial-config/')) {
-      return routed(adminCommercialConfigRoutes, request, env, executionContext, '/api/v1/admin/commercial-config', 'ADMIN_API');
-    }
-    if (path === '/api/v1/admin/profitability' || path.startsWith('/api/v1/admin/profitability/')) {
-      return routed(adminProfitabilityRoutes, request, env, executionContext, '/api/v1/admin/profitability', 'ADMIN_API');
-    }
-    if (path === '/api/v1/admin' || path.startsWith('/api/v1/admin/')) {
-      return routed(adminRoutes, request, env, executionContext, '/api/v1/admin', 'ADMIN_API');
-    }
+    if (path === '/api/v1/admin' || path.startsWith('/api/v1/admin/')) return new Response(JSON.stringify({error:'ADMIN_PAGE_RETIRED'}),{status:410,headers:{'Content-Type':'application/json'}});
 
-    if (path === '/api/v1/payments/newebpay' || path.startsWith('/api/v1/payments/newebpay/')) {
-      return routed(newebPayRoutes, request, env, executionContext, '/api/v1/payments/newebpay', 'SUBSCRIPTION_API');
-    }
-    if (path === '/api/v1/subscription' || path.startsWith('/api/v1/subscription/')) {
-      return routed(subscriptionRoutes, request, env, executionContext, '/api/v1/subscription', 'SUBSCRIPTION_API');
+    if (path === '/api/v1/payments' || path.startsWith('/api/v1/payments/') || path === '/api/v1/subscription' || path.startsWith('/api/v1/subscription/')) {
+      const headers = new Headers({ 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      if (request.headers.get('origin') === env.WEB_APP_ORIGIN) {
+        headers.set('Access-Control-Allow-Origin', env.WEB_APP_ORIGIN!);
+        headers.set('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+        headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        headers.set('Vary', 'Origin');
+      }
+      return request.method === 'OPTIONS' ? new Response(null, { status: 204, headers }) : new Response(JSON.stringify({ error: 'BILLING_RETIRED', message: '本產品已取消訂閱與金流功能。' }), { status: 410, headers });
     }
     if (path === '/api/v1/account' || path.startsWith('/api/v1/account/')) {
       return routed(accountRoutes, request, env, executionContext, '/api/v1/account', 'WORKLOG_WEB_API');
     }
-    if (path === '/api/v1/ai/entitlement') {
-      return routed(aiEntitlementRoutes, request, env, executionContext, '/api/v1/ai/entitlement', 'WORKLOG_WEB_API');
-    }
-    if (path === '/api/v1/ai/task-proposal') {
-      return routed(aiTaskProposalRoutes, request, env, executionContext, '/api/v1/ai/task-proposal', 'WORKLOG_WEB_API');
-    }
-    if (path === '/api/v1/ai/capture' || path.startsWith('/api/v1/ai/capture/')) {
-      return routed(aiTextCaptureRoutes, request, env, executionContext, '/api/v1/ai/capture', 'WORKLOG_WEB_API');
+    // Retired provider routes fail closed, including older installed clients.
+    if (path === '/api/v1/ai' || path.startsWith('/api/v1/ai/')) {
+      const headers = new Headers({ 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      if (request.headers.get('origin') === env.WEB_APP_ORIGIN) {
+        headers.set('Access-Control-Allow-Origin', env.WEB_APP_ORIGIN!);
+        headers.set('Vary', 'Origin');
+        headers.set('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+        headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      }
+      if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
+      return new Response(JSON.stringify({ error: 'LOCAL_AI_ONLY', message: 'AI 已改為裝置本機執行，請更新網頁。' }), { status: 410, headers });
     }
     if (path === '/api/v1/notifications' || path.startsWith('/api/v1/notifications/')) {
       return routed(notificationRoutes, request, env, executionContext, '/api/v1/notifications', 'WORKLOG_WEB_API');
@@ -104,6 +118,7 @@ export default {
   },
 
   async scheduled(_controller: unknown, env: Bindings, executionContext: ExecutionContextLike) {
+    executionContext.waitUntil(cleanupErrors(env.DATABASE_URL).catch(()=>console.error('ERROR_LOG_CLEANUP_FAILED')));
     executionContext.waitUntil(
       runScheduledNotificationBatch(env, { announcementLimit: 25, taskLimit: 50, pushLimit: 50 })
         .then((result) => console.log(JSON.stringify({ event: 'worklog_notification_schedule_completed', ...result })))
@@ -168,7 +183,7 @@ async function withApiErrorBoundary(
         method: request.method,
         pathname: url.pathname,
         status: response.status,
-        requestRef: request.headers.get('cf-ray'),
+        requestRef: request.headers.get('x-aftertrace-request-id'),
       }));
     }
     return response;
@@ -184,3 +199,5 @@ async function withApiErrorBoundary(
     return Response.json({ ok: false, error: 'INTERNAL_SERVER_ERROR' }, { status: 500 });
   }
 }
+
+export default {...worker,fetch(request:Request,env:Bindings,context:ExecutionContextLike){return withRequestDiagnostics(request,env,context,(r,e,c)=>worker.fetch(r,e,c));}};

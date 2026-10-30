@@ -1,3 +1,5 @@
+import { LocalAiStatus } from './LocalAiStatus';
+import { localAiTool } from './local-ai-tools';
 import { useEffect, useMemo, useState } from 'react';
 import { LoginProviderButtons } from './LoginProviderButtons';
 import { WorklogApi, type RecordPage, type WorklogInputType, type WorklogRecord, type WorklogSurfaces } from './worklog-api';
@@ -10,7 +12,7 @@ const QUICK_SEARCHES = ['昨天做了什麼？', '這週有哪些工作紀錄？
 
 type SearchTab = 'GENERAL' | 'AI';
 type SearchRecord = { id: number; sourceId: number; inputType: WorklogInputType; title: string | null; rawText: string; occurredAt: string | null; createdAt: string };
-type SearchResult = { entitlementSource: 'FREE_TRIAL' | 'AI_PRO'; interpretation: { terms: string[]; from: string | null; to: string | null }; records: SearchRecord[] };
+type SearchResult = { entitlementSource: 'LOCAL'; interpretation: { terms: string[]; from: string | null; to: string | null }; records: SearchRecord[] };
 type GeneralFilters = { query: string; from: string; to: string };
 type EditDraft = { title: string; rawText: string; occurredAt: string };
 
@@ -138,13 +140,7 @@ export function AiSearchRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
     if (!session || !sourceId || !query.trim() || busy) return;
     setBusy(true); setError(null); setNotice(null); setResult(null);
     try {
-      const response = await fetch(`${apiBaseUrl.replace(/\/$/, '')}/api/v1/ai/capture/search`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${session}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceId, query: query.trim(), timeZone: browserTimeZone(), limit: 20 }),
-      });
-      const body = await responseBody(response);
-      if (!response.ok) throw apiError(response, body);
+      const body = await localAiTool(worklogApi, session, '/search', { sourceId, query: query.trim(), timeZone: browserTimeZone() });
       setResult(searchResult(body));
     } catch (cause) {
       if (sessionError(cause)) handleSessionAwareError(cause, '登入已過期，請重新登入。');
@@ -180,13 +176,14 @@ export function AiSearchRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
     {error ? <div className="error">{error}</div> : null}
     {notice ? <div className="worklog-notice">{notice}</div> : null}
 
+    <LocalAiStatus />
     <nav className="search-mode-tabs" aria-label="搜尋模式">
       <button className={tab === 'GENERAL' ? 'active' : ''} onClick={() => selectTab('GENERAL')}>一般搜尋</button>
       <button className={tab === 'AI' ? 'active' : ''} onClick={() => selectTab('AI')}>AI 搜尋</button>
     </nav>
 
     {tab === 'GENERAL' ? <section className="panel search-general-panel">
-      <div className="search-general-head"><div className="record-view-switch"><button className={!showDeleted ? 'active' : ''} onClick={() => { setShowDeleted(false); setGeneralPageIndex(0); }}>目前紀錄</button><button className={showDeleted ? 'active' : ''} onClick={() => { setShowDeleted(true); setGeneralPageIndex(0); }}>回收桶</button></div><div className="page-size-select"><span>每頁</span><select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value) as (typeof PAGE_SIZES)[number]); setGeneralPageIndex(0); }}>{PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}</select><span>筆</span></div></div>
+      <div className="search-general-head"><div className="record-view-switch"><button className={!showDeleted ? 'active' : ''} onClick={() => { setShowDeleted(false); setGeneralPageIndex(0); }}>目前紀錄</button><button className={showDeleted ? 'active' : ''} onClick={() => { setShowDeleted(true); setGeneralPageIndex(0); }}>回收桶</button></div><div className="page-size-select"><span>每頁</span><select aria-label="每頁筆數" value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value) as (typeof PAGE_SIZES)[number]); setGeneralPageIndex(0); }}>{PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}</select><span>筆</span></div></div>
       <div className="general-search-fields"><label>搜尋範圍<select value={sourceId ?? ''} disabled={busy || !surfaces} onChange={(event) => { setSourceId(Number(event.target.value) || null); setGeneralPageIndex(0); }}>{surfaces?.personal ? <option value={surfaces.personal.sourceId}>我的紀錄</option> : null}{surfaces?.groups.map((group) => <option key={group.sourceId} value={group.sourceId}>{group.name}</option>)}</select></label><label>關鍵字<input value={generalDraft.query} onChange={(event) => setGeneralDraft({ ...generalDraft, query: event.target.value })} placeholder="搜尋標題或內容" /></label><label>從<input type="date" value={generalDraft.from} onChange={(event) => setGeneralDraft({ ...generalDraft, from: event.target.value })} /></label><label>到<input type="date" value={generalDraft.to} onChange={(event) => setGeneralDraft({ ...generalDraft, to: event.target.value })} /></label></div>
       <div className="record-filter-actions-v2"><button disabled={busy || !sourceId} onClick={applyGeneral}>搜尋</button><button className="ghost" disabled={busy} onClick={resetGeneral}>重設為最近 7 天</button></div>
       <div className="search-result-list">{busy && generalRecords.length === 0 ? <div className="empty">載入中…</div> : null}{!busy && generalRecords.length === 0 ? <div className="empty"><strong>{showDeleted ? '回收桶是空的' : '找不到符合條件的紀錄'}</strong></div> : null}{generalRecords.map((record) => <article className="worklog-record-card" key={record.id}>
@@ -198,7 +195,7 @@ export function AiSearchRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
     </section> : null}
 
     {tab === 'AI' ? <>
-      <section className="panel stack ai-search-panel"><label className="ai-search-field"><span>要搜尋哪裡？</span><select value={sourceId ?? ''} disabled={busy || !surfaces} onChange={(event) => { setSourceId(Number(event.target.value) || null); setResult(null); }}>{surfaces?.personal ? <option value={surfaces.personal.sourceId}>我的紀錄</option> : null}{surfaces?.groups.map((group) => <option key={group.sourceId} value={group.sourceId}>{group.name}</option>)}</select></label><label className="ai-search-field"><span>想找什麼？</span><textarea rows={3} maxLength={1000} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="例如：昨天晴空案收款的紀錄" /></label><div className="quick-searches"><strong>不知道怎麼問？試試：</strong><div>{QUICK_SEARCHES.map((example) => <button key={example} type="button" className="quick-search-chip" disabled={busy} onClick={() => { setQuery(example); setResult(null); }}>{example}</button>)}</div></div><p className="muted">AI 搜尋會使用 AI Pro 或尚未用完的文字 AI 體驗額度；一般搜尋不會消耗 AI 額度。</p><div className="filter-actions"><button disabled={busy || !sourceId || !query.trim()} onClick={() => void searchAi()}>{busy ? '搜尋中…' : '開始搜尋'}</button><button className="ghost" disabled={busy} onClick={() => { setQuery(''); setResult(null); setError(null); }}>清除</button></div></section>
+      <section className="panel stack ai-search-panel"><label className="ai-search-field"><span>要搜尋哪裡？</span><select value={sourceId ?? ''} disabled={busy || !surfaces} onChange={(event) => { setSourceId(Number(event.target.value) || null); setResult(null); }}>{surfaces?.personal ? <option value={surfaces.personal.sourceId}>我的紀錄</option> : null}{surfaces?.groups.map((group) => <option key={group.sourceId} value={group.sourceId}>{group.name}</option>)}</select></label><label className="ai-search-field"><span>想找什麼？</span><textarea rows={3} maxLength={1000} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="例如：昨天晴空案收款的紀錄" /></label><div className="quick-searches"><strong>不知道怎麼問？試試：</strong><div>{QUICK_SEARCHES.map((example) => <button key={example} type="button" className="quick-search-chip" disabled={busy} onClick={() => { setQuery(example); setResult(null); }}>{example}</button>)}</div></div><p className="muted">搜尋條件在此裝置解析，再查詢你有權限查看的紀錄。首次使用需要下載本機模型。</p><div className="filter-actions"><button disabled={busy || !sourceId || !query.trim()} onClick={() => void searchAi()}>{busy ? '搜尋中…' : '開始搜尋'}</button><button className="ghost" disabled={busy} onClick={() => { setQuery(''); setResult(null); setError(null); }}>清除</button></div></section>
       {result ? <section className="panel stack ai-search-results"><div className="topbar compact-topbar"><div><p className="eyebrow">搜尋結果</p><h2>{result.records.length} 筆紀錄</h2></div></div><SearchInterpretation result={result} />{result.records.length === 0 ? <div className="empty">沒有找到符合條件的紀錄，可以換個說法或切回一般搜尋。</div> : <div className="worklog-record-list">{result.records.map((record) => <SearchRecordCard key={record.id} record={record} />)}</div>}</section> : null}
     </> : null}
 
@@ -218,15 +215,13 @@ function datetimeLocalValue(value: string | null): string { if (!value) return '
 function previewTitle(rawText: string): string { const normalized = rawText.replace(/\s+/g, ' ').trim(); return normalized.length > 28 ? `${normalized.slice(0, 28)}…` : normalized || '未命名紀錄'; }
 function SearchInterpretation({ result }: { result: SearchResult }) { const { terms, from, to } = result.interpretation; return <div className="worklog-record-meta">{terms.length ? <span>關鍵字：{terms.join('、')}</span> : null}{from ? <span>從：{formatDateTime(from)}</span> : null}{to ? <span>到：{formatDateTime(to)}</span> : null}</div>; }
 function SearchRecordCard({ record }: { record: SearchRecord }) { const date = record.occurredAt ?? record.createdAt; return <article className="worklog-record-card"><div className="worklog-record-meta"><span>{inputLabel(record.inputType)}</span><time>{record.occurredAt ? '發生時間' : '建立時間'}：{formatDateTime(date)}</time></div><h3 className="record-result-title">{record.title || previewTitle(record.rawText)}</h3><p className="record-result-body">{record.rawText}</p></article>; }
-function searchResult(body: Record<string, unknown>): SearchResult { const interpretationRaw = plainObject(body.interpretation); const recordsRaw = Array.isArray(body.records) ? body.records : []; return { entitlementSource: body.entitlementSource === 'FREE_TRIAL' ? 'FREE_TRIAL' : 'AI_PRO', interpretation: { terms: Array.isArray(interpretationRaw.terms) ? interpretationRaw.terms.filter((value): value is string => typeof value === 'string').slice(0, 8) : [], from: nullableString(interpretationRaw.from), to: nullableString(interpretationRaw.to) }, records: recordsRaw.map((value) => { const record = plainObject(value); return { id: Number(record.id), sourceId: Number(record.sourceId ?? record.source_id), inputType: inputType(record.inputType ?? record.input_type), title: nullableString(record.title), rawText: String(record.rawText ?? record.raw_text ?? ''), occurredAt: nullableString(record.occurredAt ?? record.occurred_at), createdAt: String(record.createdAt ?? record.created_at ?? '') }; }).filter((record) => Number.isSafeInteger(record.id) && record.id > 0 && record.rawText.trim()) }; }
+function searchResult(body: Record<string, unknown>): SearchResult { const interpretationRaw = plainObject(body.interpretation); const recordsRaw = Array.isArray(body.records) ? body.records : []; return { entitlementSource: 'LOCAL', interpretation: { terms: Array.isArray(interpretationRaw.terms) ? interpretationRaw.terms.filter((value): value is string => typeof value === 'string').slice(0, 8) : [], from: nullableString(interpretationRaw.from), to: nullableString(interpretationRaw.to) }, records: recordsRaw.map((value) => { const record = plainObject(value); return { id: Number(record.id), sourceId: Number(record.sourceId ?? record.source_id), inputType: inputType(record.inputType ?? record.input_type), title: nullableString(record.title), rawText: String(record.rawText ?? record.raw_text ?? ''), occurredAt: nullableString(record.occurredAt ?? record.occurred_at), createdAt: String(record.createdAt ?? record.created_at ?? '') }; }).filter((record) => Number.isSafeInteger(record.id) && record.id > 0 && record.rawText.trim()) }; }
 function inputType(value: unknown): WorklogInputType { return value === 'AUDIO' || value === 'IMAGE' || value === 'FILE' ? value : 'TEXT'; }
 function inputLabel(value: WorklogInputType) { return value === 'AUDIO' ? '語音' : value === 'IMAGE' ? '圖片' : value === 'FILE' ? '檔案' : '文字'; }
 function browserTimeZone() { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Taipei'; } catch { return 'Asia/Taipei'; } }
 function formatDateTime(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false }); }
-function searchErrorMessage(cause: unknown) { const code = cause instanceof Error ? cause.message : String(cause ?? ''); if (/TRIAL_EXHAUSTED|AI_NOT_ENTITLED/.test(code)) return 'AI 體驗額度已用完，或目前沒有 AI Pro。一般搜尋仍可免費使用。'; if (/MONTHLY_POINT_CAP|MONTHLY_PROVIDER_COST_CAP/.test(code)) return '本期 AI 使用已達方案上限；一般搜尋仍可正常使用。'; return message(cause, 'AI 搜尋失敗'); }
+function searchErrorMessage(cause: unknown) { return message(cause, '本機 AI 搜尋失敗'); }
 function sessionError(cause: unknown) { const text = cause instanceof Error ? cause.message : String(cause ?? ''); return /INVALID_WEB_SESSION|WEB_SESSION_REQUIRED|WORKLOG_USER_NOT_FOUND/.test(text); }
-async function responseBody(response: Response): Promise<Record<string, unknown>> { const text = await response.text(); if (!text) return {}; try { return JSON.parse(text) as Record<string, unknown>; } catch { throw new Error(`AI_SEARCH_INVALID_RESPONSE_${response.status}`); } }
-function apiError(response: Response, body: Record<string, unknown>) { return new Error(typeof body.error === 'string' && body.error ? body.error : `AI_SEARCH_FAILED_${response.status}`); }
 function plainObject(value: unknown): Record<string, unknown> { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function nullableString(value: unknown) { return value === null || value === undefined || value === '' ? null : String(value); }
 function message(cause: unknown, fallback: string) { return cause instanceof Error && cause.message ? cause.message : fallback; }

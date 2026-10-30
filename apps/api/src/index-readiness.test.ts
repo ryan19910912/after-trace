@@ -12,6 +12,7 @@ function env(overrides: Partial<Bindings> = {}): Bindings {
     GOOGLE_LOGIN_CLIENT_ID: 'google-client-id',
     GOOGLE_LOGIN_CLIENT_SECRET: 'google-client-secret',
     GEMINI_API_KEY: 'gemini-key',
+    ADMIN_PASSWORD_PEPPER: 'abcdef0123456789abcdef0123456789',
     ADMIN_USERNAME: 'admin',
     ADMIN_PASSWORD: 'correct horse battery staple',
     ADMIN_SESSION_SECRET: 'abcdef0123456789abcdef0123456789',
@@ -35,14 +36,14 @@ describe('API launch readiness', () => {
     });
   });
 
-  it('rejects an Admin password shorter than 8 characters before database access', async () => {
-    const response = await app.request('/health/ready', {}, env({ ADMIN_PASSWORD: '1234567' }));
+  it('requires a strong server-side password pepper before database access', async () => {
+    const response = await app.request('/health/ready', {}, env({ ADMIN_PASSWORD_PEPPER: 'short' }));
 
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toMatchObject({
       status: 'not_ready',
       error: 'RUNTIME_CONFIG_INCOMPLETE',
-      missing: expect.arrayContaining(['ADMIN_PASSWORD']),
+      missing: expect.arrayContaining(['ADMIN_PASSWORD_PEPPER']),
     });
   });
 

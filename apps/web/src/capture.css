@@ -45,3 +45,36 @@
   .capture-topbar .filter-actions button, .capture-actions button { flex:1; }
   .capture-mode-row, .capture-media-grid { grid-template-columns:1fr; }
 }
+
+/* The composer must not stretch grid rows to a full viewport or its neighbour. */
+.local-capture { align-self:start; align-content:start; gap:14px; min-width:0; }
+.local-capture > h2, .local-capture > p, .capture-review > h3, .capture-review > p { margin:0; }
+.local-capture-page { min-height:0; }
+.local-capture label { display:grid; gap:6px; min-width:0; }
+.local-capture .filter-actions { flex-wrap:wrap; }
+.local-capture textarea { resize:vertical; }
+.capture-status { padding:10px 12px; border-radius:10px; background:rgba(70,160,255,.08); color:#bedcff; }
+.capture-review { scroll-margin-top:88px; align-content:start; }
+@media(max-width:760px) { .local-capture { padding:16px; } .local-capture .filter-actions > button { flex:1 1 140px; } }
+
+.local-capture > h1, .capture-review > h2 { margin:0; }
+@media(max-width:760px) {
+  .at-app-content > .record-home-shell > .topbar h1 { font-size:32px!important; }
+  .at-app-content > .record-home-shell > .topbar > div > .muted { margin:8px auto 0!important; font-size:15px!important; }
+  .at-app-content > .record-home-shell > .topbar { margin-bottom:16px!important; }
+}
+.local-capture { padding:24px; }
+.worklog-shell > .panel.stack { padding:20px; align-content:start; }
+.local-ai-status { padding:16px; }
+.record-filter-grid > label, .record-filter-grid input { min-width:0; max-width:100%; }
+@media (min-width:761px) and (max-width:1000px) {
+  .worklog-shell .record-filter-grid { grid-template-columns:minmax(0,1fr); }
+}
+@media(max-width:760px) { .local-capture, .worklog-shell > .panel.stack { padding:16px; } }
+
+.recent-record-preview details { white-space:pre-wrap; overflow-wrap:anywhere; }
+.local-capture summary, .recent-record-preview summary { cursor:pointer; }
+
+.capture-voice-review{display:grid;gap:10px;padding:14px;border:1px solid #3f617f;border-radius:12px}.capture-voice-review audio{width:100%;max-width:100%}.capture-voice-review p{margin:0;font-size:14px;line-height:1.6}.capture-review-warning{padding:12px 14px;border:1px solid #8f713e;border-radius:12px;background:#47331555;color:#ffe2a6;font-size:15px;line-height:1.7}
+
+.capture-speech-options{display:flex;flex-wrap:wrap;align-items:center;gap:.75rem}.capture-speech-options p{flex-basis:100%;margin:0}

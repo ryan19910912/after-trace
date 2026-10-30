@@ -38,7 +38,7 @@ export function createFeedbackRoutes() {
     if (!origin || !allowed || origin !== allowed) return c.body(null, 403);
     c.header('Access-Control-Allow-Origin', origin);
     c.header('Access-Control-Allow-Headers', 'Authorization, Content-Type');
-    c.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    c.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     c.header('Vary', 'Origin');
     return c.body(null, 204);
   });
@@ -56,6 +56,14 @@ export function createFeedbackRoutes() {
     c.set('database', database);
     c.set('userId', userId);
     await next();
+  });
+
+  app.get('/', async c => {
+    const limit=Number(c.req.query('limit')??10),before=c.req.query('before');
+    if(![10,25,50].includes(limit)||(before!==undefined&&(!Number.isSafeInteger(Number(before))||Number(before)<=0)))return c.json({ok:false,error:'PAGINATION_INVALID'},400);
+    const cursor=before?sql`AND f.id < ${Number(before)}`:sql``;
+    const rows=await c.get('database').execute(sql`SELECT f.id::text AS id,f.text,f.created_at,COALESCE(m.category,'OTHER') AS category,COALESCE(m.status,'OPEN') AS status,COALESCE(m.updated_at,f.created_at) AS updated_at FROM worklog_feedback f LEFT JOIN worklog_feedback_management m ON m.feedback_id=f.id WHERE f.user_id=${c.get('userId')} ${cursor} ORDER BY f.id DESC LIMIT ${limit+1}`);
+    const items=rows.rows.slice(0,limit);return c.json({ok:true,feedback:items,page:{hasMore:rows.rows.length>limit,nextCursor:rows.rows.length>limit?String(items.at(-1)?.id):null}});
   });
 
   app.post('/', async (c) => {

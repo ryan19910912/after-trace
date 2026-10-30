@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { issueAdminSessionToken } from './auth';
-import { createAdminNotificationRoutes } from './notification-routes';
+import { issueAdminSessionToken, verifyAdminSessionToken } from './auth';
+import { createAdminNotificationRoutes as originalRoutes } from './notification-routes';
 import type {
   AdminAnnouncementSummary,
   NotificationRepository,
 } from '../worklog/notifications';
+
+const createAdminNotificationRoutes = (dependencies: Parameters<typeof originalRoutes>[0] = {}) => originalRoutes({ ...dependencies, verifySession: (token, env) => verifyAdminSessionToken(token, { ...env, DATABASE_URL: undefined }) });
 
 const env = {
   DATABASE_URL: 'postgresql://unused.invalid/aftertrace',
@@ -15,7 +17,7 @@ const env = {
 };
 
 async function headers() {
-  const token = await issueAdminSessionToken({ username: env.ADMIN_USERNAME, env, ttlSeconds: 3600 });
+  const token = await issueAdminSessionToken({ username: env.ADMIN_USERNAME, env: { ...env, DATABASE_URL: undefined }, ttlSeconds: 3600 });
   return { authorization: `Bearer ${token}`, origin: env.ADMIN_WEB_ORIGIN, 'content-type': 'application/json' };
 }
 
@@ -160,3 +162,5 @@ describe('Admin announcement routes', () => {
     await expect(response.json()).resolves.toEqual({ ok: false, error: 'SPECIFIC_USERS_REQUIRED' });
   });
 });
+
+describe('retired commercial announcement audiences',()=>{it.each(['FREE_USERS','AI_SUBSCRIBERS'])('rejects new %s announcements before persistence',async(audience)=>{let writes=0;const app=createAdminNotificationRoutes({databaseFactory:()=>({} as never),repositoryFactory:()=>repository({async createAnnouncement(){writes++;return {announcement:summary()};}})});const response=await app.request('/announcements',{method:'POST',headers:await headers(),body:JSON.stringify({title:'公告',body:'內容',audience,mode:'DRAFT'})},env);expect(response.status).toBe(400);expect(writes).toBe(0);});});

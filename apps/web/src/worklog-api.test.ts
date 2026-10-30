@@ -132,3 +132,14 @@ function jsonResponse(body: unknown, status = 200): Response {
     headers: { 'Content-Type': 'application/json' },
   });
 }
+
+describe('in-flight surface request deduplication', () => {
+  it('shares concurrent reads but refreshes permissions on a later call', async () => {
+    const fetch = vi.fn(async () => jsonResponse({ surfaces: { personal: { sourceId: 1 }, groups: [] } }));
+    vi.stubGlobal('fetch', fetch);
+    await Promise.all([api.surfaces('same-session'), new WorklogApi('https://api.example.test').surfaces('same-session')]);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await api.surfaces('same-session');
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+});

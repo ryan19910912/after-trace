@@ -1,184 +1,42 @@
-# AFTERTRACE Worklog Entity Model
+# 資料模型
 
-Read with `WORKLOG_PRODUCT_SPEC.md` and `WORKLOG_RECORD_EDIT_POLICY.md` before schema/runtime work.
+更新：2026-10-29。Drizzle 定義以 apps/api/src/db/schema-all.ts 為入口，canonical baseline 目前共 37 張表。
 
-## Core model
+## 核心事實
 
-AFTERTRACE is a general-purpose Web/PWA work-memory product. Durable truth is a Record inside one authorized Source.
+紀錄是某個已授權範圍中的持久文字。worklog_users 搭配 auth_identities 及 user_public_accounts 儲存 provider-neutral 帳號、登入綁定及不透明用戶 ID；last_used_at 觀察登入後前台活動，最多每五分鐘更新，不等同即時在線狀態。
 
-Target core structures:
+worklog_workspaces／worklog_sources／worklog_source_members／邀請表提供個人 PRIVATE 與群組 GROUP 授權。群組角色為 OWNER、MEMBER，不使用 LINE 群組或 AI 出資人。
 
-- `worklog_users` plus provider-neutral auth/public-account identity tables;
-- `worklog_sources`;
-- `worklog_source_members`;
-- native Source invite tables;
-- `worklog_records`;
-- `worklog_record_revisions`;
-- subscription/AI usage and Grant/accounting tables;
-- task/reminder tables;
-- notification/PUSH tables;
-- feedback/support-management tables;
-- payment-provider adapter state where required.
+worklog_records 包含 source_id、作者、選填 title、必要 raw_text、選填 occurred_at、created_at／updated_at、status、version；worklog_record_revisions 保存修改歷史。AI 產生的草稿不在確認前成為紀錄；媒體不儲存在後端。手動紀錄不需要 AI metadata。
 
-Retired LINE Messaging, LINE GROUP bot, Entity/Alias, confirmation, GROUP AI responsibility/funding-owner and ONE_TIME/TOP_UP schemas are **not target-domain concepts and must not be reintroduced into the canonical schema**. LINE remains only a provider-neutral login provider plus the external official OA support channel.
+編輯／軟刪除／還原都依目前權限及 expectedVersion 執行，原子更新並保存歷史。AI 搜尋僅提出條件；資料查詢由後端確定性處理。摘要、改寫或待辦建議不直接修改正式資料。不自動產生 Customer／Project／Entity／Alias 主資料。
 
-## Record model
+## 管理與 AI 設定
 
-A Record is valid without AI enrichment.
+- worklog_admin_roles：角色、權限集合及設定版本。
+- worklog_admin_accounts：管理帳號、加鹽雜湊、角色、最高帳號／啟用狀態、token_version、強制改密碼、登入失敗鎖定與時間。
+- worklog_local_ai_models：singleton（id=1），文字／圖片及語音模型代碼、固定 commit revision、設定版本與修改者。
+- worklog_local_ai_prompts：六個功能的草稿／發布模板、token 上限及版本。
+- worklog_local_ai_prompt_revisions：提示詞發布／回復歷史。
+- worklog_audit_logs：管理操作稽核，不保存明文密碼。
 
-Required/base facts:
+種子 ON CONFLICT DO NOTHING，重跑保留管理員編輯及密碼。密碼用 PBKDF2-SHA256（100000 次）、獨立隨機 salt 與環境 pepper；pepper 不存資料庫。變更密碼或停用帳號撤銷既有 token。
 
-- `id`;
-- `source_id`;
-- author/creator identity;
-- `content` / durable raw text;
-- `occurred_at` nullable;
-- `created_at`;
-- `updated_at`;
-- status/version needed for revisions and optimistic concurrency.
+## 其他現行領域
 
-AI-enriched Records may additionally contain nullable metadata such as:
+待辦／提醒、站內通知與收件狀態、Web Push subscription／偏好、公告、feedback 與 feedback_management 均為獨立領域。推播 subscription 指裝置通知註冊，不是已退役的付費訂閱。
 
-- `title`;
-- `search_terms` / keywords;
-- bounded extracted entities/attributes;
-- `ai_enriched_at` or equivalent enrichment status/audit markers.
+## 歷史資料
 
-Do not infer AI enrichment merely from `title IS NOT NULL`; keep an explicit enrichment/audit state when practical.
+舊付費訂閱、付款、AI Grant／用量／成本等表仍在基線及資料庫，保留供歷史查閱；正式 Worker 不再使用它們提供金流或雲端 AI。不能據表存在便認定功能已開放。未重新引入 LINE Messaging、Entity／Alias 或一次性儲值領域。
 
-## Free/manual Records
+## 結構規則
 
-Free/manual Records do not require title, keywords or AI metadata.
+每個表／欄位有 COMMENT，沒有應用領域 PostgreSQL ENUM 或商業 CHECK；結構 PK／FK／UNIQUE／NOT NULL／INDEX／DEFAULT 保留。應用驗證合法狀態與權限，使用參數化 SQL。既有資料庫不得任意清空，schema／基線／metadata 需同步。
 
-A manual Record may therefore be only:
+## 本輪索引與讀取稽核
 
-- content;
-- user-entered event time/date if supplied;
-- system create/update timestamps.
+worklog_records 新增 (author_user_id,id DESC)，worklog_feedback 新增 (user_id,id DESC)，分別對應作者歷史與本人回饋的排序查詢。表數仍為 37，schema、canonical baseline、snapshot 同步；本地既有庫以 IF NOT EXISTS 補索引。已套用舊基線的遠端庫仍須規劃非破壞 schema 升級，不能只改檔案即宣稱已升級。
 
-Manual CRUD must not silently call provider AI to fill metadata.
-
-## AI-enriched Records
-
-Paid AI or an eligible FREE one-time AI trial may produce title, grounded search terms, event date interpretation and bounded extraction metadata as part of an explicitly provider-backed operation.
-
-AI metadata remains subordinate to durable Record content. Provider output never becomes authority to mutate unrelated Records or create unrelated domain rows without deterministic backend rules.
-
-## Extracted entities are metadata, not master data
-
-Optional AI extraction may identify values useful for retrieval, initially such as:
-
-- `PERSON`;
-- `CUSTOMER`;
-- `PROJECT`;
-- `ORGANIZATION`;
-- `AMOUNT`;
-- `LOCATION`.
-
-These values are **search/retrieval metadata only**. There is no generic Entity/Alias master-data workflow in the target product.
-
-Example input:
-
-`今天晴空案向王先生收了 3000 元清潔費`
-
-May yield retrieval metadata equivalent to:
-
-- title: `晴空案`;
-- search terms: `晴空案`, `王先生`, `清潔費`, `收款`;
-- PROJECT = `晴空案`;
-- PERSON/CUSTOMER = `王先生`;
-- AMOUNT = `3000 TWD`.
-
-Do not automatically create Customer/Project/Entity/Alias rows merely because a phrase appears.
-
-## Historical free Records after subscription
-
-No automatic AI backfill.
-
-When a user subscribes later:
-
-- old Records remain unchanged;
-- old Records may have no title/search terms/entities metadata;
-- raw `content` and time remain searchable;
-- new provider-backed Records may receive AI metadata;
-- retrieval must support both kinds of Records.
-
-## Source model
-
-PRIVATE and GROUP Sources are independent authorization spaces.
-
-- PRIVATE Source belongs to its AFTERTRACE user.
-- GROUP Source is created inside AFTERTRACE and has a non-empty product name.
-- GROUP membership is stored in `worklog_source_members`.
-- GROUP join uses AFTERTRACE invite links/tokens.
-- No LINE group id, LINE bot membership or LINE webhook state participates in Source authorization.
-
-Initial roles:
-
-- `OWNER`;
-- `MEMBER`.
-
-Server-side authorization is mandatory on every read/write/search/task/AI operation.
-
-## Group invite model
-
-Invite links/tokens are durable, bounded and revocable/expirable according to accepted UX rules. At minimum they identify the target group but grant no data access until the invited user authenticates and the backend records membership.
-
-## Record time model
-
-A Record distinguishes:
-
-- `occurred_at` = user/business event date/time; nullable;
-- `created_at` = actual AFTERTRACE storage time;
-- `updated_at` = last current-row modification time.
-
-AI may resolve relative date language against an explicit reference timestamp and timezone. It must not invent a date/time that the user did not express.
-
-## Search model
-
-Free deterministic search may use:
-
-- Source;
-- raw Record content;
-- event/system date range.
-
-Paid or eligible trial natural-language retrieval may additionally use, where present:
-
-- title;
-- search terms;
-- extracted metadata;
-- AI-derived bounded filters.
-
-PostgreSQL remains the authoritative retrieval layer.
-
-## Related Records
-
-Related-record suggestions are a retrieval/ranking feature, not a durable generic relation domain for MVP.
-
-Initial scoring can use title/keyword/entity-metadata/content overlap and time/Source context. Do not add generic RecordRelation tables until a concrete durable relationship feature needs them.
-
-## Tasks
-
-Tasks are separate actionable objects, not a special kind of Record.
-
-Target facts include:
-
-- `id`;
-- `user_id` and optional authorized Source;
-- optional `record_id`;
-- title/content;
-- `due_at` nullable;
-- `remind_at` nullable;
-- status;
-- `created_at` / `updated_at`;
-- notification delivery state when required.
-
-AI may propose a Task from a Record/input, but task creation is deterministic after user confirmation.
-
-## Revision/concurrency
-
-Record editing uses durable optimistic `version`. Successful mutations preserve immutable revision/history facts. See `WORKLOG_RECORD_EDIT_POLICY.md`.
-
-## Canonical schema rule
-
-`apps/api/src/db/schema-all.ts` is the authoritative Drizzle export. During prelaunch the canonical `drizzle/0000_worklog_baseline.sql` and metadata may be regenerated from that target schema and applied to a fresh disposable database. Do not preserve retired product tables merely for old test-data compatibility.
+worklog_audit_logs 同時記錄 USER_HISTORY_VIEWED／USER_RECORD_VIEWED，after_value 只含目標與用途等稽核資訊，不含保存紀錄正文。

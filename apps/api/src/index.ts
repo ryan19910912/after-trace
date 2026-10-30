@@ -4,7 +4,7 @@ import { targetReadinessResponse } from './target-readiness';
 
 export type Bindings = {
   DATABASE_URL: string;
-  GEMINI_API_KEY: string;
+  GEMINI_API_KEY?: string;
   WEB_APP_URL?: string;
   WEB_APP_ORIGIN?: string;
   WEB_AUTH_SECRET?: string;
@@ -16,6 +16,7 @@ export type Bindings = {
   APPLE_LOGIN_TEAM_ID?: string;
   APPLE_LOGIN_KEY_ID?: string;
   APPLE_LOGIN_PRIVATE_KEY_P8_BASE64?: string;
+  ADMIN_PASSWORD_PEPPER?: string;
   ADMIN_USERNAME?: string;
   ADMIN_PASSWORD?: string;
   ADMIN_SESSION_SECRET?: string;

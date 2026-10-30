@@ -1,0 +1,3 @@
+import {readFileSync}from'node:fs';
+export function readAdminCredentials(){if(process.env.AFTERTRACE_TEST_ADMIN_PASSWORD)return {username:process.env.AFTERTRACE_TEST_ADMIN_USER??'admin',password:process.env.AFTERTRACE_TEST_ADMIN_PASSWORD};const c=JSON.parse(readFileSync('.test-artifacts/admin-bootstrap.json','utf8'));return {username:c.username,password:c.password};}
+export async function loginAdmin(base='http://localhost:18787',origin='http://localhost:15174'){const r=await fetch(base+'/api/v1/admin/login',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify(readAdminCredentials())});const body=await r.json();if(!r.ok)throw Error('Local database admin login failed: '+r.status);return body;}

@@ -1,235 +1,49 @@
-# AFTERTRACE Worklog Product Spec
+# AFTERTRACE 產品規格
 
-## Product direction
+更新：2026-10-29。本文件描述目前產品；本機 AI 細節見 [本機 AI 規範](WORKLOG_LOCAL_AI_POLICY.md)，後台見 [管理規範](WORKLOG_ADMIN_POLICY.md)。
 
-AFTERTRACE is a **Web + PWA-first work memory product** with a compact Chrome extension for fast desktop capture.
+## 定位與入口
 
-Core promise:
+AFTERTRACE 是 Web／PWA 優先的工作、生活與遊戲紀錄工具：快速留下發生過的事，需要時找得到。Chrome 擴充元件提供快速文字擷取；LINE 只作登入及外部客服聯絡，不是紀錄或 AI 機器人。
 
-> **快速留下工作發生過的事，需要時找得到。**
+- 首頁 /：快速輸入、個人／群組範圍切換、最近 5 筆紀錄，可展開至 10 筆。
+- /capture：文字、圖片及短語音解析與確認保存。
+- /worklog：紀錄查詢、範圍與時間篩選、回收桶及還原。
+- /tasks：待辦與提醒；AI 建議需確認後才建立。
+- /ai-search、/ai-tools、/ai-task：自然語言搜尋、摘要／改寫／相關紀錄及待辦建議。
+- /subscription：沿用舊網址的「本機 AI」裝置與快取說明頁，沒有方案或結帳。
+- 登入後頁首顯示用戶 ID 與複製按鈕，另有通知、帳號、幫助及回饋入口；回饋頁可查看自己的編號、內容、處理進度與分頁。
 
-The product centers on Records, search, simple tasks/reminders, groups, optional AI assistance and subscription. It is not a CRM, ERP or general knowledge-management system.
+## 帳號與授權
 
-LINE is not a Record/group/AI product surface. LINE Login remains an authentication provider and the official LINE OA remains a customer-support channel only.
+Google、LINE 為主要登入提供者；Apple 是否可用依環境配置，不得將未啟用功能宣稱為已上線。不同提供者相同 email 不會自動合併帳號。
 
-## Customer surfaces
+每位用戶有不透明、唯一、穩定的 public_account_id，介面稱「用戶 ID」，用於客服反查，不是登入密碼或授權憑證，也不暴露資料庫流水號。
 
-### Web / PWA
+個人紀錄限本人；群組由 AFTERTRACE 邀請加入，角色為 OWNER／MEMBER。所有資料 API 逐次驗證目前成員資格，本地模型不能改變資料權限。
 
-The Web/PWA home route `/` opens the **紀錄** page. Voice-to-text remains a convenient capture method, but it does not dominate the interface.
+## 輸入、解析與保存
 
-The authenticated product contains:
+- 手動文字可直接保存；AI 可選用，不支援的裝置仍可手動使用。
+- 只接受文字、單張 PNG／JPEG／WebP 圖片（最多 5 MiB）和主動錄製的短語音（最多 60 秒）。截圖以圖片貼上或選取，沒有文件、PDF 或音訊檔上傳。
+- 所有 AI 推論在用戶瀏覽器 WebGPU 執行；沒有雲端 AI、雲端備援或系統語音辨識供應商呼叫。首次需下載模型靜態資源。
+- 進入已授權的紀錄頁即背景準備文字／圖片模型，可暫停；語音模型按使用需要準備，預設 large-v3 優先。容量不足、失敗或等待較久時可用原錄音切換 turbo，記住裝置選擇並可重設；兩者設定於後台資料庫維護。不預下載兩個語音模型，下載不會保存紀錄。
+- 解析顯示標題、內容、發生時間的可編輯草稿；用戶確認後才保存文字，圖片與錄音不傳後端。
+- 明確時間以本機規則解析；只有時刻時以裝置今天日期帶入並提示，歧義留白，不採信模型自行編造的日期。
+- 模型錯誤、取消或保存失敗保留輸入／草稿。沒有原文對照及文字差異區塊。
 
-- 紀錄：quick capture + latest 10 Records;
-- 待辦；
-- 搜尋：general deterministic search + AI search;
-- 方案；
-- 群組；
-- notifications, help, feedback and account menu.
+## 紀錄與 AI 工具
 
-Search remains its own page. The home page shows the latest 10 Records rather than becoming a second search interface.
+紀錄包含選填標題、必要文字、選填發生時間、建立／修改時間。編輯、軟刪除與還原使用版本檢查並保留修改歷史，舊版本不能覆蓋新內容。
 
-### Chrome extension
+AI 改寫與待辦只提供建議。摘要由用戶按鈕觸發，分段處理，顯示範圍限制並可取消。工具最多讀取授權範圍內 400 筆，相關紀錄最多 40 個候選；不是全庫無限制語意搜尋。沒有自動歷史回填。
 
-The extension is a compact capture surface. It may create text Records, use browser speech-to-text, capture explicitly selected page text, attach bounded page context, and explicitly capture the visible tab screenshot for image AI while the user has remaining FREE AI experience points or an active paid AI subscription.
+## 後台與商業狀態
 
-It must not silently capture browsing history, tabs, clipboard, full-page content, screen or microphone.
+後台包含用戶列表、AI 管理、意見回饋、公告、角色、權限、管理帳號。營運總覽、歷史方案、本機 AI 舊管理頁、成本與點數報表已移除。
 
-## Account and identity
+產品沒有訂閱、金流、購買點數或 AI 額度准入。舊付款／訂閱／雲端 AI 路由停用，歷史表與舊程式僅保留資料及回歸用途，不代表現行功能。
 
-Customer login providers:
+## 驗證邊界
 
-- Google Login;
-- LINE Login;
-- Apple Login when operationally enabled.
-
-Provider identities attach to one AFTERTRACE user. Do not silently merge accounts by email.
-
-Every user has an immutable, unique, opaque/non-sequential `public_account_id`, displayed to the customer as **帳號 ID**. It is the preferred support lookup identifier and must not be the database primary key or a provider-specific identity.
-
-## Records
-
-A manually created Record has optional `title` (max 255), required `raw_text`, optional `occurred_at`, plus system timestamps.
-
-FREE users can create/edit/delete/restore Records, view recent Records and search title/content by keyword/date. Every mutation uses optimistic versioning and preserves revision history.
-
-The `/` page contains quick capture, latest 10 Records, edit/delete actions and a link to the independent Search page.
-
-## Sources / groups
-
-AFTERTRACE supports PRIVATE/personal and GROUP Sources created inside AFTERTRACE. MVP group roles are `OWNER` and `MEMBER`; backend authorization is checked for every group operation.
-
-Customer UI should say “紀錄範圍”, “我的紀錄”, or the group name. Avoid exposing the internal word `Source`.
-
-## Free product and one-time AI experience
-
-FREE is a complete manual Record product.
-
-Provider-free browser/device speech-to-text remains free and consumes no AI points.
-
-FREE includes one idempotent, Admin-configured, one-time **shared AI experience allowance**. It does not refresh monthly.
-
-While points remain, the FREE user may use the accepted AI feature set from the same balance:
-
-- AI text capture/organization;
-- natural-language AI search;
-- image AI;
-- audio AI;
-- file/PDF AI;
-- Chrome screenshot AI;
-- related Records;
-- time-range summaries;
-- AI rewrite;
-- AI task proposals.
-
-Provider-backed operations reserve and settle against the shared FREE trial point balance. When those points are exhausted, provider-backed AI stops, while deterministic keyword/date search and all normal FREE manual functions remain available.
-
-FREE trial media uses conservative limits: one image/request, 5 MB/image, 300 seconds/audio request, 10 MB/audio request and 10 MB/file request.
-
-## Subscription plans
-
-Paid plans are **backend-driven**.
-
-- FREE remains the single zero-price base plan.
-- Admin may create one or more paid `SUBSCRIPTION` plans.
-- An enabled, AI-enabled, commercially valid subscription plan is automatically returned by the customer `/subscription/plans` API and rendered on the Web/PWA plan page.
-- Customer Web/PWA must not hard-code a paid plan code, display name or price.
-- The plan code is the durable identifier used by checkout, lifecycle, subscription history and monthly AI Grants.
-- Editing a plan display name or price does not rename its existing plan code.
-- A customer may have only one active paid plan at a time.
-
-Current payment transport is NewebPay periodic card billing. The selected plan code is sent to the API; the API loads the selected plan from PostgreSQL and uses its current display name and price to build checkout.
-
-NewebPay periodic checkout currently requires a positive integer TWD monthly price. Non-integer paid plan prices must not be offered as online-purchasable plans until the provider contract/adapter supports them.
-
-No one-time top-up is part of the current product.
-
-AI entitlement is per user, not per group.
-
-## Paid AI features
-
-Every active paid AI subscription can expose the complete accepted AI feature set subject to its plan switches and resource limits:
-
-- AI text capture/organization;
-- natural-language AI search;
-- image AI;
-- audio AI;
-- supported PDF/text/document AI;
-- related Records;
-- time-range summaries;
-- rewrite suggestions;
-- task suggestions/proposals;
-- Chrome screenshot AI.
-
-Recommended initial media defaults are 1 image/request, 5 MB/image, 300 seconds audio/request, 10 MB audio/request and 10 MB file/request. Transport/runtime ceilings may be higher so Admin-configured plan limits remain authoritative below hard runtime ceilings.
-
-## Paid subscription lifecycle
-
-The lifecycle preserves the selected plan code end-to-end:
-
-1. customer selects a backend plan;
-2. checkout intent stores that `plan_code`;
-3. NewebPay checkout amount/product name come from the selected DB plan;
-4. callback recovers the selected plan through the checkout intent;
-5. callback amount is validated against that plan price;
-6. successful first payment activates that exact plan;
-7. the subscription row and history keep that plan code;
-8. monthly `SUBSCRIPTION_PERIOD` AI Grant uses that plan's configured point cap;
-9. entitlement/provider-cost admission reads the active plan limits;
-10. cancellation stops future renewal while preserving the already-paid period;
-11. after expiry, the customer may start a new checkout for any currently available plan.
-
-## AI enrichment / search / tools
-
-AI-created/enriched Records may add nullable title, search terms, resolved event time when expressed by the user and bounded extracted facts useful for retrieval. AI must not invent an event time the user did not express.
-
-General deterministic search is permanently FREE. AI Search and other AI tools use remaining FREE trial points or active paid-plan entitlement.
-
-AI rewrite and task creation are proposal-first: the user explicitly confirms before durable content/task creation.
-
-Customer copy must be plain Traditional Chinese. Do not expose engineering terms unless an internal Admin/developer screen genuinely needs them.
-
-## Tasks / reminders
-
-Tasks support title, optional body, optional due/remind times, status and optional source/record relation. Reminder scheduling is deterministic stored data; AI interpretation remains a suggestion before confirmation.
-
-## Notifications
-
-Notification categories are 公告通知, 系統通知 and 待辦通知. Channels are in-app and optional Web Push. Notification permission is requested only after explicit user action. Push failure must not remove the in-app notification.
-
-## AI usage / customer experience
-
-Customer UI must not expose internal provider cost or margin.
-
-FREE AI experience may show remaining one-time points. Paid users should see a friendly usage state such as 使用狀況正常 / 接近本期上限 / 已達本期上限 and period end/reset time when known.
-
-When AI is blocked by exhausted FREE points or paid plan limits, manual/free features remain available.
-
-Internal entitlement source/reason names may retain `AI_PRO` as compatibility terminology for “active paid AI subscription”; they must not be used to filter the commercial plan catalog by exact plan code or price.
-
-## Admin
-
-Admin supports:
-
-- exact user lookup by customer-facing 帳號 ID;
-- one-time FREE AI experience point configuration and cost-to-point calculator;
-- subscription plan create/list/detail/edit/enable/disable;
-- editable monthly plan price;
-- integrated plan price/margin → AI point/cost calculator;
-- monthly AI point/provider-cost caps and optional per-request cap;
-- AI feature switches;
-- media limits;
-- AI model/price/FX settings;
-- profitability/reporting;
-- announcements;
-- feedback management.
-
-Admin-created paid plans are not merely placeholders: enabled plans are customer-visible and may be purchased through the generalized NewebPay/lifecycle path when their price is provider-compatible.
-
-## Database/schema policy
-
-The canonical schema is application-owned and optimized for a prelaunch clean rebuild.
-
-Rules:
-
-- one canonical `drizzle/0000_worklog_baseline.sql`;
-- every persistent product table/column has PostgreSQL COMMENT metadata;
-- no PostgreSQL ENUM for application-domain values;
-- no business/domain CHECK constraints;
-- structural PK/FK/UNIQUE/NOT NULL/INDEX/DEFAULT remain in PostgreSQL;
-- status transitions, pricing, plan capability rules and point/media limits belong to TypeScript/application services.
-
-## Product priorities
-
-### Current high priority
-
-- stable Google + LINE login;
-- Record CRUD + latest 10 + search;
-- groups + invites;
-- tasks/reminders + notifications;
-- one-time shared FREE AI experience;
-- backend-driven paid subscription catalog and NewebPay lifecycle;
-- paid AI text/image/audio/file/tool features with monthly plan-specific allowance;
-- Chrome extension screenshot through the same FREE_TRIAL/paid entitlement path;
-- friendly AI usage state;
-- plain-language customer/Admin UI;
-- feedback + LINE OA support.
-
-### Later / conditional
-
-- Apple launch enablement;
-- account-linking UX;
-- multi-image AI input;
-- additional payment providers or non-integer billing models;
-- Calendar integration;
-- vector/embedding retrieval;
-- richer screenshot region selection.
-
-### Not current priority
-
-- LINE bot/webhook as Record/AI surface;
-- group AI funding owner;
-- automatic historical AI backfill;
-- broad CRM/ERP schema;
-- general-purpose AI customer-support bot;
-- automatic browsing-history or full-page capture.
+本機測試使用 Docker PostgreSQL、實際 Chrome WebGPU。測試結果不代表外部 OAuth、實際推播、所有手機效能或所有圖片／繁中錄音品質已驗收；見各次日期標記的驗證報告。

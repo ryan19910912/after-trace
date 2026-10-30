@@ -8,6 +8,7 @@ export async function resolveWebSessionUserId(
   session: WebSessionClaims,
 ): Promise<number | null> {
   const result = await database.execute(sql`
+    WITH touched AS (UPDATE worklog_users SET last_used_at=NOW() WHERE id=${session.userId} AND (last_used_at IS NULL OR last_used_at < NOW()-INTERVAL '5 minutes') RETURNING id)
     SELECT account_row.id::text AS id
     FROM worklog_users AS account_row
     WHERE account_row.id = ${session.userId}

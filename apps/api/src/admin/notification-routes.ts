@@ -217,7 +217,7 @@ function dispatchMode(value: unknown): DispatchMode | null {
 }
 
 function audienceValue(value: unknown): NotificationAudience | null {
-  return value === 'ALL_USERS' || value === 'FREE_USERS' || value === 'AI_SUBSCRIBERS' || value === 'SPECIFIC_USERS'
+  return value === 'ALL_USERS' || value === 'SPECIFIC_USERS'
     ? value
     : null;
 }

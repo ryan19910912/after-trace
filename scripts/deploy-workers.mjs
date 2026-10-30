@@ -43,6 +43,7 @@ console.log(`Admin : ${workerNames.admin} -> ${adminOrigin}`);
 
 if (component === 'all' || component === 'api') {
   const apiRuntimeBindings = requireApiRuntimeBindings();
+  process.env.ADMIN_BOOTSTRAP_PASSWORD_FILE ||= resolve(root,`.test-artifacts/admin-bootstrap-${environment}.json`);
   run('Apply database migrations', 'pnpm', ['--filter', '@aftertrace/api', 'db:deploy:migrate']);
   const secretsFile = resolve(tmpdir(), `aftertrace-${environment}-${process.pid}-${Date.now()}-worker-secrets.json`);
   writeFileSync(secretsFile, `${JSON.stringify(apiRuntimeBindings, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
@@ -70,11 +71,11 @@ console.log(`AFTERTRACE ${environment.toUpperCase()} deployment completed.`);
 
 function requireApiRuntimeBindings() {
   const names = [
-    'DATABASE_URL', 'GEMINI_API_KEY',
+    'DATABASE_URL',
     'WEB_APP_URL', 'WEB_APP_ORIGIN', 'WEB_AUTH_SECRET',
     'LINE_LOGIN_CHANNEL_ID', 'LINE_LOGIN_CHANNEL_SECRET',
     'GOOGLE_LOGIN_CLIENT_ID', 'GOOGLE_LOGIN_CLIENT_SECRET',
-    'ADMIN_USERNAME', 'ADMIN_PASSWORD', 'ADMIN_SESSION_SECRET', 'ADMIN_WEB_ORIGIN',
+    'ADMIN_PASSWORD_PEPPER', 'ADMIN_SESSION_SECRET', 'ADMIN_WEB_ORIGIN',
     'WEB_PUSH_PUBLIC_KEY', 'WEB_PUSH_PRIVATE_KEY', 'WEB_PUSH_SUBJECT',
   ];
   const values = {};
@@ -91,29 +92,8 @@ function requireApiRuntimeBindings() {
     'APPLE_LOGIN_PRIVATE_KEY_P8_BASE64',
   ], 'Apple Login');
 
-  const newebPayRequired = ['NEWEBPAY_MERCHANT_ID', 'NEWEBPAY_HASH_KEY', 'NEWEBPAY_HASH_IV', 'NEWEBPAY_NOTIFY_URL', 'NEWEBPAY_RETURN_URL'];
-  const newebPayOptional = ['NEWEBPAY_MODE', 'NEWEBPAY_PERIOD_VERSION', 'NEWEBPAY_PERIOD_TIMES'];
-  const configuredNewebPay = newebPayRequired.filter((name) => Boolean(process.env[name]?.trim()));
-  if (configuredNewebPay.length > 0 && configuredNewebPay.length !== newebPayRequired.length) {
-    fail(`NewebPay is optional until merchant setup is supplied, but if enabled all of ${newebPayRequired.join(', ')} must be set in .env.${environment}.`);
-  }
-  if (configuredNewebPay.length === newebPayRequired.length) {
-    for (const name of newebPayRequired) values[name] = process.env[name].trim();
-    for (const name of newebPayOptional) {
-      const value = process.env[name]?.trim();
-      if (value) values[name] = value;
-    }
-    if (values.NEWEBPAY_HASH_KEY.length !== 32) fail(`NEWEBPAY_HASH_KEY must be exactly 32 characters in .env.${environment}.`);
-    if (values.NEWEBPAY_HASH_IV.length !== 16) fail(`NEWEBPAY_HASH_IV must be exactly 16 characters in .env.${environment}.`);
-    const mode = (values.NEWEBPAY_MODE ?? 'TEST').toUpperCase();
-    if (!['TEST', 'PROD'].includes(mode)) fail(`NEWEBPAY_MODE must be TEST or PROD in .env.${environment}.`);
-    values.NEWEBPAY_MODE = mode;
-    const times = Number(values.NEWEBPAY_PERIOD_TIMES ?? '99');
-    if (!Number.isSafeInteger(times) || times < 2 || times > 99) fail('NEWEBPAY_PERIOD_TIMES must be an integer from 2 to 99.');
-  }
-
   if (values.WEB_AUTH_SECRET.length < 32) fail(`WEB_AUTH_SECRET must be at least 32 characters in .env.${environment}.`);
-  if (values.ADMIN_PASSWORD.length < 8) fail(`ADMIN_PASSWORD must be at least 8 characters in .env.${environment}.`);
+  if (values.ADMIN_PASSWORD_PEPPER.length < 32) fail(`ADMIN_PASSWORD_PEPPER must be at least 32 characters in .env.${environment}.`);
   if (values.ADMIN_SESSION_SECRET.length < 32) fail(`ADMIN_SESSION_SECRET must be at least 32 characters in .env.${environment}.`);
   return values;
 }

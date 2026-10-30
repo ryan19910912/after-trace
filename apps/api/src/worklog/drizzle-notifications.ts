@@ -194,7 +194,8 @@ export class DrizzleNotificationRepository implements NotificationRepository {
     const result = await this.db.execute(sql`
       WITH claimed AS MATERIALIZED (
         UPDATE worklog_notifications AS notification
-        SET status = 'SENDING',
+        SET status = 'SENT',
+            sent_at = COALESCE(notification.sent_at, NOW()),
             dispatch_started_at = COALESCE(notification.dispatch_started_at, NOW()),
             updated_at = NOW()
         WHERE notification.id = ${notificationId}
@@ -254,13 +255,11 @@ export class DrizzleNotificationRepository implements NotificationRepository {
         CROSS JOIN audience_users
         ON CONFLICT (notification_id, user_id) DO NOTHING
         RETURNING id
-      ), finalized AS (
-        UPDATE worklog_notifications AS notification
-        SET status = 'SENT', sent_at = COALESCE(notification.sent_at, NOW()), updated_at = NOW()
-        WHERE notification.id IN (SELECT claimed.id FROM claimed)
-        RETURNING notification.id
       )
-      SELECT finalized.id::text AS id FROM finalized LIMIT 1
+      -- One row update per statement: PostgreSQL does not reliably update the
+      -- same row twice in sibling data-modifying CTEs. Recipient insertion and
+      -- the SENT transition commit atomically and roll back together on error.
+      SELECT claimed.id::text AS id FROM claimed LIMIT 1
     `);
     const id = Number((result.rows[0] as { id?: string } | undefined)?.id);
     if (id > 0) {
@@ -277,7 +276,7 @@ export class DrizzleNotificationRepository implements NotificationRepository {
       UPDATE worklog_notifications AS notification
       SET status = 'CANCELLED',
           cancelled_at = NOW(),
-          metadata = COALESCE(notification.metadata, '{}'::jsonb) || jsonb_build_object('cancelledBy', ${actor}),
+          metadata = COALESCE(notification.metadata, '{}'::jsonb) || jsonb_build_object('cancelledBy', ${actor}::text),
           updated_at = NOW()
       WHERE notification.id = ${notificationId}
         AND notification.type = 'ANNOUNCEMENT'

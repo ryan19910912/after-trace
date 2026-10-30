@@ -1,3 +1,4 @@
+import {TraceNotice} from './TraceNotice';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AccountNotificationApi, notificationCategoryLabel, safeNotificationHref, type AccountProfile, type NotificationCenter, type NotificationCenterItem } from './account-notification-api';
 import { PushNotificationSettings } from './PushNotificationSettings';
@@ -11,7 +12,7 @@ const desktopNav = [
   { href: '/', label: '紀錄', icon: '▤', active: (path: string) => path === '/' || path.startsWith('/worklog') },
   { href: '/tasks', label: '待辦', icon: '✓', active: (path: string) => path.startsWith('/tasks') },
   { href: '/ai-search', label: '搜尋', icon: '⌕', active: (path: string) => path === '/ai-search' || path.startsWith('/ai-tools') || path.startsWith('/ai-task') },
-  { href: '/subscription', label: '方案', icon: '◇', active: (path: string) => path === '/subscription' },
+  { href: '/subscription', label: '本機 AI', icon: '◇', active: (path: string) => path === '/subscription' },
 ];
 
 export function AuthenticatedAppChrome({ apiBaseUrl, children }: Props) {
@@ -19,6 +20,7 @@ export function AuthenticatedAppChrome({ apiBaseUrl, children }: Props) {
   const loadGeneration = useRef(0);
   const accountAnchorRef = useRef<HTMLDivElement | null>(null);
   const helpAnchorRef = useRef<HTMLDivElement | null>(null);
+  const menuTriggerRef = useRef<HTMLElement | null>(null);
   const [session, setSession] = useState<string | null>(() => currentSessionToken());
   const [profile, setProfile] = useState<AccountProfile | null>(null);
   const [center, setCenter] = useState<NotificationCenter | null>(null);
@@ -29,6 +31,7 @@ export function AuthenticatedAppChrome({ apiBaseUrl, children }: Props) {
   const [notificationError, setNotificationError] = useState<string | null>(null);
   const [busyNotificationId, setBusyNotificationId] = useState<number | 'ALL' | null>(null);
 
+  useEffect(() => { setNotificationsOpen(false); setAccountOpen(false); setHelpOpen(false); }, [window.location.pathname, window.location.search]);
   const clearExpiredSession = useCallback((cause: unknown) => {
     if (!isSessionError(cause)) return false;
     clearStoredSession();
@@ -75,18 +78,27 @@ export function AuthenticatedAppChrome({ apiBaseUrl, children }: Props) {
   }, [session, api]);
 
   useEffect(() => {
-    if (!accountOpen && !helpOpen) return;
+    if (!accountOpen && !helpOpen && !notificationsOpen) return;
     const close = (event: MouseEvent) => {
       const target = event.target;
       const element = target instanceof Element ? target : null;
       if (accountOpen && !element?.closest('.account-menu-anchor')) setAccountOpen(false);
       if (helpOpen && !element?.closest('.help-menu-anchor')) setHelpOpen(false);
+      if (notificationsOpen && !element?.closest('.notification-anchor')) setNotificationsOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setAccountOpen(false); setHelpOpen(false); setNotificationsOpen(false);
+      menuTriggerRef.current?.focus();
     };
     document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
-  }, [accountOpen, helpOpen]);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', onKey); };
+  }, [accountOpen, helpOpen, notificationsOpen]);
 
   async function loadAuthenticatedChrome(token: string, generation = loadGeneration.current) {
+    await Promise.all([
+      (async () => {
     try {
       const nextProfile = await api.profile(token);
       if (generation !== loadGeneration.current) return;
@@ -97,6 +109,8 @@ export function AuthenticatedAppChrome({ apiBaseUrl, children }: Props) {
       setProfile(null);
       setNotificationError(message(cause, '帳號資料載入失敗'));
     }
+      })(),
+      (async () => {
     try {
       const nextCenter = await api.notifications(token);
       if (generation !== loadGeneration.current) return;
@@ -107,6 +121,8 @@ export function AuthenticatedAppChrome({ apiBaseUrl, children }: Props) {
       setCenter(null);
       setNotificationError((current) => current ?? message(cause, '通知載入失敗'));
     }
+      })(),
+    ]);
   }
 
   async function copyAccountId() {
@@ -172,13 +188,16 @@ export function AuthenticatedAppChrome({ apiBaseUrl, children }: Props) {
     }
   }
 
-  if (!session) return <>{children}</>;
+  if (!session) return <><TraceNotice/>{children}</>;
 
   const path = typeof window === 'undefined' ? '/' : window.location.pathname;
 
+  const identity = profile ? <div className="account-support-id"><span>用戶 ID</span><code>{profile.publicAccountId}</code><button className="ghost compact" aria-label="複製用戶 ID" onClick={() => void copyAccountId()}>{copyState === 'COPIED' ? '已複製' : '複製'}</button><span className={copyState === 'COPIED' ? 'account-copy-announcement' : 'account-copy-status'} role="status">{copyState === 'FAILED' ? '複製失敗，請選取 ID 後手動複製。' : copyState === 'COPIED' ? '用戶 ID 已複製' : ''}</span></div> : null;
+
   const utilityActions = <div className="account-chrome-actions">
     <div className="help-menu-anchor" ref={helpAnchorRef}>
-      <button className="help-menu-trigger" aria-expanded={helpOpen} onClick={() => {
+      <button className="help-menu-trigger" aria-expanded={helpOpen} onClick={(event) => {
+        menuTriggerRef.current = event.currentTarget;
         setAccountOpen(false);
         setNotificationsOpen(false);
         setHelpOpen((value) => !value);
@@ -196,7 +215,8 @@ export function AuthenticatedAppChrome({ apiBaseUrl, children }: Props) {
     </div>
 
     <div className="notification-anchor">
-      <button className="notification-bell" aria-label={center?.unreadCount ? `通知，${center.unreadCount} 則未讀` : '通知'} aria-expanded={notificationsOpen} onClick={() => {
+      <button className="notification-bell" aria-label={center?.unreadCount ? `通知，${center.unreadCount} 則未讀` : '通知'} aria-expanded={notificationsOpen} onClick={(event) => {
+        menuTriggerRef.current = event.currentTarget;
         setAccountOpen(false);
         setHelpOpen(false);
         setNotificationsOpen((value) => !value);
@@ -208,7 +228,8 @@ export function AuthenticatedAppChrome({ apiBaseUrl, children }: Props) {
     </div>
 
     <div className="account-menu-anchor" ref={accountAnchorRef}>
-      <button className="account-trigger" aria-expanded={accountOpen} onClick={() => {
+      <button className="account-trigger" aria-label="帳號選單" aria-expanded={accountOpen} onClick={(event) => {
+        menuTriggerRef.current = event.currentTarget;
         setNotificationsOpen(false);
         setHelpOpen(false);
         setAccountOpen((value) => !value);
@@ -218,7 +239,7 @@ export function AuthenticatedAppChrome({ apiBaseUrl, children }: Props) {
       </button>
       {accountOpen ? <div className="account-menu" role="menu">
         {profile ? <div className="account-menu-id">
-          <span>帳號 ID</span>
+          <span>用戶 ID</span>
           <strong>{profile.publicAccountId}</strong>
           <button className="ghost compact" onClick={() => void copyAccountId()}>{copyState === 'COPIED' ? '已複製' : copyState === 'FAILED' ? '重試' : '複製'}</button>
         </div> : null}
@@ -241,14 +262,15 @@ export function AuthenticatedAppChrome({ apiBaseUrl, children }: Props) {
       </nav>
     </aside>
 
-    <header className="at-topbar" aria-label="帳號與工具">{utilityActions}</header>
+    <header className="at-topbar" aria-label="帳號與工具">{identity}{utilityActions}</header>
 
     <div className="at-mobile-header">
       <a className="brand-home" href="/" aria-label="AFTERTRACE 首頁"><img src="/aftertrace-icon.svg" alt="" /><span>AFTERTRACE</span></a>
       {utilityActions}
+      {identity}
     </div>
 
-    <main className="at-app-content">{children}</main>
+    <main className="at-app-content"><TraceNotice/>{children}</main>
   </div>;
 }
 
@@ -312,8 +334,9 @@ async function copyText(value: string) {
   textarea.style.opacity = '0';
   document.body.appendChild(textarea);
   textarea.select();
-  document.execCommand('copy');
-  textarea.remove();
+  try {
+    if (!document.execCommand('copy')) throw new Error('COPY_FAILED');
+  } finally { textarea.remove(); }
 }
 
 function isSessionError(cause: unknown) {

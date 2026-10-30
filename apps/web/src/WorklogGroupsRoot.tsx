@@ -139,19 +139,19 @@ export function WorklogGroupsRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
       <section className="panel stack">
         <div><p className="eyebrow">建立</p><h2>建立群組</h2></div>
         <p className="muted">建立群組後，就能和同事一起新增與查看群組紀錄。</p>
-        <div className="filter-actions"><input value={groupName} onChange={(event) => setGroupName(event.target.value)} maxLength={255} placeholder="例如：晴空案團隊" /><button disabled={loading || !groupName.trim()} onClick={() => void createGroup()}>建立群組</button></div>
+        <div className="filter-actions"><input aria-label="群組名稱" value={groupName} onChange={(event) => setGroupName(event.target.value)} maxLength={255} placeholder="例如：晴空案團隊" /><button disabled={loading || !groupName.trim()} onClick={() => void createGroup()}>建立群組</button></div>
       </section>
 
       <section className="panel stack">
         <div><p className="eyebrow">加入</p><h2>加入群組</h2></div>
         <p className="muted">有同事傳邀請連結或邀請碼給你時，貼在這裡即可加入。</p>
-        <div className="filter-actions"><input value={joinToken} onChange={(event) => setJoinToken(event.target.value)} placeholder="邀請連結或邀請碼" /><button disabled={loading || !normalizeInviteToken(joinToken)} onClick={() => void joinGroup()}>加入</button></div>
+        <div className="filter-actions"><input aria-label="邀請連結或邀請碼" value={joinToken} onChange={(event) => setJoinToken(event.target.value)} placeholder="邀請連結或邀請碼" /><button disabled={loading || !normalizeInviteToken(joinToken)} onClick={() => void joinGroup()}>加入</button></div>
       </section>
 
       {sharedInvite ? <section className="panel stack">
         <div><p className="eyebrow">邀請同事</p><h2>{sharedInvite.groupName} 邀請</h2></div>
         <p className="muted">這是一次性邀請連結。離開這個畫面後，不會再次顯示同一組邀請碼。</p>
-        <input readOnly value={inviteShareUrl(sharedInvite.inviteToken)} />
+        <input aria-label="群組邀請連結" readOnly value={inviteShareUrl(sharedInvite.inviteToken)} />
         <div className="filter-actions"><button className="ghost" disabled={sharedInvite.revoked} onClick={() => void copyText(inviteShareUrl(sharedInvite.inviteToken))}>複製邀請連結</button><button className="ghost" disabled={loading || sharedInvite.revoked} onClick={() => void revokeInvite()}>{sharedInvite.revoked ? '已撤銷' : '撤銷邀請'}</button></div>
       </section> : null}
 

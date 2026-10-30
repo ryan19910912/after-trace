@@ -64,10 +64,18 @@ export function createAdminAccountLookupRoutes() {
     const accountIdLookup = isPublicAccountId(query);
     const limit = boundedLimit(c.req.query('limit'));
     const db = c.get('database');
+    const predicate = accountIdLookup ? sql`public_account.public_account_id = ${query.toUpperCase()}` : sql`COALESCE(account.display_name, '') ILIKE ${'%' + query + '%'}`;
     const result = await db.execute(sql`
+      WITH matched_accounts AS (
+        SELECT account.*, public_account.public_account_id
+        FROM worklog_users AS account
+        INNER JOIN worklog_user_public_accounts AS public_account ON public_account.user_id = account.id
+        WHERE ${predicate}
+        ORDER BY account.updated_at DESC, account.id DESC LIMIT ${limit}
+      )
       SELECT
         account.id::text AS id,
-        public_account.public_account_id,
+        account.public_account_id,
         account.display_name,
         COALESCE(subscription.plan_code, 'FREE') AS plan_code,
         CASE
@@ -86,20 +94,21 @@ export function createAdminAccountLookupRoutes() {
             AND source.status = 'ACTIVE'
             AND source.name IS NOT NULL
             AND length(btrim(source.name)) > 0)::text AS member_group_count,
-        (SELECT COUNT(*) FROM worklog_records AS record WHERE record.author_user_id = account.id AND record.input_type = 'TEXT')::text AS text_count,
-        (SELECT COUNT(*) FROM worklog_records AS record WHERE record.author_user_id = account.id AND record.input_type = 'AUDIO')::text AS audio_count,
-        (SELECT COUNT(*) FROM worklog_records AS record WHERE record.author_user_id = account.id AND record.input_type = 'IMAGE')::text AS image_count,
-        (SELECT COUNT(*) FROM worklog_records AS record WHERE record.author_user_id = account.id AND record.input_type = 'FILE')::text AS file_count,
+        counts.text_count::text AS text_count, counts.audio_count::text AS audio_count,
+        counts.image_count::text AS image_count, counts.file_count::text AS file_count,
+        counts.record_count::text AS record_count,
         account.created_at,
         account.updated_at
-      FROM worklog_users AS account
-      INNER JOIN worklog_user_public_accounts AS public_account ON public_account.user_id = account.id
+      FROM matched_accounts AS account
       LEFT JOIN worklog_user_subscriptions AS subscription ON subscription.user_id = account.id
-      WHERE (
-        (${accountIdLookup} AND upper(public_account.public_account_id) = upper(${query}))
-        OR
-        (NOT ${accountIdLookup} AND COALESCE(account.display_name, '') ILIKE '%' || ${query} || '%')
-      )
+      LEFT JOIN LATERAL (SELECT
+        COUNT(*) FILTER (WHERE record.input_type = 'TEXT') AS text_count,
+        COUNT(*) FILTER (WHERE record.input_type = 'AUDIO') AS audio_count,
+        COUNT(*) FILTER (WHERE record.input_type = 'IMAGE') AS image_count,
+        COUNT(*) FILTER (WHERE record.input_type = 'FILE') AS file_count,
+        COUNT(*) AS record_count
+        FROM worklog_records AS record WHERE record.author_user_id = account.id AND record.status = 'ACTIVE'
+      ) AS counts ON TRUE
       ORDER BY account.updated_at DESC, account.id DESC
       LIMIT ${limit}
     `);

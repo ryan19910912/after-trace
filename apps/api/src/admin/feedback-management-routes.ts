@@ -53,6 +53,9 @@ export function createAdminFeedbackManagementRoutes() {
     const status = optionalStatus(c.req.query('status'));
     const category = optionalCategory(c.req.query('category'));
     const limit = boundedLimit(c.req.query('limit'));
+    const rawOffset = Number(c.req.query('offset') ?? 0);
+    if (!Number.isSafeInteger(rawOffset) || rawOffset < 0 || rawOffset > 100000) return c.json({ error: 'INVALID_OFFSET' }, 400);
+    if ((c.req.query('status') && !status) || (c.req.query('category') && !category)) return c.json({ error: 'INVALID_FEEDBACK_FILTER' }, 400);
     const result = await c.get('database').execute(sql`
       SELECT
         feedback.id::text AS id,
@@ -75,9 +78,9 @@ export function createAdminFeedbackManagementRoutes() {
         AND (${category}::text IS NULL OR COALESCE(management.category, 'OTHER') = ${category})
       ORDER BY CASE COALESCE(management.status, 'OPEN') WHEN 'OPEN' THEN 0 WHEN 'IN_PROGRESS' THEN 1 ELSE 2 END,
                feedback.created_at DESC, feedback.id DESC
-      LIMIT ${limit}
+      LIMIT ${limit + 1} OFFSET ${rawOffset}
     `);
-    return c.json({ ok: true, feedback: result.rows });
+    return c.json({ ok: true, feedback: result.rows.slice(0, limit), page: { limit, offset: rawOffset, hasMore: result.rows.length > limit } });
   });
 
   app.patch('/:id', async (c) => {

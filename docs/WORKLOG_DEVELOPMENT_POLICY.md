@@ -1,146 +1,45 @@
-# AFTERTRACE Worklog Development Policy
+# 開發規範
 
-Durable development rules for branch `revive/line-worklog`.
+更新：2026-10-29。以目前程式與使用者最新決策為準。
 
-Before substantive product/domain/schema/runtime work, read in this order:
+## 開始修改前
 
-1. `docs/WORKLOG_PRODUCT_SPEC.md`
-2. `docs/WORKLOG_ACCOUNT_IDENTITY_POLICY.md`
-3. `docs/WORKLOG_SUPPORT_POLICY.md`
-4. `docs/WORKLOG_NOTIFICATION_POLICY.md`
-5. `docs/WORKLOG_EXTENSION_POLICY.md`
-6. `docs/WORKLOG_ENTITY_MODEL.md`
-7. `docs/WORKLOG_RECORD_EDIT_POLICY.md`
-8. `docs/WORKLOG_AI_POINT_POLICY.md`
-9. `docs/WORKLOG_SUBSCRIPTION_POLICY.md`
-10. this file
-11. `docs/WORKLOG_DEPLOYMENT.md`
-12. `docs/WORKLOG_REBUILD_PROGRESS.md`
+依工作範圍閱讀產品規格、本機 AI、帳號識別、後台管理、客服、通知、擴充元件、資料模型、紀錄修改及部署規範。退役訂閱／點數文件只是停止使用的契約，不能把舊實作重新接線。
 
-Latest docs are authoritative. When an older document conflicts with a later explicit user decision, update the documents and follow the latest user decision.
+## 產品與技術邊界
 
-## GitHub Actions / CI
+- Web／PWA 優先；首頁最近 5 筆可展開 10 筆，搜尋獨立。
+- 全部 AI 在瀏覽器 WebGPU Worker 執行，沒有雲端推論／備援。不使用 SpeechRecognition／webkitSpeechRecognition。
+- 只接受文字、單張圖片及最多 60 秒主動錄音；不接受 PDF／文件／音訊檔上傳。解析不寫入，用戶編輯確認後才保存文字。
+- 提示及模型 ID／固定版本在資料庫，種子只供首次建立；不覆寫管理員編輯。設定讀取失敗保留手動功能，不能啟用硬編碼或雲端備援。
+- PRIVATE／GROUP 資料逐次授權，模型輸出不取得任何額外權限；沒有自動歷史回填。
+- 管理頁同時以後端權限及前台導覽保護；最高帳號保留全部權限。
+- 用戶介面使用清楚繁體中文，不暴露 Source、Grant、ledger 等內部字詞。客服資訊須可讀，不直接放原始 JSON。
 
-**Do not run, dispatch, rerun, enable, modify, or otherwise trigger GitHub Actions unless the user explicitly asks.** Every normal development commit includes `[skip ci]`. Do not claim tests or runtime validation passed unless they were actually executed.
+## 帳號、非同步與輸入
 
-## Current product architecture
+帳號為 provider-neutral；Google／LINE 優先，Apple 依環境啟用。不得按 email 自動合併。OAuth 回傳的 #session 消費後移除，登出不能重新讀回。
 
-- Web + PWA first;
-- `/` remains the Record home page;
-- Search stays separate;
-- Chrome extension is a compact capture surface;
-- LINE is only LINE Login + external LINE OA support contact;
-- groups are native AFTERTRACE groups joined by invite link;
-- AI entitlement is per user;
-- no automatic historical AI backfill.
+用戶 ID 是穩定不透明客服識別碼，與內部主鍵不同。設定／查詢錯誤不得偽造資料或默默覆寫用戶輸入。非同步讀取要防止過期回應污染目前頁面；切換未保存表單須提示。請求失敗提供明確重試，不能永久顯示載入中。
 
-## Record contract
+## 資料庫
 
-Manual Record fields are optional user-entered title, required content/raw_text, optional occurred_at, and system timestamps. CRUD supports create/edit/delete-to-recycle-bin/restore and preserves revision history. Home shows latest 10; full browsing/filtering remains on Search.
+canonical 為 drizzle/0000_worklog_baseline.sql；Drizzle schema-all.ts、baseline、snapshot 要一致。每個持久表／欄位有 COMMENT。只保留結構性的 PK／FK／UNIQUE／NOT NULL／INDEX／DEFAULT；不使用應用領域 ENUM 或商業 CHECK，合法狀態與跨欄位條件由 TypeScript 驗證。
 
-## FREE / AI boundary
+使用參數化 SQL，不以未引用保留字（user、group、order、grant 等）作識別符。紀錄及管理設定使用預期版本避免覆蓋新資料，變更要有歷史／稽核。
 
-FREE is a complete manual product: Record CRUD, deterministic search, groups, tasks/reminders, notifications and provider-free browser/device speech-to-text.
+不能因仍在上線前就自行刪資料或重置資料庫。既有本機資料以非破壞方式補表／欄位；重置及遠端 schema 升級須另行明確授權。改寫基線不會自動升級已套用的遠端資料庫。
 
-Each eligible account receives one Admin-configured one-time FREE AI allowance. While points remain, the same shared balance may be used across supported AI capabilities:
+## 通知與退役程式
 
-- AI text organization;
-- natural-language AI Search;
-- image/audio/file/PDF AI;
-- related Records;
-- time-range summaries;
-- rewrite;
-- task proposals;
-- Chrome screenshot AI.
+通知為 ANNOUNCEMENT／SYSTEM／TASK；推播失敗不刪站內通知。共用有界排程處理公告／提醒。LINE OA 只作外部客服，不還原機器人、LINE 群組或 Entity／Alias 主資料流程。
 
-The one-time FREE allowance does not refresh monthly. Backend services, not UI-only checks, enforce point admission/reservation/settlement. When FREE points are exhausted, normal FREE/manual features remain available.
+正式 Worker 不載入舊 AI 供應商及金流路由。保留的歷史表／測試不能作現行產品能力說明。
 
-## Paid subscription architecture
+## 驗證及交付
 
-The commercial paid catalog is backend-driven.
+執行與變更相符的 typecheck、lint、test、build；資料庫變更執行 db:baseline:guard。重要流程用真實 Docker DB／Chrome 驗證，模型測試 profile 不能同時佔用。外部 OAuth／推播、真實手機及辨識品質須單獨驗收。
 
-- Do not hard-code a purchasable plan code such as `AI_PRO` in customer plan filtering, checkout selection, subscription lifecycle, grant creation or paid entitlement SQL.
-- Do not hard-code a paid plan price such as NT$99 in checkout/callback validation.
-- Admin-created enabled `SUBSCRIPTION` plans are customer-visible automatically when commercially valid.
-- Customer checkout sends the selected `planCode`; the API resolves display name, price and limits from PostgreSQL.
-- Checkout intent durably stores the selected plan code.
-- Provider callback recovers the plan from the checkout intent and validates the charged amount against the selected plan price.
-- Lifecycle/history/subscription-period Grants preserve the actual plan code.
-- Paid entitlement and provider-cost admission read limits from the user's active paid plan.
-- Only one active paid subscription is allowed per user at a time.
-- Cancellation stops future renewal but keeps the already-paid period until its end. Re-subscription uses a new checkout after expiry.
+報告清楚標記已實測與未驗證，不把舊日期結果當新結果。同步產品技術文件及 WORKLOG_REBUILD_PROGRESS.md。
 
-NewebPay periodic billing currently requires a positive integer TWD monthly amount. Customer checkout must fail closed / stay disabled for provider-incompatible prices rather than silently rounding.
-
-Internal compatibility names such as entitlement source `AI_PRO` or reason `AI_PRO_GRANT_NOT_READY` may remain to mean “active paid AI entitlement”; they must never be used as a commercial catalog filter by exact plan code.
-
-Do not implement one-time AI top-ups unless the user explicitly changes direction.
-
-## AI media boundary
-
-Recommended default limits are 1 image/request, 5 MB/image, 300 seconds/audio, 10 MB/audio and 10 MB/file. Plan limits live in application plan capabilities, not DB CHECK constraints. Runtime transport ceilings may be higher so plan limits remain authoritative below those ceilings.
-
-Audio duration must traverse Web → API → service and be validated before provider work. Chrome screenshot capture is explicit user action and uses the same FREE/paid entitlement path as Web media AI.
-
-## Customer copy policy
-
-Customer-facing text uses clear Traditional Chinese. Avoid exposing implementation vocabulary such as Source, Grant, runtime, ledger, metadata, optimistic locking or provider-cost internals. Customer plan names/prices come from backend plan definitions.
-
-Admin is internal but still prefers plain Chinese; technical accounting labels remain only where necessary.
-
-## Account/authentication
-
-Follow `WORKLOG_ACCOUNT_IDENTITY_POLICY.md`:
-
-- provider-neutral AFTERTRACE account;
-- Google + LINE launch priority;
-- Apple when operationally enabled;
-- no silent email merge;
-- immutable opaque customer 帳號 ID;
-- expired/missing database-user sessions clear local state;
-- OAuth callback `#session` is consumed/removed so logout cannot rehydrate the old session.
-
-Login onboarding must not fail solely because a non-critical welcome/system notification cannot be created. Notification defects still require fixing; this tolerance is not a substitute for notification correctness.
-
-## Database/schema policy
-
-AFTERTRACE remains prelaunch; Dev data is disposable until production-data policy explicitly changes.
-
-Canonical target is one `drizzle/0000_worklog_baseline.sql` with aligned Drizzle schema/metadata.
-
-Required rules:
-
-- every persistent table/column has PostgreSQL COMMENT metadata;
-- no PostgreSQL ENUM for application-domain/status values;
-- no business/domain CHECK constraints;
-- no stale `::application_enum_type` casts in handwritten SQL after enum removal;
-- legal statuses/categories/price rules/cross-field rules live in TypeScript/application services;
-- structural PK/FK/UNIQUE/NOT NULL/INDEX/DEFAULT remain in PostgreSQL.
-
-## SQL safety
-
-Avoid PostgreSQL reserved/command words as unquoted aliases/CTE names/identifiers. Never use `grant` as a SQL alias. Apply the same care to `user`, `group`, `order`, `limit`, `offset`, `constraint`, `table`, `column`, etc.
-
-## Notifications/tasks/support
-
-- internal notification categories remain ANNOUNCEMENT / SYSTEM / TASK;
-- customer labels are 公告通知 / 系統通知 / 待辦通知;
-- in-app notification remains durable even when push fails;
-- one shared scheduled worker handles reminders/announcements;
-- AI task extraction is suggestion-first and consumes FREE trial or paid entitlement;
-- feedback is stored in AFTERTRACE and manageable from Admin;
-- LINE OA is support contact only.
-
-## Retired code
-
-Do not restore retired LINE webhook/bot runtime, LINE group command flow, bot-entry auth, GROUP AI funding/responsible-user concepts, legacy Entity confirmation workflow, ONE_TIME/TOP_UP, or obsolete compatibility behavior.
-
-## Validation
-
-Use explicit status words: AUTHORED, NOT RUN, PASS, FAIL, RUNTIME VERIFIED. No validation claim without execution evidence.
-
-Every substantial run updates `WORKLOG_REBUILD_PROGRESS.md` with current decisions, changed code/docs, commit references, validation status and remaining runtime checks/blockers.
-
-## Commit discipline
-
-Prefer coherent commits and include `[skip ci]` in every normal development commit. Do not touch GitHub Actions unless the user explicitly asks.
+未經明確要求不得執行、啟動、重新執行或修改 GitHub Actions；一般開發 commit 包含 [skip ci]。本地檢查不代表已部署；未獲授權不得推送或部署遠端。

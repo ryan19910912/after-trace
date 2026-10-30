@@ -1,3 +1,4 @@
+import { adminFetch } from './admin-fetch';
 export type FreeAiTrialConfig = {
   freeInitialAiTrialPoints: number;
   updatedBy: string | null;
@@ -83,7 +84,7 @@ export class AdminCommercialApi {
     const headers = new Headers(init.headers);
     if (init.body) headers.set('Content-Type', 'application/json');
     if (authenticated && this.sessionToken) headers.set('Authorization', `Bearer ${this.sessionToken}`);
-    return fetch(`${this.baseUrl.replace(/\/$/, '')}/api/v1/admin/commercial-config${path}`, { ...init, headers });
+    return adminFetch(`${this.baseUrl.replace(/\/$/, '')}/api/v1/admin/commercial-config${path}`, { ...init, headers });
   }
 }
 

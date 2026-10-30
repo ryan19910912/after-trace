@@ -1,0 +1,29 @@
+name: aftertrace-local-integration
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: aftertrace
+      POSTGRES_PASSWORD: aftertrace_local_test_only
+      POSTGRES_DB: aftertrace
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - aftertrace_pgdata:/var/lib/postgresql/data
+      - ./drizzle/0000_worklog_baseline.sql:/docker-entrypoint-initdb.d/001-baseline.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aftertrace -d aftertrace"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  neon-proxy:
+    image: ghcr.io/timowilhelm/local-neon-http-proxy@sha256:cd2ae14edf2feafbc3330492de5c80506f77274c3bd013154cdef697bdeb768a
+    environment:
+      PG_CONNECTION_STRING: postgres://aftertrace:aftertrace_local_test_only@postgres:5432/aftertrace
+    ports:
+      - "127.0.0.1:55433:4444"
+    depends_on:
+      postgres:
+        condition: service_healthy
+volumes:
+  aftertrace_pgdata:

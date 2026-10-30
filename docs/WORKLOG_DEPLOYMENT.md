@@ -1,188 +1,52 @@
-# AFTERTRACE Deployment Baseline
+# 部署與執行基準
 
-## Deployment topology
+更新：2026-10-29。此文件說明部署方式，不代表已部署；本次修改只在本機驗證。
 
-Cloudflare Workers only. Do not reintroduce Pages.
+## 拓樸
 
-### Dev
+Web、Admin 及 API 使用 Cloudflare Workers；前端由 Vite 建置，資料庫是 PostgreSQL／Neon，Drizzle ORM。Chrome Extension 獨立建置。Dev／Prod 使用各自設定及資料庫，部署工具指定 after-trace-{api|web|admin}-{dev|prod}。
 
-- `after-trace-api-dev`
-- `after-trace-web-dev`
-- `after-trace-admin-dev`
+AI 在用戶瀏覽器 WebGPU Worker 執行。Hugging Face／版本化 runtime CDN 提供靜態模型檔；不需要 AI 供應商密鑰。提示詞、模型 ID／固定 revision 由 API 讀資料庫提供，不能把模型推論搬到後端。
 
-### Prod
+## 必要環境設定
 
-- `after-trace-api-prod`
-- `after-trace-web-prod`
-- `after-trace-admin-prod`
+- DATABASE_URL。
+- WEB_APP_URL、WEB_APP_ORIGIN、VITE_API_BASE_URL、ADMIN_WEB_ORIGIN；來源必須符合對應環境，Web URL／origin 一致。
+- WEB_AUTH_SECRET、ADMIN_SESSION_SECRET、ADMIN_PASSWORD_PEPPER：至少 32 字元，Dev／Prod 分離並安全持久保存。pepper 與既有管理帳號雜湊綁定，不能每次部署重新產生。
+- Google／LINE OAuth client／channel 設定；Apple 完整配置後才啟用。
+- WEB_PUSH_PUBLIC_KEY、WEB_PUSH_PRIVATE_KEY、WEB_PUSH_SUBJECT：readiness 仍檢查有效推播設定。
+- ADMIN_BOOTSTRAP_PASSWORD_FILE 可選擇首次初始化管理帳密回條位置；不是 Worker 執行密鑰。
 
-workers.dev subdomain: `after-lab`.
+不再使用 ADMIN_USERNAME／ADMIN_PASSWORD 作正式管理登入，不要求 GEMINI_API_KEY、模型價格／匯率、FREE／付費方案、試用點數或 NewebPay 金鑰。
 
-Manual deployment remains the accepted operating model. Do not enable automatic Git deployment or GitHub Actions unless explicitly requested.
+## 資料庫與初始化
 
-## Commands
+schema-all.ts、drizzle/0000_worklog_baseline.sql、snapshot 需一致；目前 37 張 public 表，每表／欄位有 COMMENT，沒有商業 CHECK 或應用領域 ENUM。
 
-```text
-pnpm deploy:dev
-pnpm deploy:prod
-pnpm deploy:dev:api
-pnpm deploy:dev:web
-pnpm deploy:dev:admin
-pnpm deploy:prod:api
-pnpm deploy:prod:web
-pnpm deploy:prod:admin
-```
+migration 工具套用基線後初始化六個提示、兩個角色、admin 亂數密碼及模型設定；種子重跑不覆寫既有修改。首次帳密寫入受忽略檔案，請安全交付最高帳號持有人。已存在回條時不默默覆蓋。
 
-## Environment input
+重要：修改 canonical baseline 不會自動升級已套用的遠端資料庫。既有 schema 需另行規劃非破壞升級，不能直接重跑建表 SQL 或清空資料。除非明確另行授權，不能重置本機／遠端資料庫。
 
-- `.env.local` — local development only;
-- `.env.dev` — Dev migration/deploy/runtime source;
-- `.env.prod` — Prod migration/deploy/runtime source.
+## 健康檢查
 
-Core runtime bindings include database, AI provider, Web auth/origins, Google/LINE Login, Web Push and Admin auth/session/origin configuration. LINE Messaging credentials are not part of the target runtime.
+- GET /health：Worker 活著。
+- GET /health/ready：核心 schema、auth／admin／push 設定可用；不檢查 AI 價格、付費方案或點數。
+- readiness 目前主要探測表及欄位，不等同已驗證種子完整、實際 OAuth 或外部推播。部署驗收還須讀取已發布提示／模型及實際管理登入。
 
-## NewebPay / 藍新 configuration
+API 共用一個每五分鐘 scheduled handler，處理有界公告／待辦／推播；不為每個待辦建立 Cron。推播失敗保留站內通知。
 
-Optional paid-subscription bindings:
+## 本地驗證
 
-- `NEWEBPAY_MERCHANT_ID`;
-- `NEWEBPAY_HASH_KEY`;
-- `NEWEBPAY_HASH_IV`;
-- `NEWEBPAY_MODE` (`TEST` or `PROD`);
-- `NEWEBPAY_PERIOD_VERSION`;
-- `NEWEBPAY_PERIOD_TIMES`;
-- `NEWEBPAY_NOTIFY_URL`;
-- `NEWEBPAY_RETURN_URL`.
+依 [Docker 指引](DOCKER_LOCAL_INTEGRATION.md) 啟動，執行 pnpm typecheck、pnpm lint、pnpm test、pnpm build、pnpm db:baseline:guard，再跑與變更相符的 API／Chrome 整合測試。共用模型 profile 的腳本不能同時執行。
 
-Secrets/config live only in the API Worker. When NewebPay config is absent, FREE/manual and non-payment behavior remains available while paid checkout reports unavailable.
+本地測試不代表 Google／LINE／Apple 外部 OAuth、對外推播、目標手機 GPU／記憶體及繁中辨識品質已驗收。請逐項記錄 PASS／未驗證及日期。
 
-## Backend-driven paid plans
+## 遠端部署
 
-Paid plan availability is database-driven.
+獲明確部署授權後，使用 .env.dev 或 .env.prod 及 pnpm deploy:{dev|prod}[:api|web|admin]。部署腳本會執行 migration 並上傳 Worker，因此不能拿它當唯讀檢查。先確認遠端 schema 升級計畫、備份及環境分離；API 驗證完成後才更新前端。
 
-A customer-visible plan must be an enabled, AI-enabled `SUBSCRIPTION` plan with positive monthly price, monthly AI point cap and provider-cost cap. Customer Web/PWA must not filter by an exact code such as `AI_PRO`.
+正式 Worker 對舊 /api/v1/ai/* 回傳 410 LOCAL_AI_ONLY；/api/v1/payments/*、/api/v1/subscription/* 回傳 410 BILLING_RETIRED。沒有金流回呼驗收流程，也不能重新啟用舊 provider 程式。
 
-NewebPay checkout flow:
+管理 API 要驗證 session、目前帳號與每頁權限；CORS 精確比對 origin。公開 Cloudflare 本機預覽代理只允許前台 API，封鎖全部管理 API，不能把整個專案資料夾作靜態目錄。管理帳密／.env／測試 session 不得公開。
 
-1. customer chooses a backend plan;
-2. Web sends `planCode`, payer Email and idempotency request key;
-3. API reloads that plan from PostgreSQL and validates it is currently purchasable;
-4. API stores the selected plan code in `worklog_checkout_intents`;
-5. NewebPay `ProdDesc` and `PeriodAmt` are built from the selected DB plan rather than hard-coded values;
-6. callback resolves the plan through the checkout intent;
-7. provider amount is validated against the selected plan price;
-8. ACTIVATE / RENEW lifecycle writes the exact plan code into subscription/history/Grant state;
-9. paid AI entitlement reads limits from the user's actual active plan;
-10. cancellation stops future renewal but preserves access through the current paid period end.
-
-Only one active paid subscription is permitted per user. After the paid period expires, the user may start a new checkout for any currently available plan.
-
-NewebPay Period currently uses an integer TWD recurring amount. For online purchase, plan price must therefore be a positive integer TWD value. Do not silently round a fractional Admin price.
-
-## Product authorization boundaries
-
-- PRIVATE manual data: authorized user only;
-- GROUP manual data: current AFTERTRACE group member/role only;
-- manual Web/PWA CRUD is independent from AI subscription;
-- provider-backed AI entitlement is per requesting user;
-- GROUP has no AI funding-owner binding;
-- provider-backed operations must pass current entitlement/resource/provider-cost checks.
-
-## Cloudflare Cron / notifications
-
-The API Worker has one shared scheduled handler. `apps/api/wrangler.toml` currently uses:
-
-```text
-*/5 * * * *
-```
-
-It handles scheduled announcements, task reminders and pending Web Push delivery in bounded work. Do not create one Cron per task. PUSH failure must not remove durable in-app notification state.
-
-Handwritten notification SQL must use the current varchar/text domain representation. Do not cast values to removed PostgreSQL application ENUM types.
-
-## Database / canonical baseline policy during prelaunch
-
-Authoritative Drizzle export is `apps/api/src/db/schema-all.ts`.
-
-During the disposable prelaunch stage:
-
-- canonical schema is one `drizzle/0000_worklog_baseline.sql`;
-- Drizzle schema/baseline/metadata stay aligned;
-- table/column comments remain mandatory;
-- no PostgreSQL application-domain ENUM or business CHECK constraints;
-- clean rebuild is preferred over compatibility migration when Dev/prelaunch data is explicitly disposable.
-
-### Complete clean reset
-
-A real reset must clear both public application data and Drizzle migration history:
-
-```sql
-DROP SCHEMA IF EXISTS drizzle CASCADE;
-DROP SCHEMA IF EXISTS public CASCADE;
-CREATE SCHEMA public;
-```
-
-Then deploy API first:
-
-```text
-pnpm deploy:dev:api
-```
-
-Do not reset the DB merely for the backend-driven subscription refactor; it uses the existing generic plan/subscription/checkout/lifecycle columns and requires no schema change.
-
-## AI runtime
-
-Before provider execution, runtime checks either:
-
-- remaining one-time FREE AI experience points; or
-- an active paid subscription entitlement.
-
-FREE trial may be used across supported AI functions, not only AI Search. Paid resource and provider-cost caps come from the user's active subscription plan. Internal compatibility enum/source names may still say `AI_PRO`, but commercial filtering must never depend on the exact plan code `AI_PRO` or price 99.
-
-## API liveness/readiness
-
-- `GET /health` = Worker liveness;
-- `GET /health/ready` = schema/config/runtime readiness.
-
-Readiness requires:
-
-- target schema availability;
-- AI runtime model/pricing/FX;
-- valid FREE plan;
-- at least one valid enabled paid subscription plan compatible with current online billing;
-- FREE AI trial configuration;
-- required Web Push/auth/Admin bindings.
-
-It no longer requires an exact `AI_PRO` row at NT$99.
-
-## Validation before deploy
-
-Use local validation, never GitHub Actions unless explicitly requested:
-
-```text
-pnpm typecheck
-pnpm test
-pnpm lint
-pnpm build
-```
-
-Passing static/unit validation does not replace real Dev smoke for Web/PWA auth, DB, AI provider, plan catalog, NewebPay TEST callback/cancel and push.
-
-## Dynamic subscription runtime smoke
-
-After API + Web deployment verify at minimum:
-
-1. an Admin-created enabled plan such as `AI_PRO_99` appears on `/subscription`;
-2. display name, price and monthly point cap match Admin;
-3. selecting it sends that exact `planCode` to checkout;
-4. NewebPay TEST page receives the DB amount/product description;
-5. callback activates the same plan code;
-6. entitlement/provider-cost checks use that plan's configured caps;
-7. cancellation preserves access until current period end;
-8. after expiry, a new checkout can select any enabled paid plan.
-
-## Admin security
-
-Admin login remains the only unauthenticated Admin API surface. Dev/Prod credentials and secrets should be distinct where practical. CORS origins are exact per environment.
-
-GitHub Actions must not be used as deployment or validation unless the user explicitly requests it.
+未明確要求不得啟動、重跑或修改 GitHub Actions。一般開發 commit 帶 [skip ci]；本地修改不自動 commit／push。

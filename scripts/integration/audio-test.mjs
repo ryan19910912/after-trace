@@ -1,0 +1,41 @@
+import { createRequire } from 'node:module';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import assert from 'node:assert/strict';
+const require=createRequire(resolve('apps/web/package.json'));const {chromium}=require('@playwright/test');
+const fixture=resolve('.test-artifacts/integration-speech.wav');
+const synth=spawnSync('powershell.exe',['-NoProfile','-Command',"Add-Type -AssemblyName System.Speech; $taskSynth = New-Object System.Speech.Synthesis.SpeechSynthesizer; $taskSynth.SetOutputToWaveFile($env:AFTERTRACE_AUDIO_FIXTURE); $taskSynth.Speak('Today I finished the login feature. Tomorrow I will test it.'); $taskSynth.Dispose()"],{env:{...process.env,AFTERTRACE_AUDIO_FIXTURE:fixture},encoding:'utf8'});
+if(synth.status!==0)throw new Error(synth.stderr);
+const state=JSON.parse(readFileSync('.test-artifacts/integration-session.json','utf8'));
+const browser=await chromium.launchPersistentContext('.test-artifacts/integration-browser-cache',{executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true,args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream',`--use-file-for-fake-audio-capture=${fixture}`],permissions:['microphone']});
+await browser.addInitScript(token=>localStorage.setItem('aftertrace.worklog.session',token),state.owner.token);
+const page=await browser.newPage();const cloudRequests=[],writes=[];
+page.on('request',request=>{if(/generativelanguage|api-inference\.huggingface|router\.huggingface/.test(request.url()))cloudRequests.push(request.url());if(request.method()==='POST'&&request.url().includes('/api/v1/worklog/records/'))writes.push(request.postDataJSON());});
+try{
+ await page.goto('http://localhost:15173/capture');
+ await page.getByRole('option',{name:'我的紀錄'}).waitFor({state:'attached'});
+ await page.getByLabel('語音語言').selectOption('english');
+ await page.getByRole('button',{name:'錄製短語音（最多 60 秒）',exact:true}).click();
+ await page.getByRole('button',{name:'停止錄音',exact:true}).waitFor();
+ await page.waitForTimeout(6500);
+ await page.getByRole('button',{name:'停止錄音',exact:true}).click();
+ console.log('AUDIO_INTEGRATION_LOCAL_TRANSCRIPTION_STARTED');
+ await page.waitForFunction(()=>document.querySelector('textarea')?.value?.trim().length>0,undefined,{timeout:600000});
+ const transcript=await page.getByLabel('輸入內容或貼上圖片').inputValue();
+ assert.ok(transcript.length>0);assert.equal(writes.length,0);
+ console.log('PASS fake microphone -> MediaRecorder -> Web Audio -> local Whisper; no save');
+ await page.getByRole('button',{name:'AI 解析',exact:true}).click();
+ await page.getByRole('heading',{name:'確認要保存的資訊'}).waitFor({timeout:600000});
+ assert.equal(writes.length,0);
+ const confirmed='短語音整合測試確認 '+state.runId;
+ await page.getByLabel('內容',{exact:true}).fill(confirmed);
+ await page.getByRole('button',{name:'確認保存',exact:true}).click();
+ await page.getByRole('status').filter({hasText:'紀錄已保存'}).waitFor();
+ assert.equal(writes.length,1);assert.equal(writes[0].rawText,confirmed);assert.equal(cloudRequests.length,0);
+ const rows=await page.evaluate(async token=>{const response=await fetch('http://localhost:18787/api/v1/worklog/records/personal',{headers:{Authorization:'Bearer '+token}});return await response.json();},state.owner.token);
+ assert.ok(rows.records.some(record=>record.rawText===confirmed));
+ writeFileSync('.test-artifacts/integration-audio-results.json',JSON.stringify({transcript,confirmed,passed:true,cloudRequests},null,2));
+ console.log('AUDIO INTEGRATION PASSED: local recording, transcription, editable AI draft, confirm, real database persistence');
+}catch(error){await page.screenshot({path:'.test-artifacts/integration-audio-failure.png',fullPage:true});console.error(await page.locator('body').innerText());throw error;}
+finally{await browser.close();}

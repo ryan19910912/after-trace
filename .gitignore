@@ -17,3 +17,7 @@ aftertrace-extension-prod.zip
 
 # Local IDE settings
 .idea/
+
+# Local model caches and verification artifacts
+.test-artifacts/
+source.zip

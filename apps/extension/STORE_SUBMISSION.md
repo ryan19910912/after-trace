@@ -11,7 +11,7 @@
 
 ### DEV
 
-AFTERTRACE 測試版。從瀏覽器快速記錄文字、選取內容、目前頁面資訊與語音轉文字結果到 DEV 環境。
+AFTERTRACE 測試版。從瀏覽器快速記錄文字、選取內容、目前頁面資訊到 DEV 環境；圖片與短語音開啟網頁本機解析。
 
 ### PROD
 
@@ -24,10 +24,10 @@ AFTERTRACE 是工作紀錄工具，讓使用者在事情發生時快速留下紀
 Chrome 擴充元件可在不離開目前網頁的情況下：
 
 - 輸入文字並儲存到自己的 AFTERTRACE 紀錄空間
-- 使用瀏覽器語音轉文字後再確認並儲存
+- 開啟網頁錄製短語音，由使用者裝置模型辨識、確認後保存
 - 將目前選取的文字帶入紀錄
 - 在使用者明確勾選時附上目前頁面的標題與 URL
-- 擷取目前可見畫面供預覽；只有使用者主動執行 AI 圖片整理時才會送到 AFTERTRACE backend
+- 開啟網頁貼上／選擇圖片，在裝置解析並編輯確認；不提供獨立螢幕擷取
 - 選擇個人或有權限的群組紀錄空間
 
 擴充元件不會讀取整個瀏覽歷史，也不會在背景持續擷取網頁內容。與 AFTERTRACE Web 的連接使用短效 extension session，且 DEV 與 PROD 環境完全分離。
@@ -36,7 +36,7 @@ Chrome 擴充元件可在不離開目前網頁的情況下：
 
 ### `activeTab`
 
-只在使用者主動操作擴充元件時取得目前分頁必要資訊，用於頁面標題 / URL、目前可見畫面截圖，以及快速記錄流程。不會持續監控所有分頁。
+只在使用者主動操作擴充元件時取得目前分頁必要資訊，用於頁面標題 / URL 及選取文字的快速記錄流程。不會持續監控所有分頁。
 
 ### `contextMenus`
 
@@ -50,11 +50,11 @@ Chrome 擴充元件可在不離開目前網頁的情況下：
 
 DEV Item 僅允許：
 
-- `https://after-trace-api-dev.a0955625660.workers.dev/*`
+- `https://after-trace-api-dev.after-lab.workers.dev/*`
 
 PROD Item 僅允許：
 
-- `https://after-trace-api-prod.a0955625660.workers.dev/*`
+- `https://after-trace-api-prod.after-lab.workers.dev/*`
 
 用途是呼叫 AFTERTRACE 自己的 API。兩個 Store Item 不共用 API host。
 
@@ -62,11 +62,11 @@ PROD Item 僅允許：
 
 DEV Item 僅接受 DEV Web：
 
-- `https://after-trace-web-dev.a0955625660.workers.dev/*`
+- `https://after-trace-web-dev.after-lab.workers.dev/*`
 
 PROD Item 僅接受 PROD Web：
 
-- `https://after-trace-web-prod.a0955625660.workers.dev/*`
+- `https://after-trace-web-prod.after-lab.workers.dev/*`
 
 用途是完成 Web → Extension 的短效 session handoff。Extension 仍會驗證來源環境、nonce 與 API / Web 環境是否一致。
 
@@ -79,15 +79,15 @@ AFTERTRACE 擴充元件只在使用者主動操作時處理資料。
 - 使用者自行輸入的工作紀錄文字
 - 使用者主動選取的網頁文字
 - 使用者明確勾選後附上的目前頁面標題與 URL
-- 使用者按下截圖按鈕後產生的目前可見畫面
-- 瀏覽器語音辨識產生的文字結果
+- 用戶在網頁主動貼上／選取的圖片，僅在裝置解析，不上傳媒體
+- 用戶在網頁短語音錄製後由裝置模型辨識的文字
 - AFTERTRACE 帳號與短效 extension session 所需的驗證資料
 
 資料用途僅為提供 AFTERTRACE 的紀錄、搜尋、整理與帳號連線功能，不出售使用者資料，也不將工作紀錄提供給廣告用途。
 
-語音按鈕使用瀏覽器提供的 Speech Recognition 能力，擴充元件本身保存的是辨識後文字；一般語音轉文字不會因為使用麥克風就自動呼叫 AFTERTRACE AI。
+語音按鈕開啟網頁短語音流程，使用 MediaRecorder／Web Audio 與裝置上的 Whisper 模型；不使用 SpeechRecognition，不把錄音送雲端辨識。
 
-截圖預設只在擴充元件本機預覽。只有使用者主動執行需要圖片 AI 的動作時，圖片才會送到 AFTERTRACE backend，並依帳號方案 / 試用額度處理。
+截圖作為一般圖片由用戶貼上或選取，在網頁本地模型解析。圖片與錄音不傳後端；只有用戶確認的文字保存。不提供訂閱、點數或雲端推論。
 
 使用者可在擴充元件內解除 AFTERTRACE 連接；解除後會移除本機保存的 AFTERTRACE extension session 與已選紀錄空間。
 
@@ -142,9 +142,9 @@ DEV / PROD 的 Web build 必須各自注入自己的 Store URL，避免正式網
 至少準備以下畫面：
 
 1. 擴充元件已連接 AFTERTRACE、可選擇紀錄空間
-2. 文字 / 語音快速紀錄
+2. 文字快速紀錄／開啟網頁短語音
 3. 右鍵選取文字 → 帶入擴充元件
 4. 勾選附上目前頁面的畫面
-5. 截圖預覽 / AI 圖片整理入口
+5. 開啟網頁圖片本機解析入口
 
 DEV 截圖應清楚顯示 `AFTERTRACE DEV`，避免和正式版混淆。

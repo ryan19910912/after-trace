@@ -1,0 +1,83 @@
+[
+  {
+    "id": "S3",
+    "kind": "mandarin",
+    "file": ".test-artifacts/content-quality/S3.wav",
+    "reference": "十一月二日上午九點半，在台北辦公室開會，討論登入功能測試。",
+    "source": "Windows offline zh-TW TTS",
+    "sha256": "e01e0d4927a97a4ba144f4f75f87c1f88badcf774eb212b5ba8b968e25a58534"
+  },
+  {
+    "id": "S2",
+    "kind": "mandarin",
+    "file": ".test-artifacts/content-quality/S2.wav",
+    "reference": "晚上十點和阿哲打遊戲副本，還沒有通關。",
+    "source": "Windows offline zh-TW TTS",
+    "sha256": "009bba9d854655b438da7a0cf8d1a75b93163db97eaecbe3428f1a1518a3568b"
+  },
+  {
+    "id": "S1",
+    "kind": "mandarin",
+    "file": ".test-artifacts/content-quality/S1.wav",
+    "reference": "今天下午三點，王先生收到款項三千五百元，尾款還沒有收到。",
+    "source": "Windows offline zh-TW TTS",
+    "sha256": "b19e77931aa31eb59f0b6a064e33e7191be501cb41b01eddb29094241ab0cf9e"
+  },
+  {
+    "id": "H0",
+    "kind": "taigi",
+    "file": ".test-artifacts/asr-matrix/H0.mp3",
+    "reference": "我沒咧驚",
+    "source": "adi-gov-tw/Taiwan-Tongues-ASR-CE-dataset-hokkien",
+    "row": 0,
+    "sha256": "089e18ef1d098045ef785f8c914afb1928162867962c74f794ee7c63f9790968"
+  },
+  {
+    "id": "H1",
+    "kind": "taigi",
+    "file": ".test-artifacts/asr-matrix/H1.mp3",
+    "reference": "無一下著",
+    "source": "adi-gov-tw/Taiwan-Tongues-ASR-CE-dataset-hokkien",
+    "row": 1,
+    "sha256": "d7d2d28498b675e84f2a7c2b4435f77c0fd3b2c12904db6fed5b23ec7e5395ad"
+  },
+  {
+    "id": "H2",
+    "kind": "taigi",
+    "file": ".test-artifacts/asr-matrix/H2.mp3",
+    "reference": "烏白試",
+    "source": "adi-gov-tw/Taiwan-Tongues-ASR-CE-dataset-hokkien",
+    "row": 2,
+    "sha256": "32d4e4c5757f517e2f5517856123e6b680df8d370d7164feca6ccfbeaf2f1837"
+  },
+  {
+    "id": "E1",
+    "kind": "taigi",
+    "file": ".test-artifacts/asr-matrix/E1.wav",
+    "reference": "紅嬰仔哭甲一身軀汗。",
+    "mandarinReference": "小嬰兒哭得滿身大汗。",
+    "source": "sarahwei/Taiwanese-Minnan-Example-Sentences",
+    "row": 1,
+    "sha256": "9d352cccbfd7008970451a0fdccc9c1476fcbadc6f1feb9e99f48e0a87279391"
+  },
+  {
+    "id": "E8",
+    "kind": "taigi",
+    "file": ".test-artifacts/asr-matrix/E8.wav",
+    "reference": "老母一下死，囡仔就大聲吼。",
+    "mandarinReference": "媽媽一死，小孩子就大聲的哭。",
+    "source": "sarahwei/Taiwanese-Minnan-Example-Sentences",
+    "row": 8,
+    "sha256": "02f1cdb2680ad441566da52bd032803781a2b36c152df43a5bbb1cbac0dd9e34"
+  },
+  {
+    "id": "E12",
+    "kind": "taigi",
+    "file": ".test-artifacts/asr-matrix/E12.wav",
+    "reference": "我一世人毋捌做過對不起別人的代誌。",
+    "mandarinReference": "我一輩子不曾做過對不起他人的事。",
+    "source": "sarahwei/Taiwanese-Minnan-Example-Sentences",
+    "row": 12,
+    "sha256": "51df8f335b9fac0794871d2df504f42d4dc2ca833c7d83f78773cca7d60a3e24"
+  }
+]

@@ -1,14 +1,17 @@
+import { authenticateDatabaseAdmin, issueDatabaseAdminSession, verifyDatabaseAdminSession, type DatabaseAdminIdentity } from './access-store';
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const ADMIN_PASSWORD_MIN_LENGTH = 8;
 
 export type AdminAccessEnv = {
+  DATABASE_URL?: string; ADMIN_PASSWORD_PEPPER?: string;
+  __verifiedAdminToken?: string; __verifiedAdmin?: AdminIdentity;
   ADMIN_USERNAME?: string;
   ADMIN_PASSWORD?: string;
   ADMIN_SESSION_SECRET?: string;
 };
 
-export type AdminIdentity = { username: string };
+export type AdminIdentity = { username: string } & Partial<Omit<DatabaseAdminIdentity, 'username'>>;
 
 type AdminSessionClaims = {
   type: 'ADMIN_SESSION';
@@ -18,6 +21,7 @@ type AdminSessionClaims = {
 };
 
 export function adminAuthConfigured(env: AdminAccessEnv): boolean {
+  if (env.DATABASE_URL) return !!env.ADMIN_SESSION_SECRET && env.ADMIN_SESSION_SECRET.length >= 32 && !!env.ADMIN_PASSWORD_PEPPER && env.ADMIN_PASSWORD_PEPPER.length >= 32;
   try {
     adminConfig(env);
     return true;
@@ -31,6 +35,7 @@ export async function authenticateAdminCredentials(
   password: string,
   env: AdminAccessEnv,
 ): Promise<AdminIdentity | null> {
+  if (env.DATABASE_URL) return authenticateDatabaseAdmin(username, password, { ...env, DATABASE_URL: env.DATABASE_URL });
   const config = adminConfig(env);
   const suppliedUsername = normalizeUsername(username);
   const suppliedPassword = normalizePassword(password);
@@ -47,6 +52,7 @@ export async function issueAdminSessionToken(input: {
   now?: Date;
   ttlSeconds?: number;
 }): Promise<string> {
+  if (input.env.DATABASE_URL) return issueDatabaseAdminSession(input.username, { ...input.env, DATABASE_URL: input.env.DATABASE_URL }, input.now, input.ttlSeconds);
   const config = adminConfig(input.env);
   const username = normalizeUsername(input.username);
   if (!(await constantTimeTextEquals(username, config.username))) throw new Error('ADMIN_IDENTITY_INVALID');
@@ -72,6 +78,8 @@ export async function verifyAdminSessionToken(
   now = new Date(),
 ): Promise<AdminIdentity | null> {
   if (!token?.trim()) return null;
+  if (env.__verifiedAdminToken === token && env.__verifiedAdmin) return env.__verifiedAdmin;
+  if (env.DATABASE_URL) return verifyDatabaseAdminSession(token, { ...env, DATABASE_URL: env.DATABASE_URL }, now);
   const config = adminConfig(env);
   const parts = token.trim().split('.');
   if (parts.length !== 2) return null;

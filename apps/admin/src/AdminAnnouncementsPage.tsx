@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useAdminSession } from './admin-session';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AdminApi } from './api';
 import {
   AdminAnnouncementApi,
@@ -26,6 +27,7 @@ type Props = {
 };
 
 export function AdminAnnouncementsPage({ api, announcementApi }: Props) {
+  const { can } = useAdminSession(); const canEdit = can('announcements.write');
   const [username, setUsername] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -38,6 +40,10 @@ export function AdminAnnouncementsPage({ api, announcementApi }: Props) {
   const [userQuery, setUserQuery] = useState('');
   const [userResults, setUserResults] = useState<AdminAnnouncementUserOption[]>([]);
   const [searchingUsers, setSearchingUsers] = useState(false);
+  const searchGeneration=useRef(0),detail=useRef<HTMLElement|null>(null);
+  useEffect(()=>{if(selected){detail.current?.scrollIntoView?.({behavior:'smooth',block:'start'});detail.current?.querySelector<HTMLElement>('h2')?.focus({preventScroll:true});}},[selected?.id]);
+  useEffect(()=>()=>{searchGeneration.current++;},[]);
+  useEffect(()=>{if(!form.title.trim()&&!form.body.trim())return;const guard=(e:BeforeUnloadEvent)=>{e.preventDefault();e.returnValue='';};window.addEventListener('beforeunload',guard);return()=>window.removeEventListener('beforeunload',guard);},[form.title,form.body]);
 
   useEffect(() => {
     const token = sessionStorage.getItem(SESSION_KEY)?.trim() || null;
@@ -85,6 +91,7 @@ export function AdminAnnouncementsPage({ api, announcementApi }: Props) {
   }, [form.selectedUsers, preview]);
 
   function updateForm(patch: Partial<AnnouncementFormState>) {
+    if(patch.audience){searchGeneration.current++;setSearchingUsers(false);setUserResults([]);}
     setForm((current) => ({ ...current, ...patch }));
     setPreview(null);
     setNotice(null);
@@ -101,6 +108,7 @@ export function AdminAnnouncementsPage({ api, announcementApi }: Props) {
     }
   }
 
+  async function refreshAnnouncements(){if(busy)return;setBusy(true);setError(null);try{await reloadAnnouncements();}catch(cause){handleAdminError(cause,api,announcementApi,setUsername,setError,'公告列表載入失敗');}finally{setBusy(false);}}
   async function previewAnnouncement() {
     setBusy(true);
     setError(null);
@@ -144,7 +152,7 @@ export function AdminAnnouncementsPage({ api, announcementApi }: Props) {
   }
 
   async function searchUsers() {
-    const query = userQuery.trim();
+    const current=++searchGeneration.current;const query = userQuery.trim();
     if (!query) {
       setUserResults([]);
       return;
@@ -152,11 +160,11 @@ export function AdminAnnouncementsPage({ api, announcementApi }: Props) {
     setSearchingUsers(true);
     setError(null);
     try {
-      setUserResults(await searchAnnouncementUsers(api, query));
+      const found=await searchAnnouncementUsers(api, query);if(current===searchGeneration.current)setUserResults(found);
     } catch (cause) {
-      handleAdminError(cause, api, announcementApi, setUsername, setError, '指定使用者搜尋失敗');
+      if(current===searchGeneration.current)handleAdminError(cause, api, announcementApi, setUsername, setError, '指定使用者搜尋失敗');
     } finally {
-      setSearchingUsers(false);
+      if(current===searchGeneration.current)setSearchingUsers(false);
     }
   }
 
@@ -217,25 +225,25 @@ export function AdminAnnouncementsPage({ api, announcementApi }: Props) {
     }
   }
 
-  return <main className="shell">
+  return <main className="shell announcement-page">
     <header className="topbar admin-hero">
       <div>
         <p className="eyebrow">AFTERTRACE ADMIN</p>
-        <h1>公告通知</h1>
+        <h1>公告管理</h1>
         <p className="muted">建立、預覽與發送公告，可用於系統通知、維護公告與重要提醒。</p>
       </div>
-      <button disabled={busy || !username} onClick={() => void reloadAnnouncements()}>重新整理</button>
+      <button disabled={busy || !username} onClick={() => void refreshAnnouncements()}>重新整理</button>
     </header>
 
-    {error && <div className="banner error">{error}</div>}
-    {notice && <div className="banner success">{notice}</div>}
+    {error && <div role="alert" className="banner error">{error}</div>}
+    {notice && <div role="status" className="banner success">{notice}</div>}
 
     <section className="stack">
       <article className="card">
         <p className="eyebrow">建立公告</p>
         <h2>先預覽，再送出</h2>
         <p className="muted">填寫公告內容並選擇發送對象，送出前可先預覽，確認訊息與通知方式是否正確。</p>
-        <div className="form-grid">
+        <fieldset className="announcement-fields" disabled={busy||!canEdit||!username}><div className="form-grid">
           <label>標題
             <input value={form.title} maxLength={255} onChange={(event) => updateForm({ title: event.target.value })} placeholder="例如：今晚系統維護" />
           </label>
@@ -245,8 +253,6 @@ export function AdminAnnouncementsPage({ api, announcementApi }: Props) {
               selectedUsers: event.target.value === 'SPECIFIC_USERS' ? form.selectedUsers : [],
             })}>
               <option value="ALL_USERS">全部使用者</option>
-              <option value="FREE_USERS">免費方案使用者</option>
-              <option value="AI_SUBSCRIBERS">訂閱方案使用者</option>
               <option value="SPECIFIC_USERS">指定使用者</option>
             </select>
           </label>
@@ -276,7 +282,7 @@ export function AdminAnnouncementsPage({ api, announcementApi }: Props) {
 
         {form.audience === 'SPECIFIC_USERS' && <SpecificUserPicker
           query={userQuery}
-          onQuery={setUserQuery}
+          onQuery={value=>{searchGeneration.current++;setSearchingUsers(false);setUserResults([]);setUserQuery(value);}}
           results={userResults}
           selected={form.selectedUsers}
           searching={searchingUsers}
@@ -285,9 +291,9 @@ export function AdminAnnouncementsPage({ api, announcementApi }: Props) {
           onRemove={removeSpecificUser}
         />}
 
-        <div className="plan-actions">
-          <button disabled={busy || !username} onClick={() => void previewAnnouncement()}>產生預覽</button>
-          <button className="primary-action" disabled={busy || !preview} onClick={() => void createAnnouncement()}>{preview ? `確認${announcementModeLabel(preview.mode)}` : '請先預覽'}</button>
+        </fieldset>        <div className="plan-actions">
+          <button disabled={busy || !canEdit || !username} onClick={() => void previewAnnouncement()}>產生預覽</button>
+          <button className="primary-action" disabled={busy || !canEdit || !preview} onClick={() => void createAnnouncement()}>{preview ? `確認${announcementModeLabel(preview.mode)}` : '請先預覽'}</button>
         </div>
       </article>
 
@@ -311,7 +317,7 @@ export function AdminAnnouncementsPage({ api, announcementApi }: Props) {
           <table><thead><tr><th>狀態</th><th>標題</th><th>對象</th><th>通知方式</th><th>排程／送出</th><th>收件者</th><th>未讀</th><th>推播成功</th><th>推播失敗</th></tr></thead><tbody>
             {announcements.map((announcement) => <tr key={announcement.id} className="clickable" onClick={() => void openAnnouncement(announcement.id)}>
               <td>{announcementStatusLabel(announcement.status)}</td>
-              <td>{announcement.title}</td>
+              <td><button className="ghost" disabled={busy} onClick={event=>{event.stopPropagation();void openAnnouncement(announcement.id);}} aria-label={'查看公告：'+announcement.title}>{announcement.title}</button></td>
               <td>{announcementAudienceLabel(announcement.audience)}</td>
               <td>{channelLabel(announcement.inAppEnabled, announcement.pushEnabled)}</td>
               <td>{displayDate(announcement.sentAt ?? announcement.scheduledAt)}</td>
@@ -324,8 +330,8 @@ export function AdminAnnouncementsPage({ api, announcementApi }: Props) {
         </div>}
       </article>
 
-      {selected && <article className="card">
-        <div className="card-head"><div><p className="eyebrow">公告 #{selected.id}</p><h2>{selected.title}</h2></div><button className="ghost" onClick={() => setSelected(null)}>關閉</button></div>
+      {selected && <article ref={detail} className="card announcement-detail">
+        <div className="card-head"><div><p className="eyebrow">公告 #{selected.id}</p><h2 tabIndex={-1}>{selected.title}</h2></div><button className="ghost" onClick={() => setSelected(null)}>關閉</button></div>
         <p style={{ whiteSpace: 'pre-wrap' }}>{selected.body}</p>
         <div className="detail-object">
           <SummaryRow label="狀態" value={announcementStatusLabel(selected.status)} />
@@ -343,8 +349,8 @@ export function AdminAnnouncementsPage({ api, announcementApi }: Props) {
           <SummaryRow label="站內導向" value={selected.deepLink || '—'} />
         </div>
         <div className="plan-actions">
-          {canSendAnnouncement(selected) && <button disabled={busy} onClick={() => void sendExisting(selected)}>立即送出</button>}
-          {canCancelAnnouncement(selected) && <button className="danger" disabled={busy} onClick={() => void cancelExisting(selected)}>取消公告</button>}
+          {canSendAnnouncement(selected) && <button disabled={busy || !canEdit} onClick={() => void sendExisting(selected)}>立即送出</button>}
+          {canCancelAnnouncement(selected) && <button className="danger" disabled={busy || !canEdit} onClick={() => void cancelExisting(selected)}>取消公告</button>}
         </div>
       </article>}
     </section>
@@ -375,17 +381,17 @@ function SpecificUserPicker({
       <h3>指定使用者</h3>
       <p className="muted">可用帳號 ID 或顯示名稱查找；只有明確選取的使用者會收到公告。</p>
       <div className="search-row">
-        <input value={query} onChange={(event) => onQuery(event.target.value)} placeholder="例如 AT-7K4M2P 或顯示名稱" />
+        <input aria-label="搜尋指定使用者" value={query} onChange={(event) => onQuery(event.target.value)} placeholder="例如 AT-7K4M2P 或顯示名稱" />
         <button disabled={searching || !query.trim()} onClick={() => void onSearch()}>{searching ? '搜尋中…' : '搜尋'}</button>
       </div>
-      {results.length > 0 && <div className="table-wrap" style={{ marginTop: 12 }}><table><thead><tr><th>帳號 ID</th><th>顯示名稱</th><th>方案</th><th>操作</th></tr></thead><tbody>
-        {results.map((user) => <tr key={user.id}><td>{user.publicAccountId || `#${user.id}`}</td><td>{user.displayName}</td><td>{user.planCode || '—'}</td><td><button disabled={selected.some((item) => item.id === user.id)} onClick={() => onAdd(user)}>{selected.some((item) => item.id === user.id) ? '已加入' : '加入'}</button></td></tr>)}
+      {results.length > 0 && <div className="table-wrap" style={{ marginTop: 12 }}><table><thead><tr><th>帳號 ID</th><th>顯示名稱</th><th>操作</th></tr></thead><tbody>
+        {results.map((user) => <tr key={user.id}><td>{user.publicAccountId || `#${user.id}`}</td><td>{user.displayName}</td><td><button disabled={selected.some((item) => item.id === user.id)} onClick={() => onAdd(user)}>{selected.some((item) => item.id === user.id) ? '已加入' : '加入'}</button></td></tr>)}
       </tbody></table></div>}
     </article>
     <article className="card">
       <h3>已選取 {selected.length} 位</h3>
-      {selected.length === 0 ? <p className="empty">尚未選取任何使用者；指定使用者模式需要至少選取一位使用者。</p> : <div className="table-wrap"><table><thead><tr><th>帳號 ID</th><th>顯示名稱</th><th>方案</th><th>操作</th></tr></thead><tbody>
-        {selected.map((user) => <tr key={user.id}><td>{user.publicAccountId || `#${user.id}`}</td><td>{user.displayName}</td><td>{user.planCode || '—'}</td><td><button className="danger" onClick={() => onRemove(user.id)}>移除</button></td></tr>)}
+      {selected.length === 0 ? <p className="empty">尚未選取任何使用者；指定使用者模式需要至少選取一位使用者。</p> : <div className="table-wrap"><table><thead><tr><th>帳號 ID</th><th>顯示名稱</th><th>操作</th></tr></thead><tbody>
+        {selected.map((user) => <tr key={user.id}><td>{user.publicAccountId || `#${user.id}`}</td><td>{user.displayName}</td><td><button className="danger" onClick={() => onRemove(user.id)}>移除</button></td></tr>)}
       </tbody></table></div>}
     </article>
   </div>;
@@ -433,5 +439,6 @@ function handleAdminError(
     setError('管理員登入已失效，請重新登入。');
     return;
   }
-  setError(text || fallback);
+  const labels:Record<string,string>={INVALID_NOTIFICATION_TITLE:'請填寫公告標題，最多 255 字。',INVALID_NOTIFICATION_BODY:'請填寫公告內容，最多 10,000 字。',NOTIFICATION_CHANNEL_REQUIRED:'請至少選擇一種通知方式。',SPECIFIC_USERS_REQUIRED:'請至少選取一位使用者。',INVALID_SCHEDULED_AT:'請選擇有效的未來排程時間。',ADMIN_PERMISSION_DENIED:'你沒有此操作權限。'};
+  setError(labels[text]??(/^ADMIN_API_|^[A-Z_]+$/.test(text)?fallback:text||fallback));
 }

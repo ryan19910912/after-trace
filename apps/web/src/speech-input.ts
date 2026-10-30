@@ -53,7 +53,8 @@ export type BrowserSpeechCallbacks = {
 export function resolveSpeechRecognitionConstructor(
   host: SpeechRecognitionHost = globalThis as unknown as SpeechRecognitionHost,
 ): SpeechRecognitionConstructor | null {
-  return host.SpeechRecognition ?? host.webkitSpeechRecognition ?? null;
+  void host;
+  return null; // Speech is handled by the explicit local Whisper recording flow.
 }
 
 export function browserSpeechRecognitionSupported(

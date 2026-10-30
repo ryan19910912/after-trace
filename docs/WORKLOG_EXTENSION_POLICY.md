@@ -1,103 +1,23 @@
-# AFTERTRACE Chrome Extension Policy
+# Chrome 擴充元件規範
 
-Durable product/development contract for the AFTERTRACE Chrome extension.
+更新：2026-10-29。
 
-## Product role
+## 角色與操作
 
-The Chrome extension is a **fast capture surface**, not a second full AFTERTRACE application.
+擴充元件是快速文字擷取入口，不是另一套完整產品。沿用 AFTERTRACE 帳號、紀錄 API 及個人／群組授權。
 
-It reuses the same AFTERTRACE account, Record APIs, group authorization, AI entitlement and usage accounting as Web/PWA.
+- 用戶主動輸入文字，或擷取選取文字。
+- 可選擇附上目前頁面標題及網址，保存前顯示並可取消。
+- 選擇有權限的保存範圍後明確保存。
+- 圖片及短語音按鈕開啟網頁本機解析流程；不在 popup 使用 SpeechRecognition，不上傳媒體至雲端 AI。
+- 截圖視為圖片，請用戶自行截取後貼上／選取；沒有獨立擷取螢幕的產品流程。
 
-## Accepted capture scope
+不能背景擷取瀏覽歷史、分頁內容、剪貼簿、螢幕或麥克風；不能默默保存整頁文字。不存在付費／試用點數准入。
 
-The extension supports explicit user-initiated:
+## 認證與資料邊界
 
-1. quick text Record;
-2. browser/device speech-to-text;
-3. selected webpage text;
-4. optional current page title + URL context;
-5. visible-tab screenshot sent to image AI when the current user has remaining FREE AI experience points or active AI Pro entitlement.
+使用明確的 Web-to-extension session handoff，驗證 origin 及 nonce；不儲存第三方供應商密碼或 AI 密鑰。連接及導向網址需符合程式中的允許來源。
 
-The extension must not create an extension-only Record domain.
+選取文字、頁面標題與網址是用戶準備保存的內容，須可見。權限由後端逐次驗證；擴充元件不能建立自己的群組或繞過紀錄版本檢查。
 
-## UX
-
-Keep the popup compact:
-
-- destination picker;
-- text area;
-- voice-to-text action;
-- optional page-information toggle;
-- screenshot action + preview;
-- save action;
-- clear status/error copy;
-- link to the full Web app.
-
-Do not build a full history manager, notification center, large sidebar workspace or open-ended AI chat inside the extension.
-
-## Selected text / page context
-
-Selected-text capture is explicit. Current page title/URL are bounded context and must be visible before save.
-
-Do not silently capture full page content, clipboard, browsing history or tabs.
-
-## Screenshot / image capture
-
-Screenshot capture requires an explicit click. Current implementation may use the visible tab/viewport.
-
-Rules:
-
-- never background-capture screenshots;
-- never continuously monitor screen content;
-- preview remains local until the user explicitly saves;
-- when saved, screenshot goes through `/api/v1/ai/capture/image` and the same backend authorization/accounting as Web image AI;
-- screenshot/image AI may use remaining one-time FREE AI experience points or active AI Pro;
-- FREE trial screenshot AI consumes the same shared trial balance as the other AI features;
-- after FREE trial exhaustion, screenshot AI is blocked until the user has AI Pro;
-- the original screenshot is not a durable attachment unless a future product decision explicitly adds attachment storage.
-
-Current extension image ceiling is 5 MB per screenshot. Backend FREE trial media defaults are also 5 MB/image; paid plan limits may be configured independently below the absolute transport ceiling.
-
-## Authentication
-
-The extension authenticates against the same AFTERTRACE account as Web/PWA. It must not store Google/LINE/Apple provider credentials or AI provider keys.
-
-Use the bounded explicit Web-to-extension handoff flow for AFTERTRACE session connection.
-
-## Free vs AI Pro
-
-FREE extension features:
-
-- manual text capture;
-- selected-text capture;
-- optional current page title/URL;
-- browser/device speech-to-text;
-- authorized destination selection;
-- screenshot/image AI while one-time FREE AI experience points remain.
-
-Browser/device speech-to-text consumes no AI points because it does not call AFTERTRACE provider AI.
-
-Provider-backed extension AI uses the same shared entitlement and point ledger as Web/PWA. A future provider-backed extension text/voice capability may therefore use FREE trial points while available and AI Pro after subscription; do not create separate extension-only credits.
-
-## Permissions/privacy
-
-Request the minimum Chrome permissions needed for accepted features. Avoid browsing-history permissions and broad host access unless separately reviewed.
-
-Never store AI provider keys in the extension. Provider calls go through AFTERTRACE backend.
-
-## Out of scope
-
-Do not add:
-
-- continuous browsing-history capture;
-- automatic full-page archiving;
-- always-on microphone/screen capture;
-- meeting-length background recording;
-- automatic tab monitoring;
-- RAG over all visited pages;
-- a persistent extension AI agent/sidebar;
-- separate extension-only subscription/accounting.
-
-## Validation
-
-Distinguish AUTHORED from actually executed PASS. Do not use GitHub Actions unless explicitly requested by the user.
+詳見 [產品規格](WORKLOG_PRODUCT_SPEC.md) 及 [本機 AI 規範](WORKLOG_LOCAL_AI_POLICY.md)。

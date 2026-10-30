@@ -21,7 +21,7 @@ Web and PWA should expose two separate customer-facing actions:
 - persists to AFTERTRACE durable data;
 - is visible/manageable from Admin;
 - suitable for suggestions, feature requests, UX comments, non-urgent bug reports and general product feedback;
-- may include useful context such as public account id, user id internally, app version/surface, timestamp and optional screenshot/description where the user chooses to provide it.
+- may include useful context such as public account id, user id internally, app version/surface, timestamp and a written description. The current in-product feedback form accepts text only; it does not upload screenshots or attachments.
 
 ### 聯絡客服
 
@@ -41,10 +41,10 @@ Rules:
 
 - this id is not the raw database primary key;
 - it is opaque/non-sequential and safe to disclose to support;
-- Web/PWA shows it as **帳號 ID** near the user name in the authenticated top-right account area;
+- Web/PWA shows it as **用戶 ID** near the user name in the authenticated top-right account area;
 - the account id has a one-tap copy action;
 - Admin user search supports exact lookup by this account id;
-- support may ask the customer to provide the copied 帳號 ID when account identification is needed;
+- support may ask the customer to provide the copied 用戶 ID when account identification is needed;
 - users do not need to disclose Google email, LINE user id, LINE display name or other third-party identifiers merely to identify the AFTERTRACE account.
 
 Google Login and LINE Login are both accepted sign-in providers, but support lookup remains AFTERTRACE-account based rather than provider based.
@@ -77,7 +77,7 @@ Admin should manage the in-product `意見回饋` records. Initial useful fields
 - status such as OPEN / IN_PROGRESS / RESOLVED / IGNORED;
 - created_at / updated_at.
 
-Admin user search should support `public_account_id` so a customer can simply copy the Web/PWA 帳號 ID and send it through LINE OA or another support channel.
+Admin user search should support `public_account_id` so a customer can simply copy the Web/PWA 用戶 ID and send it through LINE OA or another support channel.
 
 LINE OA support conversations do not need to be mirrored into this table for MVP.
 
@@ -94,3 +94,13 @@ The core target remains:
 Any future LINE webhook work must be explicitly justified by a support requirement and must not silently reintroduce the retired `小跡` Record/group/AI product behavior.
 
 GitHub Actions must not be used as validation unless explicitly requested by the user.
+
+## Current implementation — 2026-10-29
+
+The authenticated header exposes the copyable user ID on desktop and mobile. Admin /users supports ID lookup and saved-history access with separate permissions. Feedback management renders readable browser/device/page information instead of raw JSON. Unknown context is not printed. LINE OA contact is shown only where the actual support link is configured; documentation does not guarantee an unconfigured channel is available.
+
+## Feedback progress — 2026-10-29
+
+Authenticated users can view their own feedback reference number, submitted content, category, status and timestamps through GET /api/v1/worklog/feedback. The API scopes by session user and uses descending ID cursor pagination; it never returns another user’s feedback, admin actor, internal context or notes. OPEN／IN_PROGRESS／RESOLVED／IGNORED are shown as 待處理／處理中／已解決／已結案. Refresh retrieves the latest admin workflow state; there is no automatic polling or promise of a response deadline. Long content is collapsed.
+
+Admin feedback can link to the matching user directory when users.read is granted. Reading saved histories still requires users.history and a declared purpose, with durable access audit.

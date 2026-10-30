@@ -1,4 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { installNavigation } from './navigation';
+import { releaseLocalAi } from './local-ai';
 import ReactDOM from 'react-dom/client';
 import { AboutRoot } from './AboutRoot';
 import { AiSearchRoot } from './AiSearchRoot';
@@ -38,7 +40,7 @@ function pageTitle(pathname: string): string {
   if (pathname === '/ai-search') return '搜尋｜AFTERTRACE';
   if (pathname === '/ai-tools') return 'AI 整理｜AFTERTRACE';
   if (pathname === '/ai-task') return 'AI 待辦｜AFTERTRACE';
-  if (pathname === '/subscription') return '方案｜AFTERTRACE';
+  if (pathname === '/subscription') return '本機 AI｜AFTERTRACE';
   if (pathname === '/feedback') return '意見回饋｜AFTERTRACE';
   if (pathname === '/help') return '使用說明｜AFTERTRACE';
   if (pathname === '/tasks' || pathname.startsWith('/tasks/')) return '待辦｜AFTERTRACE';
@@ -68,6 +70,14 @@ function bootstrap() {
     }
   }
 
+  ReactDOM.createRoot(document.getElementById('root')!).render(<App apiBaseUrl={apiBaseUrl} />);
+}
+
+function App({ apiBaseUrl }: { apiBaseUrl: string }) {
+  const [route, setRoute] = useState(() => location.pathname + location.search);
+  useEffect(() => installNavigation(() => setRoute(location.pathname + location.search)), []);
+  useEffect(() => { document.title = pageTitle(location.pathname); window.scrollTo(0, 0); }, [route]);
+  useEffect(() => { const release = () => releaseLocalAi(); window.addEventListener('pagehide', release); return () => window.removeEventListener('pagehide', release); }, []);
   let content: React.ReactNode;
   if (window.location.pathname === '/login') content = <LoginRoot apiBaseUrl={apiBaseUrl} />;
   else if (window.location.pathname === '/extension/connect') content = <ExtensionConnectRoot apiBaseUrl={apiBaseUrl} />;
@@ -85,11 +95,11 @@ function bootstrap() {
   else content = <RecordHomeRoot apiBaseUrl={apiBaseUrl} />;
 
   const authenticatedSurface = !['/login', '/extension/connect'].includes(window.location.pathname);
-  ReactDOM.createRoot(document.getElementById('root')!).render(
+  return (
     <AuthenticatedAppChrome apiBaseUrl={apiBaseUrl}>
-      {content}
+      <React.Fragment key={route}>{content}</React.Fragment>
       {authenticatedSurface ? <MobileBottomNav /> : null}
-    </AuthenticatedAppChrome>,
+    </AuthenticatedAppChrome>
   );
 }
 

@@ -27,7 +27,8 @@ export function AdminHomePage({ api }: { api: AdminApi }) {
       const session = await api.login(loginUsername.trim(), password);
       sessionStorage.setItem(SESSION_KEY, session.sessionToken);
       api.setSessionToken(session.sessionToken);
-      window.location.href = '/';
+      const destination = sessionStorage.getItem('aftertrace.admin.returnTo'); sessionStorage.removeItem('aftertrace.admin.returnTo');
+      window.location.href = destination && /^\/(?:ai-prompts|accounts|announcements|feedback-management|profitability|commercial|ai-runtime)$/.test(destination) ? destination : '/';
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '登入失敗');
       setBusy(false);
@@ -40,7 +41,7 @@ export function AdminHomePage({ api }: { api: AdminApi }) {
     <img className="admin-login-logo" src="/aftertrace-icon.svg" alt="" />
     <p className="eyebrow">AFTERTRACE ADMIN</p>
     <h1>管理後台</h1>
-    <p className="muted">登入後管理商業方案、AI 成本、公告與使用者支援。</p>
+    <p className="muted">登入後管理帳號、公告、使用者回饋與歷史帳務。</p>
     {error ? <div className="banner error">{error}</div> : null}
     <label>管理員帳號<input autoComplete="username" value={loginUsername} onChange={(event) => setLoginUsername(event.target.value)} /></label>
     <label>密碼<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
@@ -52,31 +53,31 @@ export function AdminHomePage({ api }: { api: AdminApi }) {
       <div>
         <p className="eyebrow">AFTERTRACE ADMIN</p>
         <h1>營運總覽</h1>
-        <p className="muted">集中管理帳號、商業方案、AI 成本與使用者溝通。</p>
+        <p className="muted">集中管理帳號、使用者溝通與歷史帳務。</p>
       </div>
       <div className="admin-user-pill compact"><span className="admin-user-dot" /><div><small>已登入</small><strong>{username}</strong></div></div>
     </header>
 
     <section className="admin-overview-strip">
-      <div><span>免費方案</span><strong>FREE</strong></div>
-      <div><span>訂閱方案</span><strong>AI Pro</strong></div>
-      <div><span>每月訂閱價格</span><strong>NT$99</strong></div>
-      <div><span>系統狀態</span><strong>正常運作</strong></div>
+      <div><span>推論位置</span><strong>使用者裝置</strong></div>
+      <div><span>雲端 AI</span><strong>已停用</strong></div>
+      <div><span>訂閱與金流</span><strong>已停用</strong></div>
+      <div><span>資料管理</span><strong>帳號與紀錄</strong></div>
     </section>
 
     <section className="admin-dashboard-grid">
       <article className="admin-dashboard-card accounts">
         <div className="admin-card-head"><span className="admin-card-icon">ID</span><span className="admin-card-kicker">帳號支援</span></div>
         <h2>帳號與客服</h2>
-        <p className="muted">使用帳號 ID 精確查詢使用者，快速處理登入、訂閱與客服問題。</p>
+        <p className="muted">使用帳號 ID 精確查詢使用者，快速處理登入、群組與客服問題。</p>
         <div className="admin-card-actions"><a className="admin-action-primary" href="/accounts">開啟帳號查詢 <span>→</span></a></div>
       </article>
 
       <article className="admin-dashboard-card commercial">
-        <div className="admin-card-head"><span className="admin-card-icon">AI</span><span className="admin-card-kicker">商業設定</span></div>
-        <h2>商業與 AI</h2>
-        <p className="muted">管理免費體驗、訂閱方案、AI 模型價格、方案內成本試算與營運分析。</p>
-        <div className="admin-card-actions"><a className="admin-action-primary" href="/commercial">方案設定與成本試算 <span>→</span></a><a href="/ai-runtime">模型與價格</a><a href="/profitability">獲利分析</a></div>
+        <div className="admin-card-head"><span className="admin-card-icon">AI</span><span className="admin-card-kicker">AI 設定</span></div>
+        <h2>AI 提示與設定</h2>
+        <p className="muted">管理本機 AI 提示的草稿、發布與歷史版本。歷史方案與用量保留查閱。</p>
+        <div className="admin-card-actions"><a className="admin-action-primary" href="/ai-prompts">管理 AI 提示 <span>→</span></a><a href="/ai-runtime">本機 AI</a><a href="/profitability">歷史用量分析</a></div>
       </article>
 
       <article className="admin-dashboard-card communication">

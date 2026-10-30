@@ -50,7 +50,7 @@ run('Drizzle schema export', 'pnpm', ['db:schema:check']);
 
 console.log('');
 console.log('AFTERTRACE local release preflight passed.');
-console.log('This does NOT apply database migrations, deploy Workers, or replace browser/LINE/Gemini runtime smoke checks.');
+console.log('This does NOT apply database migrations, deploy Workers, or replace browser/local WebGPU/OAuth/push runtime smoke checks.');
 
 function loadLocalEnv() {
   // Keep the same root environment convention as local API/Drizzle tooling. Explicit

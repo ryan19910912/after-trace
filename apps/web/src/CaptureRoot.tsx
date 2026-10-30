@@ -1,144 +1,196 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AiCaptureApi, type AiEntitlementDecision } from './ai-capture-api';
+import { inferOccurrenceTime } from './occurrence-time';
 import { LoginProviderButtons } from './LoginProviderButtons';
-import { browserSpeechRecognitionSupported, createBrowserSpeechRecognition, speechRecognitionErrorMessage, type BrowserSpeechRecognition } from './speech-input';
+import { cancelLocalAi, preloadLocalAi, organizeLocal, validateImage, type LocalDraft } from './local-ai';
 import { WorklogApi, type RecordScope, type WorklogSurfaces } from './worklog-api';
 import './worklog.css';
 import './capture.css';
+import { transcribeLocalSpeech, SpeechFallbackError, resetSpeechModelChoice } from './speech-runtime';
 
-const SESSION_KEY = 'aftertrace.worklog.session';
-const ACTIVE_SCOPE_KEY = 'aftertrace.worklog.scope';
-const HARD_MAX_IMAGE_BYTES = 20 * 1024 * 1024;
-const HARD_MAX_AUDIO_BYTES = 30 * 1024 * 1024;
-const HARD_MAX_FILE_BYTES = 30 * 1024 * 1024;
-
-type Props = { apiBaseUrl: string };
-type CaptureScope = RecordScope;
-type CaptureDraft = { title: string; rawText: string; occurredAt: string };
-type SpeechState = 'IDLE' | 'LISTENING' | 'ERROR';
-type CaptureMode = 'MANUAL' | 'AI';
-type MediaKind = 'IMAGE' | 'AUDIO' | 'FILE';
-const EMPTY_DRAFT: CaptureDraft = { title: '', rawText: '', occurredAt: '' };
-
-export function CaptureRoot({ apiBaseUrl }: Props) {
+export function CaptureRoot({ apiBaseUrl, embedded = false, onSaved, onScopeChange }: { apiBaseUrl: string; embedded?: boolean; onSaved?: (scope: RecordScope) => void; onScopeChange?: (scope: RecordScope) => void }) {
   const api = useMemo(() => new WorklogApi(apiBaseUrl), [apiBaseUrl]);
-  const aiApi = useMemo(() => new AiCaptureApi(apiBaseUrl), [apiBaseUrl]);
-  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
-  const speechSupported = useMemo(() => browserSpeechRecognitionSupported(), []);
-  const [session, setSession] = useState<string | null>(() => localStorage.getItem(SESSION_KEY));
+  const [session] = useState(() => localStorage.getItem('aftertrace.worklog.session'));
   const [surfaces, setSurfaces] = useState<WorklogSurfaces | null>(null);
-  const [scope, setScope] = useState<CaptureScope | null>(() => storedScope());
-  const [mode, setMode] = useState<CaptureMode>('MANUAL');
-  const [entitlement, setEntitlement] = useState<AiEntitlementDecision | null>(null);
-  const [entitlementLoading, setEntitlementLoading] = useState(false);
-  const [draft, setDraft] = useState<CaptureDraft>({ ...EMPTY_DRAFT });
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [audioFile, setAudioFile] = useState<File | null>(null);
-  const [documentFile, setDocumentFile] = useState<File | null>(null);
-  const [speechState, setSpeechState] = useState<SpeechState>('IDLE');
-  const [interimText, setInterimText] = useState('');
-  const [speechMessage, setSpeechMessage] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [scope, setScope] = useState<RecordScope | null>(null);
+  const [input, setInput] = useState('');
+  const [image, setImage] = useState<File | null>(null);
+  const [preview, setPreview] = useState('');
+  const [voiceClip,setVoiceClip]=useState<Blob|null>(null);const [voiceUrl,setVoiceUrl]=useState('');const [hasSpeech,setHasSpeech]=useState(false);
+  useEffect(()=>{if(!voiceClip){setVoiceUrl('');return;}const url=URL.createObjectURL(voiceClip);setVoiceUrl(url);return()=>URL.revokeObjectURL(url);},[voiceClip]);
+  const [draft, setDraft] = useState<LocalDraft | null>(null);
+  const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
+  const speechAbort=useRef<AbortController|null>(null);
+  const [speechBusy,setSpeechBusy]=useState(false),[speechSlow,setSpeechSlow]=useState(false),[speechRetry,setSpeechRetry]=useState(false),[speechFallback,setSpeechFallback]=useState(false),[speechUsingFallback,setSpeechUsingFallback]=useState(false);
+  const [speechLanguage, setSpeechLanguage] = useState<'chinese' | 'english'>('chinese');
+  const [status, setStatus] = useState('');
+  const [modelStatus, setModelStatus] = useState('');
+  const [preparingModel, setPreparingModel] = useState(false);
+  const [error, setError] = useState('');
+  const recorder = useRef<MediaRecorder | null>(null);
+  const stream = useRef<MediaStream | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const generation = useRef(0);
+  const mounted = useRef(true);
+  const lock = useRef(false);
+  const review = useRef<HTMLElement | null>(null);
+  useEffect(() => { if (draft) { review.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }); review.current?.querySelector('input')?.focus({ preventScroll: true }); } }, [!!draft]);
 
-  useEffect(() => { void bootstrap(); return () => abortSpeechCapture(); }, []);
-  useEffect(() => { if (!scope) return; localStorage.setItem(ACTIVE_SCOPE_KEY, JSON.stringify(scope)); if (session) void loadEntitlement(session, scope.sourceId); }, [scope?.type, scope?.sourceId, session]);
+  useEffect(() => {
+    if (!session || !scope) return;
+    let active = true; setPreparingModel(true);
+    void preloadLocalAi((message) => { if (active) setModelStatus(message); })
+      .then(() => { if (active) setModelStatus('本機 AI 已準備好。'); })
+      .catch((cause: unknown) => { if (active) setModelStatus(cause instanceof Error ? cause.message + '；仍可手動編輯保存。' : '模型尚未準備好，可按 AI 解析重試或手動保存。'); })
+      .finally(() => { if (active) setPreparingModel(false); });
+    return () => { active = false; };
+  }, [session, !!scope]);
+  useEffect(() => {
+    const guard = (event: Event) => { if ((input.trim() || image || voiceClip || draft || recording || busy) && !window.confirm('離開會捨棄尚未保存的內容，確定離開？')) event.preventDefault(); };
+    const unload = (event: BeforeUnloadEvent) => { if (input.trim() || image || draft || recording || busy) { event.preventDefault(); event.returnValue = ''; } };
+    window.addEventListener('aftertrace:before-navigate', guard); window.addEventListener('beforeunload', unload);
+    return () => { window.removeEventListener('aftertrace:before-navigate', guard); window.removeEventListener('beforeunload', unload); };
+  }, [input, image, voiceClip, draft, recording, busy]);
+  useEffect(() => {
+    mounted.current = true;
+    if (session) void api.surfaces(session).then((value) => {
+      if (!mounted.current) return;
+      setSurfaces(value);
+      let remembered: RecordScope | null = null;
+      try { remembered = JSON.parse(localStorage.getItem('aftertrace.worklog.scope') ?? 'null') as RecordScope | null; } catch { /* Ignore invalid remembered scope. */ }
+      const valid = remembered && ((remembered.type === 'PERSONAL' && value.personal?.sourceId === remembered.sourceId) || (remembered.type === 'GROUP' && value.groups.some((group) => group.sourceId === remembered?.sourceId)));
+      const next: RecordScope | null = valid ? remembered : value.personal ? { type: 'PERSONAL', sourceId: value.personal.sourceId } : value.groups[0] ? { type: 'GROUP', sourceId: value.groups[0].sourceId } : null;
+      setScope(next); if (next) onScopeChange?.(next);
+    }).catch((cause: unknown) => { if (mounted.current) setError(cause instanceof Error ? cause.message : '圖片無法讀取'); });
+    return () => { mounted.current = false; speechAbort.current?.abort(); generation.current++; cancelLocalAi(); if (timer.current) clearTimeout(timer.current); if (recorder.current) { recorder.current.onstop = null; if (recorder.current.state !== 'inactive') recorder.current.stop(); } stream.current?.getTracks().forEach((track) => track.stop()); };
+  }, [api, session]);
+  useEffect(() => {
+    if (!image) { setPreview(''); return; }
+    const url = URL.createObjectURL(image); setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [image]);
 
-  async function bootstrap() {
-    setLoading(true); setError(null);
-    try {
-      const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-      const callback = hash.get('session')?.trim();
-      const token = callback || localStorage.getItem(SESSION_KEY);
-      if (callback) { localStorage.setItem(SESSION_KEY, callback); setSession(callback); window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`); }
-      if (!token) return;
-      const nextSurfaces = await api.surfaces(token); setSurfaces(nextSurfaces);
-      const remembered = storedScope(); const nextScope = remembered && scopeExists(remembered, nextSurfaces) ? remembered : defaultScope(nextSurfaces); setScope(nextScope);
-      if (nextScope) await loadEntitlement(token, nextScope.sourceId);
-    } catch (cause) { setError(message(cause, '快速紀錄載入失敗')); }
-    finally { setLoading(false); }
+  function pickImage(file: File | null) {
+    if (!file) return;
+    try { validateImage(file); setImage(file); setError(''); } catch (cause) { setError(String(cause)); }
   }
-  async function loadEntitlement(token: string, sourceId: number) { setEntitlementLoading(true); try { setEntitlement(await aiApi.entitlement(token, sourceId)); } catch (cause) { setEntitlement(null); if (mode === 'AI') setError(message(cause, 'AI 使用狀態載入失敗')); } finally { setEntitlementLoading(false); } }
-  function chooseScope(nextScope: CaptureScope) { abortSpeechCapture(); setScope(nextScope); setInterimText(''); setSpeechMessage(null); setNotice(null); }
-  function chooseMode(nextMode: CaptureMode) { abortSpeechCapture(); setMode(nextMode); setError(null); setNotice(null); if (nextMode === 'AI' && session && scope) void loadEntitlement(session, scope.sourceId); }
-  function toggleSpeechCapture() { if (speechState === 'LISTENING') stopSpeechCapture(); else startSpeechCapture(); }
-  function startSpeechCapture() {
-    if (!scope) { setSpeechMessage('請先選擇要記錄到哪裡。'); return; }
-    if (!speechSupported) { setSpeechState('ERROR'); setSpeechMessage('這個瀏覽器目前不支援語音轉文字，可以直接使用文字輸入。'); return; }
-    abortSpeechCapture(); setSpeechMessage(null); setError(null); setInterimText('');
-    const recognition = createBrowserSpeechRecognition({ onTranscript: ({ finalText, interimText: interim }) => { if (finalText) setDraft((current) => ({ ...current, rawText: appendSpeechText(current.rawText, finalText) })); setInterimText(interim); }, onError: (code) => { if (recognitionRef.current === recognition) recognitionRef.current = null; setSpeechState('ERROR'); setInterimText(''); setSpeechMessage(speechRecognitionErrorMessage(code)); }, onEnd: () => { if (recognitionRef.current === recognition) recognitionRef.current = null; setSpeechState((current) => current === 'ERROR' ? current : 'IDLE'); setInterimText(''); } });
-    if (!recognition) return; recognitionRef.current = recognition; try { recognition.start(); setSpeechState('LISTENING'); } catch { recognitionRef.current = null; setSpeechState('ERROR'); setSpeechMessage('麥克風無法啟動，可以再試一次或直接使用文字輸入。'); }
+  async function analyze() {
+    if (lock.current || recording || draft || (!input.trim() && !image)) return;
+    lock.current = true; const id = ++generation.current; setBusy(true); setError('');
+    try { const next = await organizeLocal(input, image ?? undefined, setStatus, apiBaseUrl); if (mounted.current && id === generation.current) { setDraft(next); setStatus('請核對並修改草稿，確認後才會保存。'); } }
+    catch (cause) { if (mounted.current) setError(cause instanceof Error ? cause.message : '解析失敗'); }
+    finally { lock.current = false; if (mounted.current) setBusy(false); }
   }
-  function stopSpeechCapture() { const recognition = recognitionRef.current; if (!recognition) { setSpeechState('IDLE'); setInterimText(''); return; } try { recognition.stop(); } catch { recognitionRef.current = null; setSpeechState('IDLE'); setInterimText(''); } }
-  function abortSpeechCapture() { const recognition = recognitionRef.current; recognitionRef.current = null; if (recognition) { try { recognition.abort?.(); } catch {} } setSpeechState('IDLE'); setInterimText(''); }
-
-  async function saveRecord() {
-    if (!session || !scope || !draft.rawText.trim()) return;
-    if (mode === 'MANUAL' && !optionalLocalDateValid(draft.occurredAt)) return;
-    abortSpeechCapture(); setSaving(true); setError(null); setNotice(null);
+  async function startRecording() {
+    if (recording) { recorder.current?.stop(); return; }
+    if (busy || lock.current || draft) return;
+    lock.current = true; setBusy(true); setError('');
+    const id = ++generation.current;
     try {
-      if (mode === 'AI') {
-        if (!entitlement?.allowed || entitlement.source === 'BLOCKED') throw new Error(entitlement?.reason ?? 'AI_NOT_ENTITLED');
-        const result = await aiApi.captureText(session, scope.sourceId, draft.rawText.trim());
-        setDraft({ ...EMPTY_DRAFT }); setNotice(`AI 已整理並記錄${result.record.title ? `：${result.record.title}` : '。'}`); await loadEntitlement(session, scope.sourceId);
-      } else {
-        await api.createRecord(session, scope, { title: draft.title.trim() || null, rawText: draft.rawText.trim(), occurredAt: localDateOrNull(draft.occurredAt) });
-        setDraft({ ...EMPTY_DRAFT }); setNotice('紀錄已儲存。');
+      if (!navigator.mediaDevices?.getUserMedia || !globalThis.MediaRecorder) throw new Error('此瀏覽器不支援錄音，請改用文字。');
+      const capture = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!mounted.current || id !== generation.current) { capture.getTracks().forEach((track) => track.stop()); return; }
+      stream.current = capture;
+      const instance = new MediaRecorder(capture); recorder.current = instance;
+      const chunks: Blob[] = [];
+      instance.ondataavailable = ({ data }) => { if (data.size) chunks.push(data); };
+      instance.onstop = () => {
+        if (timer.current) clearTimeout(timer.current);
+        capture.getTracks().forEach((track) => track.stop()); recorder.current = null;
+        if (!mounted.current || id !== generation.current) return;
+        setRecording(false); setBusy(true); lock.current = true;
+        const clip=new Blob(chunks,{type:instance.mimeType});setVoiceClip(clip);setHasSpeech(true);void transcribe(clip,id);
+      };
+      instance.onerror = () => { setError('錄音失敗，請重試。'); if (instance.state !== 'inactive') instance.stop(); };
+      instance.start(); setRecording(true); setStatus('錄音中，最多 60 秒；按停止後在本機辨識。');
+      timer.current = setTimeout(() => { if (instance.state === 'recording') instance.stop(); }, 60_000);
+    } catch (cause) { stream.current?.getTracks().forEach((track) => track.stop()); setError(cause instanceof Error ? cause.message : '無法錄音'); }
+    finally { lock.current = false; if (mounted.current) setBusy(false); }
+  }
+  function retrySpeech(mode?:'primary'|'fallback') {
+    if(!voiceClip||recording||draft)return;
+    speechAbort.current?.abort();cancelLocalAi();const id=++generation.current;lock.current=true;setBusy(true);setError('');void transcribe(voiceClip,id,mode);
+  }
+  async function transcribe(blob: Blob, id: number, mode?:'primary'|'fallback') {
+    const controller=new AbortController();speechAbort.current=controller;setSpeechBusy(true);setSpeechSlow(false);setSpeechRetry(false);setSpeechFallback(false);
+    const slow=setTimeout(()=>{if(mounted.current&&id===generation.current)setSpeechSlow(true);},30000);
+    let context: AudioContext | null = null;
+    try {
+      context = new AudioContext({ sampleRate: 16000 });
+      const decoded = await context.decodeAudioData(await blob.arrayBuffer());
+      if (decoded.duration > 61) throw new Error('錄音超過 60 秒，請重新錄製。');
+      const length = Math.min(decoded.length, 60 * 16000);
+      const mono = new Float32Array(length);
+      for (let channel = 0; channel < decoded.numberOfChannels; channel++) {
+        const samples = decoded.getChannelData(channel);
+        for (let i = 0; i < length; i++) mono[i] += samples[i] / decoded.numberOfChannels;
       }
-    } catch (cause) { setError(aiCaptureErrorMessage(message(cause, mode === 'AI' ? 'AI 紀錄失敗' : '新增紀錄失敗'))); }
-    finally { setSaving(false); }
+      if(controller.signal.aborted||id!==generation.current)return;
+      const text = await transcribeLocalSpeech(mono,speechLanguage,{baseUrl:apiBaseUrl,mode,signal:controller.signal,progress:setStatus,onModel:({fallback,canFallback})=>{if(mounted.current&&id===generation.current){setSpeechUsingFallback(fallback);setSpeechFallback(canFallback);}}});
+      if (!text.trim()) throw new Error('沒有辨識到語音，請重試。');
+      if (mounted.current && id === generation.current) { setSpeechFallback(false);setInput((current) => [current, text].filter(Boolean).join('\n')); setStatus('語音已轉成文字，請先核對人名、金額與否定語句，再解析或自行編輯。'); }
+    } catch (cause) { if (mounted.current&&id===generation.current) {setSpeechRetry(true);setSpeechFallback(cause instanceof SpeechFallbackError);setError(cause instanceof Error ? cause.message : '語音辨識失敗');} }
+    finally { clearTimeout(slow);await context?.close();if(mounted.current&&id===generation.current){lock.current=false;setBusy(false);setSpeechBusy(false);setSpeechSlow(false);} }
   }
-
-  async function processMedia(kind: MediaKind) {
-    if (!session || !scope || !entitlement?.allowed || entitlement.source === 'BLOCKED' || saving) return;
-    const file = kind === 'IMAGE' ? imageFile : kind === 'AUDIO' ? audioFile : documentFile; if (!file) return;
-    const hardMaxBytes = kind === 'IMAGE' ? HARD_MAX_IMAGE_BYTES : kind === 'AUDIO' ? HARD_MAX_AUDIO_BYTES : HARD_MAX_FILE_BYTES;
-    if (file.size > hardMaxBytes) { setError(`${kindLabel(kind)}檔案超過系統可處理的大小，請縮小後再試。`); return; }
-    setSaving(true); setError(null); setNotice(null);
+  async function save() {
+    if (lock.current || !session || !scope || !draft?.rawText.trim()) return;
+    if (draft.occurredAt && Number.isNaN(new Date(draft.occurredAt).getTime())) { setError('請輸入有效時間。'); return; }
+    lock.current = true; setBusy(true); setSaving(true); setError('');
     try {
-      let title: string | null = null;
-      if (kind === 'IMAGE') title = (await aiApi.captureImage(session, scope.sourceId, file, draft.rawText)).record.title;
-      if (kind === 'AUDIO') title = (await aiApi.captureAudio(session, scope.sourceId, file, draft.rawText, await audioDuration(file))).record.title;
-      if (kind === 'FILE') title = (await aiApi.captureFile(session, scope.sourceId, file, draft.rawText)).record.title;
-      if (kind === 'IMAGE') setImageFile(null); if (kind === 'AUDIO') setAudioFile(null); if (kind === 'FILE') setDocumentFile(null);
-      setDraft((current) => ({ ...current, rawText: '' })); setNotice(`${kindLabel(kind)}已由 AI 整理並記錄${title ? `：${title}` : '。'}`); await loadEntitlement(session, scope.sourceId);
-    } catch (cause) { setError(aiCaptureErrorMessage(message(cause, 'AI 檔案處理失敗'))); }
-    finally { setSaving(false); }
+      await api.createRecord(session, scope, { title: draft.title.trim() || null, rawText: draft.rawText.trim(), occurredAt: draft.occurredAt ? new Date(draft.occurredAt).toISOString() : null });
+      setDraft(null); setInput(''); setImage(null);setVoiceClip(null);setHasSpeech(false); setStatus('紀錄已保存。'); onSaved?.(scope);
+    } catch (cause) { setError(captureSaveError(cause)); }
+    finally { lock.current = false; setBusy(false); setSaving(false); }
   }
-
-  if (!session) return <main className="shell capture-shell"><section className="panel capture-login-card"><p className="eyebrow">AFTERTRACE</p><h1>快速紀錄</h1><p className="muted">登入後即可快速留下工作紀錄。</p>{error ? <div className="error">{error}</div> : null}<LoginProviderButtons apiBaseUrl={apiBaseUrl} returnTo="/capture" /><button className="ghost" onClick={() => { window.location.href = '/'; }}>回紀錄頁</button></section></main>;
-
-  const occurredAtValid = optionalLocalDateValid(draft.occurredAt);
-  const aiAllowed = entitlement?.allowed === true && entitlement.source !== 'BLOCKED';
-  const saveDisabled = saving || !scope || !draft.rawText.trim() || (mode === 'MANUAL' && !occurredAtValid) || (mode === 'AI' && (!aiAllowed || entitlementLoading));
-
-  return <main className="shell capture-shell"><header className="capture-topbar"><div><p className="eyebrow">AFTERTRACE</p><h1>快速紀錄</h1></div><button className="ghost" onClick={() => { window.location.href = '/'; }}>回紀錄頁</button></header>{error ? <div className="error">{error}</div> : null}{notice ? <div className="worklog-notice">{notice}</div> : null}<section className="panel capture-card">
-    <div className="capture-scope-row">{surfaces?.personal ? <button className={scope?.type === 'PERSONAL' ? 'worklog-scope active' : 'worklog-scope'} onClick={() => chooseScope({ type: 'PERSONAL', sourceId: surfaces.personal!.sourceId })}>我的紀錄</button> : null}{surfaces?.groups.map((group) => <button key={group.sourceId} className={scope?.type === 'GROUP' && scope.sourceId === group.sourceId ? 'worklog-scope active' : 'worklog-scope'} onClick={() => chooseScope({ type: 'GROUP', sourceId: group.sourceId })}>{group.name}</button>)}</div>
-    <div className="capture-mode-row"><button className={mode === 'MANUAL' ? 'capture-mode active' : 'capture-mode'} onClick={() => chooseMode('MANUAL')}><strong>一般紀錄</strong><span>免費使用，自己輸入文字</span></button><button className={mode === 'AI' ? 'capture-mode active' : 'capture-mode'} onClick={() => chooseMode('AI')}><strong>AI 整理</strong><span>免費體驗額度或 AI Pro 都可使用</span></button></div>
-    {mode === 'AI' ? <AiEntitlementCard entitlement={entitlement} loading={entitlementLoading} /> : null}
-    <button className={`capture-mic${speechState === 'LISTENING' ? ' listening' : ''}`} disabled={loading || saving || !scope} onClick={toggleSpeechCapture}>🎙️ {speechState === 'LISTENING' ? '停止語音輸入' : '語音轉文字'}</button>
-    {speechMessage ? <p className="capture-warning">{speechMessage}</p> : null}{interimText ? <div className="capture-interim"><span>辨識中</span><strong>{interimText}</strong></div> : null}
-    {mode === 'MANUAL' ? <label className="capture-title-label">標題（選填）<input value={draft.title} maxLength={255} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="例如：客戶報價討論" /></label> : null}
-    <label className="capture-text-label">{mode === 'AI' ? '要整理的文字或補充說明' : '紀錄內容'}<textarea rows={7} value={draft.rawText} onChange={(event) => setDraft({ ...draft, rawText: event.target.value })} placeholder={mode === 'AI' ? '輸入工作內容，AI 會協助整理並扣除可用 AI 點數。' : '直接輸入工作紀錄，或使用瀏覽器語音轉文字。'} /></label>
-    {mode === 'MANUAL' ? <><label className="capture-time-label">發生時間（選填）<input type="datetime-local" value={draft.occurredAt} onChange={(event) => setDraft({ ...draft, occurredAt: event.target.value })} /></label><p className="muted">標題與發生時間都可以留空；內容為必填。瀏覽器語音轉文字不會消耗 AI 額度。</p></> : null}
-    {mode === 'AI' ? <section className="capture-media-panel"><h3>圖片、音訊與檔案整理</h3><p className="muted">免費 AI 體驗與 AI Pro 都可使用；每次處理會依實際用量扣除 AI 點數。免費體驗採安全的檔案大小與音訊長度限制，AI Pro 則依訂閱方案設定。</p>{aiAllowed ? <div className="capture-media-grid"><MediaPicker label="圖片" accept="image/png,image/jpeg,image/webp" file={imageFile} onFile={setImageFile} note="目前一次選擇 1 張" busy={saving} onSubmit={() => void processMedia('IMAGE')} /><MediaPicker label="音訊" accept="audio/webm,audio/ogg,audio/mpeg,audio/mp4,audio/wav" file={audioFile} onFile={setAudioFile} note="依可用方案限制長度與大小" busy={saving} onSubmit={() => void processMedia('AUDIO')} /><MediaPicker label="檔案" accept="application/pdf,text/plain,text/markdown,text/csv,application/json,application/xml,text/xml" file={documentFile} onFile={setDocumentFile} note="PDF、文字、CSV 等" busy={saving} onSubmit={() => void processMedia('FILE')} /></div> : <div className="capture-media-locked">{entitlementLoading ? '正在確認 AI 額度…' : '目前沒有可用 AI 額度；可升級 AI Pro 繼續使用。'}</div>}</section> : null}
-    <div className="capture-actions"><button disabled={saveDisabled} onClick={() => void saveRecord()}>{saving ? '處理中…' : mode === 'AI' ? 'AI 整理並記錄' : '儲存紀錄'}</button><button className="ghost" disabled={saving || (!draft.title && !draft.rawText && !draft.occurredAt)} onClick={() => setDraft({ ...EMPTY_DRAFT })}>清除</button></div>
-  </section></main>;
+  if (!session) return <section className="panel"><h1>快速紀錄</h1><LoginProviderButtons apiBaseUrl={apiBaseUrl} returnTo="/capture" /></section>;
+  const content = <section className="panel stack local-capture">
+    {embedded ? <h2>留下紀錄</h2> : <h1>留下紀錄</h1>}<p>文字、圖片與短語音都在此裝置解析；確認內容後才保存。</p><details><summary>首次使用與裝置需求</summary><p>首次使用需下載數百 MB 至數 GB 的模型資源，建議使用 Wi-Fi。可在「本機 AI」頁面查看或清除快取。此裝置需支援 WebGPU，無法使用時仍可手動保存。</p></details>
+    {error && <div className="error" role="alert">{error}</div>}
+    {modelStatus && <div className="capture-status"><p aria-live="polite">{modelStatus}</p>{preparingModel && <button className="ghost" onClick={cancelLocalAi}>暫停準備模型</button>}</div>}
+    {status && <p className="capture-status" role="status" aria-live="polite">{status}</p>}
+    <label>保存範圍<select disabled={busy || recording || !!draft} value={scope ? `${scope.type}:${scope.sourceId}` : ''} onChange={(event) => { const [type, id] = event.target.value.split(':'); const next = { type: type as RecordScope['type'], sourceId: Number(id) }; setScope(next); localStorage.setItem('aftertrace.worklog.scope', JSON.stringify(next)); onScopeChange?.(next); }}>
+      {surfaces?.personal && <option value={`PERSONAL:${surfaces.personal.sourceId}`}>我的紀錄</option>}
+      {surfaces?.groups.map((group) => <option key={group.sourceId} value={`GROUP:${group.sourceId}`}>{group.name}</option>)}
+    </select></label>
+    <label>輸入內容或貼上圖片<textarea aria-label="輸入內容或貼上圖片" maxLength={20000} rows={draft ? 3 : 6} value={input} disabled={busy || recording || !!draft} onChange={(event) => setInput(event.target.value)} onPaste={(event) => {
+      const files = Array.from(event.clipboardData.files);
+      if (files.length) { event.preventDefault(); if (files.length > 1) setError('一次只能處理一張圖片。'); else pickImage(files[0]); }
+    }} /></label>
+    <label>選擇圖片（PNG、JPEG、WebP，最多 5 MB）<input type="file" accept="image/png,image/jpeg,image/webp" disabled={busy || recording || !!draft} onChange={(event) => { pickImage(event.target.files?.[0] ?? null); event.target.value = ''; }} /></label>
+    {preview && <div><img src={preview} alt="待解析圖片" style={{ maxWidth: '100%', maxHeight: 300 }} /><button className="ghost" disabled={busy || recording || !!draft} onClick={() => setImage(null)}>移除圖片</button></div>}
+    {voiceUrl&&<section className="capture-voice-review"><strong>重聽最近一次錄音</strong><audio aria-label="重聽最近一次錄音" controls preload="metadata" src={voiceUrl}/><p className="muted">錄音只留在這個頁面，保存或離開後移除，不會上傳。</p><button className="ghost" disabled={busy||recording} onClick={()=>{setVoiceClip(null);setSpeechRetry(false);setSpeechFallback(false);}}>移除錄音</button></section>}
+    {voiceClip&&!draft&&<section className="capture-speech-options" aria-label="語音模型與重試">{speechUsingFallback&&<p className="muted">此裝置使用較輕量語音模型，可重設選擇以恢復優先使用主要模型。</p>}{speechBusy&&speechSlow&&<p role="note">下載或辨識時間較長；可以取消，或用同一段錄音切換較輕量模型。</p>}{speechFallback&&(!speechBusy||speechSlow)&&<button className="ghost" disabled={recording} onClick={()=>retrySpeech('fallback')}>改用較輕量模型辨識原錄音</button>}{speechRetry&&!busy&&<button className="ghost" onClick={()=>retrySpeech()}>重新辨識原錄音</button>}</section>}
+    {hasSpeech&&<p className="capture-review-warning" role="note">語音可能誤認同音姓名與詞語，AI 整理也可能出錯。請核對標題、人名、金額與「未付款／未完成」等狀態，修改正確後再確認保存。</p>}
+    {!draft && <label>語音語言<select disabled={busy || recording} value={speechLanguage} onChange={(event) => setSpeechLanguage(event.target.value as 'chinese' | 'english')}><option value="chinese">中文</option><option value="english">英文</option></select></label>}
+    {!draft&&<button className="ghost" disabled={busy||recording} onClick={()=>{resetSpeechModelChoice();setSpeechUsingFallback(false);setStatus('已重設裝置選擇，下次語音將優先使用主要模型。');}}>重設此裝置語音模型選擇</button>}
+    {!draft && <p className="capture-voice-hint muted">每次最多 60 秒，語音在此裝置辨識；確認後才保存。</p>}
+    {!draft && <div className="filter-actions">
+      <button className={recording ? 'danger' : 'ghost'} aria-label={recording ? '停止錄音' : '錄製短語音（最多 60 秒）'} disabled={busy || !!draft} onClick={() => void startRecording()}>{recording ? '停止錄音' : '錄製短語音'}</button>
+      <button disabled={busy || recording || !!draft || (!input.trim() && !image)} onClick={() => void analyze()}>AI 解析</button>
+      <button className="ghost" disabled={busy || recording || !!draft || !input.trim()} onClick={() => setDraft({ title: '', rawText: input, ...inferOccurrenceTime(input) })}>自行編輯草稿</button>
+      {busy && !saving && <button className="ghost" onClick={() => { speechAbort.current?.abort();generation.current++; cancelLocalAi();lock.current=false;setBusy(false);setSpeechBusy(false);setSpeechSlow(false);if(voiceClip)setSpeechRetry(true);setStatus('已取消解析，輸入內容與錄音仍保留。'); }}>取消解析</button>}
+    </div>}
+    {draft && <section ref={review} className="panel stack capture-review" aria-label="保存前確認">{embedded ? <h3>確認要保存的資訊</h3> : <h2>確認要保存的資訊</h2>}<p>請確認並修改要保存的內容。圖片與錄音不會上傳，只有確認後的文字會保存。</p>
+      {draft.reviewNote&&<p className="capture-review-warning" role="note">{draft.reviewNote}</p>}
+      <label>標題<input maxLength={255} disabled={busy} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label>
+      <label>內容<textarea aria-label="內容" maxLength={20000} rows={8} disabled={busy} value={draft.rawText} onChange={(event) => setDraft({ ...draft, rawText: event.target.value })} /></label>
+      <label>發生時間（選填）<input type="datetime-local" disabled={busy} value={draft.occurredAt} onChange={(event) => setDraft({ ...draft, occurredAt: event.target.value, timeNote: undefined })} /></label>
+      {draft.timeNote && <p className="muted" role="note">{draft.timeNote}</p>}
+      <div className="filter-actions"><button disabled={busy || !scope || !draft.rawText.trim()} onClick={() => void save()}>確認保存</button><button className="ghost" disabled={busy} onClick={() => { if (window.confirm('捨棄已編輯的草稿並返回輸入？')) setDraft(null); }}>返回輸入</button></div>
+    </section>}
+  </section>;
+  return embedded ? content : <main className="shell local-capture-page">{content}</main>;
 }
 
-function MediaPicker({ label, accept, file, onFile, note, busy, onSubmit }: { label: string; accept: string; file: File | null; onFile: (file: File | null) => void; note: string; busy: boolean; onSubmit: () => void }) { return <div className="capture-media-item"><strong>{label}</strong><input type="file" accept={accept} disabled={busy} onChange={(event) => onFile(event.target.files?.[0] ?? null)} /><small>{file ? file.name : note}</small><button disabled={busy || !file} onClick={onSubmit}>用 AI 整理</button></div>; }
-function AiEntitlementCard({ entitlement, loading }: { entitlement: AiEntitlementDecision | null; loading: boolean }) { if (loading) return <div className="capture-ai-state"><strong>正在確認 AI 使用狀態…</strong></div>; if (!entitlement) return <div className="capture-ai-state blocked"><strong>目前無法讀取 AI 使用狀態</strong><span>一般紀錄仍可正常使用。</span></div>; if (entitlement.allowed && entitlement.source === 'FREE_TRIAL') return <div className="capture-ai-state"><strong>免費 AI 體驗可使用</strong><span>目前尚有 {entitlement.remainingPoints?.toLocaleString() ?? '—'} 點，可用於 AI 搜尋、整理、圖片、音訊、檔案、摘要、改寫與待辦建議。</span></div>; if (entitlement.allowed && entitlement.source === 'AI_PRO') return <div className="capture-ai-state"><strong>AI Pro 可使用</strong><span>{entitlement.remainingPoints !== null ? `本期約剩 ${entitlement.remainingPoints.toLocaleString()} 點。` : ''}{entitlement.periodEndsAt ? ` 下次週期：${formatDate(entitlement.periodEndsAt)}。` : ''}</span></div>; return <div className="capture-ai-state blocked"><strong>目前沒有可用 AI 額度</strong><span>{entitlementReason(entitlement.reason, entitlement.periodEndsAt)}</span></div>; }
-function entitlementReason(reason: string, periodEndsAt?: string | null): string { const reset = periodEndsAt ? `，預計於 ${formatDate(periodEndsAt)} 恢復` : ''; if (reason === 'TRIAL_EXHAUSTED') return '免費 AI 體驗額度已用完；一般紀錄、一般搜尋與其他免費功能仍可使用。'; if (reason === 'MONTHLY_POINT_CAP_REACHED' || reason === 'MONTHLY_POINT_CAP_WOULD_BE_EXCEEDED' || reason === 'MONTHLY_PROVIDER_COST_CAP_REACHED') return `本期 AI 使用量已達上限${reset}。`; if (reason === 'PER_REQUEST_POINT_CAP_EXCEEDED') return '這次內容超過單次 AI 使用上限，請縮短後再試。'; return '目前沒有可用 AI 額度；可升級 AI Pro 繼續使用。'; }
-function aiCaptureErrorMessage(error: string): string { if (error === 'AI_AUDIO_DURATION_TOO_LONG') return '這段音訊超過目前可用方案允許的長度，請縮短後再試。'; if (error === 'AI_IMAGE_TOO_LARGE' || error === 'AI_AUDIO_TOO_LARGE' || error === 'AI_FILE_TOO_LARGE') return '檔案超過目前可用方案允許的大小，請縮小後再試。'; if (/^[A-Z0-9_]+$/.test(error)) return entitlementReason(error); return error; }
-function storedScope(): CaptureScope | null { const raw = localStorage.getItem(ACTIVE_SCOPE_KEY); if (!raw) return null; try { const value = JSON.parse(raw) as Record<string, unknown>; if (value.type === 'PERSONAL' && typeof value.sourceId === 'number') return { type: 'PERSONAL', sourceId: value.sourceId }; if (value.type === 'GROUP' && typeof value.sourceId === 'number') return { type: 'GROUP', sourceId: value.sourceId }; } catch {} return null; }
-function defaultScope(surfaces: WorklogSurfaces): CaptureScope | null { if (surfaces.personal) return { type: 'PERSONAL', sourceId: surfaces.personal.sourceId }; const group = surfaces.groups[0]; return group ? { type: 'GROUP', sourceId: group.sourceId } : null; }
-function scopeExists(scope: CaptureScope, surfaces: WorklogSurfaces): boolean { return scope.type === 'PERSONAL' ? surfaces.personal?.sourceId === scope.sourceId : surfaces.groups.some((group) => group.sourceId === scope.sourceId); }
-function appendSpeechText(current: string, next: string): string { const base = current.trimEnd(); const addition = next.trim(); if (!base) return addition; if (!addition) return current; return `${base}${/[。！？!?]$/.test(base) ? ' ' : '，'}${addition}`; }
-function optionalLocalDateValid(value: string): boolean { return !value.trim() || !Number.isNaN(new Date(value).getTime()); }
-function localDateOrNull(value: string): string | null { return value.trim() ? new Date(value).toISOString() : null; }
-function kindLabel(kind: MediaKind): string { return kind === 'IMAGE' ? '圖片' : kind === 'AUDIO' ? '音訊' : '檔案'; }
-function formatDate(value: string): string { const date = new Date(value); return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('zh-TW', { timeZone: 'Asia/Taipei' }); }
-async function audioDuration(file: File): Promise<number | null> { return new Promise((resolve) => { const audio = document.createElement('audio'); const url = URL.createObjectURL(file); const finish = (value: number | null) => { URL.revokeObjectURL(url); resolve(value); }; audio.preload = 'metadata'; audio.onloadedmetadata = () => finish(Number.isFinite(audio.duration) ? audio.duration : null); audio.onerror = () => finish(null); audio.src = url; }); }
-function message(cause: unknown, fallback: string): string { return cause instanceof Error ? cause.message : fallback; }
+export function captureSaveError(cause: unknown): string {
+  const code = cause instanceof Error ? cause.message : '';
+  const labels: Record<string, string> = {
+    GROUP_ACCESS_FORBIDDEN: '你已無法存取這個群組，草稿已保留。請返回輸入並改選保存範圍。',
+    SOURCE_NOT_AUTHORIZED: '你沒有這個紀錄範圍的權限，草稿已保留。',
+    INVALID_WEB_SESSION: '登入已過期，請重新登入。',
+    WEB_SESSION_REQUIRED: '請先登入後再保存。',
+    RECORD_TEXT_REQUIRED: '請輸入要保存的內容，最多 20,000 字。',
+  };
+  return labels[code] ?? (code || '保存失敗，草稿仍保留。');
+}

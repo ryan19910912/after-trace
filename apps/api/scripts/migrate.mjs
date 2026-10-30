@@ -1,4 +1,6 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { accessSeedStatements,saveBootstrapPassword } from '../../../scripts/admin-access-seed.mjs';
+import { promptSeedStatements } from '../../../scripts/local-prompt-seed.mjs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { loadEnvFile } from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -35,10 +37,9 @@ try {
     `.aftertrace-drizzle-migrate-${process.pid}-${Date.now()}`,
   );
   mkdirSync(normalizedMigrationsFolder, { recursive: true });
-  cpSync(
-    resolve(migrationsFolder, '0000_worklog_baseline.sql'),
-    resolve(normalizedMigrationsFolder, '0000_worklog_baseline.sql'),
-  );
+  for (const file of readdirSync(migrationsFolder).filter(name=>name.endsWith('.sql'))) {
+    cpSync(resolve(migrationsFolder,file),resolve(normalizedMigrationsFolder,file));
+  }
   cpSync(resolve(migrationsFolder, 'meta'), resolve(normalizedMigrationsFolder, 'meta'), {
     recursive: true,
   });
@@ -46,7 +47,14 @@ try {
 
   await migrate(db, { migrationsFolder: normalizedMigrationsFolder });
   await verifyCanonicalSchemaExists();
-  console.log('AFTERTRACE database migrations applied successfully.');
+  const promptSeeds = JSON.parse(readFileSync(resolve(root, 'config/local-ai-prompts.seed.json'), 'utf8'));
+  for (const statement of promptSeedStatements(promptSeeds)) await sql.query(statement);
+  const receipt = process.env.ADMIN_BOOTSTRAP_PASSWORD_FILE || resolve(root,'.test-artifacts/admin-bootstrap.json');
+  const existingAdmin = await sql`SELECT id FROM worklog_admin_accounts WHERE username='admin'`;
+  if (!existingAdmin.length && existsSync(receipt)) throw new Error('Bootstrap receipt already exists; choose an unused ADMIN_BOOTSTRAP_PASSWORD_FILE.');
+  const accessSeed = accessSeedStatements(root,process.env.ADMIN_PASSWORD_PEPPER);
+  for (const [index,statement] of accessSeed.statements.entries()) { const result=await sql.query(statement); if(index===1&&result.length) { mkdirSync(dirname(receipt),{recursive:true}); saveBootstrapPassword(receipt,accessSeed.password); } }
+  console.log('AFTERTRACE database migrations and missing defaults applied successfully.');
 } catch (error) {
   console.error('AFTERTRACE database migration failed.');
   console.error(error);
@@ -67,7 +75,10 @@ async function verifyCanonicalSchemaExists() {
         'worklog_records',
         'worklog_record_revisions',
         'worklog_subscription_plans',
-        'worklog_commercial_config'
+        'worklog_commercial_config',
+        'worklog_error_summaries',
+        'worklog_error_occurrences',
+        'worklog_error_rate_limits'
       )
   `;
   const found = new Set(rows.map((row) => String(row.table_name)));
@@ -77,6 +88,9 @@ async function verifyCanonicalSchemaExists() {
     'worklog_record_revisions',
     'worklog_subscription_plans',
     'worklog_commercial_config',
+        'worklog_error_summaries',
+        'worklog_error_occurrences',
+        'worklog_error_rate_limits',
   ];
   const missing = required.filter((table) => !found.has(table));
   if (missing.length > 0) {

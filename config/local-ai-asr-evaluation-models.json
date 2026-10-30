@@ -1,0 +1,34 @@
+[
+  {
+    "id": "onnx-community/whisper-large-v3-turbo",
+    "revision": "360ebcde2559d60bb474678be3c1de9ef347d01a"
+  },
+  {
+    "id": "a2d8a4v/Breeze-ASR-25-ONNX",
+    "revision": "cb9c36288335cf0b442dde9960d15539435ebc62"
+  },
+  {
+    "id": "onnx-community/whisper-large-v3-ONNX",
+    "revision": "3b6257ad5e67aa523c7c07f4fea04d445eecc4a6"
+  },
+  {
+    "id": "JacobLinCool/TEA-ASR-1.1-mini",
+    "revision": "98c58048572b44839dfcfa60de3ad7e365a5b232"
+  },
+  {
+    "id": "JacobLinCool/TEA-ASR-1.1",
+    "revision": "bda08df76d4fd6b487b4a1dd7f0bddf8541696f8"
+  },
+  {
+    "id": "Qwen/Qwen3-ASR-0.6B",
+    "revision": "5eb144179a02acc5e5ba31e748d22b0cf3e303b0"
+  },
+  {
+    "id": "Qwen/Qwen3-ASR-1.7B",
+    "revision": "7278e1e70fe206f11671096ffdd38061171dd6e5"
+  },
+  {
+    "id": "MediaTek-Research/Breeze-ASR-26",
+    "revision": "7b992682e7f5ceedd0a41ebec240f01ba469d19e"
+  }
+]

@@ -1,134 +1,38 @@
-# AFTERTRACE Worklog Rebuild Progress
+# 開發進度
 
-Durable development handoff for branch `revive/line-worklog`.
+更新：2026-10-29。現行開發分支 codex/local-browser-ai。本次在 D:\Project\after-trace 本地驗證，沒有 commit、push、GitHub Actions 或遠端部署。
 
-Before substantive work, read the latest documents in the exact order defined by `docs/WORKLOG_DEVELOPMENT_POLICY.md`. Latest docs are authoritative.
+## 目前產品
 
-Default rule: do not run/dispatch/rerun/enable/modify GitHub Actions unless the user explicitly authorizes it. Every normal development commit contains `[skip ci]`.
+Web／PWA 紀錄工具，所有 AI 使用瀏覽器 WebGPU；支援文字、單張圖片與最多 60 秒短語音。沒有 PDF、文件、音訊檔上傳、雲端 AI／備援、訂閱／金流／點數。
 
-## Current checkpoint — 2026-09-16 backend-driven subscription catalog AUTHORED / NOT RUN
+解析產生可編輯草稿，確認後只保存文字。首頁最近 5 筆可展開 10 筆。進入已授權紀錄頁背景準備模型，不自動推論／保存。日期由本地明確規則解析。提示與模型 ID／revision 放資料庫。
 
-AFTERTRACE remains Web + PWA-first with a compact Chrome extension fast-capture surface. `/` remains the Record home page. Search remains independent. LINE is only provider-neutral LINE Login plus the external LINE OA support link.
+後台已改為用戶列表、AI 管理、回饋、公告、角色、權限及管理帳號。最高帳號 admin 使用初始化亂數密碼。舊總覽、歷史方案、本機 AI 舊管理頁與成本點數報表已移除。
 
-Prelaunch Dev data is disposable. Canonical target database remains one generated `drizzle/0000_worklog_baseline.sql` with comments and application-side domain validation.
+## 本輪完成
 
-## Current product boundary
+- 前台桌機／手機頁首直接顯示可選取、可複製用戶 ID；複製失敗顯示手動替代方式，成功提示不造成版面位移。
+- 前台選單支援 Escape／回焦，通知支援點外部關閉；客服文案改為索取用戶 ID，移除與後台歷史讀取矛盾的保證。
+- 歷史內容讀取失敗可重試；重送相同用戶搜尋可重新載入；空白分頁保留正確總數。
+- AI 提示／模型設定讀取加 15 秒逾時並可重新嘗試；沒有偷偷使用過期設定或雲端 fallback。
+- 模型與權限未保存時切換／刷新增加保護。
+- 部署工具改帶 ADMIN_PASSWORD_PEPPER，不再要求舊環境固定帳密或退役金流設定；只執行隔離驗證，沒有部署。
+- 公告新建 API 拒絕 FREE_USERS／AI_SUBSCRIBERS 退役分類，歷史讀取保留。
+- 產品、資料模型、開發、部署、帳號、客服、通知、擴充元件、點數／訂閱退役文件及 README 同步現況。歷史測試報告明確標註日期與適用範圍。
 
-FREE is a complete manual product and receives one Admin-configured one-time shared AI experience allowance usable across supported AI features. It does not refresh monthly.
+## 驗證與待辦
 
-Paid subscriptions are now intended to be fully backend-driven rather than tied to one hard-coded `AI_PRO` / NT$99 definition.
+驗證明細見 [本輪檢查](PRODUCT_TECHNICAL_REVIEW_2026-10-29.md) 與 [後台改版驗證](ADMIN_MANAGEMENT_VALIDATION.md)。目前 canonical baseline 為 37 張表，六個提示與兩個預設角色；既有資料未清空。
 
-Admin-created enabled `SUBSCRIPTION` plans should appear automatically on the customer plan page. Checkout, provider callbacks, subscription lifecycle, monthly AI Grants, entitlement and cost admission must preserve/read the selected plan code and plan limits.
+外部 OAuth、對外 Web Push、目標手機 WebGPU／記憶體／續航及實際繁中辨識品質仍需另外驗收。本輪後續已完成歷史讀取稽核、回饋進度、後台帳號搜尋／完整分頁與兩個排序索引；詳見 CONTINUED_INTEGRATION_VALIDATION.md。名稱模糊搜尋與深 offset 的更大資料量策略、真實手機 GPU／記憶體與繁中品質仍需後續驗證。
 
-## Dynamic subscription implementation authored in this batch
+未獲明確要求不得啟動或修改 GitHub Actions，開發 commit 帶 [skip ci]。本地可用不等於遠端 schema 已升級；不可重設遠端資料庫。
 
-- public `/api/v1/subscription/plans` now returns FREE plus all enabled/AI-enabled paid subscription plans rather than only exact code `AI_PRO`;
-- Web Subscription UI renders backend plan code/name/price/caps and no longer filters to FREE/AI_PRO only;
-- checkout modal sends the selected `planCode`;
-- NewebPay checkout loads the selected plan from PostgreSQL and uses its DB display name + monthly price;
-- checkout intent persists the selected plan code;
-- NewebPay callback recovers the plan through checkout intent and validates provider amount against the selected plan price;
-- lifecycle ACTIVATE/RENEW/CANCEL now accepts/preserves dynamic plan codes;
-- subscription history and period Grants use the actual selected plan code;
-- paid AI entitlement resolves whichever paid SUBSCRIPTION plan is actually active;
-- provider-cost admission no longer requires exact code `AI_PRO` / price 99;
-- readiness now requires FREE plus at least one valid enabled paid subscription plan rather than exact `AI_PRO` / NT$99;
-- only one active paid subscription is allowed at a time;
-- cancellation preserves paid access until current period end; later purchase uses a new checkout;
-- NewebPay periodic online purchase currently requires a positive integer-TWD monthly price.
+## 最新固定產物本地部署（2026-10-29）
 
-## FREE AI experience
+前台／後台／API 已以建置產物在 15173／15174／18787 運行，建置 ID a034d9b8d155dc91。新增 25 組部署情境及 6 組真實模型 UI 案例通過；402 單元、核心／後台／專項整合、真實圖片語音及 80 畫面回歸通過。完整證據見 LOCAL_DEPLOYMENT_TEST_RESULTS.md。前台隔離測試登入網址在忽略的 local-deployment/access.json，後台密碼保留原值，沒有遠端部署或資料庫重設。
 
-FREE trial remains one shared balance for:
+## 繁中內容與 UI 修正（2026-10-29）
 
-- AI text organization;
-- AI Search;
-- image/audio/file/PDF AI;
-- Chrome screenshot AI;
-- related Records;
-- time-range summaries;
-- rewrite;
-- AI task proposals.
-
-Browser/device speech-to-text remains free and does not consume provider AI points.
-
-## Auth / notification findings
-
-Fresh Dev DB Google login previously returned an unhandled 500. FREE trial NULL handling was fixed, and post-login welcome notification failure is now non-fatal so login itself is not coupled to a non-critical notification write.
-
-Important remaining cleanup: handwritten notification SQL still needs to be checked for stale PostgreSQL enum casts after enum removal. The application policy remains no PostgreSQL application-domain ENUM types/casts.
-
-## Canonical baseline / Dev DB
-
-No schema change is required for the dynamic paid-plan catalog batch. Existing generic plan, checkout-intent, subscription, lifecycle and Grant columns already carry plan codes.
-
-Accepted clean-reset procedure remains:
-
-```sql
-DROP SCHEMA IF EXISTS drizzle CASCADE;
-DROP SCHEMA IF EXISTS public CASCADE;
-CREATE SCHEMA public;
-```
-
-Do not reset the database for this dynamic-plan code refactor unless a separate schema issue requires it.
-
-## Last known executable validation
-
-A prior local run before the current dynamic-subscription batch passed:
-
-- monorepo typecheck: PASS;
-- Admin tests: 20/20 PASS;
-- API tests: 270/270 PASS;
-- Web tests: 41/41 PASS;
-- lint: PASS;
-- Admin/API/Web/Extension builds: PASS.
-
-Later API-only testing also showed API tests 270/270 passing while one temporary typecheck issue was fixed afterward.
-
-**Current dynamic subscription batch is AUTHORED / NOT RUN. Do not claim PASS until the user reruns validation.**
-
-No GitHub Actions were run or modified.
-
-## Database/schema rules
-
-- one canonical prelaunch SQL baseline;
-- every persistent table/column has PostgreSQL COMMENT metadata;
-- no PostgreSQL enum for application domain/status values;
-- no stale casts to removed application enum types in handwritten SQL;
-- no business/domain CHECK constraints;
-- structural PK/FK/UNIQUE/NOT NULL/INDEX/DEFAULT stay in PostgreSQL;
-- statuses, feature rules, pricing, subscription availability, point/media limits and transitions remain application logic.
-
-## Validation/runtime remaining
-
-Run locally after pulling latest:
-
-```text
-pnpm typecheck
-pnpm test
-pnpm lint
-pnpm build
-```
-
-If PASS, deploy API + Web:
-
-```text
-pnpm deploy:dev:api
-pnpm deploy:dev:web
-```
-
-Then runtime-smoke at least:
-
-- Admin enabled plan `AI_PRO_99` appears on customer plan page;
-- displayed plan name/price/cap match Admin values;
-- selected plan code is sent to checkout;
-- NewebPay TEST checkout amount/product description match DB plan;
-- successful callback activates the same plan code;
-- monthly AI entitlement uses that plan's configured point/cost caps;
-- cancellation stops renewal but keeps access through period end;
-- after expiry, a fresh checkout can purchase any currently enabled plan;
-- FREE trial AI paths continue to work;
-- Google + LINE Login real-browser smoke;
-- notification center/welcome notification after fresh-account login.
-
-GitHub Actions remain disabled unless explicitly requested.
+最新本地建置 51749ea4f01f3cb0。完成 6 文字、4 圖片及 3 繁中合成語音案例；語音仍有 2 段需核對修正，不能記為全自動通過。加入本機重聽、警示與保守標題留白；確認後 13 組保存與 DB 一致。調整手機表單 16px、操作按鈕至少 44／46px，同列對齊。405 單元與部署回歸通過；詳見 TRADITIONAL_CHINESE_CONTENT_QUALITY.md。

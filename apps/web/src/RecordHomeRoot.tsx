@@ -1,12 +1,7 @@
+import { CaptureRoot } from './CaptureRoot';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LoginProviderButtons } from './LoginProviderButtons';
-import {
-  browserSpeechRecognitionSupported,
-  createBrowserSpeechRecognition,
-  speechRecognitionErrorMessage,
-  type BrowserSpeechRecognition,
-} from './speech-input';
-import { WorklogApi, type RecordScope, type WorklogRecord, type WorklogSurfaces } from './worklog-api';
+import { WorklogApi, type WorklogRecord, type WorklogSurfaces } from './worklog-api';
 import './record-home.css';
 
 const SESSION_KEY = 'aftertrace.worklog.session';
@@ -14,25 +9,20 @@ const ACTIVE_SCOPE_KEY = 'aftertrace.worklog.scope';
 
 type Scope = { type: 'PERSONAL'; sourceId: number } | { type: 'GROUP'; sourceId: number };
 type RecordDraft = { title: string; rawText: string; occurredAt: string };
-type SpeechState = 'IDLE' | 'LISTENING' | 'ERROR';
-const EMPTY_RECORD: RecordDraft = { title: '', rawText: '', occurredAt: '' };
 
 export function RecordHomeRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
   const api = useMemo(() => new WorklogApi(apiBaseUrl), [apiBaseUrl]);
-  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
-  const speechFinalRef = useRef('');
-  const composerRef = useRef<HTMLTextAreaElement | null>(null);
-  const speechSupported = useMemo(() => browserSpeechRecognitionSupported(), []);
 
   const [session] = useState<string | null>(() => localStorage.getItem(SESSION_KEY));
-  const [surfaces, setSurfaces] = useState<WorklogSurfaces | null>(null);
   const [scope, setScope] = useState<Scope | null>(() => storedScope());
+  const recentRequest = useRef(0);
+  const [recentError, setRecentError] = useState<string | null>(null);
+  const [recentLoading, setRecentLoading] = useState(false);
+  const [showAllRecent, setShowAllRecent] = useState(false);
+  useEffect(() => () => { recentRequest.current++; }, []);
   const [recentRecords, setRecentRecords] = useState<WorklogRecord[]>([]);
-  const [draft, setDraft] = useState<RecordDraft>({ ...EMPTY_RECORD });
   const [editing, setEditing] = useState<WorklogRecord | null>(null);
   const [editDraft, setEditDraft] = useState<RecordDraft | null>(null);
-  const [speechState, setSpeechState] = useState<SpeechState>('IDLE');
-  const [speechMessage, setSpeechMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -43,11 +33,12 @@ export function RecordHomeRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
       return;
     }
     void bootstrap(session);
-    return () => abortSpeechCapture();
   }, [session]);
 
   useEffect(() => {
     if (!session || !scope) return;
+    recentRequest.current++;
+    setRecentRecords([]); setRecentError(null); setShowAllRecent(false);
     localStorage.setItem(ACTIVE_SCOPE_KEY, JSON.stringify(scope));
     void loadRecent(session, scope);
   }, [session, scope?.type, scope?.sourceId]);
@@ -57,7 +48,6 @@ export function RecordHomeRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
     setError(null);
     try {
       const next = await api.surfaces(token);
-      setSurfaces(next);
       const remembered = storedScope();
       setScope(remembered && scopeExists(remembered, next) ? remembered : defaultScope(next));
     } catch (cause) {
@@ -68,38 +58,18 @@ export function RecordHomeRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
   }
 
   async function loadRecent(token: string, nextScope: Scope) {
+    const request = ++recentRequest.current;
+    setRecentLoading(true); setRecentError(null);
     try {
       const filters = { limit: 10, offset: 0 };
       const result = nextScope.type === 'PERSONAL'
         ? await api.personalRecords(token, filters)
         : await api.groupRecords(token, nextScope.sourceId, filters);
-      setRecentRecords(result.records);
+      if (request === recentRequest.current) setRecentRecords(result.records);
     } catch {
-      setRecentRecords([]);
-    }
-  }
-
-  async function createRecord() {
-    if (!session || !scope || !draft.rawText.trim() || !optionalLocalDateValid(draft.occurredAt)) return;
-    abortSpeechCapture();
-    setLoading(true);
-    setError(null);
-    try {
-      await api.createRecord(session, recordScope(scope), {
-        title: draft.title.trim() || null,
-        rawText: draft.rawText.trim(),
-        occurredAt: localDateOrNull(draft.occurredAt),
-      });
-      setDraft({ ...EMPTY_RECORD });
-      speechFinalRef.current = '';
-      setSpeechMessage(null);
-      setNotice('紀錄已儲存。');
-      await loadRecent(session, scope);
-      window.setTimeout(() => composerRef.current?.focus(), 0);
-    } catch (cause) {
-      setError(message(cause, '新增紀錄失敗'));
+      if (request === recentRequest.current) setRecentError('紀錄載入失敗，請重試。');
     } finally {
-      setLoading(false);
+      if (request === recentRequest.current) setRecentLoading(false);
     }
   }
 
@@ -153,75 +123,10 @@ export function RecordHomeRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
     }
   }
 
-  function startSpeechCapture() {
-    if (!scope) return;
-    if (!speechSupported) {
-      setSpeechState('ERROR');
-      setSpeechMessage('這個瀏覽器目前不支援語音轉文字，請直接使用文字輸入。');
-      return;
-    }
-    abortSpeechCapture();
-    speechFinalRef.current = '';
-    setDraft((current) => ({ ...current, rawText: '' }));
-    setSpeechMessage(null);
-    const recognition = createBrowserSpeechRecognition({
-      onTranscript: ({ finalText, interimText }) => {
-        if (finalText) speechFinalRef.current = [speechFinalRef.current, finalText].filter(Boolean).join(' ').trim();
-        setDraft((current) => ({ ...current, rawText: [speechFinalRef.current, interimText].filter(Boolean).join(' ').trim() }));
-      },
-      onError: (code) => {
-        if (recognitionRef.current === recognition) recognitionRef.current = null;
-        setSpeechState('ERROR');
-        setSpeechMessage(speechRecognitionErrorMessage(code));
-      },
-      onEnd: () => {
-        if (recognitionRef.current === recognition) recognitionRef.current = null;
-        setSpeechState((current) => current === 'ERROR' ? current : 'IDLE');
-        setDraft((current) => ({ ...current, rawText: speechFinalRef.current || current.rawText }));
-      },
-    });
-    if (!recognition) return;
-    recognitionRef.current = recognition;
-    try {
-      recognition.start();
-      setSpeechState('LISTENING');
-    } catch {
-      recognitionRef.current = null;
-      setSpeechState('ERROR');
-      setSpeechMessage('麥克風無法啟動，可以再試一次。');
-    }
-  }
-
-  function abortSpeechCapture() {
-    const recognition = recognitionRef.current;
-    recognitionRef.current = null;
-    if (recognition) {
-      try { recognition.abort?.(); } catch { /* noop */ }
-    }
-    setSpeechState('IDLE');
-  }
-
-  function toggleSpeechCapture() {
-    if (speechState === 'LISTENING') {
-      try { recognitionRef.current?.stop(); } catch { abortSpeechCapture(); }
-      return;
-    }
-    startSpeechCapture();
-  }
-
-  function clearComposer() {
-    abortSpeechCapture();
-    speechFinalRef.current = '';
-    setDraft({ ...EMPTY_RECORD });
-    setSpeechMessage(null);
-    composerRef.current?.focus();
-  }
-
   if (!session) {
     return <main className="shell fatal-shell"><section className="fatal-card"><p className="eyebrow">AFTERTRACE</p><h1>紀錄</h1><p className="muted">登入後即可開始記錄。</p><LoginProviderButtons apiBaseUrl={apiBaseUrl} /></section></main>;
   }
 
-  const occurredAtValid = optionalLocalDateValid(draft.occurredAt);
   return <main className="shell record-home-shell record-capture-only">
     <div className="topbar record-home-title"><div><p className="eyebrow">AFTERTRACE</p><h1>紀錄</h1><p className="muted">想到就記，需要時再搜尋與整理。</p></div></div>
     {error ? <div className="error">{error}</div> : null}
@@ -230,23 +135,18 @@ export function RecordHomeRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
     <div className="record-home-subnav"><a className="active" href="/">紀錄</a><a href="/worklog">群組</a></div>
 
     <section className="record-capture-layout">
-      <section className="panel quick-record-v2">
-        <div className="quick-record-v2-head"><h2>快速紀錄</h2><label>記錄到<select value={scopeKey(scope)} disabled={!scope} onChange={(event) => { const next = parseScopeKey(event.target.value); if (next) { abortSpeechCapture(); setScope(next); } }}>{!scope ? <option value="">載入紀錄空間…</option> : null}{surfaces?.personal ? <option value={`PERSONAL:${surfaces.personal.sourceId}`}>我的紀錄</option> : null}{surfaces?.groups.map((group) => <option key={group.sourceId} value={`GROUP:${group.sourceId}`}>{group.name}</option>)}</select></label></div>
-        <label className="record-title-field">標題（選填）<input maxLength={255} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="例如：客戶報價討論" /></label>
-        <label className="record-time-above">發生時間（選填）<input type="datetime-local" value={draft.occurredAt} onChange={(event) => setDraft({ ...draft, occurredAt: event.target.value })} /></label>
-        <label className="record-content-field">內容<textarea ref={composerRef} rows={9} value={draft.rawText} onChange={(event) => { abortSpeechCapture(); setDraft({ ...draft, rawText: event.target.value }); }} placeholder="直接輸入工作紀錄，或按下語音輸入…" /></label>
-        {speechMessage ? <p className="capture-warning">{speechMessage}</p> : null}
-        <div className="quick-record-v2-actions"><button className={`quick-voice-button${speechState === 'LISTENING' ? ' listening' : ''}`} disabled={loading || !scope} onClick={toggleSpeechCapture}>{speechState === 'LISTENING' ? '■ 停止語音' : '🎙 語音輸入'}</button><button disabled={loading || !scope || !draft.rawText.trim() || !occurredAtValid} onClick={() => void createRecord()}>儲存紀錄</button><button className="ghost" disabled={loading || (!draft.title && !draft.rawText && !draft.occurredAt)} onClick={clearComposer}>清除</button></div>
-      </section>
+      <CaptureRoot apiBaseUrl={apiBaseUrl} embedded onScopeChange={setScope} onSaved={(savedScope) => { if (scope?.sourceId === savedScope.sourceId && session) void loadRecent(session, savedScope); else setScope(savedScope); }} />
 
       <aside className="panel recent-record-preview">
-        <div className="section-head"><div><p className="eyebrow">最近紀錄</p><h2>最近 10 筆</h2></div><a className="text-link" href="/ai-search?tab=general">搜尋全部</a></div>
-        {loading && recentRecords.length === 0 ? <div className="empty">載入中…</div> : null}
-        {!loading && recentRecords.length === 0 ? <div className="empty">目前還沒有紀錄。</div> : null}
-        <div className="recent-record-preview-list">{recentRecords.map((record) => <article key={record.id}>
+        <div className="section-head"><div><p className="eyebrow">最近紀錄</p><h2>最近紀錄</h2></div><a className="text-link" href="/ai-search?tab=general">搜尋全部</a></div>
+        {(loading || recentLoading) && recentRecords.length === 0 ? <div className="empty">載入中…</div> : null}
+        {!loading && !recentLoading && !recentError && recentRecords.length === 0 ? <div className="empty">目前還沒有紀錄。</div> : null}
+        {recentError && <div role="alert">{recentError} <button className="ghost" onClick={() => { if (session && scope) void loadRecent(session, scope); }}>重試載入紀錄</button></div>}
+        <div className="recent-record-preview-list">{(showAllRecent ? recentRecords : recentRecords.slice(0, 5)).map((record) => <article key={record.id}>
           <div className="recent-record-head"><div><strong>{record.title || previewTitle(record.rawText)}</strong><time>{formatDateTime(record.occurredAt ?? record.createdAt)}</time></div><div className="recent-record-actions"><button className="ghost compact" disabled={loading} onClick={() => startEdit(record)}>編輯</button><button className="ghost compact danger" disabled={loading} onClick={() => void deleteRecord(record)}>刪除</button></div></div>
-          <p>{record.rawText}</p>
+          {record.rawText.length > 160 ? <details><summary>{record.rawText.slice(0, 120)}…</summary><p>{record.rawText}</p></details> : <p>{record.rawText}</p>}
         </article>)}</div>
+        {recentRecords.length > 5 && <button className="ghost" onClick={() => setShowAllRecent(!showAllRecent)}>{showAllRecent ? '收合紀錄' : '顯示最近 10 筆'}</button>}
       </aside>
     </section>
 
@@ -260,9 +160,6 @@ export function RecordHomeRoot({ apiBaseUrl }: { apiBaseUrl: string }) {
   </main>;
 }
 
-function recordScope(value: Scope): RecordScope {
-  return value.type === 'PERSONAL' ? { type: 'PERSONAL', sourceId: value.sourceId } : { type: 'GROUP', sourceId: value.sourceId };
-}
 function storedScope(): Scope | null {
   const raw = localStorage.getItem(ACTIVE_SCOPE_KEY);
   if (!raw) return null;
@@ -281,17 +178,8 @@ function defaultScope(surfaces: WorklogSurfaces): Scope | null {
 function scopeExists(scope: Scope, surfaces: WorklogSurfaces): boolean {
   return scope.type === 'PERSONAL' ? surfaces.personal?.sourceId === scope.sourceId : surfaces.groups.some((group) => group.sourceId === scope.sourceId);
 }
-function scopeKey(scope: Scope | null): string { return scope ? `${scope.type}:${scope.sourceId}` : ''; }
-function parseScopeKey(value: string): Scope | null {
-  const [type, rawId] = value.split(':');
-  const sourceId = Number(rawId);
-  if (!Number.isSafeInteger(sourceId) || sourceId <= 0) return null;
-  if (type === 'PERSONAL') return { type: 'PERSONAL', sourceId };
-  if (type === 'GROUP') return { type: 'GROUP', sourceId };
-  return null;
-}
-function optionalLocalDateValid(value: string): boolean { return !value.trim() || !Number.isNaN(new Date(value).getTime()); }
 function localDateOrNull(value: string): string | null { return value.trim() ? new Date(value).toISOString() : null; }
+function optionalLocalDateValid(value: string): boolean { return !value.trim() || Number.isFinite(Date.parse(value)); }
 function datetimeLocalValue(value: string | null): string {
   if (!value) return '';
   const date = new Date(value);

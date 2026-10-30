@@ -15,13 +15,13 @@ The title is not required to be AI-generated. If title is null, UI may use a sho
 
 ## Editable fields
 
-FREE/manual editing can change:
+Manual editing can change:
 
 - title;
 - content;
 - occurred time.
 
-Manual editing does not call provider AI and does not automatically regenerate keywords or AI metadata.
+Manual editing does not call AI and does not automatically regenerate keywords or AI metadata.
 
 ## Record times
 
@@ -69,8 +69,8 @@ AI rewrite is suggestion-first:
 
 1. authorize the user and record range;
 2. load the exact Record/version;
-3. call AI for the requested rewrite;
-4. show original + suggested content;
+3. run the requested rewrite on the user’s local browser model;
+4. show the editable suggested content for user review;
 5. user explicitly confirms or cancels;
 6. confirm commits through the normal revision path;
 7. cancel leaves the durable Record unchanged.
@@ -81,7 +81,7 @@ AI never directly overwrites a Record without confirmation.
 
 AI title/search terms/extracted facts are optional enrichment. Normal manual edits do not automatically rerun AI.
 
-Historical free Records are not automatically enriched after subscription.
+Historical Records are never automatically enriched; there is no subscription or point entitlement.
 
 ## Authorization
 
@@ -89,7 +89,7 @@ Authorization is checked on every operation:
 
 - PRIVATE: owner/user only;
 - GROUP: current AFTERTRACE group membership/role;
-- AI entitlement is checked only when provider-backed AI is requested.
+- Local AI does not add permissions; every read/write remains subject to current backend authorization.
 
 ## Tasks
 

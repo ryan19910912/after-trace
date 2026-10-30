@@ -58,6 +58,7 @@ export const worklogRecords = pgTable(
     unique('worklog_record_source_id_uq').on(table.sourceId, table.id),
     index('worklog_record_source_status_occurred_idx').on(table.sourceId, table.status, table.occurredAt),
     index('worklog_record_author_type_idx').on(table.authorUserId, table.inputType),
+    index('worklog_record_author_id_idx').on(table.authorUserId, table.id.desc()),
     index('worklog_record_ai_enrichment_idx').on(table.aiEnrichmentStatus, table.aiEnrichedAt),
   ],
 );

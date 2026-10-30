@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { issueAdminSessionToken } from './auth';
 import { createAdminProfitabilityRoutes } from './profitability-routes';
 
+
 const env = {
-  DATABASE_URL: 'postgresql://unused.invalid/aftertrace',
+  DATABASE_URL: undefined,
   ADMIN_USERNAME: 'operator',
   ADMIN_PASSWORD: 'correct horse battery staple',
   ADMIN_SESSION_SECRET: '0123456789abcdef0123456789abcdef0123456789abcdef',
@@ -11,7 +12,7 @@ const env = {
 };
 
 async function authorization() {
-  const token = await issueAdminSessionToken({ username: 'operator', env, ttlSeconds: 3600 });
+  const token = await issueAdminSessionToken({ username: 'operator', env: { ...env, DATABASE_URL: undefined }, ttlSeconds: 3600 });
   return `Bearer ${token}`;
 }
 

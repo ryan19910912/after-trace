@@ -5,8 +5,13 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "skipLibCheck": true,
-    "types": ["@cloudflare/workers-types"],
-    "noEmit": true
+    "types": [
+      "@cloudflare/workers-types"
+    ],
+    "noEmit": true,
+    "resolveJsonModule": true
   },
-  "include": ["src/**/*.ts"]
+  "include": [
+    "src/**/*.ts"
+  ]
 }

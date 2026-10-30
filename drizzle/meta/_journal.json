@@ -8,6 +8,20 @@
       "when": 1788528481453,
       "tag": "0000_worklog_baseline",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793301184285,
+      "tag": "0001_error_logs",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793364902271,
+      "tag": "0002_browser_ai_admin_upgrade",
+      "breakpoints": true
     }
   ]
 }

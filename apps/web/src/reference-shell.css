@@ -65,3 +65,14 @@
   .mobile-bottom-nav-icon{font-size:22px!important}
 }
 @media(max-width:340px){.at-mobile-header .account-display-name{max-width:54px!important}}
+
+.account-support-id{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;min-width:0;margin-right:auto;color:#a9bdd3;font-size:12px}.account-support-id code{color:#e6eef7;font-size:13px;user-select:all;overflow-wrap:anywhere}.account-support-id .compact{min-height:34px}.account-copy-status:empty{display:none}.account-copy-status{color:#9ddbc4;font-size:12px}.at-topbar{gap:14px}@media(max-width:760px){.at-mobile-header{flex-wrap:wrap}.at-mobile-header>.account-support-id{flex:1 0 100%;justify-content:flex-end;gap:5px 8px;padding-top:4px;border-top:1px solid rgba(74,124,184,.16)}.at-mobile-header .account-support-id code{font-size:12px}.at-mobile-header .help-menu,.at-mobile-header .notification-center{top:106px}.account-copy-status{flex-basis:100%;text-align:right}}
+
+.account-copy-announcement{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+
+@media(max-width:480px){.at-mobile-header>.brand-home span{display:none}}
+
+/* Readable form controls and consistent action targets across product pages. */
+.at-app-content .shell button{min-height:44px;font-size:15px;line-height:1.4}.at-app-content .shell .filter-actions{align-items:stretch;gap:10px}.at-app-content .shell .filter-actions>button{display:inline-flex;align-items:center;justify-content:center;padding:10px 16px;min-height:44px}.at-app-content .shell label{line-height:1.5}.capture-voice-hint{font-size:14px;line-height:1.6;margin:0}.at-app-content .shell input[type=file]::file-selector-button{font:inherit;min-height:40px;padding:8px 12px;border:1px solid #3f617f;border-radius:9px;background:#102941;color:#e6eef7;margin-right:10px}@media(max-width:760px){.at-app-content .shell input,.at-app-content .shell select,.at-app-content .shell textarea{font-size:16px!important}.at-app-content .shell button{font-size:16px}.at-app-content .shell .filter-actions>button{flex:1 1 140px;min-height:46px}.at-mobile-header .account-support-id button{min-height:44px;font-size:14px}.at-mobile-header .account-support-id code{font-size:13px}.at-mobile-header .account-support-id{font-size:13px}}
+
+.trace-notice{margin:16px auto;padding:14px;border:1px solid #8f713e;border-radius:12px;background:#102339;display:flex;gap:10px;align-items:center;flex-wrap:wrap;max-width:1180px}.trace-notice p{margin:0;flex:1 1 250px;min-width:0;font-size:17px}.trace-notice code{overflow-wrap:anywhere}.trace-notice button{font-size:16px;min-height:44px}

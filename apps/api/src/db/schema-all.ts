@@ -10,3 +10,7 @@ export * from './schema-worklog-checkout';
 export * from './schema-worklog-subscription-lifecycle';
 export * from './schema-worklog-feedback-management';
 export * from './schema-worklog-newebpay';
+export * from './schema-worklog-local-ai-prompts';
+export * from './schema-worklog-admin-access';
+
+export * from './schema-worklog-errors';

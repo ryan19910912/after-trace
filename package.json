@@ -24,7 +24,18 @@
     "db:integrity": "pnpm --filter @aftertrace/api run db:integrity",
     "db:schema:check": "pnpm --filter @aftertrace/api exec drizzle-kit export --dialect=postgresql --schema=src/db/schema-all.ts > aftertrace-schema.sql",
     "db:baseline:guard": "node scripts/check-worklog-baseline.mjs",
-    "db:baseline:regenerate": "node scripts/regenerate-worklog-baseline.mjs"
+    "db:baseline:regenerate": "node scripts/regenerate-worklog-baseline.mjs",
+    "integration:admin": "node scripts/integration/dev.mjs admin",
+    "integration:test:browser": "node scripts/integration/browser-test.mjs",
+    "integration:web": "node scripts/integration/dev.mjs web",
+    "integration:db": "node scripts/integration/database.mjs",
+    "integration:api": "node scripts/integration/dev.mjs api",
+    "integration:configure": "node scripts/integration/configure.mjs",
+    "integration:test:api": "node scripts/integration/api-test.mjs",
+    "integration:test:audio": "node scripts/integration/audio-test.mjs",
+    "integration:test:optimization": "node scripts/integration/optimization-test.mjs",
+    "integration:test:prompts:api": "node scripts/integration/prompt-api-test.mjs",
+    "integration:test:prompts:ui": "node scripts/integration/prompt-ui-test.mjs"
   },
   "devDependencies": {
     "eslint": "^10.9.1",

@@ -153,6 +153,17 @@ export function createManualRecordRoutes(dependencies: ManualRecordRouteDependen
   app.post('/records/personal', async (c) => createScopedRecord(c, 'PERSONAL'));
   app.post('/records/group/:sourceId', async (c) => createScopedRecord(c, 'GROUP'));
 
+  app.get('/records/:recordId', async (c) => {
+    const recordId = positiveId(c.req.param('recordId'));
+    if (!recordId) return c.json({ ok: false, error: 'INVALID_RECORD_ID' }, 400);
+    const repository = c.get('repository');
+    const record = await repository.record(recordId);
+    if (!record) return c.json({ ok: false, error: 'RECORD_NOT_FOUND' }, 404);
+    if (!(await canAccessRecord(repository, c.get('userId'), record))) return c.json({ ok: false, error: 'RECORD_ACCESS_FORBIDDEN' }, 403);
+    if (record.status !== 'ACTIVE') return c.json({ ok: false, error: 'RECORD_DELETED' }, 409);
+    return c.json({ ok: true, record });
+  });
+
   app.patch('/records/:recordId', async (c) => {
     const recordId = positiveId(c.req.param('recordId'));
     if (!recordId) return c.json({ ok: false, error: 'INVALID_RECORD_ID' }, 400);
