@@ -4,6 +4,8 @@ export type LocalModelConfiguration = {
   visionRevision: string;
   speechModel: string;
   speechRevision: string;
+  speechDtype?: "q4" | "q8";
+  speechFallbackDtype?: "q4" | "q8";
   speechFallbackModel?: string | null;
   speechFallbackRevision?: string | null;
   speechDownloadBytes?: number;
@@ -14,21 +16,17 @@ export async function getModelConfiguration(
   _baseUrl?: string,
 ): Promise<LocalModelConfiguration> {
   const vision = seeds.find((m) => m.kind === "vision")!,
-    speech = seeds.find(
-      (m) => m.id === "onnx-community/whisper-large-v3-ONNX",
-    )!,
-    fallback = seeds.find(
-      (m) => m.id === "onnx-community/whisper-large-v3-turbo",
-    )!;
+    speech = seeds.find((m) => m.id === "onnx-community/whisper-base")!;
   return {
     visionModel: vision.id,
     visionRevision: vision.revision,
     speechModel: speech.id,
     speechRevision: speech.revision,
-    speechFallbackModel: fallback.id,
-    speechFallbackRevision: fallback.revision,
+    speechDtype: "q8",
+    speechFallbackModel: null,
+    speechFallbackRevision: null,
     speechDownloadBytes: speech.downloadBytes,
-    speechFallbackDownloadBytes: fallback.downloadBytes,
-    version: 1,
+
+    version: 2,
   };
 }

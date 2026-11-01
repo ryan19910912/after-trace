@@ -38,7 +38,7 @@ pnpm preview
 
 ## 模型與提示詞
 
-設定隨版本發布：`config/local-ai-models.seed.json`、`config/local-ai-prompts.seed.json`。預設 Qwen3.5-0.8B ONNX OPT；語音 large-v3 ONNX 優先、turbo 為用戶明確選用的備援。下載自 Hugging Face／版本固定的 ONNX Runtime CDN，不呼叫雲端 AI。
+設定隨版本發布：`config/local-ai-models.seed.json`、`config/local-ai-prompts.seed.json`。預設 Qwen3.5-0.8B ONNX OPT；語音目前試用 Whisper base Q8（約 80 MB），不自動下載大型備援。辨識取捨見 [base 試用報告](docs/WHISPER_BASE_TRIAL.md)。下載自 Hugging Face／版本固定的 ONNX Runtime CDN，不呼叫雲端 AI。
 
 ## 驗證與部署
 

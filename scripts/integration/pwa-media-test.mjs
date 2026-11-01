@@ -232,6 +232,10 @@ try {
           .getByLabel("輸入內容或貼上圖片")
           .inputValue();
         console.log("PWA_TRANSCRIPT", result.transcript);
+        if (process.env.PWA_REVIEW_TRANSCRIPT === "1") {
+          result.transcriptCorrectedByTester = true;
+          await page.getByLabel("輸入內容或貼上圖片").fill(item.reference);
+        }
       }
       await page.getByRole("button", { name: "AI 解析", exact: true }).click();
       await page.waitForFunction(

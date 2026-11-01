@@ -30,7 +30,7 @@ self.onmessage = async ({ data }: MessageEvent<LocalRequest>) => {
       await model?.dispose(); model = null; processor = null; loadedModelKey = '';
       const { normalizeSpeechText, validateSpeechSignal } = await import('./speech-text');
       validateSpeechSignal(data.audio);
-      const transcriber = await pipeline('automatic-speech-recognition', selected.speechModel, { revision: selected.speechRevision, device: 'webgpu', dtype: 'q4', progress_callback: progress });
+      const transcriber = await pipeline('automatic-speech-recognition', selected.speechModel, { revision: selected.speechRevision, device: 'webgpu', dtype: selected.speechDtype??'q4', progress_callback: progress });
       try {
         const output = await transcriber(data.audio, { task: 'transcribe', language: data.language ?? 'chinese', chunk_length_s: 25, stride_length_s: 3 });
         postMessage({ type: 'result', text: normalizeSpeechText((Array.isArray(output) ? output[0] : output).text, data.language) });

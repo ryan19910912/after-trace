@@ -939,7 +939,7 @@ function Settings() {
           "；語音優先：" +
           c.speechModel +
           "；備援：" +
-          c.speechFallbackModel,
+          (c.speechFallbackModel ?? "未啟用"),
       ),
     );
   }, []);
@@ -989,7 +989,8 @@ function Settings() {
         <p>
           首次下載需連網及數百 MB 至數 GB
           空間；模型下載完整後可嘗試離線使用，仍取決於裝置 WebGPU
-          與快取。語音優先 large-v3，容量或硬體不足時可自行選 turbo。
+          與快取。語音改用 Whisper base Q8（約 80
+          MB），本次試用不會自動下載其他語音模型。人名、金額等內容可能辨錯，請人工核對。
         </p>
         <div className="actions">
           <button
@@ -1041,7 +1042,7 @@ function Settings() {
             className="ghost"
             onClick={() => {
               resetSpeechModelChoice();
-              setInfo("下次語音優先使用 large-v3。");
+              setInfo("下次語音使用目前設定的 Whisper base。");
             }}
           >
             重設語音模型選擇
