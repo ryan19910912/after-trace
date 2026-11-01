@@ -47,8 +47,9 @@
     "id": "onnx-community/whisper-small",
     "revision": "36050c46d777d46dc4b5f43f6d90574fc38f8732",
     "kind": "speech",
-    "label": "Whisper small（較小下載量）",
-    "verified": true
+    "label": "Whisper small（Q8 約252 MB；比較試用）",
+    "verified": false,
+    "downloadBytes": 251848840
   },
   {
     "id": "onnx-community/whisper-base",

@@ -1042,7 +1042,7 @@ function Settings() {
             className="ghost"
             onClick={() => {
               resetSpeechModelChoice();
-              setInfo("下次語音使用目前設定的 Whisper base。");
+              setInfo("下次語音使用目前設定的語音模型。");
             }}
           >
             重設語音模型選擇

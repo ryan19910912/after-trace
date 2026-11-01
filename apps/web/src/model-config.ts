@@ -16,7 +16,7 @@ export async function getModelConfiguration(
   _baseUrl?: string,
 ): Promise<LocalModelConfiguration> {
   const vision = seeds.find((m) => m.kind === "vision")!,
-    speech = seeds.find((m) => m.id === "onnx-community/whisper-base")!;
+    speech = seeds.find((m) => m.id === "onnx-community/whisper-small")!;
   return {
     visionModel: vision.id,
     visionRevision: vision.revision,
@@ -27,6 +27,6 @@ export async function getModelConfiguration(
     speechFallbackRevision: null,
     speechDownloadBytes: speech.downloadBytes,
 
-    version: 2,
+    version: 3,
   };
 }
